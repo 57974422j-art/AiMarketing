@@ -63,6 +63,8 @@ const labelC = (it) => `${it.jsonPointer}（${it.field || '?'}）`
 for (const it of (limits.limits || [])) {
   const node = get(it.jsonPointer)
   if (!node) { viol.push(`${it.jsonPointer} ⇒ 实测表指向的 schema 节点不存在（表/schema 不同源）`); continue }
+  /* ★ 队列回填：**`kind` 必填**（14 格里曾有 **11 格**未标 ⇒ 断言把它变成"填了才绿"，避免"只记录未断言"） */
+  if (!it.kind) viol.push(`${labelC(it)} ⇒ **kind 必填**：该格未标类型（content = 几何判据驱动 · editorial = 容量、上限由编辑意图定）`)
   /* ★★ **I1/I2-「条数版」按 `kind` 分派**（team-lead msg2 ②：此前 `capacityAtLeast` **0 命中** ⇒
      该格的"唯一断言 `maxItems ≤ 容量`"**只是散文**（写在 `judgeLimitNote` 里）⇒ 与"汇总句 vs 逐格"同族。
      分派：`kind:'editorial'`（条数）⇒ 断言 `maxItems ≤ capacityAtLeast`（容量是**下限**，不是判据）；

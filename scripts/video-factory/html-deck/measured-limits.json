@@ -127,7 +127,8 @@
       "twoPath": "**判据级真两路一致**（team-lead 实跑 · 2026-10-04）：k=37 **GATE ok:true** · k=38 **GATE ok:false** ⇒ **决定性判据码 = codes(k+1) 减 codes(k) = content_overlap**（k 上恒定且被允许的装饰性 findings 见\"恒定装饰性\"列，**不计入依据**） · 读回 == k ✓",
       "crossDeck": "out/deck.all12 同格 = **37**（逐项相同）⇒ 版式决定 ✓",
       "master": "v1 = 37 · **v2 = 36**（分母版记录，见 _methodology.check2_perMaster）",
-      "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field meta.title --cls \"cover-title\" --ks \"37,38\" --raise-max '#/$defs/meta/properties/title=39' --expect-page 1"
+      "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field meta.title --cls \"cover-title\" --ks \"37,38\" --raise-max '#/$defs/meta/properties/title=39' --expect-page 1",
+      "kind": "content"
     },
     {
       "jsonPointer": "#/$defs/meta/properties/subtitle",
@@ -147,7 +148,8 @@
       "twoPath": "**判据级真两路一致**（team-lead 实跑 · 2026-10-04）：k=226 **GATE ok:true** · k=227 **GATE ok:false** ⇒ **决定性判据码 = codes(k+1) 减 codes(k) = content_overlap**（k 上恒定且被允许的装饰性 findings 见\"恒定装饰性\"列，**不计入依据**） · 读回 == k ✓",
       "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field meta.subtitle --cls \"cover-sub\" --ks \"226,227\" --raise-max '#/$defs/meta/properties/subtitle=228' --expect-page 1",
       "kEnforced": 203,
-      "updatedAt": "2026-10-03"
+      "updatedAt": "2026-10-03",
+      "kind": "content"
     },
     {
       "jsonPointer": "#/$defs/meta/properties/issuer",
@@ -173,7 +175,8 @@
       "schemaNow": "maxLength **749** = ⌊0.9×833⌋（**×0.9 作用于输入口径**）· recommendedMax 40（版式建议）",
       "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field meta.issuer --cls \"issuer\" --ks \"833,834\" --raise-max '#/$defs/meta/properties/issuer=835' --readback-offset 13 --expect-page 1",
       "kEnforced": 749,
-      "updatedAt": "2026-10-03"
+      "updatedAt": "2026-10-03",
+      "kind": "content"
     },
     {
       "jsonPointer": "#/$defs/pageCover/properties/kicker",
@@ -191,7 +194,8 @@
       "readback": "432/432",
       "frameResampled": false,
       "twoPath": "**判据级真两路一致**（team-lead 实跑 · 2026-10-04）：k=432 **GATE ok:true** · k=433 **GATE ok:false** ⇒ **决定性判据码 = codes(k+1) 减 codes(k) = content_overlap**（k 上恒定且被允许的装饰性 findings 见\"恒定装饰性\"列，**不计入依据**） · 读回 == k ✓",
-      "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field pages.0.kicker --cls \"kicker\" --ks \"432,433\" --raise-max '#/$defs/pageCover/properties/kicker=434' --expect-page 1"
+      "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field pages.0.kicker --cls \"kicker\" --ks \"432,433\" --raise-max '#/$defs/pageCover/properties/kicker=434' --expect-page 1",
+      "kind": "content"
     },
     {
       "jsonPointer": "#/$defs/pageBullets/properties/title",
@@ -212,7 +216,8 @@
       "schemaNow": "maxLength 50 = ⌊0.9×56⌋ · recommendedMax 24（版式建议）",
       "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field pages.1.title --cls \"p2-head h2\" --ks \"56,57\" --raise-max '#/$defs/pageBullets/properties/title=58' --expect-page 2",
       "kEnforced": 50,
-      "updatedAt": "2026-10-03"
+      "updatedAt": "2026-10-03",
+      "kind": "content"
     },
     {
       "jsonPointer": "#/$defs/pageBullets/properties/items/items",
@@ -232,7 +237,8 @@
       "frameResampled": false,
       "twoPath": "**判据级真两路一致**（team-lead 实跑 · 2026-10-04）：k=164 **GATE ok:true** · k=165 **GATE ok:false** ⇒ **决定性判据码 = codes(k+1) 减 codes(k) = content_overlap**（k 上恒定且被允许的装饰性 findings 见\"恒定装饰性\"列，**不计入依据**） · 读回 == k ✓",
       "schemaNow": "maxLength 147 = ⌊0.9×164⌋ · recommendedMax 40（版式建议）",
-      "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field pages.1.items.0 --cls \"li:first-child .t\" --ks \"164,165\" --raise-max '#/$defs/pageBullets/properties/items/items=166' --expect-page 2"
+      "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field pages.1.items.0 --cls \"li:first-child .t\" --ks \"164,165\" --raise-max '#/$defs/pageBullets/properties/items/items=166' --expect-page 2",
+      "kind": "content"
     },
     {
       "jsonPointer": "#/$defs/pageBullets/properties/summary",
@@ -251,7 +257,8 @@
       "frameResampled": false,
       "twoPath": "**判据级真两路一致**（team-lead 实跑 · 2026-10-04）：k=372 **GATE ok:true** · k=373 **GATE ok:false** ⇒ **决定性判据码 = codes(k+1) 减 codes(k) = content_overlap**（k 上恒定且被允许的装饰性 findings 见\"恒定装饰性\"列，**不计入依据**） · 读回 == k ✓",
       "schemaNow": "maxLength 334 = ⌊0.9×372⌋ · recommendedMax 40（版式建议）",
-      "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field pages.1.summary --cls \"p2-sum\" --ks \"372,373\" --raise-max '#/$defs/pageBullets/properties/summary=374' --expect-page 2"
+      "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field pages.1.summary --cls \"p2-sum\" --ks \"372,373\" --raise-max '#/$defs/pageBullets/properties/summary=374' --expect-page 2",
+      "kind": "content"
     },
     {
       "jsonPointer": "#/$defs/pageEnd/properties/line1",
@@ -270,7 +277,8 @@
       "frameResampled": false,
       "twoPath": "**判据级真两路一致**（team-lead 实跑 · 2026-10-04）：k=150 **GATE ok:true** · k=151 **GATE ok:false** ⇒ **决定性判据码 = codes(k+1) 减 codes(k) = text_box_overflow ∪ canvas_overflow**（k 上恒定且被允许的装饰性 findings 见\"恒定装饰性\"列，**不计入依据**） · 读回 == k ✓",
       "schemaNow": "maxLength 135 = ⌊0.9×150⌋ · recommendedMax 30（版式建议）",
-      "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field pages.3.line1 --cls \"p4-line:first-child\" --ks \"150,151\" --raise-max '#/$defs/pageEnd/properties/line1=152' --expect-page 4"
+      "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field pages.3.line1 --cls \"p4-line:first-child\" --ks \"150,151\" --raise-max '#/$defs/pageEnd/properties/line1=152' --expect-page 4",
+      "kind": "content"
     },
     {
       "jsonPointer": "#/$defs/pageEnd/properties/cta",
@@ -289,7 +297,8 @@
       "frameResampled": false,
       "twoPath": "**判据级真两路一致**（team-lead 实跑 · 2026-10-04）：k=390 **GATE ok:true** · k=391 **GATE ok:false** ⇒ **决定性判据码 = codes(k+1) 减 codes(k) = text_box_overflow ∪ canvas_overflow**（k 上恒定且被允许的装饰性 findings 见\"恒定装饰性\"列，**不计入依据**） · 读回 == k ✓",
       "schemaNow": "maxLength 351 = ⌊0.9×390⌋ · recommendedMax 40（版式建议）",
-      "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field pages.3.cta --cls \"p4-cta\" --ks \"390,391\" --raise-max '#/$defs/pageEnd/properties/cta=392' --expect-page 4"
+      "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field pages.3.cta --cls \"p4-cta\" --ks \"390,391\" --raise-max '#/$defs/pageEnd/properties/cta=392' --expect-page 4",
+      "kind": "content"
     },
     {
       "jsonPointer": "#/$defs/pageEnd/properties/en",
@@ -308,7 +317,8 @@
       "frameResampled": false,
       "twoPath": "**判据级真两路一致**（team-lead 实跑 · 2026-10-04）：k=396 **GATE ok:true** · k=397 **GATE ok:false** ⇒ **决定性判据码 = codes(k+1) 减 codes(k) = content_overlap**（k 上恒定且被允许的装饰性 findings 见\"恒定装饰性\"列，**不计入依据**） · 读回 == k ✓",
       "schemaNow": "maxLength 356 = ⌊0.9×396⌋ · recommendedMax 60（版式建议）",
-      "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field pages.3.en --cls \"p4-en\" --ks \"396,397\" --raise-max '#/$defs/pageEnd/properties/en=398' --expect-page 4"
+      "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field pages.3.en --cls \"p4-en\" --ks \"396,397\" --raise-max '#/$defs/pageEnd/properties/en=398' --expect-page 4",
+      "kind": "content"
     },
     {
       "jsonPointer": "#/$defs/pageChart/properties/explain",
@@ -328,7 +338,8 @@
       "deck": "examples/deck.all12.json",
       "twoPath": "**判据级真两路一致**（team-lead 实跑 · 2026-10-04）：k=44 **GATE ok:true** · k=45 **GATE ok:false** ⇒ **决定性判据码 = codes(k+1) 减 codes(k) = content_overlap**（k 上恒定且被允许的装饰性 findings 见\"恒定装饰性\"列，**不计入依据**） · 读回 == k ✓",
       "schemaNow": "maxLength 39 = ⌊0.9×44⌋ · recommendedMax 60（版式建议）",
-      "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field pages.4.explain --cls \"p6-explain\" --ks \"44,45\" --raise-max '#/$defs/pageChart/properties/explain=46' --expect-page 5"
+      "source": "node crosscheck-deck-json.mjs --json examples/deck.master-v1.json --field pages.4.explain --cls \"p6-explain\" --ks \"44,45\" --raise-max '#/$defs/pageChart/properties/explain=46' --expect-page 5",
+      "kind": "content"
     },
     {
       "jsonPointer": "#/$defs/pageData/properties/metric/properties/explain",
