@@ -215,7 +215,8 @@ if (!A.sheetOnly) for (const skin of skins) {
     /* ★★ team-lead msg20 ②：`--dry-run` **必须不干活** —— 此前只挡了"报告落盘"，**照样渲染 20s / 出 2.5MB 成片** ✗。
        现在：**不写 deck、不校验、不渲染、不合成**，只打印"将产出什么 + 目标路径"（秒级）。 */
     if (A.dryRun) {
-      console.log(`   · ${tag}：将产出 ⇒ ${join(outRoot, 'final', `${tag}.mp4`)}`)
+      /* ⚠️ 计划行是**预测** ⇒ 名字必须与真实交付一致（原先写 `${tag}.mp4`，实际是 `final-${tag}.mp4` —— 预测也在撒谎，K24/K36 族） */
+      console.log(`   · ${tag}：将产出 ⇒ ${join(outRoot, 'final', `final-${tag}.mp4`)}`)
       continue
     }
     const t0 = Date.now()
@@ -252,10 +253,15 @@ if (!A.sheetOnly) for (const skin of skins) {
       console.log(`   ✗ [BATCH-ITEM-FAILED] ${tag} · render=${r.status} · 未找到产物 mp4`)
       rows.push({ skin, ori, ok: false, why: 'render:' + r.status }); continue
     }
-    let final = rawMp4
+    /* ★★ **交付位置恒定**（K40 · team-lead ③）：同一个字段（"交付"）**不许随"有没有合成项"变位置** ✓
+       原先：无合成项 ⇒ `final` 指向 `raw/`（于是只有 raw 里有）· 有合成项 ⇒ `final/final-<tag>.mp4`
+       ⇒ 用户/脚本按 `final/` 找会**找不到**（他的现场：拼 10 套墙时先按 `final/` 找 ⇒ 缺 health/edu ✗）。
+       修法（他倾向的 ①，我也选它）：**无合成项时把渲染原片拷进同一个交付位置** —— 零成本、位置恒定 ✓
+       ⚠️ **如实**：这会让"无合成项"这条路径**也**走下面的删除守卫（`final !== rawMp4` ⇒ 清 `raw/`）——
+          与"有合成项"**同一规则**（`--keep-raw` 是逃生舱 ✓）；此前无合成项**会留下 `raw/`**（不一致 ✓）。 */
+    let final = join(outRoot, 'final', `final-${tag}.mp4`)
+    mkdirSync(dirname(final), { recursive: true })
     if (A.srt || A.logo || A.bgm) {
-      final = join(outRoot, 'final', `final-${tag}.mp4`)
-      mkdirSync(dirname(final), { recursive: true })
       const mArgs = ['--in', rawMp4, '--out', final]
       if (A.srt) mArgs.push('--srt', resolve(HERE, A.srt))
       if (A.logo) mArgs.push('--logo', resolve(HERE, A.logo))
@@ -270,9 +276,12 @@ if (!A.sheetOnly) for (const skin of skins) {
       console.log(`   ✓ [BATCH-ITEM-OK] ${tag} · ${mf.name || skin} · ${ori} · ${dur}s · ${size}MB · ${((Date.now() - t0) / 1000).toFixed(0)}s`)
       rows.push({ skin, ori, ok: true, final: final.replace(HERE + '\\', ''), dur, sizeMB: Number(size) })
     } else {
+      /* ★ 无合成项 ⇒ **把渲染原片拷进同一个交付位置**（位置恒定 · K40）。
+         ⚠️ 用已 import 的 read+write（不引入 `copyFileSync` 这个新依赖；~2MB 量级，零成本）✓ */
       const size = (readFileSync(rawMp4).length / 1048576).toFixed(1)
-      console.log(`   ✓ [BATCH-ITEM-OK] ${tag} · ${mf.name || skin} · ${ori} · ${size}MB（无合成项 ⇒ 交付渲染原片）· ${((Date.now() - t0) / 1000).toFixed(0)}s`)
-      rows.push({ skin, ori, ok: true, final: rawMp4.replace(HERE + '\\', ''), sizeMB: Number(size) })
+      writeFileSync(final, readFileSync(rawMp4))
+      console.log(`   ✓ [BATCH-ITEM-OK] ${tag} · ${mf.name || skin} · ${ori} · ${size}MB（无合成项 ⇒ 交付渲染原片 · **已拷入「final/」**）· ${((Date.now() - t0) / 1000).toFixed(0)}s`)
+      rows.push({ skin, ori, ok: true, final: final.replace(HERE + '\\', ''), sizeMB: Number(size) })
     }
     /* ★ 删除守卫（probe-html 建议，属"超限"同族）：删之前断言目标**真的在自己 outdir 之下** ——
      *   否则一律拒绝并点名（工具**不许删调用者的输入**；第一版 `rmSync(outdir)` 就删掉过 --srt/--logo）。 */
