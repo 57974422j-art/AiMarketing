@@ -746,6 +746,10 @@ function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect
   }
   return 'VF_JSON:' + JSON.stringify({
     step: 'script', topic: vd.topic, script: vd.script,
+    // ★VF_ENGINE_UI_V1（2026-10-04 用户定案「成片方式第一轮就选」）：透给确认卡 ——
+    //   deck=只显示「确认出片 · 新引擎」（老引擎按钮与样板镜/动图等入口一并隐藏）；
+    //   classic/缺省=只显示老引擎「确认出片」（与今天之前的行为一致）。
+    engine: vd.engine === 'deck' ? 'deck' : 'classic',
     // ★VF_SBDUMP_V2（2026-10-01）：本地留档载荷 —— plan 与出片/样板镜**同一个 buildVideoPlan**；
     //   客户端只负责原样落盘（electron main.js 的 vf:save-storyboard）。缺字段一律 null、键不省略。
     sb: sbPayload(vd, shots, aspect),
@@ -3969,14 +3973,34 @@ PUBLISH_DRAFT.delete(uidW)
         // ═══════════════════════════════════════════════════════════════════════
         if (/^VF_DECK_CONFIRM\s*:/.test(userMessage.trim())) {
           try {
-            const { deckConfirmArgsOf, findDeckConfirmDraft, runDeckVideoTask } = await import('@/lib/agent/vf/vf-deck-render')
+            const { deckConfirmArgsOf, findDeckConfirmDraft, runDeckVideoTask, sanitizeDeckMd } = await import('@/lib/agent/vf/vf-deck-render')
             const _dc = deckConfirmArgsOf(userMessage)
             const _df = await findDeckConfirmDraft(prisma, uidVF2)
             if (!_df) {
               wfEarlyReply = '新引擎出片：当前没有待出片的分镜草稿（可能已出片或草稿已过期）。重新排一次分镜后再点「确认出片 · 新引擎」，或直接用左边「确认出片」走老引擎。'
             } else {
-              vfLog(uidVF2, `[新引擎出片] 确认卡按钮（草稿线 ${_df.tag} · skin=${_dc.skin} ${_dc.ori}）`)
-              const _dr = await runDeckVideoTask({ uid: uidVF2, draft: _df.draft, skin: _dc.skin, ori: _dc.ori, log: (u: any, m: string) => vfLog(u, m) })
+              // ★VF_ENGINE_UI_V1：比例跟随第一轮定的分镜画幅（确认卡上不再选比例）
+              const _ori = String(_df.draft?.aspectResolved || _df.draft?.aspect || '') === 'landscape' ? '16:9' : '9:16'
+              // ★VF_DECKCOPY_V1（2026-10-04 用户定案「两套文案：口播给配音字幕、要点给 PPT」）：
+              //   出片这一刻把口播文案用一次便宜的文本调用转成【PPT 要点版】（短语化、按节分组），
+              //   sanitizeDeckMd 严格校验（节≥2 × 每节3条、限长）—— 不过校验/调用失败一律退回
+              //   规则映射兜底（分镜要点 → 文案切句），绝不因为转写失败挡住出片。
+              let _deckMd = ''
+              const _script = String(_df.draft?.script || '').trim()
+              if (_script.length >= 20) {
+                try {
+                  const _p = '下面是一支营销短视频的口播文案。请把它改写成动态 PPT 的页面文案——同一内容的两种文体：口播版是完整句子，PPT 版是短语要点。\n\n严格按以下 markdown 格式输出，不要输出任何解释、前后缀或代码栅栏：\n# 封面标题\n封面副题\n\n## 节标题\n- 要点一\n- 要点二\n- 要点三\n\n要求：## 节共 3~6 个；每节恰好 3 条要点；封面标题≤12字、副题≤18字；节标题≤12字；每条要点 6~22 字、短语化（不要完整句子、不带句号）；所有要点必须来自文案本身（可压缩、可合并），不得编造文案里没有的信息。\n\n口播文案：\n' + _script.slice(0, 2000)
+                  const _out = await genTextW(_p)
+                  _deckMd = sanitizeDeckMd(String(_out || ''))
+                  vfLog(uidVF2, _deckMd
+                    ? `[新引擎出片] PPT 版文案已由 AI 转写（${(_deckMd.match(/^##/gm) || []).length} 节 · 两套文案：口播版留档，要点版出 PPT）`
+                    : '[新引擎出片] PPT 版文案未过校验（AI 输出结构不合格）→ 走规则映射兜底')
+                } catch (eG: any) {
+                  vfLog(uidVF2, '[新引擎出片] PPT 版文案转写失败 → 走规则映射兜底：' + String(eG?.message || eG).slice(0, 80))
+                }
+              }
+              vfLog(uidVF2, `[新引擎出片] 确认卡按钮（草稿线 ${_df.tag} · skin=${_dc.skin} ${_ori}${_deckMd ? ' · AI 要点版文案' : ' · 规则映射文案'}）`)
+              const _dr = await runDeckVideoTask({ uid: uidVF2, draft: _df.draft, skin: _dc.skin, ori: _ori, deckMd: _deckMd, log: (u: any, m: string) => vfLog(u, m) })
               if (_dr.ok) {
                 await stdClearAllDrafts(uidVF2)
                 vfLog(uidVF2, `[新引擎出片] 已入队 ${_dr.taskId} → 草稿作废（下一条不必再点两次）`)
@@ -4228,6 +4252,8 @@ PUBLISH_DRAFT.delete(uidW)
               if (_mForm) {
                 try {
                   const f = JSON.parse(_mForm[1]) || {}
+                  // ★VF_ENGINE_UI_V1（2026-10-04 用户定案「成片方式第一轮就选」）：classic=老引擎（默认）/ deck=新引擎动态 PPT
+                  if (f.engine !== undefined) vd.engine = String(f.engine) === 'deck' ? 'deck' : 'classic'
                   if (f.aspect) vd.aspect = String(f.aspect)
                   if (f.dur) vd.dur = Math.max(5, Math.min(900, parseInt(f.dur) || 30))
                   // ★VF_THEME_UI_V1（2026-09-20）：画面风格（dark / tech / light）—— 之前表单没暴露，只能默认 dark

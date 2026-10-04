@@ -96,6 +96,16 @@ ck 'VF_DECKCONFIRM_V1'              'src/app/api/agent/chat/route.ts' 2  # 协�
 ck 'VF_DECKCONFIRM_V1'              'src/app/agent/page.tsx' 2          # 前端：新按钮组件 + 确认卡挂载（≥2 处）
 ck 'VF_DECKCONFIRM_V1'              'src/lib/agent/vf/vf-deck-render.ts' 1  # 执行体：找草稿/计费/后台渲染/入库/扣费
 ck 'VF_DECK_CONFIRM'                'src/app/agent/page.tsx' 1          # 按钮发送的机器协议串本体（ASCII 锚点）
+# ★VF_ENGINE_UI_V1（2026-10-04 用户定案「成片方式第一轮就选；确认卡只点头」）：
+#   设置卡「成片方式」单选（classic 默认 / deck）→ 三条线落草稿 → 确认卡按引擎只显示对应出片按钮。
+ck 'VF_ENGINE_UI_V1'               'src/app/agent/page.tsx' 3          # 设置卡单选 + 音色/BGM 置灰 + 确认卡分支（≥3 处）
+ck 'VF_ENGINE_UI_V1'               'src/app/api/agent/chat/route.ts' 2 # 素材线落草稿 + vfScriptCard 透 engine（≥2 处）
+ck 'VF_ENGINE_UI_V1'               'src/lib/agent/vf/vf-video.ts' 1    # 图视混剪线落草稿
+ck 'VF_ENGINE_UI_V1'               'src/lib/agent/vf/vf-mix.ts' 1      # 素材+AI 线落草稿
+# ★VF_DECKCOPY_V1（2026-10-04 用户定案「两套文案：口播给配音字幕、要点给 PPT」）：
+#   确认时 AI 把口播文案转写为 PPT 要点版（sanitizeDeckMd 严格校验，失败退规则映射）。
+ck 'VF_DECKCOPY_V1'                'src/lib/agent/vf/vf-deck-render.ts' 1  # sanitizeDeckMd + deckMd 直通
+ck 'VF_DECKCOPY_V1'                'src/app/api/agent/chat/route.ts' 1    # 确认处理器里的 AI 转写
 
 line "结论"
 if [ "$FAIL" -eq 0 ]; then

@@ -51,6 +51,39 @@ export function deckConfirmArgsOf(m: string): { skin: string; ori: string } {
   return { skin, ori }
 }
 
+/**
+ * ★VF_DECKCOPY_V1（2026-10-04 用户定案「两套文案：口播给配音字幕、要点给 PPT」）——
+ * 校验/清洗 AI 生成的 PPT 版文案（markdown）。**不合格返回 ''**（调用方退回规则映射，不硬塞）：
+ *   · 只接受从第一个 `# ` 开始的正文（剥掉代码栅栏/前后废话）；
+ *   · 节（##）至少 2 个、每节恰好取前 3 条要点（引擎窗口：不足 3 条的节会被整节丢弃 ⇒ 宁可不要）；
+ *   · 封面标题/副题/节标题/要点各自限长（引擎窗口：标题 ≤16 字、要点 BULLET_MAX）；
+ *   · 上限 MAX_SECTIONS 节。
+ */
+export function sanitizeDeckMd(md: string): string {
+  const lines = String(md || '').replace(/```[a-z]*\n?/gi, '').split('\n').map((l) => l.trim()).filter(Boolean)
+  const start = lines.findIndex((l) => /^#\s+\S/.test(l))
+  if (start < 0) return ''
+  const body = lines.slice(start)
+  const cover = body[0].replace(/^#\s+/, '').slice(0, 16).trim()
+  if (!cover) return ''
+  let coverSub = ''
+  if (body[1] && !/^(##\s|[-*]\s|#\s)/.test(body[1])) coverSub = body[1].slice(0, 24).trim()
+  const sections: { title: string; bullets: string[] }[] = []
+  let cur: { title: string; bullets: string[] } | null = null
+  const flush = () => { if (cur && cur.bullets.length >= 3) sections.push({ title: cur.title, bullets: cur.bullets.slice(0, 3) }) }
+  for (const l of body.slice(coverSub ? 2 : 1)) {
+    const h = l.match(/^##\s+(.*)$/)
+    if (h) { flush(); cur = { title: h[1].slice(0, 16).trim(), bullets: [] }; continue }
+    const b = l.match(/^[-*]\s+(.*)$/)
+    if (b && cur) { const t = b[1].trim().slice(0, BULLET_MAX); if (t.length >= 4) cur.bullets.push(t) }
+  }
+  flush()
+  const good = sections.filter((s) => s.title && s.bullets.length >= 3).slice(0, MAX_SECTIONS)
+  if (good.length < 2) return ''
+  return (['# ' + cover, coverSub, '', ...good.flatMap((s) => ['## ' + s.title, ...s.bullets.map((b) => '- ' + b), ''])]
+    .filter((l) => l !== undefined).join('\n').replace(/\n{3,}/g, '\n\n').trim()) + '\n'
+}
+
 /** 草稿正文历史上串过线（"AI制片草稿:{...}"）—— 只取 JSON 部分 */
 function parseDraftContent(content: string): any {
   const s = String(content || '').trim()
@@ -88,11 +121,13 @@ export async function findDeckConfirmDraft(db: any, uid: number | string): Promi
  * 返回 { ok:true, taskId, cost } = 已入队；{ ok:false, msg } = 人话原因（预检失败/余额不足/引擎缺失/文字太少）。
  * 扣费时机：**渲染成功入库后**才扣（失败不扣；与老链 I2V_BILL_V1 的"没生成出来不收"同精神）。
  */
-export async function runDeckVideoTask({ uid, draft, skin, ori, log }: {
+export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, log }: {
   uid: number | string
   draft: any
   skin: string
   ori: string
+  /** ★VF_DECKCOPY_V1：AI 转写的 PPT 版文案（已经 sanitizeDeckMd 校验；空/缺省 = 走规则映射兜底） */
+  deckMd?: string
   log?: (u: any, m: string) => void
 }): Promise<{ ok: boolean; taskId?: string; cost?: number; msg?: string }> {
   const uidS = String(uid)
@@ -110,6 +145,14 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, log }: {
     if (!chk?.allowed) return { ok: false, msg: String(chk?.message || '点数不足') }
 
     // ── 分镜 → copy.md（与 /api/agent/vf/deck-preview 同一映射：首 title 镜=封面；每 3 镜并一节；引擎自动尾页）──
+    // ★VF_DECKCOPY_V1：有 AI 转写的 PPT 版文案（deckMd 已校验）就直接用 —— 两套文案口径：
+    //   口播版（draft.script）给配音/字幕；要点版（deckMd）给 PPT。deckMd 为空才走下面的规则映射。
+    let used = 0
+    let copyMd = String(deckMd || '').trim()
+    let byScript = false            // 走了"文案切句"兜底（任务文件里记一笔，诊断用）
+    if (copyMd) {
+      used = (copyMd.match(/^##\s+\S/gm) || []).length
+    } else {
     const bulletOf = (s: any): string => {
       const text = String(s?.text || '').trim()
       const sub = String(s?.subtitle || '').trim()
@@ -122,7 +165,6 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, log }: {
     //   过滤后常 < 6 条（引擎最低 = 封面 + 2 内容节 × 3 要点 + 尾页）。分镜要点本来就把文案切走了，
     //   所以**按文案全文切句补足**（内容仍 100% 来自用户自己的文案，不编造、不凑数）。
     //   文案也切不出 6 条（文案本身太短）才如实报错 —— 此时新引擎确实做不出结构完整的 PPT。
-    let byScript = false
     if (mid.length < 6) {
       const midN = mid.length
       const sents = String(draft?.script || '')
@@ -137,15 +179,16 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, log }: {
       }
     }
     if (mid.length < 6) {
-      return { ok: false, msg: `分镜可用的文字太少（可用要点 ${mid.length} 条，文案切句也不足 6 条，新引擎至少需要 6 条）。回「重试」重排，或用左边「确认出片」走老引擎。` }
+      return { ok: false, msg: `分镜可用的文字太少（可用要点 ${mid.length} 条，文案切句也不足 6 条，新引擎至少需要 6 条）。回「重试」重排分镜，或在设置卡把成片方式换回「图文成片」走老引擎。` }
     }
     const lines: string[] = []
     const first = shots.find((s) => String(s?.text || '').trim() || String(s?.subtitle || '').trim())
     lines.push(`# ${String(first?.text || '').trim() || '成片'}`, String(first?.subtitle || '').trim(), '')
-    let used = 0
     for (let i = 0; i + 3 <= mid.length && used < MAX_SECTIONS; i += 3, used++) {
       const grp = mid.slice(i, i + 3)
       lines.push(`## ${grp[0].split('：')[0].slice(0, 12)}`, ...grp.map((b) => `- ${b}`), '')
+    }
+    copyMd = lines.filter((l) => l !== '').join('\n') + '\n'
     }
 
     // ── 引擎在位检查（standalone 部署下用 vfRootDir 多候选找，与 make_ai_video 同防线）──
@@ -176,7 +219,7 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, log }: {
     const od = path.join(workDir, 'out')
     fs.mkdirSync(od, { recursive: true })
     const mdP = path.join(workDir, 'copy.md')
-    fs.writeFileSync(mdP, lines.filter((l) => l !== '').join('\n') + '\n', 'utf8')
+    fs.writeFileSync(mdP, copyMd, 'utf8')
     writeTask({ work: workDir })
     vflog(`[新引擎出片] 入队 ${taskId}：skin=${skin} ${ori} · ${used + 2} 页预计 · 报价 ${cost} 点（=文案费；无配音/BGM/动图费）`)
 

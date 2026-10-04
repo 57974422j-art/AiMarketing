@@ -585,6 +585,11 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
   const [pin1, setPin1] = useState(vj.pin1 || '')
   const [pin2, setPin2] = useState(vj.pin2 || '')
   const [openAdv, setOpenAdv] = useState(false)
+  // ★VF_ENGINE_UI_V1（2026-10-04 用户定案「新模式加在出片那一步不合理，应在第一轮就选」）：
+  //   「成片方式」= 第一轮就定的**顶层选择**（老引擎·图文成片（默认） / 新引擎·动态 PPT）。
+  //   选新引擎 → 音色/BGM 置灰（新引擎暂无配音）+ 确认卡只出「确认出片 · 新引擎」一个出片按钮
+  //   （第二轮回归"都规划好了、点个头就走"的语义）。
+  const [engine, setEngine] = useState(vj.engine === 'deck' ? 'deck' : 'classic')
   // ★VF_UPLOAD_V1（2026-09-20）：「📤 我上传素材」真正可用 —— 选文件 → 传到个人仓库
   //   （POST /api/storage/files，与素材页同一个接口）→ 本次成片只从【最近上传】取画面。
   // ★VF_UPLOAD_FIX_V1（2026-09-20，用户实测“点了点不动/不弹窗，重启客户端也一样”）：
@@ -643,6 +648,20 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
   return (
     <div className="mb-2 p-3 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/[0.06]">
       <div className="text-xs text-fuchsia-300 mb-3">🎬 成片设置{typeof vj.hint === 'string' && vj.hint ? ' · ' + vj.hint : ''}</div>
+
+      {/* ★VF_ENGINE_UI_V1：成片方式 —— 第一轮就选（默认老引擎）；新引擎=动态 PPT（HTML 逐帧 · 10 套皮肤 · 暂无配音） */}
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">成片方式</div>
+        <div className="flex flex-wrap gap-1.5">
+          {R(engine, 'classic', '🎬 图文成片（配音+字幕）', setEngine)}
+          {R(engine, 'deck', '🆕 动态 PPT（新引擎·暂无配音）', setEngine)}
+        </div>
+        {engine === 'deck' ? (
+          <div className="text-[10px] text-amber-300/80 mt-1">
+            新引擎成片 = 动态 PPT（HTML 逐帧 · 10 套皮肤在确认卡选）——目前没有配音和 BGM，下面的音色/配乐本次不会用到
+          </div>
+        ) : null}
+      </div>
 
       <div className="mb-3">
         <div className="text-[10px] text-gray-400 mb-1">画面来源</div>
@@ -706,7 +725,8 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
         </div>
       </div>
 
-      <div className="mb-3">
+      {/* ★VF_ENGINE_UI_V1：新引擎（动态 PPT）没有配音 → 音色置灰（仍提交，服务端不消费） */}
+      <div className={'mb-3' + (engine === 'deck' ? ' opacity-40 pointer-events-none' : '')}>
         <div className="text-[10px] text-gray-400 mb-1">配音音色</div>
         <div className="flex flex-wrap gap-1.5">
           {(Array.isArray(vj.voices) ? vj.voices : []).map((v: any) => R(voice, String(v.id), '🔊 ' + String(v.name || v.id), setVoice))}
@@ -720,7 +740,8 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
           className="w-full px-2 py-1.5 rounded text-[12px] bg-white/[0.05] border border-white/[0.08] text-gray-200 placeholder-gray-600 outline-none" />
       </div>
 
-      <div className="mb-3">
+      {/* ★VF_ENGINE_UI_V1：新引擎（动态 PPT）没有 BGM → 配乐置灰（仍提交，服务端不消费） */}
+      <div className={'mb-3' + (engine === 'deck' ? ' opacity-40 pointer-events-none' : '')}>
         <div className="text-[10px] text-gray-400 mb-1">背景音乐 <span className="text-gray-600">（AI 音乐库；无人声时也会铺底）</span></div>
         <div className="flex flex-wrap gap-1.5">
           {R(bgm, 'auto', '🎵 自动配乐', setBgm)}
@@ -880,6 +901,8 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
 
       <button
         onClick={() => onStart('VF_FORM:' + JSON.stringify({
+          // ★VF_ENGINE_UI_V1：成片方式（classic=老引擎图文成片·默认 / deck=新引擎动态 PPT）—— 第一轮就定
+          engine,
           aspect, dur: parseInt(dur) || 30, voice, source, topic, script, bgm, theme, big,
           // ★VF_DECK_STYLES_V1：🎨 画面模版（'auto' | 6 个 deck 风格）—— 服务端写进 plan 根级 deck_style
           deckStyle,
@@ -1748,7 +1771,7 @@ function VfDeckPreview({ plan }: { plan: any }) {
         <div className="mt-1.5">
           <div className="text-[10px] text-emerald-300 mb-1">
             新引擎成片 · {String(video.skin || '')} · {String(video.orientation || '')} · {video.pages || '?'} 页 · {video.sizeMB || '?'}MB
-            {video.truncated ? `（${String(video.truncated)}）` : ''}。满意可点下方「确认出片 · 新引擎」正式出片（老引擎按钮照旧，双轨自选）。
+            {video.truncated ? `（${String(video.truncated)}）` : ''}。满意就点下方「确认出片 · 新引擎」（正式出片会把文案先转成 PPT 要点版，页数会更充实）。
           </div>
           <video src={String(video.url)} controls className="rounded-lg border border-white/10 max-h-[420px]" />
         </div>
@@ -1757,16 +1780,18 @@ function VfDeckPreview({ plan }: { plan: any }) {
   )
 }
 
-/** ★VF_DECKCONFIRM_V1（2026-10-04 用户定案「双轨并存：老的保留不退役，出片时自己选引擎」）：
- *  确认卡上的「🎬 确认出片 · 新引擎」—— 与原「确认出片」（老引擎 · 默认 · 后端一行没改）并排。
- *  点它 = 发机器协议串 `VF_DECK_CONFIRM:{skin,ori}`；服务端在四条成片线分派前接管，
- *  把**同一份分镜**（草稿 vd.shots）交给 HTML 逐帧引擎正式出片（任务文件/进度轮询/入库/签名 URL
- *  与老链同形状全复用，见 src/lib/agent/vf/vf-deck-render.ts）。
- *  ⚠️ 诚实口径：新引擎成片 = 动态 PPT（与上面「新引擎成片预览」同画面），**无配音、无 BGM**；
+/** ★VF_DECKCONFIRM_V1（2026-10-04 用户定案「双轨并存」→ ★VF_ENGINE_UI_V1 改为第一轮已选引擎）：
+ *  deck 模式确认卡上的**唯一出片按钮**「🎬 确认出片 · 新引擎」（classic 模式不渲染本组件，
+ *  老引擎「确认出片」按钮照旧、后端一行没改）。
+ *  点它 = 发机器协议串 `VF_DECK_CONFIRM:{skin}`；服务端在四条成片线分派前接管，
+ *  把**同一份文案**（先 AI 转成 PPT 要点版，失败退回规则映射）交给 HTML 逐帧引擎正式出片
+ *  （任务文件/进度轮询/入库/签名 URL 与老链同形状全复用，见 src/lib/agent/vf/vf-deck-render.ts）。
+ *  ⚠️ 诚实口径：新引擎成片 = 动态 PPT（HTML 逐帧），**无配音、无 BGM**；
  *  收费 = 文案费（与老链同公式 ceil(字数/20)），不含动图/AI 画面那两笔（新引擎不调它们）。 */
 function VfDeckConfirm({ vj, onSend }: { vj: any; onSend: (m: string) => void }) {
   const [skin, setSkin] = useState('v1')
-  const [ori, setOri] = useState(String(vj?.aspect || '') === 'landscape' ? '16:9' : '9:16')
+  // ★VF_ENGINE_UI_V1：比例不再单独选 —— 直接跟随第一轮定的分镜画幅（用户定的"第二轮只点头"）
+  const ori = String(vj?.aspect || '') === 'landscape' ? '16:9' : '9:16'
   // 报价与后端实扣同源（vf-deck-render.ts 的 ★VF_COSTFIX_V1 口径）：script 优先，无则分镜字幕总和
   const chars = String(vj?.script || '').length
     || (Array.isArray(vj?.shots) ? vj.shots.reduce((a: number, s: any) => a + String(s?.subtitle || s?.text || '').length, 0) : 0)
@@ -1774,20 +1799,16 @@ function VfDeckConfirm({ vj, onSend }: { vj: any; onSend: (m: string) => void })
   return (
     <div className="mt-1.5 flex items-center gap-2 flex-wrap">
       <select value={skin} onChange={(e) => setSkin(e.target.value)}
+        title="10 套皮肤 = 新引擎的动态 PPT 版式配色（可先用上面「新引擎成片预览」逐套看效果）"
         className="px-2 py-1.5 rounded-lg text-xs bg-white/[0.06] border border-emerald-400/30 text-emerald-100">
         {DECK_SKINS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
       </select>
-      <select value={ori} onChange={(e) => setOri(e.target.value)}
-        className="px-2 py-1.5 rounded-lg text-xs bg-white/[0.06] border border-emerald-400/30 text-emerald-100">
-        <option value="9:16">竖屏 9:16</option>
-        <option value="16:9">横屏 16:9</option>
-      </select>
-      <button onClick={() => onSend('VF_DECK_CONFIRM:' + JSON.stringify({ skin, ori }))}
-        title={`用新引擎（HTML 逐帧）正式出片：动态 PPT，与上面预览同画面（无配音、无 BGM）。只收文案费约 ${cost} 点（与老链同公式；渲染本地不另收费）`}
+      <span className="text-[10px] text-gray-500">{ori === '16:9' ? '横屏 16:9' : '竖屏 9:16'}（跟随分镜画幅）</span>
+      <button onClick={() => onSend('VF_DECK_CONFIRM:' + JSON.stringify({ skin }))}
+        title={`用新引擎（HTML 逐帧）正式出片：动态 PPT（无配音、无 BGM），文案会先由 AI 转成 PPT 要点版。只收文案费约 ${cost} 点（与老链同公式）`}
         className="px-4 py-1.5 rounded-lg text-sm bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100 font-medium">
         🎬 确认出片 · 新引擎（约 {cost} 点）
       </button>
-      <span className="text-[10px] text-gray-500">上面「确认出片」= 老引擎（默认 · 带配音/字幕）；本按钮 = 新引擎（动态 PPT · 无配音）</span>
     </div>
   )
 }
@@ -3818,6 +3839,9 @@ function AgentPageInner() {
               )}
               <div className="flex items-center gap-2 flex-wrap">
                 {/* ★VF_GATE_V1：分镜失败时**不给「确认出片」**（否则出来的是没有素材画面的片子） */}
+                {/* ★VF_ENGINE_UI_V1（2026-10-04 用户定案「成片方式第一轮就选；第二轮只点头」）：
+                    deck 模式下这排**老引擎专属**按钮（样板镜/关动图/确认出片）全部隐藏 ——
+                    出片入口只剩下面的「确认出片 · 新引擎」；classic/缺省 = 行为与之前逐字一致。 */}
                 {vj.shotsFailed ? (
                   <>
                     <button onClick={() => sendMessage('重试')}
@@ -3825,6 +3849,8 @@ function AgentPageInner() {
                     <button onClick={() => sendMessage('先出字幕版')}
                       className="px-4 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm text-gray-300">▶️ 先出字幕版（无素材画面）</button>
                   </>
+                ) : vj.engine === 'deck' ? (
+                  <span className="text-[10px] text-emerald-300/70">成片方式：新引擎 · 动态 PPT（无配音/BGM）—— 选好皮肤点下面按钮出片</span>
                 ) : (
                   <>
                     <button onClick={() => sendMessage('先看样板镜')}
@@ -3861,13 +3887,15 @@ function AgentPageInner() {
               {/* ★VF_PPTPREVIEW_WIRE_V1（2026-10-01 用户定案「完全成片之前能把 PPT 抽出来审核一下效果吗？」）：
                   出片确认卡上的「👀 先看 PPT 页」—— 用的是**即将出片的同一份 plan**（卡片里的 sb.plan），
                   不是另拼一份（否则预览与成片会漂移）。不扣点、不阻塞出片、失败如实显示原因。
-                  ⚠️ 分镜失败（shotsFailed）时没有可审的画面，不显示这个按钮。 */}
-              {!vj.shotsFailed ? <VfPptPreview plan={(vj as any).sb?.plan} /> : null}
-              {/* ★VF_DECKPREVIEW_WIRE_V1：新引擎成片预览（10 套皮肤 · 真出 MP4）—— 与上面的逐镜静帧并排，互不依赖 */}
-              {!vj.shotsFailed ? <VfDeckPreview plan={(vj as any).sb?.plan} /> : null}
-              {/* ★VF_DECKCONFIRM_V1（2026-10-04 用户定案「双轨并存」）：确认出片 · 新引擎 ——
-                  与上面老引擎「确认出片」按钮并排，出哪个由用户按钮选择；老链一行没改。 */}
-              {!vj.shotsFailed ? <VfDeckConfirm vj={vj} onSend={sendMessage} /> : null}
+                  ⚠️ 分镜失败（shotsFailed）时没有可审的画面，不显示这个按钮。
+                  ★VF_ENGINE_UI_V1：deck 模式下这是老引擎的预览，不显示。 */}
+              {!vj.shotsFailed && vj.engine !== 'deck' ? <VfPptPreview plan={(vj as any).sb?.plan} /> : null}
+              {/* ★VF_DECKPREVIEW_WIRE_V1：新引擎成片预览（10 套皮肤 · 真出 MP4）—— 与上面的逐镜静帧并排，互不依赖
+                  ★VF_ENGINE_UI_V1：classic 模式不显示（成片方式第一轮已定，确认卡不再混两条线的入口）。 */}
+              {!vj.shotsFailed && vj.engine === 'deck' ? <VfDeckPreview plan={(vj as any).sb?.plan} /> : null}
+              {/* ★VF_DECKCONFIRM_V1（2026-10-04 用户定案「双轨并存」→ ★VF_ENGINE_UI_V1 改为第一轮已选）：
+                  deck 模式的唯一出片入口（皮肤下拉 + 出片按钮）；classic/缺省不显示（老引擎按钮在上面）。 */}
+              {!vj.shotsFailed && vj.engine === 'deck' ? <VfDeckConfirm vj={vj} onSend={sendMessage} /> : null}
             </div>
           )
         }

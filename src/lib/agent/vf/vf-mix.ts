@@ -231,6 +231,8 @@ export async function handleMixLine(ctx: VfMixCtx): Promise<string> {
     /* ── 表单提交 → 起草 ── */
     const f = ctx.parseForm(userMessage)
     if (f && (vd.step === 'form' || vd.step === 'script')) {
+      // ★VF_ENGINE_UI_V1（2026-10-04 用户定案「成片方式第一轮就选」）：classic=老引擎（默认）/ deck=新引擎动态 PPT
+      if (f.engine !== undefined) vd.engine = String(f.engine) === 'deck' ? 'deck' : 'classic'
       if (f.aspect) vd.aspect = ['portrait', 'landscape', 'auto'].includes(String(f.aspect)) ? String(f.aspect) : 'portrait'
       if (f.dur) vd.dur = Math.max(5, Math.min(900, parseInt(f.dur) || 30))
       if (f.theme) vd.theme = ['dark', 'tech', 'light'].includes(String(f.theme)) ? String(f.theme) : 'dark'

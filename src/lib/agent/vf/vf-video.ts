@@ -924,6 +924,8 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
     if (vd.step === 'form') {
       const f = ctx.parseForm(userMessage)
       if (f) {
+        // ★VF_ENGINE_UI_V1（2026-10-04 用户定案「成片方式第一轮就选」）：classic=老引擎（默认）/ deck=新引擎动态 PPT
+        if (f.engine !== undefined) vd.engine = String(f.engine) === 'deck' ? 'deck' : 'classic'
         if (f.aspect) vd.aspect = String(f.aspect)
         if (f.dur) vd.dur = Math.max(5, Math.min(900, parseInt(f.dur) || 30))
         if (f.voice) vd.voice = String(f.voice)
