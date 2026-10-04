@@ -338,6 +338,27 @@ if (process.argv.includes('--write-silent-baseline')) {
   }
   /* ⚠️ **被排除的两套要写明**（否则"没跑"会被读成"过了"）：它们不是秒级 ⇒ 归 `--deep`（未实现）或人手跑。 */
   const SLOW_EXCLUDED = 'make-video --self-test（16s · 真渲染 1 条）· crosscheck --self-test-usage（45s · 13 次子进程）'
+  /* ★★ team-lead msg34 ④：**跨工具静态断言** —— `FLAGS`（映射式注册表）⇒ **必须有 `BOOL_KEYS` + 派生式解析器**
+     （把"旗标类型声明"从"逐个记得改"变成**全仓纪律**；`mux --dry-run` 那个坑就是缺这条）。 */
+  {
+    const dir = DECK_DIR_FOR_FLAGS()
+    const files = readdirSync(dir).filter((f) => f.endsWith('.mjs'))
+    const missing = []
+    for (const f of files) {
+      let t = ''
+      let fReadFail = 0     /* ⚠️ 哑 catch 棘轮**第 4 次**咬我（我明知这条纪律仍写空 catch ✗）⇒ 计数（会说话） */
+      try { t = readFileSync(join(dir, f), 'utf8') } catch { t = ''; fReadFail++ }
+      if (fReadFail) missing.push(`${f}（读失败 ⇒ 无法判定旗标类型纪律）`)
+      const hasMap = /const\s+FLAGS\s*=\s*\{/.test(t)                      /* 映射式注册表（数组式的 TOOL_FLAGS 不算） */
+      if (!hasMap) continue
+      const hasBool = /const\s+BOOL_KEYS\s*=\s*new Set\(/.test(t)
+      const usesBool = /BOOL_KEYS\.has\(/.test(t)
+      const valuePath = /A\[(?:key|k)\]\s*=\s*process\.argv\[\+\+i\]/.test(t)
+      if (!hasBool || !usesBool || !valuePath) missing.push(`${f}（BOOL_KEYS=${hasBool} · 派生解析=${usesBool} · 有值路径=${valuePath}）`)
+    }
+    if (missing.length) bad.push(...missing.map((m) => `旗标类型纪律：${m}`))
+    steps.push({ name: `旗标类型纪律（映射式 FLAGS ⇒ BOOL_KEYS + 派生解析器）`, ok: missing.length === 0, detail: missing })
+  }
   steps.push({
     name: `工具自测（秒级 ${SUITES.length} 套 · 免渲染）〔未纳入：${SLOW_EXCLUDED}〕`,
     ok: bad.length === 0, detail: bad,
@@ -515,6 +536,8 @@ if (dry) {
 }
 console.log('\n✓ 前置全过 ⇒ 执行 git add / git commit')
 const run = (args) => { const r = spawnSync('git', ['--no-pager', ...args], { cwd: ROOT, encoding: 'utf8' }); if (r.status !== 0) { console.error(String(r.stderr || r.stdout)); process.exit(1) } return String(r.stdout || '') }
+/* 引擎目录（扫描"旗标类型纪律"用）—— 写成**函数声明**（提升）以便上面的自测块调用（避免 TDZ）。 */
+function DECK_DIR_FOR_FLAGS() { return join(ROOT, 'scripts', 'video-factory', 'html-deck') }
 if (!msgParts.length) { console.error('✗ 没有 -m 提交信息 ⇒ 拒绝提交'); process.exit(1) }
 /* ★★ team-lead msg30 ③（流程纪律 · 事故根因在用法不在门禁）：**多人协作时"提交时机"不许由 `add -A` 替别人决定** ——
    `add -A <目录>` 是"把**整目录此刻的状态**入库"，而多人在飞时目录里有**别人未完成**的改动（实测：他提交时把我的

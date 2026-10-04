@@ -240,6 +240,8 @@ if (process.argv.includes('--self-test-scope')) {
 
 const created = []
 let PROBE = { g: 0, s: 0 }      /* 作用域探针（页无关 `li` 计数：全篇 vs 页内）—— 循环内记录，汇总处判 scopeOk */
+/* ⚠️ 存量残留（`examples/__tmp_count-k*.json`）由**本工具启动时清扫**（见 TMP_DIR 段）—— 漂移守卫"不许留痕"要求它，
+   而留痕来源是**被管道掐死的运行**（`Select-Object -First N` 会提前关管道）⇒ 用 `--keep` 才会保留。 */
 const cleanup = () => { if (!KEEP) for (const p of created) { try { rmSync(p, { recursive: true, force: true }) } catch { /* ignore */ } } }
 process.on('exit', cleanup)
 
