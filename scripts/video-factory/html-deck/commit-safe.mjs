@@ -345,20 +345,32 @@ if (process.argv.includes('--write-silent-baseline')) {
     const dir = DECK_DIR_FOR_FLAGS()
     const files = readdirSync(dir).filter((f) => f.endsWith('.mjs'))
     const missing = []
+    const covered = [], skipped = []
     for (const f of files) {
       let t = ''
       let fReadFail = 0     /* ⚠️ 哑 catch 棘轮**第 4 次**咬我（我明知这条纪律仍写空 catch ✗）⇒ 计数（会说话） */
       try { t = readFileSync(join(dir, f), 'utf8') } catch { t = ''; fReadFail++ }
       if (fReadFail) missing.push(`${f}（读失败 ⇒ 无法判定旗标类型纪律）`)
       const hasMap = /const\s+FLAGS\s*=\s*\{/.test(t)                      /* 映射式注册表（数组式的 TOOL_FLAGS 不算） */
-      if (!hasMap) continue
+      if (!hasMap) {
+        /* ★ team-lead msg36 ②(1)：**射程要每次跑都可见** —— 数组式（`TOOL_FLAGS` + `flag()/arg()`）登记为"未罩"，
+           并写明**为什么低风险**（那一形态用**两个不同入口**区分 bool/取值 ⇒ "bool 被当有值吃掉下一个参数"不成立）。 */
+        if (/const\s+TOOL_FLAGS\s*=\s*\[/.test(t)) skipped.push(`${f}〔数组式：靠 flag()/arg() 形态天然区分〕`)
+        continue
+      }
       const hasBool = /const\s+BOOL_KEYS\s*=\s*new Set\(/.test(t)
       const usesBool = /BOOL_KEYS\.has\(/.test(t)
       const valuePath = /A\[(?:key|k)\]\s*=\s*process\.argv\[\+\+i\]/.test(t)
       if (!hasBool || !usesBool || !valuePath) missing.push(`${f}（BOOL_KEYS=${hasBool} · 派生解析=${usesBool} · 有值路径=${valuePath}）`)
+      else covered.push(f)
     }
     if (missing.length) bad.push(...missing.map((m) => `旗标类型纪律：${m}`))
-    steps.push({ name: `旗标类型纪律（映射式 FLAGS ⇒ BOOL_KEYS + 派生解析器）`, ok: missing.length === 0, detail: missing })
+    steps.push({
+      name: `旗标类型纪律（映射式 ${covered.length} 已罩：${covered.join('/') || '（无）'}`
+        + (skipped.length ? ` · **未罩 ${skipped.length}**：${skipped.join(' · ')}` : '')
+        + '）',
+      ok: missing.length === 0, detail: missing,
+    })
   }
   steps.push({
     name: `工具自测（秒级 ${SUITES.length} 套 · 免渲染）〔未纳入：${SLOW_EXCLUDED}〕`,

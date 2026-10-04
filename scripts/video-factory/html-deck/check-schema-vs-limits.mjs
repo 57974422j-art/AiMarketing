@@ -807,15 +807,20 @@ if (ARG_VC || ROTATE) {
         /* ★★ msg33 ②：**固定窗口**（minItems == maxItems）的格**没有** `capacityAtLeast` ⇒ 预期值 = **契约值**本身。
            判据：读数必须**覆盖到**契约值（`maxIn >= fixed`）；**越契约仍渲染**（maxIn > fixed，如强注 30）**不算错**
            —— 那是"越契约可渲染"的旁证，不是容量（我第一版把 `undefined` 拿去比 ⇒ 自证当场红，已修）。 */
-        if (cell.capacityAtLeast !== undefined) {
-          if (maxIn !== Number(cell.capacityAtLeast)) why.push(`max 页内=${maxIn} ≠ capacityAtLeast=${cell.capacityAtLeast}`)
-        } else {
-          let fixed = null
-          let rcFail = 0     /* ⚠️ catch **必须会说话**（计数）：静默 catch 会被"哑 catch 棘轮"咬 —— 我已第三次踩它 */
+        /* ★ msg35 ②：**真表路径走同一个纯函数**（"必须覆盖契约值 / 越契约不算错"都在它里面，且已被合成负控证伪过）。
+           ⇒ 只在"无容量"时需先算契约值（有容量时函数自己判）——**这一段不再自带任何比较逻辑**（消除两份实现）。 */
+        let fixed = null      /* ★ 声明**外提**到 if 之外（否则下面统一裁决处引用它 ⇒ ReferenceError；语法检查抓不到这类错） */
+        if (cell.capacityAtLeast === undefined) {
+          let rcFail = 0     /* ⚠️ catch **必须会说话**（计数）：静默 catch 会被"哑 catch 棘轮"咬 —— 我已第四次踩它 */
           try { const n3 = get(String(cell.jsonPointer || '')); fixed = (n3 && n3.minItems !== undefined && Number(n3.minItems) === Number(n3.maxItems)) ? Number(n3.maxItems) : null } catch { fixed = null; rcFail++ }
           if (rcFail) why.push('契约值读取失败（无法判定固定窗口的预期值）')
-          if (fixed === null) why.push('该 count 格既无 capacityAtLeast 也非固定窗口（minItems == maxItems）⇒ 表内口径不全')
-          else if (maxIn < fixed) why.push(`max 页内=${maxIn} < 契约固定值 ${fixed}（minItems == maxItems）⇒ 读数没覆盖到契约值`)
+        }
+        /* ★ 单一实现：无论有无容量，最终都由**同一个纯函数**裁决（它已被 8 例合成负控/正控证伪过） */
+        {
+          /* ★ **唯一实现**：两个分支都在纯函数里（"有容量 ⇒ 必须相等 / 固定窗口 ⇒ 必须覆盖契约值"），
+             已被 8 例合成负控/正控证伪过 ⇒ 此处**不再有任何自带比较**（我上一版在这里留了重复推送 ⇒ 容量格被误报"口径不全"） */
+          const vcWhy = verifyCoverageVerdict(cell, maxIn, fixed)
+          if (vcWhy) why.push(vcWhy)
         }
         if (cell.sweepMax !== undefined && maxN !== Number(cell.sweepMax)) why.push(`max N=${maxN} ≠ sweepMax=${cell.sweepMax}`)
       }
