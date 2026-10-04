@@ -545,6 +545,13 @@ if (jsonMode) {
     for (const l of r.tail.slice(-8)) console.log(`      ${l.slice(0, 150)}`)   // §25a：失败输出原样保留（仅取末 8 行，未过滤关键字）
   }
   console.log(`\n  总耗时 = ${total.toFixed(1)}s（含 ${rows.length} 步；发版清单请照抄此数字）`)
-  console.log(`  结论: ${failedRows.length === 0 ? 'PASS（发版闸门全绿）' : needRenderRows.length ? `需先渲染（exit 4）—— ${needRenderRows.length} 步；请跑 \`node gate-release.mjs --render\`` : envRows.length ? '环境/输入不完整（exit 2）—— 不是判据失败' : `FAIL（${failedRows.length} 步未过）`}`)
+  /* ★ team-lead ④（**"扫描器抓不到"有两种解：扩扫描器 / 改源码让它不必抓"** ⇒ 能改源码时优先改源码）：
+     这里原本是**嵌套模板插值**（模板里再嵌模板）⇒ I9 的块注释扫描器**不建模** ⇒ 被记成"可见债务 1 例"。
+     提到外面成两条语句即可 ⇒ **债务当场归零**（比建迷你词法器便宜，且不留盲区）。行为等价（同一三目）。 */
+  const verdict = failedRows.length === 0 ? 'PASS（发版闸门全绿）'
+    : needRenderRows.length ? `需先渲染（exit 4）—— ${needRenderRows.length} 步；请跑 \`node gate-release.mjs --render\``
+      : envRows.length ? '环境/输入不完整（exit 2）—— 不是判据失败'
+        : `FAIL（${failedRows.length} 步未过）`
+  console.log(`  结论: ${verdict}`)
 }
 process.exit(failedRows.length === 0 ? 0 : (needRenderRows.length ? 4 : (envRows.length ? 2 : 1)))

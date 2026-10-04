@@ -386,7 +386,15 @@ if (!noSync && distRel) {
      「入库树有、探针树无的 .mjs 与 .json = 1 个」。同步范围 = 全部 top-level 工具加契约数据。）
      ⚠️ 注释里**不要写斜杠连成的路径**（即使分词写成 a 与 b 也不行 —— 闸门 ⓪c「注释安全」会判红，
         我本行第一版写 schema 斜杠 measured-limits 斜杠 allowlist 就被它抓到 ⇒ 改用顿号分段）。 */
-  for (const f of [...collect(HERE, '.mjs'), ...collect(HERE, '.json')]) {
+  /* ★★ team-lead 裁定：**`README.md` 进同步清单**（不要 DRIFT_OK）—— 理由：改 README 后守卫才红 ⇒ 说明
+     **改之前两树是相等的**（"两边一致"本是既成事实）⇒ 加进清单只是把**巧合变成规则**；而 DRIFT_OK 是
+     "**允许分叉**"的机制 ⇒ 用它兜住 README 等于**制度化"同一份文档两份拷贝"**（正是反复付代价的形态）。
+     ⇒ 裁定落地为：**文档类一律同源**（顶层 `.md` 全同步 ⇒ README.md 与另两个契约文档一起）；DRIFT_OK 只留给
+        **真的树特有**的文件。★ 条件 1（**涨得看得见**）由本步打印的计数满足（56 → 59）。
+     ⚠️ 条件 2 由 `check-probe-drift.mjs` **既有的核心规则**覆盖：入库树每个文件 ⇒ 探针树若有对应物，
+        两树 MD5 **必须相等**（不等即红，除 DRIFT_OK 且每条带 reason）⇒ "第三类：悄悄出现的同名文件" 无处藏 ✓。
+     ⚠️ 条件 3（DRIFT_OK 条目数可见）也已满足：守卫输出 `例外表 N 条`（实测 1 条）。 */
+  for (const f of [...collect(HERE, '.mjs'), ...collect(HERE, '.json'), ...collect(HERE, '.md')]) {
     const rel = f.slice(HERE.length + 1)
     if (rel.includes('\\') || rel.includes('/')) continue   /* 只同步**顶层**文件（子目录各有归属） */
     try { copyFileSync(f, join(distRel, basename(f))); n++ } catch { /* ignore */ }
