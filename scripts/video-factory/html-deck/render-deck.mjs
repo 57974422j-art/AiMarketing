@@ -153,11 +153,19 @@ const esc = (s) => String(s ?? '')
 const cp = (s) => Array.from(String(s ?? '').trim()).length
 
 // ---------------------------------------------------------------- 版式计算
-/** 第 i 页的 clip 窗口（与母版手写值逐一吻合：i=0 → 0/3.25；末页 → S-0.25/3.25；中间 → S-0.25/3.5） */
-function pageWindow(i, n, xover) {
-  const S = i * MF.page
+/** ★ 每页时长（秒）：页级 `duration` 优先，**缺省 = 母版默认 `MF.page`**。
+ *  不写 `duration` ⇒ 数组全等 ⇒ 下面的窗口与旧版**逐字节相同**（回归安全）。 */
+function pageDurations(pages) {
+  return pages.map((p) => (typeof p.duration === 'number' ? p.duration : MF.page))
+}
+
+/** 第 i 页的 clip 窗口（与母版手写值逐一吻合：i=0 → 0/3.25；末页 → S-0.25/3.25；中间 → S-0.25/3.5）
+ *  ★ 页起点 = **前 i 页时长之和**（支持每页不同时长；全等时长时退化成 i*MF.page，与旧版一致） */
+function pageWindow(i, n, xover, durs) {
+  const D = durs && durs.length === n ? durs : new Array(n).fill(MF.page)
+  const S = D.slice(0, i).reduce((a, b) => a + b, 0)
   const start = i === 0 ? 0 : S - xover / 2
-  const end = i === n - 1 ? S + MF.page : S + MF.page + xover / 2
+  const end = i === n - 1 ? S + D[i] : S + D[i] + xover / 2
   return { start: +start.toFixed(4), dur: +(end - start).toFixed(4) }
 }
 
@@ -322,10 +330,11 @@ function chartCheck(p, slice, deck) {
  * （手写母版当初是手工试出来的 0.58/1.08/1.58/1.76 + 小结 1.98；本式子在 3~4 条时与它同量级，
  *   且对 5 条也不会压到转场。）
  */
-function bulletsSchedule(nItems, enter, xover) {
+function bulletsSchedule(nItems, enter, xover, pageDur) {
   const FIRST = 0.58
+  const PG = typeof pageDur === 'number' ? pageDur : MF.page      // ★ 本页时长（缺省 = 母版默认）
   // 小结必须在淡出前落定：SUM ≤ PAGE - xover/2 - enter - 0.05(安全余量)
-  const SUM = +(MF.page - xover / 2 - enter - 0.05).toFixed(2)
+  const SUM = +(PG - xover / 2 - enter - 0.05).toFixed(2)
   const LAST_MAX = +(SUM - 0.38).toFixed(2)
   const gap = nItems <= 1 ? 0 : Math.min(0.5, (LAST_MAX - FIRST) / (nItems - 1))
   const items = []
@@ -336,10 +345,15 @@ function bulletsSchedule(nItems, enter, xover) {
 // ---------------------------------------------------------------- 页型 → HTML
 function pageHTML(p, i, n, deck) {
   const T = strictPick(TEMPO, deck.style.tempo, 'style.tempo')
-  const w = pageWindow(i, n, T.xover)
+  const durs = pageDurations(deck.pages)
+  const w = pageWindow(i, n, T.xover, durs)
   // 只有"图片页"需要把版式类挂到 section 上（其余页型 extraCls 为空 ⇒ 输出字节不变）
   const extraCls = p.type === 'image' ? ` p9--${p.layout}` : ''
-  const head = `  <!-- PAGE ${i}:${p.type} -->\n  <section class="page clip${extraCls}" data-start="${w.start}" data-duration="${w.dur}" data-track-index="1">`
+  /* ★ `data-page-dur` = 本页**内容时长**（不是 window 时长）：只有当 deck 用了页级 `duration` 时才写。
+     ⇒ 旧档（全等时长）**不写该属性** ⇒ 输出字节不变；母版 master.js 见到该属性才走"逐页时长"分支。 */
+  const nonUniform = durs.some((d) => Math.abs(d - MF.page) > 1e-9)
+  const durAttr = nonUniform ? ` data-page-dur="${durs[i]}"` : ''
+  const head = `  <!-- PAGE ${i}:${p.type} -->\n  <section class="page clip${extraCls}" data-start="${w.start}" data-duration="${w.dur}"${durAttr} data-track-index="1">`
   const tail = `    <div class="progress"><i></i></div>\n  </section>\n  <!-- /PAGE ${i} -->`
 
   if (p.type === 'cover') {
@@ -361,7 +375,7 @@ function pageHTML(p, i, n, deck) {
   }
 
   if (p.type === 'bullets') {
-    const s = bulletsSchedule(p.items.length, T.enter, T.xover)
+    const s = bulletsSchedule(p.items.length, T.enter, T.xover, pageDurations(deck.pages)[i])
     const lis = p.items.map((t, k) =>
       `      <li data-anim="rise" data-at="${s.items[k]}"><span class="n">${String(k + 1).padStart(2, '0')}</span><span class="t">${esc(t)}</span></li>`).join('\n')
     return [
@@ -579,7 +593,7 @@ function ensureStableIds(html) {
 function buildHTML(deck) {
   const g = MF.canvas[deck.style.orientation]
   const n = deck.pages.length
-  const total = +(n * MF.page).toFixed(4)
+  const total = +pageDurations(deck.pages).reduce((a, b) => a + b, 0).toFixed(4)   // ★ 逐页时长之和（缺省时 = n*MF.page）
   const body = deck.pages.map((p, i) => pageHTML(p, i, n, deck)).join('\n\n')
   return `<!doctype html>
 <html lang="zh-CN">
@@ -914,7 +928,7 @@ function main() {
   writeFileSync(htmlPath, ensureStableIds(buildHTML(deck)), 'utf8')
 
   const n = deck.pages.length
-  const total = +(n * MF.page).toFixed(4)
+  const total = +pageDurations(deck.pages).reduce((a, b) => a + b, 0).toFixed(4)   // ★ 与 HTML 同源（逐页时长之和）
   const seq = deck.pages.map((p) => p.type).join(' → ')
   console.log(`母版: ${MF.id}（${MF.name}）→ masters/${MF.id}/`)
   console.log(`页型序列: ${seq}   （${n} 页 × ${MF.page}s = ${total}s，画布 ${MF.canvas[deck.style.orientation].w}×${MF.canvas[deck.style.orientation].h}，style=${deck.style.palette}/${deck.style.density}/${deck.style.tempo}）`)

@@ -117,6 +117,16 @@ function checkAgainstSchema(value, ptr, path) {
 /** 页型 → schema 定义指针（`cover` ⇒ `#/$defs/pageCover`） */
 function pageDefPtr(type) { return `#/$defs/page${type[0].toUpperCase()}${type.slice(1)}` }
 
+/** 取某页型在 **schema** 里允许的字段名（唯一真源；拿不到 ⇒ null，调用方退回兜底清单）。
+ *  ⚠️ `SCHEMA` 惰性加载 ⇒ 必须先 `ensureSchemaLoaded()`（否则拿到 null ⇒ 静默退回旧清单）。 */
+function pageKeysFromSchema(type) {
+  const ptr = pageDefPtr(type)
+  let o = ensureSchemaLoaded()
+  for (const k of ptr.split('/').slice(1)) { o = (o == null ? undefined : o[k]); if (!o) break }
+  const props = o && o.properties ? Object.keys(o.properties) : null
+  return props && props.length ? props : null
+}
+
 let DECK_DIR = null                                    // 由 main() 设为 deck 文件所在目录（素材相对它解析）
 
 /** ★ 母版清单的**唯一真源 = deck.schema.json 的 masterId 枚举**（team-lead，2026-10-04）
@@ -609,7 +619,11 @@ function main() {
         add('error', `${path}.type`, `未知页型 "${p.type}"`, `只允许 [${PAGE_TYPES.join(', ')}]`)
         return
       }
-      const allowedKeys = { cover: ['type', 'kicker', 'asset'],
+      /* ★ 允许字段的**唯一真源 = deck.schema.json**（team-lead，2026-10-04）：
+         这里曾硬编码一份 12 页型的字段清单 ⇒ 与 schema 各存一份 = **又一处"多真源"**（实测踩到：
+         给 schema 加页级 `duration` 后，本清单没跟上 ⇒ 新字段被拒、错误信息还指向"本页型只允许 [...]"，
+         离真实原因很远）。现改为从 schema 的 `$defs.page<Type>.properties` 取键；拿不到才退回兜底清单。 */
+      const FALLBACK_KEYS = { cover: ['type', 'kicker', 'asset'],
                             bullets: ['type', 'title', 'items', 'summary'],
                             data: ['type', 'title', 'metric', 'secondary'],
                             end: ['type', 'line1', 'line2', 'cta', 'en'],
@@ -620,7 +634,8 @@ function main() {
                             toc: ['type', 'title', 'items'],
                             summary: ['type', 'title', 'items', 'closing'],
                             image: ['type', 'title', 'asset', 'layout', 'caption', 'kicker'],
-                            steps: ['type', 'title', 'steps', 'index'] }[p.type]
+                            steps: ['type', 'title', 'steps', 'index'] }
+      const allowedKeys = pageKeysFromSchema(p.type) || FALLBACK_KEYS[p.type]
       for (const k of Object.keys(p)) {
         if (!allowedKeys.includes(k)) add('error', `${path}.${k}`, `页面多出未定义字段 "${k}"`, `本页型只允许 [${allowedKeys.join(', ')}]`)
       }

@@ -32,7 +32,14 @@
   // ---------- 全局层：极轻的暖光缓慢漂移（整片内往返，确定性可 seek） ----------
   // ★ 时长由"页数 × 单页"推出（而不是写死 12s），这样生成器可以出任意页数的 deck。
   //   4 页 × 3s = 12s → 与母版原行为逐帧一致（HALF=6s，两段各 6s）。
-  var TOTAL = PAGE * pages.length;
+  /* ★ 逐页时长（team-lead）：只有当生成器在页上写了 data-page-dur 时才启用；
+     否则 TOTAL = PAGE * pages.length ⇒ 与旧产物**逐帧一致**。 */
+  var hasPerPage = document.querySelector('.page[data-page-dur]') !== null;
+  var pgStartAt = function (pg, i) { if (!hasPerPage) return i * PAGE; var v = parseFloat(pg.getAttribute('data-start')); return isFinite(v) ? v : i * PAGE; };
+  var pgDur = function (pg) { if (!hasPerPage) return PAGE; var v = parseFloat(pg.getAttribute('data-page-dur')); return isFinite(v) && v > 0 ? v : PAGE; };
+  var lastPgEl = pages[pages.length - 1];
+  var TOTAL = pages.length ? (pgStartAt(lastPgEl, pages.length - 1) + pgDur(lastPgEl)) : 0;
+  if (!isFinite(TOTAL) || TOTAL <= 0) TOTAL = PAGE * pages.length;
   var HALF = TOTAL / 2;
   var glow = document.querySelector('.glow');
   if (glow) {
@@ -43,9 +50,10 @@
   var first = 0, last = pages.length - 1;
 
   pages.forEach(function (pg, i) {
-    var S = i * PAGE;                              // 本页时间原点
+    var S = pgStartAt(pg, i);                      // 本页时间原点（支持逐页时长）
+    var PG = pgDur(pg);                            // 本页内容时长
     var fadeInAt = S - XOVER / 2;
-    var fadeOutAt = S + PAGE - XOVER / 2;
+    var fadeOutAt = S + PG - XOVER / 2;
 
     // ---------- 页间转场：淡入 + 缓推（不是硬切） ----------
     if (i === first) {
@@ -60,11 +68,11 @@
 
     // ---------- 页内持续微动：纹理层整页缓慢上移 ----------
     var tex = pg.querySelector('.tex');
-    if (tex) tl.fromTo(tex, { y: 0 }, { y: -DRIFT, duration: PAGE, ease: 'none', immediateRender: true }, S);
+    if (tex) tl.fromTo(tex, { y: 0 }, { y: -DRIFT, duration: PG, ease: 'none', immediateRender: true }, S);
 
     // ---------- 底部细进度线：走完本页 ----------
     var bar = pg.querySelector('.progress > i');
-    if (bar) tl.fromTo(bar, { scaleX: 0 }, { scaleX: 1, duration: PAGE, ease: 'none', immediateRender: true }, S);
+    if (bar) tl.fromTo(bar, { scaleX: 0 }, { scaleX: 1, duration: PG, ease: 'none', immediateRender: true }, S);
 
     // ---------- 元素分层错峰入场 ----------
     var order = 0;

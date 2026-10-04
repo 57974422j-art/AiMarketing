@@ -4,7 +4,12 @@
   "title": "HTML 动态 PPT · 分页契约 v1 (deck.schema.json)",
   "description": "AI 只输出本 schema 的 JSON，不写 HTML/CSS。内容量下限写死在约束里（要点 >=3 条且每条 >=8 字、数据页必须有 数字+单位+解释、封面必须有 主标题+副标）。字符数均指 Python/JS 意义下的字符个数（去首尾空白后按 码点 计）。",
   "type": "object",
-  "required": ["version", "meta", "style", "pages"],
+  "required": [
+    "version",
+    "meta",
+    "style",
+    "pages"
+  ],
   "additionalProperties": false,
   "properties": {
     "version": {
@@ -22,109 +27,281 @@
       "minItems": 4,
       "maxItems": 12,
       "description": "第 1 页必须是 cover（用 meta 的标题/副标渲染）；建议最后 1 页是 end。",
-      "prefixItems": [{ "$ref": "#/$defs/pageCover" }],
-      "items": { "$ref": "#/$defs/pageAny" }
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/pageCover"
+        }
+      ],
+      "items": {
+        "$ref": "#/$defs/pageAny"
+      }
     }
   },
   "$defs": {
     "meta": {
       "type": "object",
-      "required": ["title", "subtitle", "lang"],
+      "required": [
+        "title",
+        "subtitle",
+        "lang"
+      ],
       "additionalProperties": false,
       "description": "封面主标题 + 副标（硬性），出品方/日期可选",
       "properties": {
-        "title": { "type": "string", "minLength": 4, "maxLength": 33, "description": "封面主标题（硬性 ≥4 字）。**硬上限 33 = ⌊0.9 × 判据临界 37⌋**（实测：measured-limits.json · 依据 content_overlap）——余量 10% 防换机/换引擎版本波动" },
+        "title": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 33,
+          "description": "封面主标题（硬性 ≥4 字）。**硬上限 33 = ⌊0.9 × 判据临界 37⌋**（实测：measured-limits.json · 依据 content_overlap）——余量 10% 防换机/换引擎版本波动"
+        },
         "subtitle": {
-          "type": "string", "minLength": 6, "maxLength": 203,
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 203,
           "recommendedMax": 60,
           "description": "封面副标（硬性 ≥6 字）。**硬上限 203 = ⌊0.9 × 判据临界 226⌋**（实测 · content_overlap）；`recommendedMax: 60` 是**版式建议**（母版初版按「副标一行」的观感定的建议值——保持简短更稳），**不参与闸门判定**（两类上限不许混用，见 §25c 与 check-schema-vs-limits）"
         },
-        "issuer": { "type": "string", "maxLength": 749, "recommendedMax": 40, "description": "出品方（右下/左下小字，可选）。**硬上限 749 = ⌊0.9 × 输入口径判据 833⌋**（**输入口径实测** 2026-10-04：k=**832 PASS**（codes=[]）/ k=**833 FAIL**（content_overlap）⇒ 锐边界 = 833；元素口径读回 846 = 833 + **常量偏移 13**（render-deck.mjs L331：`出品：`+issuer+` · `+date）；正控 k=960）。⚠️ **更正**：早先记的「元素 840 ⇒ 输入 840−13=827」**隐含了「840 是锐边界」这个错假设** —— 实测 841…845 **仍可过**，故 827 不是真判据（真判据 = 833）。教训：**offset ≠ 0 的格子，判据必须按输入值口径测**（上限作用于输入值；混用口径会让 ×0.9 余量被**叠加两次** ⇒ 上限偏紧 ⇒ 又一个「内容不足」来源）；`recommendedMax: 40` 是**版式建议**（签发方一行观感），不参与闸门判定" },
-        "date": { "type": "string", "maxLength": 24, "description": "日期/期号小字，可选" },
-        "lang": { "enum": ["zh-CN"], "description": "v1 只支持简体中文" }
+        "issuer": {
+          "type": "string",
+          "maxLength": 749,
+          "recommendedMax": 40,
+          "description": "出品方（右下/左下小字，可选）。**硬上限 749 = ⌊0.9 × 输入口径判据 833⌋**（**输入口径实测** 2026-10-04：k=**832 PASS**（codes=[]）/ k=**833 FAIL**（content_overlap）⇒ 锐边界 = 833；元素口径读回 846 = 833 + **常量偏移 13**（render-deck.mjs L331：`出品：`+issuer+` · `+date）；正控 k=960）。⚠️ **更正**：早先记的「元素 840 ⇒ 输入 840−13=827」**隐含了「840 是锐边界」这个错假设** —— 实测 841…845 **仍可过**，故 827 不是真判据（真判据 = 833）。教训：**offset ≠ 0 的格子，判据必须按输入值口径测**（上限作用于输入值；混用口径会让 ×0.9 余量被**叠加两次** ⇒ 上限偏紧 ⇒ 又一个「内容不足」来源）；`recommendedMax: 40` 是**版式建议**（签发方一行观感），不参与闸门判定"
+        },
+        "date": {
+          "type": "string",
+          "maxLength": 24,
+          "description": "日期/期号小字，可选"
+        },
+        "lang": {
+          "enum": [
+            "zh-CN"
+          ],
+          "description": "v1 只支持简体中文"
+        }
       }
     },
     "style": {
       "type": "object",
-      "required": ["masterId", "palette", "density", "tempo", "orientation"],
+      "required": [
+        "masterId",
+        "palette",
+        "density",
+        "tempo",
+        "orientation"
+      ],
       "additionalProperties": false,
       "description": "风格参数只允许在这四组枚举里选，不许自由发挥",
       "properties": {
-        "masterId": { "enum": ["master-v1", "master-v2", "master-editorial", "master-tech"], "description": "母版 ID（枚举；决定版式/皮肤/几何/动效语言，资产在 masters/<id>/）" },
-        "palette": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,19}$", "description": "配色名 —— **取值清单由所选母版的 master.json 提供**（不同母版命名不同）。JSON Schema 表达不了这种跨字段依赖，故这里只校验形状；真正的枚举校验由 validate-deck.mjs 按母版清单执行。★ 先选 masterId，再在该母版的 palette 清单里选。" },
-        "density": { "enum": ["airy", "normal", "dense"], "description": "信息密度（影响版心与行距）" },
-        "tempo": { "enum": ["calm", "normal", "brisk"], "description": "节奏（映射 --enter/--enter-gap/--xover）" },
-        "orientation": { "enum": ["16:9", "9:16"], "description": "画布比例" }
+        "masterId": {
+          "enum": [
+            "master-v1",
+            "master-v2",
+            "master-editorial",
+            "master-tech"
+          ],
+          "description": "母版 ID（枚举；决定版式/皮肤/几何/动效语言，资产在 masters/<id>/）"
+        },
+        "palette": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{1,19}$",
+          "description": "配色名 —— **取值清单由所选母版的 master.json 提供**（不同母版命名不同）。JSON Schema 表达不了这种跨字段依赖，故这里只校验形状；真正的枚举校验由 validate-deck.mjs 按母版清单执行。★ 先选 masterId，再在该母版的 palette 清单里选。"
+        },
+        "density": {
+          "enum": [
+            "airy",
+            "normal",
+            "dense"
+          ],
+          "description": "信息密度（影响版心与行距）"
+        },
+        "tempo": {
+          "enum": [
+            "calm",
+            "normal",
+            "brisk"
+          ],
+          "description": "节奏（映射 --enter/--enter-gap/--xover）"
+        },
+        "orientation": {
+          "enum": [
+            "16:9",
+            "9:16"
+          ],
+          "description": "画布比例"
+        }
       }
     },
     "pageAny": {
       "oneOf": [
-        { "$ref": "#/$defs/pageCover" },
-        { "$ref": "#/$defs/pageBullets" },
-        { "$ref": "#/$defs/pageData" },
-        { "$ref": "#/$defs/pageEnd" },
-        { "$ref": "#/$defs/pageSection" },
-        { "$ref": "#/$defs/pageChart" },
-        { "$ref": "#/$defs/pageCompare" },
-        { "$ref": "#/$defs/pageQuote" },
-        { "$ref": "#/$defs/pageToc" },
-        { "$ref": "#/$defs/pageSummary" },
-        { "$ref": "#/$defs/pageImage" },
-        { "$ref": "#/$defs/pageSteps" }
-      ]
+        {
+          "$ref": "#/$defs/pageCover"
+        },
+        {
+          "$ref": "#/$defs/pageBullets"
+        },
+        {
+          "$ref": "#/$defs/pageData"
+        },
+        {
+          "$ref": "#/$defs/pageEnd"
+        },
+        {
+          "$ref": "#/$defs/pageSection"
+        },
+        {
+          "$ref": "#/$defs/pageChart"
+        },
+        {
+          "$ref": "#/$defs/pageCompare"
+        },
+        {
+          "$ref": "#/$defs/pageQuote"
+        },
+        {
+          "$ref": "#/$defs/pageToc"
+        },
+        {
+          "$ref": "#/$defs/pageSummary"
+        },
+        {
+          "$ref": "#/$defs/pageImage"
+        },
+        {
+          "$ref": "#/$defs/pageSteps"
+        }
+      ],
+      "properties": {
+        "duration": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 30,
+          "description": "本页显示时长（秒）。缺省 = 母版默认（3s）。用于按配音/字幕对齐每页时间轴。"
+        }
+      }
     },
     "pageCover": {
       "type": "object",
-      "required": ["type"],
+      "required": [
+        "type"
+      ],
       "additionalProperties": false,
       "description": "封面：内容全部来自 meta.title / meta.subtitle（硬性），本页不重复写文案",
       "properties": {
-        "type": { "const": "cover" },
+        "type": {
+          "const": "cover"
+        },
         "kicker": {
-        "type": "string", "maxLength": 388,
-        "recommendedMax": 32,
-        "description": "眉标小字，如 AIMARKETING · 视频工厂。**硬上限 388 = ⌊0.9 × 判据临界 432⌋**（实测 · content_overlap）；`recommendedMax: 32` 是**版式建议**（母版初版按「眉标一行、字距拉开」的观感定的建议值），不参与闸门判定"
-      },
-        "asset": { "type": "string", "description": "封面素材在项目内的相对路径（必须已拷进项目，禁 file://）" }
+          "type": "string",
+          "maxLength": 388,
+          "recommendedMax": 32,
+          "description": "眉标小字，如 AIMARKETING · 视频工厂。**硬上限 388 = ⌊0.9 × 判据临界 432⌋**（实测 · content_overlap）；`recommendedMax: 32` 是**版式建议**（母版初版按「眉标一行、字距拉开」的观感定的建议值），不参与闸门判定"
+        },
+        "asset": {
+          "type": "string",
+          "description": "封面素材在项目内的相对路径（必须已拷进项目，禁 file://）"
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 30,
+          "description": "本页显示时长（秒）。缺省 = 母版默认（3s）。用于按配音/字幕对齐每页时间轴。"
+        }
       }
     },
     "pageBullets": {
       "type": "object",
-      "required": ["type", "title", "items", "summary"],
+      "required": [
+        "type",
+        "title",
+        "items",
+        "summary"
+      ],
       "additionalProperties": false,
       "description": "要点页：3~5 条编号要点，每条 >=8 字，底部一句小结",
       "properties": {
-        "type": { "const": "bullets" },
-        "title": { "type": "string", "minLength": 4, "maxLength": 50, "recommendedMax": 24, "description": "要点页标题。**硬上限 50 = ⌊0.9 × 判据临界 56⌋**（实测 2026-10-03 · content_overlap · 页2@5.330s · 正控 k=120 触发）；`recommendedMax: 24` 是**版式建议**（标题一行观感），不参与闸门判定" },
+        "type": {
+          "const": "bullets"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 50,
+          "recommendedMax": 24,
+          "description": "要点页标题。**硬上限 50 = ⌊0.9 × 判据临界 56⌋**（实测 2026-10-03 · content_overlap · 页2@5.330s · 正控 k=120 触发）；`recommendedMax: 24` 是**版式建议**（标题一行观感），不参与闸门判定"
+        },
         "items": {
           "type": "array",
           "minItems": 3,
           "maxItems": 5,
           "items": {
-          "type": "string", "minLength": 8, "maxLength": 147,
-          "recommendedMax": 40,
-          "description": "每条要点 >=8 字。**无硬上限**：原 `maxLength: 40` **没有任何判据支撑**（实测该字段靠换行生长；早期「k≤120 无触发」的结论**已作废**——那是「裸子串找页」看错帧造成的），而 40 远小于实测容量 ⇒ 会无端限制 AI 写作（「内容不足」的病根之一）⇒ 删硬上限，40 降为 `recommendedMax`（版式/信息密度建议：要点用短句）。**已上探结案（2026-10-03）**：判据临界 = **164**（content_overlap · 页2@5.330s · 正控 k=240 触发）⇒ 补 `maxLength = ⌊0.9×164⌋ = 147`；第二路确认 k=164 PASS / k=165 FAIL ⇒ 两路一致"
-        }
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 147,
+            "recommendedMax": 40,
+            "description": "每条要点 >=8 字。**无硬上限**：原 `maxLength: 40` **没有任何判据支撑**（实测该字段靠换行生长；早期「k≤120 无触发」的结论**已作废**——那是「裸子串找页」看错帧造成的），而 40 远小于实测容量 ⇒ 会无端限制 AI 写作（「内容不足」的病根之一）⇒ 删硬上限，40 降为 `recommendedMax`（版式/信息密度建议：要点用短句）。**已上探结案（2026-10-03）**：判据临界 = **164**（content_overlap · 页2@5.330s · 正控 k=240 触发）⇒ 补 `maxLength = ⌊0.9×164⌋ = 147`；第二路确认 k=164 PASS / k=165 FAIL ⇒ 两路一致"
+          }
         },
-        "summary": { "type": "string", "minLength": 6, "maxLength": 334, "recommendedMax": 40, "description": "底部一句小结（硬性）。**硬上限 334 = ⌊0.9 × 判据临界 372⌋**（实测 2026-10-03 · content_overlap · 页2@5.330s · 正控 k=480 触发）；`recommendedMax: 40` 是版式建议（收束句一行观感）" }
+        "summary": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 334,
+          "recommendedMax": 40,
+          "description": "底部一句小结（硬性）。**硬上限 334 = ⌊0.9 × 判据临界 372⌋**（实测 2026-10-03 · content_overlap · 页2@5.330s · 正控 k=480 触发）；`recommendedMax: 40` 是版式建议（收束句一行观感）"
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 30,
+          "description": "本页显示时长（秒）。缺省 = 母版默认（3s）。用于按配音/字幕对齐每页时间轴。"
+        }
       }
     },
     "pageData": {
       "type": "object",
-      "required": ["type", "title", "metric", "secondary"],
+      "required": [
+        "type",
+        "title",
+        "metric",
+        "secondary"
+      ],
       "additionalProperties": false,
       "description": "数据页：必须有 数字+单位+解释，外加 2 个次要指标",
       "properties": {
-        "type": { "const": "data" },
-        "title": { "type": "string", "minLength": 4, "maxLength": 24 },
+        "type": {
+          "const": "data"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 24
+        },
         "metric": {
           "type": "object",
-          "required": ["number", "unit", "explain"],
+          "required": [
+            "number",
+            "unit",
+            "explain"
+          ],
           "additionalProperties": false,
           "properties": {
-            "number": { "type": "number", "description": "大数字（硬性，必须是真实数字，不许编）" },
-            "unit": { "type": "string", "minLength": 1, "maxLength": 8, "recommendedMax": 8, "description": "单位，如 ms / 帧、%、元。**kind = editorial**：上限由**编辑意图**定（保留 8），几何判据 99（content_overlap）**只用来证 `8 ≤ 99` 安全**，**不套 ⌊0.9×判据⌋**（否则会抬到 89 ⇒ 破坏「单位」语义）。证据：既有 23 处用量最长 **6 字**（帧差异 / 秒 / 类格式）" },
-            "explain": { "type": "string", "minLength": 8, "maxLength": 171, "recommendedMax": 60, "description": "一句解释（硬性 >=8 字）。**kind = content**（上限 = ⌊0.9×判据⌋）：母版证据 `.p3-explain{position:absolute; left:var(--pad); top:calc(var(--pad)+296px); font-size:var(--t-body)}` —— **无 max-height / 无行数钳制 / 无 nowrap** ⇒ **可换行块** ⇒ 几何判据 190（container_overflow）作约束 ⇒ **硬上限 171 = ⌊0.9×190⌋**；`recommendedMax: 60` 是**观感建议**（「一句话解释」，既有 23 处用量 21~42 字），不参与判定。⚠️ 短字段（`unit`/`number`/`label`/…）属 **editorial**：**不套 0.9×判据**（几何容量远大于编辑意图）" }
+            "number": {
+              "type": "number",
+              "description": "大数字（硬性，必须是真实数字，不许编）"
+            },
+            "unit": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 8,
+              "recommendedMax": 8,
+              "description": "单位，如 ms / 帧、%、元。**kind = editorial**：上限由**编辑意图**定（保留 8），几何判据 99（content_overlap）**只用来证 `8 ≤ 99` 安全**，**不套 ⌊0.9×判据⌋**（否则会抬到 89 ⇒ 破坏「单位」语义）。证据：既有 23 处用量最长 **6 字**（帧差异 / 秒 / 类格式）"
+            },
+            "explain": {
+              "type": "string",
+              "minLength": 8,
+              "maxLength": 171,
+              "recommendedMax": 60,
+              "description": "一句解释（硬性 >=8 字）。**kind = content**（上限 = ⌊0.9×判据⌋）：母版证据 `.p3-explain{position:absolute; left:var(--pad); top:calc(var(--pad)+296px); font-size:var(--t-body)}` —— **无 max-height / 无行数钳制 / 无 nowrap** ⇒ **可换行块** ⇒ 几何判据 190（container_overflow）作约束 ⇒ **硬上限 171 = ⌊0.9×190⌋**；`recommendedMax: 60` 是**观感建议**（「一句话解释」，既有 23 处用量 21~42 字），不参与判定。⚠️ 短字段（`unit`/`number`/`label`/…）属 **editorial**：**不套 0.9×判据**（几何容量远大于编辑意图）"
+            }
           }
         },
         "secondary": {
@@ -134,179 +311,476 @@
           "description": "恰好 2 个次要指标（小字）",
           "items": {
             "type": "object",
-            "required": ["label"],
+            "required": [
+              "label"
+            ],
             "additionalProperties": false,
             "properties": {
-              "label": { "type": "string", "minLength": 2, "maxLength": 20, "description": "次要指标键（小字加粗）" },
-              "note": { "type": "string", "maxLength": 30, "description": "次要指标补充说明（更小字，可选）" }
+              "label": {
+                "type": "string",
+                "minLength": 2,
+                "maxLength": 20,
+                "description": "次要指标键（小字加粗）"
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 30,
+                "description": "次要指标补充说明（更小字，可选）"
+              }
             }
           }
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 30,
+          "description": "本页显示时长（秒）。缺省 = 母版默认（3s）。用于按配音/字幕对齐每页时间轴。"
         }
       }
     },
     "pageEnd": {
       "type": "object",
-      "required": ["type", "line1", "cta", "en"],
+      "required": [
+        "type",
+        "line1",
+        "cta",
+        "en"
+      ],
       "additionalProperties": false,
       "description": "尾页：主句（可 2 行）+ CTA + 一行英文",
       "properties": {
-        "type": { "const": "end" },
-        "line1": { "type": "string", "minLength": 4, "maxLength": 135, "recommendedMax": 30, "description": "主句第一行。**硬上限 135 = ⌊0.9 × 判据临界 150⌋**（实测 · text_box_overflow · 页4@10.800s · 正控 k=240 触发）；`recommendedMax: 30` 是版式建议（主句一行观感）" },
-        "line2": { "type": "string", "maxLength": 30, "description": "主句第二行（可选）" },
-        "cta": { "type": "string", "minLength": 6, "maxLength": 351, "recommendedMax": 40, "description": "行动号召（硬性）。**硬上限 351 = ⌊0.9 × 判据临界 390⌋**（实测 · text_box_overflow · 页4@10.800s · 正控 k=480 触发）；`recommendedMax: 40` 是版式建议" },
-        "en": { "type": "string", "minLength": 6, "maxLength": 356, "recommendedMax": 60, "description": "一行英文（小字，硬性）。**硬上限 356 = ⌊0.9 × 判据临界 396⌋**（实测 · content_overlap · 页4@10.800s · 正控 k=480 触发）；`recommendedMax: 60` 是版式建议（一行英文小字）" }
+        "type": {
+          "const": "end"
+        },
+        "line1": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 135,
+          "recommendedMax": 30,
+          "description": "主句第一行。**硬上限 135 = ⌊0.9 × 判据临界 150⌋**（实测 · text_box_overflow · 页4@10.800s · 正控 k=240 触发）；`recommendedMax: 30` 是版式建议（主句一行观感）"
+        },
+        "line2": {
+          "type": "string",
+          "maxLength": 30,
+          "description": "主句第二行（可选）"
+        },
+        "cta": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 351,
+          "recommendedMax": 40,
+          "description": "行动号召（硬性）。**硬上限 351 = ⌊0.9 × 判据临界 390⌋**（实测 · text_box_overflow · 页4@10.800s · 正控 k=480 触发）；`recommendedMax: 40` 是版式建议"
+        },
+        "en": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 356,
+          "recommendedMax": 60,
+          "description": "一行英文（小字，硬性）。**硬上限 356 = ⌊0.9 × 判据临界 396⌋**（实测 · content_overlap · 页4@10.800s · 正控 k=480 触发）；`recommendedMax: 60` 是版式建议（一行英文小字）"
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 30,
+          "description": "本页显示时长（秒）。缺省 = 母版默认（3s）。用于按配音/字幕对齐每页时间轴。"
+        }
       }
     },
     "pageSection": {
       "type": "object",
-      "required": ["type", "title"],
+      "required": [
+        "type",
+        "title"
+      ],
       "additionalProperties": false,
       "description": "章节页：title 硬性（不许只有编号）",
       "properties": {
-        "type": { "const": "section" },
-        "number": { "type": "string", "maxLength": 12, "description": "第几章（可选，如 01 / 第二章）" },
-        "title": { "type": "string", "minLength": 4, "maxLength": 24, "description": "章节标题（硬性 ≥4 字）" },
-        "subtitle": { "type": "string", "minLength": 6, "maxLength": 40, "description": "一句副题（可选；给了就要 ≥6 字）" }
+        "type": {
+          "const": "section"
+        },
+        "number": {
+          "type": "string",
+          "maxLength": 12,
+          "description": "第几章（可选，如 01 / 第二章）"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 24,
+          "description": "章节标题（硬性 ≥4 字）"
+        },
+        "subtitle": {
+          "type": "string",
+          "minLength": 6,
+          "maxLength": 40,
+          "description": "一句副题（可选；给了就要 ≥6 字）"
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 30,
+          "description": "本页显示时长（秒）。缺省 = 母版默认（3s）。用于按配音/字幕对齐每页时间轴。"
+        }
       }
     },
     "pageChart": {
       "type": "object",
-      "required": ["type", "title", "chart", "unit", "explain"],
+      "required": [
+        "type",
+        "title",
+        "chart",
+        "unit",
+        "explain"
+      ],
       "additionalProperties": false,
       "description": "图表页：真画图。series ≥4 个数据点且必须是 number（沿「不许编数字」闸门）",
       "properties": {
-        "type": { "const": "chart" },
-        "title": { "type": "string", "minLength": 4, "maxLength": 24 },
+        "type": {
+          "const": "chart"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 24
+        },
         "chart": {
           "type": "object",
-          "required": ["type", "series"],
+          "required": [
+            "type",
+            "series"
+          ],
           "additionalProperties": false,
           "properties": {
-            "type": { "enum": ["line", "bar", "donut"], "description": "折线 / 柱 / 占比环" },
+            "type": {
+              "enum": [
+                "line",
+                "bar",
+                "donut"
+              ],
+              "description": "折线 / 柱 / 占比环"
+            },
             "series": {
               "type": "array",
               "minItems": 4,
               "maxItems": 12,
-              "items": { "type": "number", "description": "数据点必须是 number（硬性）" },
+              "items": {
+                "type": "number",
+                "description": "数据点必须是 number（硬性）"
+              },
               "description": "≥4 个数据点；图上画出的点数必须等于这里"
             },
             "labels": {
               "type": "array",
               "maxItems": 12,
-              "items": { "type": "string", "maxLength": 10 },
+              "items": {
+                "type": "string",
+                "maxLength": 10
+              },
               "description": "横轴标签（可选；若给，条数应与 series 一致）"
             }
           }
         },
-        "unit": { "type": "string", "minLength": 1, "maxLength": 8, "description": "单位，如 % / 秒 / 万" },
-        "explain": { "type": "string", "minLength": 8, "maxLength": 39, "description": "一句解释（硬性 ≥8 字）。**硬上限 39 = ⌊0.9 × 判据临界 44⌋**（team-lead 实测 2026-10-03 · content_overlap · 页5@14.450s · `.p6-explain` · 正控 k=120 触发；原 60 > 判据 44 ⇒ **不安全上限** 已按规则收紧）。⚠️ **不设 recommendedMax**：原编编辑建议 60 比新硬上限 39 还大 ⇒ 荒谬组合（I4 会判红）—— 硬上限已是最紧约束，advisory 无处可放" },
-        "source": { "type": "string", "maxLength": 40, "description": "数据来源（可选，右下小字）" }
+        "unit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8,
+          "description": "单位，如 % / 秒 / 万"
+        },
+        "explain": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 39,
+          "description": "一句解释（硬性 ≥8 字）。**硬上限 39 = ⌊0.9 × 判据临界 44⌋**（team-lead 实测 2026-10-03 · content_overlap · 页5@14.450s · `.p6-explain` · 正控 k=120 触发；原 60 > 判据 44 ⇒ **不安全上限** 已按规则收紧）。⚠️ **不设 recommendedMax**：原编编辑建议 60 比新硬上限 39 还大 ⇒ 荒谬组合（I4 会判红）—— 硬上限已是最紧约束，advisory 无处可放"
+        },
+        "source": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "数据来源（可选，右下小字）"
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 30,
+          "description": "本页显示时长（秒）。缺省 = 母版默认（3s）。用于按配音/字幕对齐每页时间轴。"
+        }
       }
     },
     "compareSide": {
       "type": "object",
-      "required": ["label", "points"],
+      "required": [
+        "label",
+        "points"
+      ],
       "additionalProperties": false,
       "properties": {
-        "label": { "type": "string", "minLength": 2, "maxLength": 12 },
+        "label": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 12
+        },
         "points": {
           "type": "array",
           "minItems": 2,
           "maxItems": 4,
-          "items": { "type": "string", "minLength": 6, "maxLength": 28 },
+          "items": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 28
+          },
           "description": "2~4 条，每条 ≥6 字"
         }
       }
     },
     "pageCompare": {
       "type": "object",
-      "required": ["type", "title", "left", "right", "conclusion"],
+      "required": [
+        "type",
+        "title",
+        "left",
+        "right",
+        "conclusion"
+      ],
       "additionalProperties": false,
       "description": "对比页：左右各 2~4 条（每条 ≥6 字）+ 一句结论（≥8 字）",
       "properties": {
-        "type": { "const": "compare" },
-        "title": { "type": "string", "minLength": 4, "maxLength": 24 },
-        "left": { "$ref": "#/$defs/compareSide" },
-        "right": { "$ref": "#/$defs/compareSide" },
-        "conclusion": { "type": "string", "minLength": 8, "maxLength": 40, "description": "一句结论（硬性 ≥8 字）" }
+        "type": {
+          "const": "compare"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 24
+        },
+        "left": {
+          "$ref": "#/$defs/compareSide"
+        },
+        "right": {
+          "$ref": "#/$defs/compareSide"
+        },
+        "conclusion": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 40,
+          "description": "一句结论（硬性 ≥8 字）"
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 30,
+          "description": "本页显示时长（秒）。缺省 = 母版默认（3s）。用于按配音/字幕对齐每页时间轴。"
+        }
       }
     },
     "pageQuote": {
       "type": "object",
-      "required": ["type", "quote"],
+      "required": [
+        "type",
+        "quote"
+      ],
       "additionalProperties": false,
       "description": "引用页：quote ≥12 字且必须是一句完整的话（以 。！？… 收尾），不是名词短语",
       "properties": {
-        "type": { "const": "quote" },
-        "quote": { "type": "string", "minLength": 12, "maxLength": 80 },
-        "author": { "type": "string", "minLength": 2, "maxLength": 20, "description": "出处/作者（可选）" },
-        "context": { "type": "string", "maxLength": 40, "description": "出处补充（可选，更小字）" }
+        "type": {
+          "const": "quote"
+        },
+        "quote": {
+          "type": "string",
+          "minLength": 12,
+          "maxLength": 80
+        },
+        "author": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 20,
+          "description": "出处/作者（可选）"
+        },
+        "context": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "出处补充（可选，更小字）"
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 30,
+          "description": "本页显示时长（秒）。缺省 = 母版默认（3s）。用于按配音/字幕对齐每页时间轴。"
+        }
       }
     },
     "pageToc": {
       "type": "object",
-      "required": ["type", "title", "items"],
+      "required": [
+        "type",
+        "title",
+        "items"
+      ],
       "additionalProperties": false,
       "description": "目录页（复用要点页版式）：3~6 条，每条 ≥4 字",
       "properties": {
-        "type": { "const": "toc" },
-        "title": { "type": "string", "minLength": 4, "maxLength": 24 },
+        "type": {
+          "const": "toc"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 24
+        },
         "items": {
           "type": "array",
           "minItems": 3,
           "maxItems": 6,
-          "items": { "type": "string", "minLength": 4, "maxLength": 24 }
+          "items": {
+            "type": "string",
+            "minLength": 4,
+            "maxLength": 24
+          }
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 30,
+          "description": "本页显示时长（秒）。缺省 = 母版默认（3s）。用于按配音/字幕对齐每页时间轴。"
         }
       }
     },
     "pageSummary": {
       "type": "object",
-      "required": ["type", "title", "items"],
+      "required": [
+        "type",
+        "title",
+        "items"
+      ],
       "additionalProperties": false,
       "description": "小结页（复用要点页版式）：标题 + 恰好 3 条、每条 ≥8 字",
       "properties": {
-        "type": { "const": "summary" },
-        "title": { "type": "string", "minLength": 4, "maxLength": 24 },
+        "type": {
+          "const": "summary"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 24
+        },
         "items": {
           "type": "array",
           "minItems": 3,
           "maxItems": 3,
-          "items": { "type": "string", "minLength": 8, "maxLength": 28 },
+          "items": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 28
+          },
           "description": "恰好 3 条，每条 ≥8 字"
         },
-        "closing": { "type": "string", "maxLength": 40, "description": "底部一句收束（可选）" }
+        "closing": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "底部一句收束（可选）"
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 30,
+          "description": "本页显示时长（秒）。缺省 = 母版默认（3s）。用于按配音/字幕对齐每页时间轴。"
+        }
       }
     },
     "pageImage": {
       "type": "object",
-      "required": ["type", "title", "asset", "layout"],
+      "required": [
+        "type",
+        "title",
+        "asset",
+        "layout"
+      ],
       "additionalProperties": false,
       "description": "图片页：asset 必须是**项目内的静态图片**（jpg/jpeg/png/webp）。视频素材需在入口统一转码 —— 本页型暂不支持视频，会明确报错（不许静默黑屏）",
       "properties": {
-        "type": { "const": "image" },
-        "title": { "type": "string", "minLength": 4, "maxLength": 24, "description": "标题（硬性 ≥4 字）" },
-        "asset": { "type": "string", "minLength": 3, "maxLength": 120, "pattern": "^[^:]*$", "description": "**相对 deck 文件**的素材路径（不许绝对路径 / file:// / ..）。存在性与可播性由 validator 的素材闸门检查" },
-        "layout": { "enum": ["left", "right", "full"], "description": "图文关系：左图右文 / 左文右图 / 全幅压字（全幅走渐隐底衬，不用实心黑框）。★ **随几何变（跨字段依赖，JSON Schema 表达不了）**：`16:9` 三种都可用；**`9:16` 只允许 `full`** —— 竖屏下 left/right 是同一条整宽媒体带、侧向语义不成立（D15）。真正的几何校验由 validate-deck.mjs 执行：竖屏写 left/right 会报错并建议改 full。" },
-        "caption": { "type": "string", "minLength": 8, "maxLength": 48, "description": "图注（可选；给了就要 ≥8 字）" },
-        "kicker": { "type": "string", "maxLength": 32, "description": "角标小字（可选）" }
+        "type": {
+          "const": "image"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 24,
+          "description": "标题（硬性 ≥4 字）"
+        },
+        "asset": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 120,
+          "pattern": "^[^:]*$",
+          "description": "**相对 deck 文件**的素材路径（不许绝对路径 / file:// / ..）。存在性与可播性由 validator 的素材闸门检查"
+        },
+        "layout": {
+          "enum": [
+            "left",
+            "right",
+            "full"
+          ],
+          "description": "图文关系：左图右文 / 左文右图 / 全幅压字（全幅走渐隐底衬，不用实心黑框）。★ **随几何变（跨字段依赖，JSON Schema 表达不了）**：`16:9` 三种都可用；**`9:16` 只允许 `full`** —— 竖屏下 left/right 是同一条整宽媒体带、侧向语义不成立（D15）。真正的几何校验由 validate-deck.mjs 执行：竖屏写 left/right 会报错并建议改 full。"
+        },
+        "caption": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 48,
+          "description": "图注（可选；给了就要 ≥8 字）"
+        },
+        "kicker": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "角标小字（可选）"
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 30,
+          "description": "本页显示时长（秒）。缺省 = 母版默认（3s）。用于按配音/字幕对齐每页时间轴。"
+        }
       }
     },
     "pageSteps": {
       "type": "object",
-      "required": ["type", "title", "steps"],
+      "required": [
+        "type",
+        "title",
+        "steps"
+      ],
       "additionalProperties": false,
       "description": "步骤页：steps 恰好 3~6 条，每条 ≥6 字",
       "properties": {
-        "type": { "const": "steps" },
-        "title": { "type": "string", "minLength": 4, "maxLength": 24 },
+        "type": {
+          "const": "steps"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 24
+        },
         "steps": {
           "type": "array",
           "minItems": 3,
           "maxItems": 6,
-          "items": { "type": "string", "minLength": 6, "maxLength": 28 },
+          "items": {
+            "type": "string",
+            "minLength": 6,
+            "maxLength": 28
+          },
           "description": "恰好 3~6 条，每条 ≥6 字"
         },
-        "index": { "enum": ["number", "dot"], "description": "序号样式：number 大号衬线数字 / dot 强调色圆点（默认 number）" }
+        "index": {
+          "enum": [
+            "number",
+            "dot"
+          ],
+          "description": "序号样式：number 大号衬线数字 / dot 强调色圆点（默认 number）"
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 30,
+          "description": "本页显示时长（秒）。缺省 = 母版默认（3s）。用于按配音/字幕对齐每页时间轴。"
+        }
       }
     }
   }
