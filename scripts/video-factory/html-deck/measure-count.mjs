@@ -125,6 +125,16 @@ const MAXITEM_PTR = arg('--maxitems-ptr', '#/$defs/pageBullets/properties/items'
 const sch = JSON.parse(readFileSync(join(HERE, 'deck.schema.json'), 'utf8'))
 const node0 = MAXITEM_PTR.split('/').slice(1).reduce((o, k) => (o == null ? undefined : o[k]), sch)
 if (!node0 || node0.maxItems === undefined) { console.error(`✗ 指针 ${MAXITEM_PTR} 在 schema 里**没有 maxItems** ⇒ 停手（指针守卫）`); process.exit(2) }
+/* ★★ msg29 ②：**运行期把 `--page` 接线为真校验**（秒级、在任何渲染之前）—— 声明与 `--jsonpath` 推出的应在页不符 ⇒ exit 2。 */
+{
+  const tag = pageArgTag(JSONPATH, PAGE)
+  if (tag) {
+    console.error(`✗ [${tag}] --page ${PAGE} ≠ 由 --jsonpath 推出的应在页 ${pageArgExpect(JSONPATH)}（${JSONPATH} ⇒ 0-based 第 ${pageArgExpect(JSONPATH)} 页）`)
+    console.error('   ⇒ 定位权威是 --jsonpath（实测 --page 的数值**不决定**被量对象）⇒ --page 只是**声明**：声明与权威不符即红')
+    process.exit(2)
+  }
+  if (pageArgExpect(JSONPATH)) console.log(`  ✓ 页声明一致：--page ${PAGE} == jsonpath 推出的第 ${pageArgExpect(JSONPATH)} 页（判定后再跑）`)
+}
 const before = node0.maxItems
 node0.maxItems = Math.max(before, N_MAX)
 const ovr = join(tmpdir(), `deck.schema.count.${process.pid}.json`)
@@ -158,6 +168,20 @@ if (process.argv.includes('--self-test-extract')) {
 function scopedCount(htmlText, tag) { return (String(htmlText).match(new RegExp(`<${tag}\\b`, 'gi')) || []).length }
 function containerCount(sliceHtml) { return (String(sliceHtml).match(/<(ul|ol)\b/gi) || []).length }
 function pageAssertOk(hitPage, cellPage) { return !cellPage || Number(hitPage) === Number(cellPage) }
+/* ★★ team-lead msg29 ②（**裁定 a：接线为真校验**）：定位权威是 `--jsonpath pages.<i>`（0-based ⇒ 应在页 `i+1`），
+   `--page` 是**声明** ⇒ 声明与权威不符 ⇒ **红**（tag `PAGE_ARG_MISMATCH`），**不是**"用它定位"。
+   与 `crosscheck --expect-page` **对称**（那里断言"命中页 == 该格 page"，这里断言"声明页 == jsonpath 推出的页"）。
+   ★ 为什么必须接线：实测 `--page` 的数值**不决定**被量对象（`--page 3` 打 `pages.3.steps`（第 4 页）也通过）
+     ⇒ 不接线它就是**纸面装饰**（后人写错无人知）；接线后 13/17 格命令里的 `--page` **立刻有牙**。 */
+function pageArgTag(jsonpath, page) {
+  const m = /^pages\.(\d+)\./.exec(String(jsonpath || ''))
+  if (!m) return null                      /* 非页内数组（如顶层 pages）⇒ 没有"应在页"可声明 */
+  return Number(page) === Number(m[1]) + 1 ? null : 'PAGE_ARG_MISMATCH'
+}
+function pageArgExpect(jsonpath) {
+  const m = /^pages\.(\d+)\./.exec(String(jsonpath || ''))
+  return m ? Number(m[1]) + 1 : null
+}
 /* ★ `--self-test-scope`：**合成输入**正/负控（与 `--self-test-extract` 同款形态）——
    ① 单容器切片 ⇒ 容器数 1（不红）② **双容器切片 ⇒ 容器数 2（必须红）** ③ 切条数正确 ④ 页断言：同页 true / 异页 false（必须红）。 */
 if (process.argv.includes('--self-test-scope')) {
@@ -165,9 +189,14 @@ if (process.argv.includes('--self-test-scope')) {
   const two = '<section><ul><li>a</li></ul><ol><li>b</li></ol></section>'
   const c1 = containerCount(one) === 1, c2 = containerCount(two) === 2, s3 = scopedCount(one, 'li') === 3
   const p1 = pageAssertOk(4, 4) === true, p2 = pageAssertOk(3, 4) === false
-  const ok = c1 && c2 && s3 && p1 && p2
+  /* ★ msg29 ②：**`--page` 声明的合成负控** —— 负控的**红因必须恰为 tag**（不只"红了"）。 */
+  const pa1 = pageArgTag('pages.9.items', 10) === null
+  const pa2 = pageArgTag('pages.9.items', 9) === 'PAGE_ARG_MISMATCH'
+  const pa3 = pageArgTag('pages', 5) === null      /* 顶层数组 ⇒ 无应在页 ⇒ 不红 */
+  const ok = c1 && c2 && s3 && p1 && p2 && pa1 && pa2 && pa3
   console.log(`  合成自测(scope)：单容器=${containerCount(one)}(须 1) ${c1 ? '✓' : '✗'} · **双容器=${containerCount(two)}(须 2 ⇒ 红)** ${c2 ? '✓' : '✗'} · 切条数=${scopedCount(one, 'li')}(须 3) ${s3 ? '✓' : '✗'}`)
   console.log(`                    页断言：同页(4,4)=${pageAssertOk(4, 4)}(须 true) ${p1 ? '✓' : '✗'} · **异页(3,4)=${pageAssertOk(3, 4)}(须 false ⇒ 红)** ${p2 ? '✓' : '✗'}`)
+  console.log(`                    **--page 声明**：一致(pages.9.items, 10)=${pageArgTag('pages.9.items', 10)}(须 null) ${pa1 ? '✓' : '✗'} · **不一致(9)=${pageArgTag('pages.9.items', 9)}(须恰为 PAGE_ARG_MISMATCH)** ${pa2 ? '✓' : '✗'} · 顶层数组(pages, 5)=${pageArgTag('pages', 5)}(须 null) ${pa3 ? '✓' : '✗'}`)
   process.exit(ok ? 0 : 1)
 }
 
