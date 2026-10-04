@@ -274,14 +274,17 @@ if (!A.sheetOnly) for (const skin of skins) {
       const dur = (String(m.stdout).match(/dur=([\d.]+)/) || [])[1]
       const size = (readFileSync(final).length / 1048576).toFixed(1)
       console.log(`   ✓ [BATCH-ITEM-OK] ${tag} · ${mf.name || skin} · ${ori} · ${dur}s · ${size}MB · ${((Date.now() - t0) / 1000).toFixed(0)}s`)
-      rows.push({ skin, ori, ok: true, final: final.replace(HERE + '\\', ''), dur, sizeMB: Number(size) })
+      /* ⚠️ 平台 bug（服务器 Linux 实测红）：原先 `final.replace(HERE + '\\', '')` 硬编码 Windows 反斜杠 ⇒
+       *   Linux 上剥离永不命中 ⇒ 报告里的 final 留成**绝对路径** ⇒ 上游 make-video 自测的
+       *   `existsSync(join(HERE, final))` 拼出不存在的路径 ⇒ 「产物存在=false」（Windows 绿、Linux 红的现场形状）。 */
+      rows.push({ skin, ori, ok: true, final: final.startsWith(HERE + sep) ? final.slice(HERE.length + 1) : final, dur, sizeMB: Number(size) })
     } else {
       /* ★ 无合成项 ⇒ **把渲染原片拷进同一个交付位置**（位置恒定 · K40）。
          ⚠️ 用已 import 的 read+write（不引入 `copyFileSync` 这个新依赖；~2MB 量级，零成本）✓ */
       const size = (readFileSync(rawMp4).length / 1048576).toFixed(1)
       writeFileSync(final, readFileSync(rawMp4))
       console.log(`   ✓ [BATCH-ITEM-OK] ${tag} · ${mf.name || skin} · ${ori} · ${size}MB（无合成项 ⇒ 交付渲染原片 · **已拷入「final/」**）· ${((Date.now() - t0) / 1000).toFixed(0)}s`)
-      rows.push({ skin, ori, ok: true, final: final.replace(HERE + '\\', ''), sizeMB: Number(size) })
+      rows.push({ skin, ori, ok: true, final: final.startsWith(HERE + sep) ? final.slice(HERE.length + 1) : final, sizeMB: Number(size) })
     }
     /* ★ 删除守卫（probe-html 建议，属"超限"同族）：删之前断言目标**真的在自己 outdir 之下** ——
      *   否则一律拒绝并点名（工具**不许删调用者的输入**；第一版 `rmSync(outdir)` 就删掉过 --srt/--logo）。 */
