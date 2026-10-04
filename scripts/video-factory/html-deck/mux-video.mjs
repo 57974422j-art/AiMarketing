@@ -35,7 +35,7 @@ const FLAGS = {
   '--in': 'in', '--out': 'out', '--srt': 'srt', '--logo': 'logo', '--logo-pos': 'logoPos',
   '--logo-w': 'logoW', '--logo-opacity': 'logoOpacity', '--logo-margin': 'logoMargin',
   '--bgm': 'bgm', '--bgm-vol': 'bgmVol', '--self-test': 'selfTest', '--workdir': 'workdir',
-  '--dry-run': 'dryRun',
+  '--dry-run': 'dryRun', '--subs-size': 'subsSize', '--subs-margin-v': 'subsMarginV',
 }
 const A = {}
 for (let i = 2; i < process.argv.length; i++) {
@@ -87,8 +87,29 @@ function buildArgs(o) {
   v = 'base'
   /* ⚠️ 转义（自测当场抓到）：`subtitles=C\:/...` 会被滤镜解析器吃掉盘符 ⇒ 必须写成
    *    `subtitles=filename='C\:/...'`（显式键名 + 单引号包住路径） */
-  if (o.srt) { steps.push(`[${v}]subtitles=filename='${escSub(o.srt)}'[vsub]`); v = 'vsub' }
-  const w = Number(o.logoW || 160), m = Number(o.logoMargin || 40), op = Number(o.logoOpacity == null ? 0.85 : o.logoOpacity)
+  const W0 = Number(o.srcW) || 1280, H0 = Number(o.srcH) || 720
+  /* ★ 竖屏事故修复：libass 拿不到画面尺寸时按 **384×288** 假定 ⇒ 字幕被放大到溢出画面。
+   *   正解是 `original_size=WxH`（这条参数就是为此存在），再显式给 FontSize/边距。 */
+  /* ★ 单位换算（第二次踩）：libass 的脚本坐标空间默认是 **PlayResY = 288**（SRT 无脚本头，`original_size` 只影响缩放提示、
+   *   **不设 PlayRes**）⇒ `FontSize` 是**脚本单位**：渲染像素 = FontSize × H / 288。
+   *   所以"按 H 取字号"是错的（我第一版 `FontSize=round(H*0.042)` 在竖屏变成 ~240px 巨字）。
+   *   正解：**先定目标像素，再换算成脚本单位**（≈ 按 288 归一，故近似常量）。 */
+  const SCRIPT_Y = 288
+  const px2script = (px) => Math.max(1, Math.round((px / H0) * SCRIPT_Y))
+  const subSize = Number(o.subsSize) || px2script(Math.round(H0 * 0.042))
+  const w = Number(o.logoW || Math.round(W0 * 0.14)), m = Number(o.logoMargin || Math.round(W0 * 0.03))
+  const op = Number(o.logoOpacity == null ? 0.85 : o.logoOpacity)
+  let logoH = 0
+  if (o.logo) { const lg = probe(o.logo); logoH = lg && lg.w ? Math.round((lg.h / lg.w) * w) : w }
+  /* 字幕下边距：底角有水印时抬到水印之上，否则按画面比例留白（同样要换算成脚本单位） */
+  const bottomLogo = o.logo && String(o.logoPos || 'br').startsWith('b')
+  const marginVPx = bottomLogo ? m + logoH + Math.round(H0 * 0.02) : Math.round(H0 * 0.05)
+  const marginV = Number(o.subsMarginV) || px2script(marginVPx)
+  if (o.srt) {
+    const style = `FontSize=${subSize},MarginV=${marginV},Alignment=2,BorderStyle=1,Outline=1,Shadow=0`
+    steps.push(`[${v}]subtitles=filename='${escSub(o.srt)}':original_size=${W0}x${H0}:force_style='${style}'[vsub]`)
+    v = 'vsub'
+  }
   if (o.logo) {
     steps.push(`[${logoI}:v]scale=${w}:-1,format=rgba,colorchannelmixer=aa=${op}[lg]`)
     const pos = o.logoPos || 'br'
@@ -128,7 +149,8 @@ function mux(o) {
    *   ⚠️ 第一版只转了 in/out ⇒ `--logo out-tmp-batch/logo.png` 被解析成 `<字幕目录>/out-tmp-batch/logo.png` ⇒
    *   `Error opening input file … No such file or directory`（端到端跑「文案→字幕→合成」时暴露）。 */
   const abs = (p) => (p ? resolve(p) : p)
-  const args = buildArgs({ ...o, in: abs(o.in), out: abs(o.out), logo: abs(o.logo), bgm: abs(o.bgm) })
+  const args = buildArgs({ ...o, in: abs(o.in), out: abs(o.out), logo: abs(o.logo), bgm: abs(o.bgm),
+    srcW: src && src.w, srcH: src && src.h })
   /* 字幕用"工作目录 + 裸文件名"⇒ 运行目录必须切到字幕所在目录 */
   const cwd = o.srt ? dirname(resolve(o.srt)) : undefined
   if (A.dryRun) {
@@ -200,6 +222,18 @@ function selfTest() {
     console.log(`    ${ok ? '✓' : '✗'} ${c.n} ⇒ exit=${r} 时长=${g ? g.dur.toFixed(2) : '?'} 音轨=${g && g.hasAudio ? '有' : '无'}（须 ${c.wantAudio === true ? '有' : '与源一致'}）`)
     if (!ok) fail++
   }
+  /* 用例 F：**字幕尺寸必须按源画面入图**（结构断言）——
+   *   竖屏事故根因是 libass 拿不到尺寸就按 384×288 假定 ⇒ 字幕被放大到溢出。
+   *   这里断言滤镜图里真的带 `original_size=<源宽>x<源高>` 与 `FontSize/MarginV`（防"改了参数但没拼进去"）。 */
+  console.log('  — 用例 F 字幕尺寸按源入图（结构断言）')
+  {
+    const fArgs = buildArgs({ in: raw, out: join(wd, 'f.mp4'), srt, srcW: 640, srcH: 360 })
+    const fc = fArgs[fArgs.indexOf('-filter_complex') + 1] || ''
+    const fOk = fc.includes('original_size=640x360') && /FontSize=\d+/.test(fc) && /MarginV=\d+/.test(fc)
+    console.log(`    ${fOk ? '✓' : '✗'} 滤镜图含 original_size=640x360 / FontSize / MarginV${fOk ? '' : ' ⇒ ' + fc.slice(0, 150)}`)
+    if (!fOk) fail++
+  }
+
   /* 回归用例 E2：**相对路径 + 字幕**（覆盖"切 cwd"的副作用 —— 第一版只把 in/out 转绝对，
    *   `--logo` 相对路径会被解析到字幕目录下 ⇒ 找不到。用**相对路径**才测得到，全用绝对路径测不出来） */
   console.log('  — 用例 E2 相对路径 + 字幕（切 cwd 回归）')

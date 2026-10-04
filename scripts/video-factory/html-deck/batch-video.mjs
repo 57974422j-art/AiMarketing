@@ -55,20 +55,23 @@ for (const [k, p] of [['--srt', A.srt], ['--logo', A.logo], ['--bgm', A.bgm]]) {
   if (p && !existsSync(resolve(HERE, p))) { console.error(`✗ ${k} 不存在：${p}`); process.exit(EXIT.INPUT) }
 }
 
-const outRoot = join(HERE, A.outdir || 'out-tmp-batch')
+/* ⚠️ team-lead msg18 ③：必须用 **`resolve`** 而非 `join` —— `join(HERE, 'G:\\…')` 会把绝对路径拼成 `HERE\\G:\\…`
+   （实测：调用者只能按"相对 HERE"传参绕开；且与 `gen-deck` 的 `resolve(A.out)` 口径不一致）⇒ 统一 `resolve`。 */
+const outRoot = resolve(HERE, A.outdir || 'out-tmp-batch')
 /* ★ 两条来自现场的教训（都出过事故）：
  *   ① 第一版 `rmSync(outRoot)` 把调用者放进 `outdir` 的 `--srt/--logo` 一起删了（**工具删自己的输入**）⇒ 12 条全 `mux=2`；
  *   ② 第二版"每次启动清 raw/" ⇒ 与 `--reuse-raw` **直接矛盾**（清完再复用 ⇒ 清了个寂寞），
  *      且会把**上一批已出的成片**删掉（分批跑时前一批白做）。
  *   ⇒ 定稿：**默认增量**（不清任何东西，同名覆盖）；要全量重来请显式 `--clean`。 */
-if (!A.dryRun) {
-  mkdirSync(outRoot, { recursive: true })
-  if (A.clean) {
-    for (const sub of ['decks', 'raw', 'final']) rmSync(join(outRoot, sub), { recursive: true, force: true })
-    for (const f of readdirSync(outRoot)) if (/^(sheet-|batch-sheet|batch-report|batch\.log)/.test(f)) rmSync(join(outRoot, f), { force: true })
-  }
-  mkdirSync(join(outRoot, 'decks'), { recursive: true })
+/* ⚠️ **建目录必须无条件**（不能放在 `if (!A.dryRun)` 里）：`--dry-run` 下紧随其后的"派生档落盘 + 校验"仍需要
+   `outRoot/decks` 存在 —— 否则 `writeFileSync` 直接 ENOENT（实测：dry-run + 新 outdir ⇒ 未捕获异常 exit=1）。
+   `--clean` 仍只在非 dry-run 生效（**dry-run 不许删东西** ✓）。 */
+mkdirSync(outRoot, { recursive: true })
+if (!A.dryRun && A.clean) {
+  for (const sub of ['decks', 'raw', 'final']) rmSync(join(outRoot, sub), { recursive: true, force: true })
+  for (const f of readdirSync(outRoot)) if (/^(sheet-|batch-sheet|batch-report|batch\.log)/.test(f)) rmSync(join(outRoot, f), { force: true })
 }
+mkdirSync(join(outRoot, 'decks'), { recursive: true })
 const baseDeck = JSON.parse(readFileSync(resolve(HERE, base), 'utf8'))
 
 console.log(A.sheetOnly
@@ -117,7 +120,10 @@ if (!A.sheetOnly) for (const skin of skins) {
     d.style = { ...d.style, masterId: skin, palette, orientation: ori }
     /* ★ 幂等：派生档**内容不变就不落盘** —— 否则每次重跑都会刷新 mtime，
      *   让下面的"产物 ≥ 派生档"守卫失效 ⇒ `--reuse-raw` 形同虚设（每次白渲 12 条 ≈5 分钟） */
-    if (!A.dryRun) {
+    /* ⚠️ `--dry-run` 下**仍要保证派生档存在**：否则紧随其后的 `validate-deck [deckPath]` 直接 ENOENT
+       （实测：`--dry-run` + 新 outdir ⇒ `读/解析失败: ENOENT …\deck.…json`）⇒ dry-run 成了"崩溃预览"。
+       修法：dry-run **仅当档不存在时**落盘（正常路径仍保持"内容不变就不落盘"的幂等 ⇒ 不破坏 `--reuse-raw` 的 mtime 语义）。 */
+    if (!A.dryRun || !existsSync(deckPath)) {
       const body = JSON.stringify(d, null, 2) + '\n'
       if (!existsSync(deckPath) || readFileSync(deckPath, 'utf8') !== body) writeFileSync(deckPath, body)
     }
