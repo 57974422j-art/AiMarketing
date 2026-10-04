@@ -580,8 +580,27 @@ if (!files.length && !argv.includes('--all-ok')) {
   for (const l of lines.slice(0, 40)) console.error(`      · ${l}`)
   process.exit(2)
 }
+/* ★★ team-lead ③（**结构性守卫** · 现场事故）：`--files` 含**被 .gitignore 的文件** ⇒ `git add` 报错
+   **中止**（当时的 `run()` 遇错即 exit），但**已 add 的留在暂存区** ⇒ 我那次"**看起来提交了，其实没提交**"
+   （靠 `git log` 才发现）✗ ⇒ 现在改为：**捕获** add/commit 退出码（不再遇错即走），再交给**两步结构断言**判：
+     ① **HEAD 必须前进**（`after ≠ before`）② **暂存区必须为空**（提交后 `git diff --cached --name-only` 为空）
+   ⇒ 缺一不可（①抓"提交没发生"、②抓"add 了却没进提交"）；失败 ⇒ `✗ [COMMIT-NOT-ADVANCED]` + 点名。
+   ⚠️ **本判据的必红证据 = 这次现场**（git add 报错 + HEAD 未前进 + 4 个文件留在暂存区）—— 见 README §25v。
+   ★ 口径：**闸门说"前置全过" ≠ 提交发生了**（与"改完要能被读回"同族：交付的最后一步也要被核对）。 */
+const HEAD_BEFORE = run(['rev-parse', '--short', 'HEAD']).trim()
+const commitGuard = (before, after, stagedLeft) => {
+  if (!before || !after) return '拿不到 HEAD（git 不可用？）'
+  if (before === after) return `HEAD **未前进**（${before} ⇒ ${after}）⇒ **提交没发生**（git add/commit 报错？见上面 stderr 原样输出）`
+  if (String(stagedLeft || '').trim()) return `提交后**暂存区非空**（${String(stagedLeft).trim().split('\n').length} 个文件被 add 却未进本次提交）`
+  return null
+}
+let addFailed = 0
 if (files.length) {
-  run(['add', ...files])
+  const ar = spawnSync('git', ['--no-pager', 'add', ...files], { cwd: ROOT, encoding: 'utf8' })
+  if (ar.status !== 0) {
+    addFailed++      /* ⚠️ 不立即 exit：**部分文件可能已被 add** ⇒ 必须靠下面的"提交后核对"判它到底提交了没 */
+    console.error(`✗ git add 退出码=${ar.status}（stderr 原样，§25a 不过滤）：\n${String(ar.stderr || ar.stdout)}`)
+  }
   const staged = run(['diff', '--cached', '--name-only']).split('\n').map((s) => s.trim()).filter(Boolean)
   const extra = staged.filter((p) => !files.includes(p))
   if (extra.length) {
@@ -591,8 +610,12 @@ if (files.length) {
   }
   if (staged.length !== files.length) console.error(`⚠ 将入库 ${staged.length} 个 ≠ 意图 ${files.length} 个（差额通常是"该文件此刻无改动"）`)
   console.log(`  ✓ **提交前核对**：将入库 ${staged.length} 个 ⊆ 意图 ${files.length} 个（无意图外文件）`)
-} else run(['add', '-A', 'scripts/video-factory/html-deck'])
-run(['commit', ...msgParts.flatMap((m) => ['-m', m])])
+} else {
+  const ar2 = spawnSync('git', ['--no-pager', 'add', '-A', 'scripts/video-factory/html-deck'], { cwd: ROOT, encoding: 'utf8' })
+  if (ar2.status !== 0) { addFailed++; console.error(`✗ git add -A 退出码=${ar2.status}（stderr 原样）：\n${String(ar2.stderr || ar2.stdout)}`) }
+}
+const cr = spawnSync('git', ['--no-pager', 'commit', ...msgParts.flatMap((m) => ['-m', m])], { cwd: ROOT, encoding: 'utf8' })
+if (cr.status !== 0) console.error(`✗ git commit 退出码=${cr.status}（stderr 原样）：\n${String(cr.stderr || cr.stdout)}`)
 /* ★ team-lead ②(b)：**"前置绿 ≠ 提交对"**（我那条 `--files` 把 `-m` 当路径就是"前置全过、栽在最后一步"）⇒
    提交后**断言"实际提交的文件集 == 意图"**：用 `diff-tree --name-only` 取真文件集，与 `--files` 数量比对（不等 ⇒ 红）。 */
 const hash = run(['rev-parse', '--short', 'HEAD']).trim()
@@ -600,6 +623,16 @@ console.log(run(['log', '-1', '--oneline']).trim())
 const changed = run(['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD']).split('\n').map((s) => s.trim()).filter(Boolean)
 console.log(`✓ 提交 ${hash} · **实际改动文件 ${changed.length} 个**：`)
 for (const n of changed.slice(0, 20)) console.log(`    · ${n}`)
+/* ★★ team-lead ③：**提交后两步核对**（① HEAD 前进 ② 暂存区空）—— 缺一不可，失败 ⇒ `[COMMIT-NOT-ADVANCED]`。 */
+{
+  const why = commitGuard(HEAD_BEFORE, hash, run(['diff', '--cached', '--name-only']))
+  if (why) {
+    console.error(`✗ [COMMIT-NOT-ADVANCED] ${why}`)
+    console.error('   ⇒ 与"改完要能被读回"同族：**闸门说"前置全过" ≠ 提交发生了**（别只看前一步的 exit 码）')
+    process.exit(1)
+  }
+  console.log(`  ✓ **提交已发生**（HEAD 前进 + 暂存区空）${addFailed ? `（⚠️ 但 git add 曾报错 ${addFailed} 次 ⇒ 已按守卫判定；若意图文件没全进，上面的"文件集 vs 意图"那条会红）` : ''}`)
+}
 if (files.length && changed.length !== files.length) {
   console.error(`✗ **提交文件集与意图不符**：意图 ${files.length} 个 · 实际 ${changed.length} 个 ⇒ 请核对（不许当成功）`)
   process.exit(1)

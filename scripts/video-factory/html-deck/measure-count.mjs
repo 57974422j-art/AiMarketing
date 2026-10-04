@@ -446,7 +446,14 @@ const constantOutsiders = [...new Set(rows.flatMap((r) => r.outsider).filter((c)
 const newOutsiders = [...new Set(rows.flatMap((r) => r.outsider).filter((c) => !baseCodes.has(c)))]
 const first = rows.find((r) => r.judgeHit.length)
 console.log('\n=== 结论 ===')
-if (badReadback.length) console.log(`  ✗ **页内条数不匹配** ${badReadback.length} 行（${badReadback.map((r) => `N=${r.N}:${r.counted}`).join(' ')}）⇒ 注入或切片出错 ⇒ 读数无意义 ⇒ exit 2`)
+/* ★★ team-lead ④(2)：**渲染失败单独归因**（此前把"产物缺失"甩给"注入或切片出错" = 报**错原因** ✗，
+   与"负控/断言要核对为什么红"同族）⇒ 两类读数无效**分开点名**：
+   · `counted === -1` = **渲染失败（产物缺失）**（N 循环里就是这么记的）
+   · 其它 ≠ N = 切片/注入出错 */
+const renderFailed = badReadback.filter((r) => r.counted === -1)
+const sliceBad = badReadback.filter((r) => r.counted !== -1)
+if (renderFailed.length) console.log(`  ✗ **渲染失败（产物缺失）** ${renderFailed.length} 行（${renderFailed.map((r) => `N=${r.N}`).join(' ')}）⇒ **读数无效** ⇒ exit 2`)
+if (sliceBad.length) console.log(`  ✗ **页内条数不匹配（非渲染失败）** ${sliceBad.length} 行（${sliceBad.map((r) => `N=${r.N}:${r.counted}`).join(' ')}）⇒ 切片/注入出错 ⇒ **读数无效** ⇒ exit 2`)
 /* ★ (c) **作用域自己的负控**：若所有行的 `global == scoped` ⇒ 作用域**没生效**（把整篇当一页）⇒ 读数可能"恰好对" = 假绿 */
 const scopeOk = (PROBE.g > PROBE.s) || rows.some((r) => r.global > r.counted)
 if (!scopeOk) console.log(`  ✗ **作用域未生效**（所有行 全篇 == 页内）⇒ 切片逻辑没起作用 ⇒ 读数可能"恰好对" = **假绿** ⇒ exit 2`)
@@ -460,5 +467,6 @@ if (first) console.log(`  ✅ 判据（首个触发判据码的 N）= **${first.
 /* ★ team-lead ③ **字段改名**：`judgeLimitAtLeast` 会被读成"**判据 ≥ N_MAX**"，而事实**相反**（N_MAX 内**未触发任何判据**）⇒
    改为 **`capacityAtLeast`**（**容量**：能装多少 ≠ **约束**：该写多少）。文档里必须区分二者 ——
    条数既然无几何失败模式 ⇒ 其上限**只能由编辑意图定** ⇒ 这正是 `kind: editorial` 的含义。 */
+else if (badReadback.length) console.log(`  ⛔ **容量声明作废**：本次有 ${badReadback.length} 行**读数无效**（${renderFailed.length ? '渲染失败' : ''}${renderFailed.length && sliceBad.length ? ' + ' : ''}${sliceBad.length ? '切片/注入错' : ''}）⇒ 到 N_MAX=${N_MAX} 的「未触发判据」**不构成容量证据**（**幻影容量 = 假绿**，team-lead ④(2)）`)
 else console.log(`  ⏳ 到 N_MAX=${N_MAX} **未触发任何判据** ⇒ 记 **capacityAtLeast: ${N_MAX}**（**容量** ≥ ${N_MAX}；**不是**"判据 ≥ ${N_MAX}"，也不是 null）⇒ 诚实归 editorial：唯一断言「cap ≤ 容量」`)
 process.exit(badReadback.length || newOutsiders.length || !scopeOk || !contOk || rows.some((x) => x.selBad) ? 2 : 0)
