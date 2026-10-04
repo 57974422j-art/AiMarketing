@@ -481,6 +481,28 @@
       "evidence": "**手写条数单源化**：`validate-deck` 里 `pages.length < 4` / `> 12`（原 L606/L607）已改为 `limItems('#/properties/pages')` ⇒ 条数债务棘轮 **3 ⇒ 0**（`debt-baseline.json` 由工具 `--update-baseline` 重写）",
       "source": "node render-deck.mjs examples/deck.all12.json --outdir out-tmp-ctl/all12（12 页渲染通过 · RESULT ok=true）",
       "judgeLimitNote": "**本格无 `capacityAtLeast`（有意）**：页数是**编辑意图**，不是几何容量 ⇒ 唯一可判伪的断言 = **上下界单源**（`minItems/maxItems` 只在 schema 里写一次；渲染器/生成器里**手写数 == 0**，由条数债务棘轮机械保证）。⚠️ 不许写「容量 ≥ N」，也不许把 `renderedMax` 当容量"
+    },
+    {
+      "jsonPointer": "#/$defs/pageData/properties/secondary",
+      "field": "pages.7.secondary",
+      "pageType": "data",
+      "detectPoint": "data 页 `div.p3-metrics` 的**直接子 div**（选择器 `div.p3-metrics > div` —— 该页**无 `ul/li`** ⇒ 必须用组合器；类前缀位置式 ⇒ 从产物解析）",
+      "unit": "count",
+      "kind": "editorial",
+      "detectKind": "count",
+      "capacityAtLeast": 2,
+      "sweepMax": 2,
+      "sweepMaxNote": "**扫描上限 = 2**（与 schema 的 minItems/maxItems 一致）—— ⚠️ **不能再往上探**：`secondary` 是**对象数组**，而条数构造器只能**补字符串**（`N=29` 实测「渲染失败：产物缺失」）⇒ 容量**只证到 2**，如实记 2（不冒记 30）",
+      "basis": [
+        "**无几何失败模式**（N=2 ⇒ **判据码=[]**）",
+        "⚠️ **容量只到 2**：对象数组无法被合成补足（构造器补的是字符串）⇒ 高于 2 的 N **不可测**（不是\"测了没问题\"，而是\"根本测不了\"）——如实标注"
+      ],
+      "page": 8,
+      "readback": "**页内条数 == N** ✓（N=2 ⇒ 页内 2）",
+      "twoPath": "**未交叉（页切片单源）** ⇒ 按裁定不许记成「交叉通过」",
+      "evidence": "**判据码=[]**（N=2）· 恒定非判据码 `timeline_track_too_dense` / `nested_structure_needs_subcomposition`（各 N 都有 ⇒ 与容量无关）· 作用域负控走**页无关探针**（`li`：全篇 22 > 页内 0）⇒ 切片确实截断",
+      "source": "node measure-count.mjs --deck all12 --page 8 --jsonpath pages.7.secondary --sel \"div.p3-metrics > div\" --min 2 --max 2 --nmax 2 --stride 27 --maxitems-ptr '#/$defs/pageData/properties/secondary'",
+      "judgeLimitNote": "**容量 ≠ 约束**：`capacityAtLeast: 2` = **已证能装 ≥ 2**（= schema 上限 2）⇒ 唯一断言 `maxItems ≤ 容量`（2 ≤ 2 ✓）。★ 本格需要**组合器选择器** ⇒ 触发 `--sel` 的 **CSS 子集**扩展（`dom-target.countCss`，**不支持则判红而非静默 0**）。★ **页作用域说明**：无 `--expect-page`，页作用域由 `--page 8` 切片承担。⚠️ 未证部分如实标注：**该上限的正确值由编辑意图定**（恰 2 条），故不许写「上限已验证」"
     }
   ]
 }

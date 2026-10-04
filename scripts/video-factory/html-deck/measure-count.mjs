@@ -25,6 +25,8 @@ import { spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, readdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { tmpdir } from 'node:os'
+/* ★ msg31 ④：`--sel` 的 **CSS 子集**复用 `dom-target.countCss`（**唯一实现**，不另造选择器引擎）。 */
+import { countCss } from './dom-target.mjs'
 import { fileURLToPath } from 'node:url'
 /* ★★ team-lead msg8 ③：兜底 = **跳过 shebang/import 后的第一句可执行**（此前它在 ~60 行之后 ⇒ 那段里的异常仍漏网）。 */
 for (const [ev, tag] of [['uncaughtException', 'UNCAUGHT_EXCEPTION'], ['unhandledRejection', 'UNCAUGHT_REJECTION']]) {
@@ -170,6 +172,16 @@ if (process.argv.includes('--self-test-extract')) {
 /* ★ team-lead ②/③/④：把**读数解析类逻辑**抽成**纯函数** ⇒ 可喂**合成输入自测**（秒级、免渲染、可判伪）。
    这三条是"条数读数"的**承重判据**（决定"有没有几何失败模式"）⇒ 必须自证。 */
 function scopedCount(htmlText, tag) { return (String(htmlText).match(new RegExp(`<${tag}\\b`, 'gi')) || []).length }
+/* ★★ msg31 ④：`--sel` **支持 CSS 子集**（组合器 `>`/后代 · `:first-child` · `:nth-child(n)` · `[attr]`）——
+   含这些语法时走 `countCss`（`dom-target` 的唯一实现）；**不被支持 ⇒ 返回 bad ⇒ 调用方判红**
+   （**绝不静默 0**：静默 0 曾把我引向"选择器不可表达"的误判，也让"读数"看起来正常）。纯标签选择器仍走快路径（零风险）。 */
+function selCount(htmlText, sel) {
+  if (/[>[\] :]/.test(String(sel))) {
+    const r = countCss(htmlText, sel)
+    return r.ok ? { n: r.count } : { bad: r.why }
+  }
+  return { n: (String(htmlText).match(new RegExp(`<${String(sel).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi')) || []).length }
+}
 function containerCount(sliceHtml) { return (String(sliceHtml).match(/<(ul|ol)\b/gi) || []).length }
 function pageAssertOk(hitPage, cellPage) { return !cellPage || Number(hitPage) === Number(cellPage) }
 /* ★★ team-lead msg29 ②（**裁定 a：接线为真校验**）：定位权威是 `--jsonpath pages.<i>`（0-based ⇒ 应在页 `i+1`），
@@ -212,7 +224,13 @@ if (process.argv.includes('--self-test-scope')) {
   const ce2 = containerExpectTag(2, 2, 'compare 页左右各一 ul') === null
   const ce3 = containerExpectTag(2, 3, '理由') === 'CONTAINERS_EXPECT_MISMATCH'
   const ce4 = containerExpectTag(2, 2, '   ') === 'CONTAINERS_EXPECT_NO_REASON'
-  const ok = c1 && c2 && s3 && p1 && p2 && pa1 && pa2 && pa3 && ce1 && ce2 && ce3 && ce4
+  /* ★ msg31 ④：**选择器子集**的合成自测 —— 组合器命中预期条数；**不支持的语法 ⇒ bad（判红）**。 */
+  const cssSrc = '<section><div class="p3-metrics"><div>a</div><div>b</div></div><div class="other"><div>c</div></div></section>'
+  const sc1 = selCount(cssSrc, 'div.p3-metrics>div').n === 2
+  const sc2 = selCount(cssSrc, 'div.p3-metrics div').n === 2
+  const sc3 = !!selCount(cssSrc, 'div + div').bad
+  const sc4 = selCount(cssSrc, 'li').n === 0
+  const ok = c1 && c2 && s3 && p1 && p2 && pa1 && pa2 && pa3 && ce1 && ce2 && ce3 && ce4 && sc1 && sc2 && sc3 && sc4
   console.log(`  合成自测(scope)：单容器=${containerCount(one)}(须 1) ${c1 ? '✓' : '✗'} · **双容器=${containerCount(two)}(须 2 ⇒ 红)** ${c2 ? '✓' : '✗'} · 切条数=${scopedCount(one, 'li')}(须 3) ${s3 ? '✓' : '✗'}`)
   console.log(`                    页断言：同页(4,4)=${pageAssertOk(4, 4)}(须 true) ${p1 ? '✓' : '✗'} · **异页(3,4)=${pageAssertOk(3, 4)}(须 false ⇒ 红)** ${p2 ? '✓' : '✗'}`)
   console.log(`                    **--page 声明**：一致(pages.9.items, 10)=${pageArgTag('pages.9.items', 10)}(须 null) ${pa1 ? '✓' : '✗'} · **不一致(9)=${pageArgTag('pages.9.items', 9)}(须恰为 PAGE_ARG_MISMATCH)** ${pa2 ? '✓' : '✗'} · 顶层数组(pages, 5)=${pageArgTag('pages', 5)}(须 null) ${pa3 ? '✓' : '✗'}`)
@@ -221,6 +239,7 @@ if (process.argv.includes('--self-test-scope')) {
 }
 
 const created = []
+let PROBE = { g: 0, s: 0 }      /* 作用域探针（页无关 `li` 计数：全篇 vs 页内）—— 循环内记录，汇总处判 scopeOk */
 const cleanup = () => { if (!KEEP) for (const p of created) { try { rmSync(p, { recursive: true, force: true }) } catch { /* ignore */ } } }
 process.on('exit', cleanup)
 
@@ -298,8 +317,16 @@ for (let N = MIN; N <= N_MAX; N += STRIDE) {
   const secs = html.split(/<section\b/i).slice(1)                 /* 每页一切片 */
   const tag = SEL.replace(/[^a-z]/gi, '') || 'li'
   const slice = String(secs[Number(pIdx)] || '')
-  const scoped = scopedCount(slice, tag)
-  const global = scopedCount(html, tag)
+  const sR = selCount(slice, SEL), gR = selCount(html, SEL)
+  /* ★ 作用域探针（**页无关**：`li`）—— 本行在循环内，**必须在这里记录**（汇总处 `html`/`slice` 不在作用域，
+     我第一版直接在汇总处写 ⇒ `[UNCAUGHT_EXCEPTION] html is not defined` ⇒ 被工具转成带 tag 的红 ✓）。 */
+  PROBE = { g: selCount(html, 'li').n ?? 0, s: selCount(slice, 'li').n ?? 0 }
+  if (sR.bad || gR.bad) {
+    console.log(`      ✗ [SEL_UNSUPPORTED] ${sR.bad || gR.bad} ⇒ **判红**（不许把"不支持"当 0 读数）`)
+    rows[rows.length - 1].selBad = true
+  }
+  const scoped = sR.n ?? -1
+  const global = gR.n ?? -1
   /* ★ team-lead ⑤：**页内同类容器数必须 == 1** —— 否则"切片内所有 `<li`"会**合并高估**（两个 `<ul>` ⇒ 读回 > N）。
      便宜且可判伪（比按 jsonpath 定位容器轻）。★ ②：**真红**（计入 contOk，参与退出码）。 */
   const containers = containerCount(slice)
@@ -388,12 +415,12 @@ const first = rows.find((r) => r.judgeHit.length)
 console.log('\n=== 结论 ===')
 if (badReadback.length) console.log(`  ✗ **页内条数不匹配** ${badReadback.length} 行（${badReadback.map((r) => `N=${r.N}:${r.counted}`).join(' ')}）⇒ 注入或切片出错 ⇒ 读数无意义 ⇒ exit 2`)
 /* ★ (c) **作用域自己的负控**：若所有行的 `global == scoped` ⇒ 作用域**没生效**（把整篇当一页）⇒ 读数可能"恰好对" = 假绿 */
-const scopeOk = rows.some((r) => r.global > r.counted)
+const scopeOk = (PROBE.g > PROBE.s) || rows.some((r) => r.global > r.counted)
 if (!scopeOk) console.log(`  ✗ **作用域未生效**（所有行 全篇 == 页内）⇒ 切片逻辑没起作用 ⇒ 读数可能"恰好对" = **假绿** ⇒ exit 2`)
 const contOk = rows.every((r) => (r.contOk !== undefined ? r.contOk : (r.containers || 0) <= 1))
 if (!contOk) console.log(`  ✗ **页内同类容器数 > 1**（某 N 的切片里不止一个列表容器）⇒ 计数会**合并高估** ⇒ 读数不可信 ⇒ exit 2`)
 console.log(`  twoPath 记录：${[...new Set(rows.map((r) => r.twoPath))].join(' / ')}`)
-if (scopeOk) console.log(`  ✓ 作用域负控：至少有 ${rows.filter((r) => r.global > r.counted).length} 行出现 **全篇 > 页内** ⇒ 切片确实在起作用`)
+if (scopeOk) console.log(`  ✓ 作用域负控：${PROBE.g > PROBE.s ? `**页无关探针**（li：全篇 ${PROBE.g} > 页内 ${PROBE.s}）` : `本格计数 ${rows.filter((r) => r.global > r.counted).length} 行出现 **全篇 > 页内**`} ⇒ 切片确实在起作用`)
 if (newOutsiders.length) console.log(`  ✗ **有"随 N 新增的非判据码"**：${newOutsiders.join(', ')} ⇒ 不许当"无触发" ⇒ exit 2`)
 if (constantOutsiders.length) console.log(`  ℹ 恒定非判据码（各 N 都有 ⇒ 与容量无关，**记录不判红**）：${constantOutsiders.join(', ')}`)
 if (first) console.log(`  ✅ 判据（首个触发判据码的 N）= **${first.N}** · 决定性码 = [${first.judgeHit.join(', ')}] · 闸门=${first.gate}`)
@@ -401,4 +428,4 @@ if (first) console.log(`  ✅ 判据（首个触发判据码的 N）= **${first.
    改为 **`capacityAtLeast`**（**容量**：能装多少 ≠ **约束**：该写多少）。文档里必须区分二者 ——
    条数既然无几何失败模式 ⇒ 其上限**只能由编辑意图定** ⇒ 这正是 `kind: editorial` 的含义。 */
 else console.log(`  ⏳ 到 N_MAX=${N_MAX} **未触发任何判据** ⇒ 记 **capacityAtLeast: ${N_MAX}**（**容量** ≥ ${N_MAX}；**不是**"判据 ≥ ${N_MAX}"，也不是 null）⇒ 诚实归 editorial：唯一断言「cap ≤ 容量」`)
-process.exit(badReadback.length || newOutsiders.length || !scopeOk || !contOk ? 2 : 0)
+process.exit(badReadback.length || newOutsiders.length || !scopeOk || !contOk || rows.some((x) => x.selBad) ? 2 : 0)
