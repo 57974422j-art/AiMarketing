@@ -79,6 +79,25 @@ export function fixedWindowVerdict(cell, node, boundNode) {
   return out
 }
 
+/** ★★ team-lead msg37 ②：**同一判据只许一处实现**（K17 的教训：4 份解析只修了 1 份 ⇒ 分叉是**将来**的事，
+ *  "此刻功能等价"不构成豁免）—— 判据：① `verifyCoverageVerdict(` 出现 **≥ 2** 次（定义 + `--verify-cell` 调用点）；
+ *  ② **旧的内联形态必须不存在**（内联比较 / 内联文案 / 重复推送 ⇒ 命中即红）。
+ *  ⚠️ 指纹**分段拼**（源码里不出现连续旧字面量）⇒ 判定器**不会自匹配**（HF / K17-ff 那两次同款坑）。 */
+export function sameCriterionVerdicts(src) {
+  const out = []
+  const s = String(src || '')
+  const CALL = 'verifyCoverage' + 'Verdict('
+  const nCall = s.split(CALL).length - 1
+  if (nCall < 2) out.push(`${CALL} 只出现 **${nCall}** 次（须 ≥ 2：定义 + \`--verify-cell\` 调用点）⇒ 判据又分叉了`)
+  const OLD = [
+    ['旧内联比较', 'maxIn !== Number(' + 'cell.' + 'capacityAtLeast)'],
+    ['旧重复推送', 'if (fixed === ' + 'null) ' + 'why.push('],
+    ['旧内联文案（verify-cell 版）', '页内=' + '${inPage[1]} ≠ ' + 'capacityAtLeast='],
+  ]
+  for (const [nm, pat] of OLD) if (s.includes(pat)) out.push(`**旧内联形态仍在**（${nm}）⇒ 同一判据两份实现（应改调纯函数）`)
+  return out
+}
+
 /** 判据 2（`verifyCoverageVerdict`）：`--verify-cell` 对 count 格的"预期值" ——
  *   · 有 `capacityAtLeast` ⇒ `maxIn == capacityAtLeast`
  *   · 无（**固定窗口**）⇒ `maxIn >= 契约值`（**必须覆盖到**；**越契约仍渲染不算错** —— 那是"越契约可渲染"的旁证）
@@ -104,9 +123,28 @@ if (process.argv.includes('--self-test-synth')) {
   chk('正控：**越契约仍渲染**（max=30 · fixed=3）⇒ 不红', verifyCoverageVerdict({}, 30, 3) === null)
   chk('正控：有容量时 max==capacityAtLeast ⇒ 不红', verifyCoverageVerdict({ capacityAtLeast: 30 }, 30) === null)
   chk('正控：区间窗口的格（有容量）不被判"固定窗口"', fixedWindowVerdict({ capacityAtLeast: 30 }, { minItems: 3, maxItems: 6 }, null).length === 0)
+  /* ★ msg37 ② 那条**指纹断言**自己的必红/不许红样本（判据必须能被合成样本证伪 —— 否则它只是"看着在测"） */
+  const fpOld = sameCriterionVerdicts("x\nif (maxIn !== Number(" + "cell." + "capacityAtLeast)) why.push('x')")
+  const fpNew = sameCriterionVerdicts("export function verifyCoverage" + "Verdict(a,b,c){}\nconst v = verifyCoverage" + "Verdict(cell, maxIn, fixed)")
+  chk('指纹：**旧内联形态 ⇒ 必红**', fpOld.length > 0)
+  chk('指纹：**纯函数两处（定义+调用）⇒ 不许红**', fpNew.length === 0)
   const fail = cases.filter((x) => !x).length
   console.log(`   ${fail === 0 ? '✓' : '✗'} [SYNTH-SELFTEST] 合成负控/正控 用例=${cases.length} · 失败=${fail}`)
   process.exit(fail === 0 ? 0 : 1)
+}
+
+/* ★★ msg37 ②：**同判据只许一处**的结构性断言（每次跑都跑：普通运行 / `--self-test-synth` / `--verify-cell` 都过它）。 */
+{
+  let src = ''
+  let fpReadFail = 0       /* ⚠️ catch 必须会说话（哑 catch 棘轮咬过 4 次） */
+  try { src = readFileSync(new URL(import.meta.url), 'utf8') } catch { fpReadFail++ }
+  if (fpReadFail) console.error('   （同判据断言：源码读取失败 ⇒ 判定不完整）')
+  const fp = sameCriterionVerdicts(src)
+  if (fp.length) {
+    console.error('✗ **同一判据只许一处实现**（否则下次必然分叉 —— K17 的坑）：')
+    for (const m of fp) console.error(`   · ${m}`)
+    process.exit(2)
+  }
 }
 
 const viol = [], noted = []
