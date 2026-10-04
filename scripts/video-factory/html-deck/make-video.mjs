@@ -90,6 +90,15 @@ function main(text, opt) {
   const outRoot = resolve(opt.outdir || join(HERE, 'out-tmp-make'))
   const skins = (opt.skins === 'all' || !opt.skins ? allSkins : String(opt.skins).split(',').map((s) => (s.startsWith('master-') ? s : 'master-' + s)))
   const oris = String(opt.orientations || '16:9').split(',')
+  /* ★ `--plan`：**只打印计划**（不生成、不渲染、**不写任何文件**）—— 此前它被登记却**从未被读**
+     （`旗标三件套` 断言 ②「注册但未消费」当场抓出 ⇒ 这里接线，而不是留在表里假装覆盖）。
+     ⚠️ 必须在该函数**任何落盘之前**（`--clean` / `mkdir` / 写 `_source.md` 都在下面）⇒ 否则"只打印计划"仍会写文件 ✗。 */
+  if (opt.plan) {
+    console.log(`   输入 ${basename(opt.in || '(内联)')} · 皮肤 ${skins.length} 套 × 方向 ${oris.length} 种`)
+    console.log(`   [PLAN] 将生成 ${skins.length} × ${oris.length} = **${skins.length * oris.length}** 条；输出根 ${outRoot}（**未写任何文件**）`)
+    for (const s of skins) if (!opt.only || s === opt.only) console.log(`     · ${s}`)
+    return 0
+  }
   if (opt.clean) {
     /* 只清自己的命名空间（不碰调用者放进来的 --logo/--bgm/--in） */
     for (const sub of ['decks', 'skins']) rmSync(join(outRoot, sub), { recursive: true, force: true })
@@ -98,13 +107,6 @@ function main(text, opt) {
   const textFile = join(outRoot, 'decks', '_source.md')
   writeFileSync(textFile, text, 'utf8')
   console.log(`   输入 ${basename(opt.in || '(内联)')} · 皮肤 ${skins.length} 套 × 方向 ${oris.length} 种 · 母版配色按序号 ${opt.paletteIndex ?? 0}`)
-  /* ★ `--plan`：**只打印计划**（不生成、不渲染）—— 此前它被登记却**从未被读**
-     （`旗标三件套` 断言 ②「注册但未消费」当场抓出 ⇒ 这里接线，而不是留在表里假装覆盖）。 */
-  if (opt.plan) {
-    console.log(`   [PLAN] 将生成 ${skins.length} × ${oris.length} = **${skins.length * oris.length}** 条；输出根 ${outRoot}`)
-    for (const s of skins) if (!opt.only || s === opt.only) console.log(`     · ${s}`)
-    return 0
-  }
 
   const rows = []
   for (const skin of skins) {
@@ -179,12 +181,20 @@ function selfTest() {
     '下一步：挑一套皮肤，出第一条片',
   ].join('\n'), 'utf8')
   const cases = []
-  const fail = main(readFileSync(md, 'utf8'), { in: md, skins: 'master-mono', orientations: '16:9', outdir: tmp, plan: true })
+  /* ⚠️ 夹具**不许再传 `plan: true`**：该字段此前被忽略，接线后它会**提前 return** ⇒ 主用例必然失败
+     （我接线时正是这么把自测弄红的 —— **自测夹具必须显式表达"这次要真跑"**）。 */
+  const fail = main(readFileSync(md, 'utf8'), { in: md, skins: 'master-mono', orientations: '16:9', outdir: tmp })
   const rep = (() => { try { return JSON.parse(readFileSync(join(tmp, 'make-report.json'), 'utf8')) } catch { return null } })()
   const okRow = rep && rep.rows.length === 1 && rep.rows[0].ok
   const finalExists = okRow && existsSync(join(HERE, rep.rows[0].final))
   console.log(`   自测：MAKE 退出=${fail}（须 0）· 报告条数=${rep ? rep.rows.length : '?'}（须 1）· 产物存在=${finalExists}`)
   cases.push(fail === 0, !!okRow, finalExists)
+  /* ★ `--plan` **结构用例**（接线后必须有人盯着）：plan ⇒ 返回 0 且**一个文件都不写**（含 `make-report.json`）。 */
+  const planRoot = join(tmp, '_plan')
+  const planRet = main(readFileSync(md, 'utf8'), { in: md, skins: 'master-mono', orientations: '16:9', outdir: planRoot, plan: true })
+  const planClean = planRet === 0 && !existsSync(join(planRoot, 'make-report.json')) && !existsSync(join(planRoot, 'decks'))
+  console.log(`   --plan 用例：返回=${planRet}（须 0）· 未写任何文件=${planClean ? '✓' : '✗'}`)
+  cases.push(planClean)
   /* 负控：输入不存在 ⇒ exit 2（不许抛栈） */
   const bad = spawnSync(process.execPath, [join(HERE, 'make-video.mjs'), '--in', join(tmp, 'nope.md')], { encoding: 'utf8' })
   const badOk = bad.status === EXIT.INPUT
