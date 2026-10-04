@@ -145,6 +145,46 @@ if (process.argv.includes('--self-test-i9')) {
   process.exit(fail === 0 ? 0 : 1)
 }
 
+// ★★ **K17-ff 第 2 层收口（结构性断言）**：源码里**不许再出现裸的媒体工具调用**
+//   （即 `spawnSync` 后直接跟媒体工具**字面量**）—— 必须走 `engine-bin.mjs` 的
+//   `resolveFfmpeg()` / `resolveFfprobe()`（**唯一实现**，候选数组与环境变量只许在那一处）。
+//   ⇒ 让"**第 11 处裸用法**"进不来（此前 10 处已清扫：measure-limits 2 · verify-chart 2 · verify-density 2 ·
+//      verify-image 3 · verify-masters 1 —— 靠**人记得**清完，靠**断言**才守得住）。
+//   ⚠️ 探针**分段拼**（源码里不出现连续探针）⇒ 判定器不自匹配（HF / K17-ff / 本批多次同款坑）。
+//   ⚠️ 本段**用行注释**（不是块注释）：闸门 ⓪c 是**行级朴素扫描**（进入块注释后，任何含"块注释起始符"的行即判红），
+//      它自己给的解法就是"**改用行注释**"——此处照办（另：这类"判据误伤真源"的现场值得记进 K 表）。
+{
+  const N1 = "spawnSync('ff" + "mpeg'"
+  const N2 = "spawnSync('ff" + "probe'"
+  const matcher = (t) => (t.split(N1).length - 1) + (t.split(N2).length - 1)
+  if (process.argv.includes('--self-test-bare-media')) {
+    const cases = []
+    const chk = (name, cond) => { cases.push(cond); console.log(`   ${cond ? '✓' : '✗'} ${name}`) }
+    chk('① 裸调用样本 ⇒ 命中（必红）', matcher('const r = ' + N1 + ", [ '-v' ]") === 1)
+    chk('② 裸 ffprobe 样本 ⇒ 命中（必红）', matcher('const r = ' + N2 + ", [ '-v' ]") === 1)
+    chk('③ 走唯一实现的写法 ⇒ 不命中（不许红）', matcher('const r = spawnSync(resolveFf' + "mpeg().p, [ '-v' ])") === 0)
+    const fail = cases.filter((x) => !x).length
+    console.log(`   ${fail === 0 ? '✓' : '✗'} [BARE-MEDIA-SELFTEST] 裸媒体工具断言 用例=${cases.length} · 失败=${fail}`)
+    process.exit(fail === 0 ? 0 : 1)
+  }
+  const hits = []
+  for (const f of mjs) {
+    let t = ''
+    let rf = 0
+    try { t = readFileSync(f, 'utf8') } catch (e) { rf++; console.error(`   ⚠ [裸媒体工具扫描] 读取失败：${e.message}`) }
+    if (rf) continue
+    const n = matcher(t)
+    if (n) hits.push(`${relative(ENGINE_ROOT, f)}×${n}`)
+  }
+  if (hits.length) {
+    console.error(`✗ **裸媒体工具调用**（K17-ff 第 2 层）：${hits.join(' · ')}`)
+    console.error('   ⇒ 一律改用 `resolveFfmpeg().p` / `resolveFfprobe().p`（唯一实现在 `engine-bin.mjs`；'
+      + '它同时保证"渲染器钉住的 ffmpeg"被尊重）')
+    process.exit(1)
+  }
+  console.log(`  ✓ 裸媒体工具调用 = 0（${mjs.length} 个 .mjs 全走 resolveFfmpeg/resolveFfprobe）`)
+}
+
 console.log(`\n⓪f 全量语法/JSON 守卫：.mjs ${mjs.length} 个（node --check + 块注释平衡）· .json ${json.length} 个（JSON.parse）`)
 if (!mjs.length || !json.length) {
   console.error(`✗ 扫描到 0 个 .mjs 或 0 个 .json ⇒ exit 2（"无事可查" ≠ "查过且通过"）`)

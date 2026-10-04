@@ -331,6 +331,7 @@ if (process.argv.includes('--write-silent-baseline')) {
     ['crosscheck-deck-json.mjs', ['--self-test-page'], null, 0],
     ['check-schema-vs-limits.mjs', ['--self-test-synth'], 'SYNTH-SELFTEST', 0],
     ['check-syntax-and-json.mjs', ['--self-test-i9'], 'I9-SELFTEST', 0],   /* ★ I9 两层能力边界的**合成**证据（零文件依赖） */
+    ['check-syntax-and-json.mjs', ['--self-test-bare-media'], 'BARE-MEDIA-SELFTEST', 0],   /* ★ 裸媒体工具断言（K17-ff 第 2 层） */
     ['gen-deck.mjs', ['--self-test'], 'GEN-SELFTEST', 0],
     ['mux-video.mjs', ['--self-test'], 'MUX-SELFTEST', 2],
   ]
