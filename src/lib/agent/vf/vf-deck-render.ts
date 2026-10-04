@@ -118,8 +118,26 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, log }: {
       return b.length >= 6 ? b : ''
     }
     const mid = shots.slice(1).map(bulletOf).filter(Boolean)
+    // ★VF_DECKCONFIRM_V1（2026-10-04 用户实测「7 镜仍被拦」）：图视混剪等线的分镜里**视频镜多、文字镜少**，
+    //   过滤后常 < 6 条（引擎最低 = 封面 + 2 内容节 × 3 要点 + 尾页）。分镜要点本来就把文案切走了，
+    //   所以**按文案全文切句补足**（内容仍 100% 来自用户自己的文案，不编造、不凑数）。
+    //   文案也切不出 6 条（文案本身太短）才如实报错 —— 此时新引擎确实做不出结构完整的 PPT。
+    let byScript = false
     if (mid.length < 6) {
-      return { ok: false, msg: `分镜可用的文字太少（可用要点 ${mid.length} 条，新引擎至少需要 6 条 ≈ 6 镜）。回「重试」重排，或用左边「确认出片」走老引擎。` }
+      const midN = mid.length
+      const sents = String(draft?.script || '')
+        .split(/[。！？!?；;\n]+/)
+        .map((x) => x.trim())
+        .filter((x) => x.length >= 6)
+        .map((x) => (x.length > BULLET_MAX ? x.slice(0, BULLET_MAX - 1) + '…' : x))
+      if (sents.length >= 6) {
+        mid.splice(0, mid.length, ...sents)
+        byScript = true
+        vflog(`[新引擎出片] 分镜要点只有 ${midN} 条不足 6 → 改按文案全文切句 ${sents.length} 条出 PPT（内容不变，仍是你自己的文案）`)
+      }
+    }
+    if (mid.length < 6) {
+      return { ok: false, msg: `分镜可用的文字太少（可用要点 ${mid.length} 条，文案切句也不足 6 条，新引擎至少需要 6 条）。回「重试」重排，或用左边「确认出片」走老引擎。` }
     }
     const lines: string[] = []
     const first = shots.find((s) => String(s?.text || '').trim() || String(s?.subtitle || '').trim())
@@ -150,7 +168,8 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, log }: {
       } catch { /* 任务文件写失败不阻塞渲染本体 */ }
     }
     writeTask({ id: taskId, status: 'running', startedAt: new Date().toISOString(),
-      cost, script: String(draft?.script || '').slice(0, 200), engine: 'deck', skin, ori, uid: uidS })
+      cost, script: String(draft?.script || '').slice(0, 200), engine: 'deck', skin, ori, uid: uidS,
+      byScript: byScript || undefined })
 
     // ── 后台渲染（不 await；超时 kill；close 后入库/扣费/收尾，异常全部就地消化）──
     const workDir = path.join(outDir, 'deck_' + Date.now())
