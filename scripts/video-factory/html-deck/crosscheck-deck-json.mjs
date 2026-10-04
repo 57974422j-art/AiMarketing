@@ -261,6 +261,16 @@ const TAG_PAGE = 'EXPECT_PAGE_MISMATCH'
 const TAG_PAGE_MISSING = 'EXPECT_PAGE_MISSING'
 const TAG_PAGE_SKIP = 'PAGE_CHECK_SKIPPED'
 function modeTag(exp, unk) { if (exp) return null; return unk ? TAG_PAGE_SKIP : TAG_PAGE_MISSING }
+/* ★★ team-lead msg12 ②：**机器标记只许出现在 stdout 一处**（同一条 tag 落两流 ⇒ 上层按流取会拿两份，
+   将来措辞一分叉就成"两套结论"）。⇒ stderr 的逐行明细**去掉 tag**，只留人类可读的说明；
+   并由 `--self-test-page` 断言"人类行里标签计数 = 0"（机读形态仍由 stdout 结论行承载）。 */
+function humanRowLine(r, exp) {
+  const tag = badReason(r, exp)
+  const why = tag === 'RENDER_FAILED' ? '渲染失败' : tag === 'READBACK_MISMATCH'
+    ? `读回 ${r.back} 与 k 加 offset（${r.k + RB_OFFSET}）不符`
+    : `本次命中页 ${r.no}，与期望的格子 page ${exp} 不符`
+  return `   · k=${r.k}：${why}（渲染=${r.renderOk ? 'ok' : '✗'} · 读回=${r.back}/${r.k + RB_OFFSET} · 命中页=${r.no}）〔人类提示；机读标签只在 stdout 结论行〕`
+}
 /* 判据唯一实现（循环里只做**可见提示**，判定在汇总处 ⇒ 不与"循环里 push 后面声明的数组"那种 TDZ 假红同形）。 */
 function badReason(r, exp) {
   if (!r.renderOk) return 'RENDER_FAILED'
@@ -276,10 +286,14 @@ if (process.argv.includes('--self-test-page')) {
   const c = badReason({ k: 37, renderOk: false, back: -1, no: '-' }, 2)
   /* ★ msg3 ②：**"没真正校验"的两种红因也要有 tag**（team-lead 指出我唯独漏了这一种）。 */
   const d = modeTag(0, false), e = modeTag(0, true), f = modeTag(1, false)
+  /* ★ msg12 ②：**通道断言** —— 人类明细行里**标签计数 = 0**（机读标签只许在 stdout 结论行出现一次）。 */
+  const human = humanRowLine({ k: 30, renderOk: true, back: 30, no: 1 }, 2)
+  const humanTagFree = !/\[[A-Z][A-Z_]{2,}\]/.test(human)
   const ok = a === TAG_PAGE && b === null && c === 'RENDER_FAILED'
-    && d === TAG_PAGE_MISSING && e === TAG_PAGE_SKIP && f === null
+    && d === TAG_PAGE_MISSING && e === TAG_PAGE_SKIP && f === null && humanTagFree
   console.log(`  合成自测(page)：异页(1/2) ⇒ ${a}（须 ${TAG_PAGE}）${a === TAG_PAGE ? '✓' : '✗'} · 同页(2/2) ⇒ ${b === null ? '不红 ✓' : `✗ 误红（${b}）`} · 渲染失败 ⇒ ${c}（须 RENDER_FAILED）${c === 'RENDER_FAILED' ? '✓' : '✗'}`)
   console.log(`                   **未校验类**：缺参数 ⇒ ${d}（须 ${TAG_PAGE_MISSING}）${d === TAG_PAGE_MISSING ? '✓' : '✗'} · 显式跳过 ⇒ ${e}（须 ${TAG_PAGE_SKIP}，**非 0**）${e === TAG_PAGE_SKIP ? '✓' : '✗'} · 已声明 ⇒ ${f === null ? '不红 ✓' : `✗ ${f}`}`)
+  console.log(`                   **通道**：人类明细行标签计数 = 0（须 true）${humanTagFree ? '✓' : '✗'}`)
   process.exit(ok ? 0 : 1)
 }
 let OVERRIDE_ENV = null
@@ -663,11 +677,7 @@ const bad = rows.filter((r) => badReason(r, EXPECT_PAGE))
 if (bad.length) {
   /* ★ msg5 ④ 通道契约：**结论行 + 全部 tag 同在 stdout 同一行**（grep/上层脚本可靠；人类细节仍在 stderr）。 */
   console.log(`✗ 有 ${bad.length} 行读数作废 ⇒ tags=[${[...new Set(bad.map((r) => badReason(r, EXPECT_PAGE)))].join(', ')}]（EXPECT_PAGE=${EXPECT_PAGE || '（未指定）'}）⇒ **读数无意义**（§25b：先过读回再谈读数）⇒ exit 2`)
-  for (const r of bad.slice(0, 4)) {
-    const tag = badReason(r, EXPECT_PAGE)
-    const why = tag === 'RENDER_FAILED' ? '渲染失败' : tag === 'READBACK_MISMATCH' ? `读回 ${r.back} ≠ ${r.k + RB_OFFSET}` : `命中页 ${r.no} ≠ 格子 page ${EXPECT_PAGE}`
-    console.error(`   · k=${r.k}：[${tag}] ${why} · 渲染=${r.renderOk ? 'ok' : '✗'} · 读回=${r.back}/${r.k + RB_OFFSET} · 命中页=${r.no}`)
-  }
+  for (const r of bad.slice(0, 4)) console.error(humanRowLine(r, EXPECT_PAGE))
   process.exit(2)
 }
 const pair = rows.filter((r) => r.pairViol)
