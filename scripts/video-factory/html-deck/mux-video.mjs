@@ -124,8 +124,11 @@ function mux(o) {
   }
   const src = probe(o.in)
   const bin = resolveBin('ffmpeg')
-  /* ★ 因字幕会切工作目录 ⇒ 输入/输出必须**先转绝对路径**，否则相对路径在切目录后失效 */
-  const args = buildArgs({ ...o, in: resolve(o.in), out: resolve(o.out) })
+  /* ★ 因字幕会切工作目录 ⇒ **所有**路径（in/out/**logo/bgm**）必须**先转绝对**，否则相对路径在切目录后失效。
+   *   ⚠️ 第一版只转了 in/out ⇒ `--logo out-tmp-batch/logo.png` 被解析成 `<字幕目录>/out-tmp-batch/logo.png` ⇒
+   *   `Error opening input file … No such file or directory`（端到端跑「文案→字幕→合成」时暴露）。 */
+  const abs = (p) => (p ? resolve(p) : p)
+  const args = buildArgs({ ...o, in: abs(o.in), out: abs(o.out), logo: abs(o.logo), bgm: abs(o.bgm) })
   /* 字幕用"工作目录 + 裸文件名"⇒ 运行目录必须切到字幕所在目录 */
   const cwd = o.srt ? dirname(resolve(o.srt)) : undefined
   if (A.dryRun) {
@@ -197,6 +200,22 @@ function selfTest() {
     console.log(`    ${ok ? '✓' : '✗'} ${c.n} ⇒ exit=${r} 时长=${g ? g.dur.toFixed(2) : '?'} 音轨=${g && g.hasAudio ? '有' : '无'}（须 ${c.wantAudio === true ? '有' : '与源一致'}）`)
     if (!ok) fail++
   }
+  /* 回归用例 E2：**相对路径 + 字幕**（覆盖"切 cwd"的副作用 —— 第一版只把 in/out 转绝对，
+   *   `--logo` 相对路径会被解析到字幕目录下 ⇒ 找不到。用**相对路径**才测得到，全用绝对路径测不出来） */
+  console.log('  — 用例 E2 相对路径 + 字幕（切 cwd 回归）')
+  const cwd0 = process.cwd()
+  let e2ok = false
+  try {
+    process.chdir(wd)
+    const r2 = mux({ in: 'raw.mp4', out: 'e2.mp4', srt: 'a.srt', logo: 'logo.png', bgm: 'bgm.m4a' })
+    const g2 = probe(join(wd, 'e2.mp4'))
+    e2ok = r2 === 0 && !!g2 && Math.abs(g2.dur - 3) <= 0.35
+    console.log(`    ${e2ok ? '✓' : '✗'} 用例 E2 ⇒ exit=${r2} 时长=${g2 ? g2.dur.toFixed(2) : '?'}（须 0 / ≈3.00）`)
+  } catch (e) {
+    console.log('    ✗ 用例 E2 抛异常：' + String(e.message))
+  } finally { process.chdir(cwd0) }
+  if (!e2ok) fail++
+
   /* 负控：输入不存在 ⇒ 必须 exit 2 + 专属标签（"能失败"要结构性满足） */
   console.log('  — 负控 E 输入不存在')
   const rE = mux({ in: join(wd, 'nope.mp4'), out: join(wd, 'e.mp4') })
