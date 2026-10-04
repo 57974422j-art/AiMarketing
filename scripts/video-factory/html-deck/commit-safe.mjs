@@ -168,7 +168,15 @@ const SILENT_BASE = join(HERE, 'silent-catch-baseline.json')
    ⇒ **只许下调**（实测 > 旧基线 ⇒ 拒绝写 + 红）—— 与 `--raise-max`（**只许抬上限**）**同构**：两边都不许一键绕过。
    单一实现：`writeBaselineDecision` 复用 `ratchetViolations`（同一判据）⇒ 并由 `--self-test-write-monotonic` 断言三种走向。 */
 function writeBaselineDecision(oldFiles, newFiles) {
-  const viols = oldFiles ? ratchetViolations(oldFiles, newFiles) : []
+  /* ⚠️ **新增文件不算"写高"**（否则加一个工具就永远无法登记基线）；但**已登记的文件**绝不许涨 ✓
+     （棘轮的本意是"每文件只许减"，不是"总数只许减"）。 */
+  if (!oldFiles) return { allow: true, viols: [] }
+  const viols = []
+  for (const [f, oldN] of Object.entries(oldFiles)) {
+    const now = newFiles[f]
+    if (now === undefined) continue          /* 文件被删/改名 ⇒ 不判（后续对账自然收敛） */
+    if (now > oldN) viols.push(`${f}：哑 catch **${now}** > 旧基线 ${oldN} ⇒ 只许下调`)
+  }
   return { allow: viols.length === 0, viols }
 }
 if (process.argv.includes('--self-test-write-monotonic')) {
@@ -210,7 +218,9 @@ if (process.argv.includes('--self-test-ratchet')) {
   process.exit(ok ? 0 : 1)
 }
 if (process.argv.includes('--write-silent-baseline')) {
-  const FILES = ['crosscheck-deck-json.mjs', 'measure-count.mjs', 'check-schema-vs-limits.mjs', 'gate-release.mjs', 'commit-safe.mjs']
+  /* ★ msg14：文件表**动态**取（顶层 .mjs）—— 否则新工具（mux-video/batch-video…）**永远不在基线里**，
+     而"新工具带了 10 处哑 catch"会**静默通过**。 */
+  const FILES = collect(HERE, '.mjs').filter((f) => dirname(f) === HERE).map((f) => basename(f)).sort()
   const files = {}
   /* ★ 顺带打印**样本**（给"哑 catch N → 0"小批当工单：每处要写清"吞了什么"）。 */
   for (const f of FILES) {
@@ -276,6 +286,9 @@ if (process.argv.includes('--write-silent-baseline')) {
       lines.push(`${f} 实测 ${c.dumb} / 基线 ${base.files[f]}${c.dumb < base.files[f] ? ' ⬇' : c.dumb > base.files[f] ? ' ⬆' : ''}`)
     }
     bad.push(...ratchetViolations(base.files, actual))
+    /* ★ 可见性：**未登记基线**的顶层工具（新加的）⇒ 提示（不判红，但要能看见，否则"新工具静默不受管"） */
+    const unreg = collect(HERE, '.mjs').filter((f) => dirname(f) === HERE).map((f) => basename(f)).sort().filter((f) => !(f in base.files))
+    if (unreg.length) console.log(`     · ⚠️ **未登记基线**的顶层工具 ${unreg.length} 个：${unreg.join(' · ')} ⇒ 跑 \`--write-silent-baseline\` 纳管（新增文件允许登记，已登记文件只许降）`)
     steps.push({ name: `哑 catch 棘轮（基线=${
       'silent-catch-baseline.json'} @ ${String(base.sha || '?')} · 合计 ${base.total}）`, ok: bad.length === 0, detail: bad })
     for (const l of lines) console.log(`     · ${l}`)
