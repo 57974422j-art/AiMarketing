@@ -497,4 +497,51 @@ body.p .p4-cta { font-size: 34px; padding: 16px 38px; }
 body.p .p4-en { bottom: 45%; }
 body.p .issuer { top: 64%; }
 /* ===== PORTRAIT PASS v1 END ===== */
+/* ===== LAYER: portrait-pass-v1 (BEGIN) =====
+   竖屏节奏层（只作用于 `body.p`，横屏零影响）。由 `apply-master-layers.mjs` 幂等地追加到每套母版的
+   `assets/master.css` 末尾 —— **本文件是唯一真源**（改这里，再跑一次脚本即可；不要手改各母版）。
 
+   为什么需要：基础母版的竖屏规则全是固定偏移（`--pad + N px`）⇒ 内容堆在 1280 高的上半屏、中下段大片留白；
+   而 `export 9:16` 是投放主形态。本层做四件事：
+     ① 关键块从"固定偏移"改为**按高度分布**（百分比），让内容落在纵向中段；
+     ② 手机观看需要更大字号 ⇒ 放大标题/正文/步骤，并加大行距与内边距；
+     ③ "次指标 / 结论 / 说明"类**上移避让底部字幕**（曾与烧进画面的字幕相撞）；
+     ④ 每套母版的皮肤层（`SKIN LAYER`）在前，本层在后 ⇒ 需要时本层可覆盖皮肤层。 */
+body.p .cover-copy { top: 18%; }
+body.p .cover-title { font-size: calc(var(--t-title) * 1.12); line-height: 1.16; }
+body.p .cover-sub { font-size: var(--t-lead); }
+body.p .rule { width: 120px; height: 5px; }
+body.p .photo { height: 38%; }
+body.p .p2-list { top: 33%; }
+body.p .p2-list li { padding: 30px 0; }
+body.p .p2-list .t { font-size: calc(var(--t-lead) * 1.18); }
+body.p .p2-sum { bottom: 16%; font-size: var(--t-lead); padding: 18px 20px; }
+body.p .p3-body { top: 30%; }
+body.p .p3-explain { top: 53%; font-size: var(--t-lead); }
+body.p .p3-metrics { top: 57%; gap: 26px; }
+body.p .p3-metrics > div { padding: 22px 26px; }
+body.p .p3-metrics .k { font-size: var(--t-body); }
+body.p .p3-metrics .v { font-size: var(--t-small); }
+body.p .p5-num { font-size: 190px; }
+body.p .p5-copy { top: 48%; }
+body.p .p5-title { font-size: 50px; }
+body.p .p6-unit { top: 12%; }
+body.p .p6-plot { top: 22%; height: 50%; }
+body.p .p6-explain { bottom: calc(var(--pad) + 88px); font-size: var(--t-lead); }
+body.p .p7-grid { gap: 34px; }
+body.p .p7-label { font-size: 34px; }
+body.p .p7-points li { padding: 12px 0 12px 20px; font-size: var(--t-body); }
+body.p .p7-concl { bottom: calc(var(--pad) + 46px); font-size: var(--t-body); padding: 16px 20px; }
+body.p .p8-quote { font-size: 42px; top: 36%; line-height: 1.42; }
+body.p .p8-author { font-size: var(--t-body); }
+body.p .p9-copy { top: 50%; }
+body.p .p9-title { font-size: calc(var(--t-h2) * 1.05); }
+body.p .p10-list { top: 29%; }
+body.p .p10-list li { padding: 26px 0; gap: 24px; }
+body.p .p10-list .t { font-size: var(--t-body); }
+body.p .p4-wrap { top: 36%; }
+body.p .p4-line { font-size: 54px; line-height: 1.24; }
+body.p .p4-cta { font-size: 34px; padding: 16px 38px; }
+body.p .p4-en { bottom: 45%; }
+body.p .issuer { top: 64%; }
+/* ===== LAYER: portrait-pass-v1 (END) ===== */

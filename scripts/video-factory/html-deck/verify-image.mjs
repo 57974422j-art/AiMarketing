@@ -13,6 +13,8 @@
  */
 import { readFileSync, readdirSync, existsSync, unlinkSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
+/* ★ K17-ff 清扫：媒体工具解析走**唯一实现**（本文件此前裸 `ffmpeg`/`ffprobe` 共 3 处） */
+import { resolveFfmpeg, resolveFfprobe } from './engine-bin.mjs'
 import { join, resolve } from 'node:path'
 /* ★ 装饰排除：用**权威白名单模块**（与闸门/量表同一份 `allowlist-decor.json` + 同一 CSS 几何解析）
    —— 免得"文字块判据"自己另写一套装饰知识（那就是第二处实现，必漂移）。 */
@@ -35,7 +37,7 @@ const mp4 = readdirSync(workdir).find((f) => /^output-.*\.mp4$/.test(f))
 if (!mp4) { console.error(`✗ ${workdir} 下没有 output-*.mp4（先渲染）`); process.exit(1) }
 const mp4Path = join(workdir, mp4)
 
-const pr = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0',
+const pr = spawnSync(resolveFfprobe().p, ['-v', 'error', '-select_streams', 'v:0',
   '-show_entries', 'stream=width,height', '-of', 'csv=p=0', mp4Path], { encoding: 'utf8' })
 const [FW, FH] = (pr.stdout || '').trim().split(',').map(Number)
 if (!FW || !FH) { console.error('✗ 无法取到帧尺寸'); process.exit(1) }
@@ -49,7 +51,7 @@ const dist3 = (p, q) => Math.max(Math.abs(p[0] - q[0]), Math.abs(p[1] - q[1]), M
 
 function rawRGB(file, args2) {
   const out = join(workdir, `_img_${Math.random().toString(36).slice(2)}.raw`)
-  const r = spawnSync('ffmpeg', ['-v', 'error', '-y', ...args2, '-f', 'rawvideo', '-pix_fmt', 'rgb24', out])
+  const r = spawnSync(resolveFfmpeg().p, ['-v', 'error', '-y', ...args2, '-f', 'rawvideo', '-pix_fmt', 'rgb24', out])
   if (r.status !== 0 || !existsSync(out)) throw new Error(`ffmpeg 解码失败: ${file}`)
   const buf = readFileSync(out)
   unlinkSync(out)
@@ -75,7 +77,7 @@ for (const pg of M.pages) {
   const R = pg.region
   console.log(`\n  页 ${pg.index} · image · layout=${pg.layout}   媒体区 x=${R.x} y=${R.y} w=${R.w} h=${R.h}`)
   const frame = rawRGB(mp4Path, ['-ss', String(pg.index * PAGE + 2.70), '-i', mp4Path, '-frames:v', '1'])
-  const sp = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height',
+  const sp = spawnSync(resolveFfprobe().p, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height',
     '-of', 'csv=p=0', pg.srcPath], { encoding: 'utf8' })
   const [SW, SH] = (sp.stdout || '').trim().split(',').map(Number)
   const src = rawRGB(pg.srcPath, ['-i', pg.srcPath])

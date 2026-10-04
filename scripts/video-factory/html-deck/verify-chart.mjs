@@ -21,6 +21,8 @@
  */
 import { readFileSync, readdirSync, existsSync, unlinkSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
+/* ★ K17-ff 清扫：媒体工具解析走**唯一实现**（本文件此前裸 `ffmpeg`/`ffprobe`） */
+import { resolveFfmpeg, resolveFfprobe } from './engine-bin.mjs'
 import { join, resolve } from 'node:path'
 
 const args = process.argv.slice(2)
@@ -39,7 +41,7 @@ const mp4 = readdirSync(workdir).find((f) => /^output-.*\.mp4$/.test(f))
 if (!mp4) { console.error(`✗ ${workdir} 下没有 output-*.mp4（先渲染）`); process.exit(1) }
 const mp4Path = join(workdir, mp4)
 
-const pr = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0',
+const pr = spawnSync(resolveFfprobe().p, ['-v', 'error', '-select_streams', 'v:0',
   '-show_entries', 'stream=width,height', '-of', 'csv=p=0', mp4Path], { encoding: 'utf8' })
 const [FW, FH] = (pr.stdout || '').trim().split(',').map(Number)
 if (!FW || !FH) { console.error('✗ 无法取到帧尺寸'); process.exit(1) }
@@ -88,7 +90,7 @@ const note = (s) => console.log(s)
 for (const pg of M.pages) {
   const t = pg.index * PAGE + 2.70    // 必须 < S+2.75（下一页淡入起点），见 render-deck.mjs 的说明
   const raw = join(workdir, `_probe_${pg.index}.raw`)
-  const r = spawnSync('ffmpeg', ['-v', 'error', '-y', '-ss', String(t), '-i', mp4Path,
+  const r = spawnSync(resolveFfmpeg().p, ['-v', 'error', '-y', '-ss', String(t), '-i', mp4Path,
     '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', raw])
   if (r.status !== 0 || !existsSync(raw)) { note(`  页 ${pg.index}  抽帧失败`); fail++; continue }
   const buf = readFileSync(raw)

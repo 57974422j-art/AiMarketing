@@ -46,7 +46,10 @@ for (let i = 2; i < process.argv.length; i++) {
     process.exit(EXIT.INPUT)
   }
   const key = FLAGS[a]
-  if (key === 'selfTest') { A.selfTest = true; continue }
+  /* ⚠️ **布尔旗标必须列全**：`--dry-run` 此前不在名单 ⇒ 被当"有值旗标" ⇒ `A.dryRun = process.argv[++i]`
+     （吃掉**下一个参数**、且末尾时为 `undefined`）⇒ **它从来没生效过**（实测：`--dry-run` 时依旧真合成，exit=0）。
+     这类"旗标被静默当有值"与"退出码多义"同族：**看着在预览，实际在干活**。 */
+  if (key === 'selfTest' || key === 'dryRun') { A[key] = true; continue }
   A[key] = process.argv[++i]
 }
 
@@ -175,10 +178,16 @@ function mux(o) {
   /* 字幕用"工作目录 + 裸文件名"⇒ 运行目录必须切到字幕所在目录 */
   const cwd = o.srt ? dirname(resolve(o.srt)) : undefined
   if (A.dryRun) {
+    /* ★★ team-lead msg20 ①：**dry-run 统一口径** —— "**有意未产出**" ≠ 成功：
+       退出码 **1**（**不新造 3**：`§3` 的 3/4/5/6 已被 stage 占用 ⇒ 撞码比不便更糟）· 专属 tag **`DRY_RUN_NO_OUTPUT`**
+       · 结论行 **ok=false** · 报告字段 `dryRun=true` · 并打**显眼人话**。
+       理由与前几批**同一口径**（`--page-unknown` 那次）：**未干活不许伪装成通过** —— 只读退出码的脚本**必须停下来**，
+       要"确认计划可用"就**读 tag**（稳定 tag 存在的意义）。 */
     console.log('   [dry-run] ffmpeg=' + bin + ' · cwd=' + (cwd || process.cwd()))
     console.log('   [dry-run] argv=' + JSON.stringify(args))
-    concl('MUX-DRY-RUN', true, {})
-    return EXIT.OK
+    console.log('   ⚠ DRY-RUN：本次**未渲染 / 未合成 / 未产出任何文件**（要"确认计划可用"请读 tag）')
+    concl('DRY_RUN_NO_OUTPUT', false, { dryRun: true })
+    return EXIT.FAIL
   }
   const r = spawnSync(bin, args, { encoding: 'utf8', maxBuffer: 1 << 28, cwd })
   if (r.status !== 0) {

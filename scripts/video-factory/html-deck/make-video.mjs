@@ -94,10 +94,25 @@ function main(text, opt) {
      （`旗标三件套` 断言 ②「注册但未消费」当场抓出 ⇒ 这里接线，而不是留在表里假装覆盖）。
      ⚠️ 必须在该函数**任何落盘之前**（`--clean` / `mkdir` / 写 `_source.md` 都在下面）⇒ 否则"只打印计划"仍会写文件 ✗。 */
   if (opt.plan) {
+    /* ★ team-lead msg20 ①：`--plan` 与 dry-run 同族 ⇒ **exit 1 + 专属 tag `PLAN_ONLY_NO_OUTPUT` + ok=false**
+       （"有意未产出"不许伪装成通过；**不新造 3**）。 */
     console.log(`   输入 ${basename(opt.in || '(内联)')} · 皮肤 ${skins.length} 套 × 方向 ${oris.length} 种`)
-    console.log(`   [PLAN] 将生成 ${skins.length} × ${oris.length} = **${skins.length * oris.length}** 条；输出根 ${outRoot}（**未写任何文件**）`)
+    console.log(`   ⚠ PLAN-ONLY：本次**未生成 / 未渲染 / 未产出任何文件**（要"确认计划可用"请读 tag）`)
+    concl('PLAN_ONLY_NO_OUTPUT', false, { planOnly: true, 将产出: skins.length * oris.length, 输出根: outRoot })
     for (const s of skins) if (!opt.only || s === opt.only) console.log(`     · ${s}`)
-    return 0
+    return EXIT.FAIL
+  }
+  /* ★★ team-lead msg20 ②：dry-run **不许启动子工具**（否则链上会"没渲染却报成功"）——
+     只打印 源文件 → 皮肤 → 方向 → 目标路径 清单，**秒级**，exit 1 + 专属 tag。 */
+  if (opt.dryRun) {
+    console.log(`   输入 ${basename(opt.in || '(内联)')} · 皮肤 ${skins.length} 套 × 方向 ${oris.length} 种`)
+    console.log('   ⚠ DRY-RUN：本次**未渲染 / 未合成 / 未产出任何文件**（**不启动子工具** ⇒ 链上不会出现"没渲染却报成功"）')
+    for (const s of skins) {
+      if (opt.only && s !== opt.only) continue
+      for (const ori of oris) console.log(`     · ${s} ${ori} ⇒ ${join(outRoot, 'skins', s.replace('master-', ''), `${ori.replace(':', 'x')}.mp4`)}`)
+    }
+    concl('DRY_RUN_NO_OUTPUT', false, { dryRun: true, 将产出: skins.length * oris.length, 输出根: outRoot })
+    return EXIT.FAIL
   }
   if (opt.clean) {
     /* 只清自己的命名空间（不碰调用者放进来的 --logo/--bgm/--in） */
@@ -137,8 +152,8 @@ function main(text, opt) {
     if (opt.logo) bArgs.push('--logo', resolve(opt.logo))
     if (opt.bgm) bArgs.push('--bgm', resolve(opt.bgm))
     if (opt.sheet) bArgs.push('--sheet')
-    /* ★ `--dry-run` **接线**（此前登记却未被读 ⇒ 断言②抓出）：透传给 batch-video ⇒ 只校验不渲染。 */
-    if (opt.dryRun) bArgs.push('--dry-run')
+    /* ⚠️ **不把 `--dry-run` 透传给 batch-video**（team-lead msg20 ②）：编排器在 dry-run 下**根本不该启动子工具**
+       （否则子工具的"有意未产出"会被本工具当成失败去转述 ⇒ 链上语义混乱）⇒ dry-run 已在其上方提前 return。 */
     const b = run('batch-video.mjs', bArgs)
     const rep = (() => { try { return JSON.parse(readFileSync(join(outRoot, 'skins', skin.replace('master-', ''), 'batch-report.json'), 'utf8')) } catch { return null } })()
     if (b.status !== 0 || !rep) {
@@ -192,9 +207,18 @@ function selfTest() {
   /* ★ `--plan` **结构用例**（接线后必须有人盯着）：plan ⇒ 返回 0 且**一个文件都不写**（含 `make-report.json`）。 */
   const planRoot = join(tmp, '_plan')
   const planRet = main(readFileSync(md, 'utf8'), { in: md, skins: 'master-mono', orientations: '16:9', outdir: planRoot, plan: true })
-  const planClean = planRet === 0 && !existsSync(join(planRoot, 'make-report.json')) && !existsSync(join(planRoot, 'decks'))
-  console.log(`   --plan 用例：返回=${planRet}（须 0）· 未写任何文件=${planClean ? '✓' : '✗'}`)
+  const planClean = planRet === EXIT.FAIL && !existsSync(join(planRoot, 'make-report.json')) && !existsSync(join(planRoot, 'decks'))
+  console.log(`   --plan 用例：返回=${planRet}（须 1 = `+"`PLAN_ONLY_NO_OUTPUT`"+`）· 未写任何文件=${planClean ? '✓' : '✗'}`)
   cases.push(planClean)
+  /* ★ team-lead msg20 ①（附加要求）：**tag 与语义不许漂移** —— 凡出现 `DRY_RUN_NO_OUTPUT` / `PLAN_ONLY_NO_OUTPUT`，
+     必须**同时**满足"打印'本次未产出'人话 + 结论行 ok=false"（否则红）。dry-run 走**子进程**以便捕获 stdout。 */
+  const drOutDir = join(tmp, '_dry')
+  const dr = spawnSync(process.execPath, [join(HERE, 'make-video.mjs'), '--in', md, '--outdir', drOutDir, '--dry-run'], { encoding: 'utf8' })
+  const drOut = String(dr.stdout || '') + String(dr.stderr || '')
+  const drOk = dr.status === 1 && /\[DRY_RUN_NO_OUTPUT\]/.test(drOut) && /ok=false/.test(drOut)
+    && /未产出任何文件/.test(drOut) && !existsSync(drOutDir)
+  console.log(`   --dry-run 用例：exit=${dr.status}（须 1）· tag+ok=false+"未产出"人话=${drOk ? '✓' : '✗'} · 未写文件=${!existsSync(drOutDir) ? '✓' : '✗'}`)
+  cases.push(drOk)
   /* 负控：输入不存在 ⇒ exit 2（不许抛栈） */
   const bad = spawnSync(process.execPath, [join(HERE, 'make-video.mjs'), '--in', join(tmp, 'nope.md')], { encoding: 'utf8' })
   const badOk = bad.status === EXIT.INPUT

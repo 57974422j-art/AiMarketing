@@ -139,7 +139,15 @@ export function assertSingleFfDefinition() {
   let readFail = 0                                  /* ★ 会说话：读失败要计数（哑 catch 会被棘轮咬 —— 实测被咬） */
   try { files = readdirSync(ENGINE_DIR).filter((f) => f.endsWith('.mjs')) } catch { readFail++ }
   const self = 'engine-bin.mjs'
-  const occ = [], sub = [], envHit = []
+  const occ = [], sub = [], envHit = [], bareHit = []
+  /* ★ **第三条检测（team-lead ⑤ 的"清扫后加断言"）**：其它文件里**裸调用两个媒体工具**的次数必须为 **0**
+     —— 断言若只数环境变量字面量，**裸用法**（无视渲染器钉住的那个 ffmpeg）就漏掉 ⇒ "有的工具尊重、有的不尊重" ✗。
+     ⚠️ 注释里**不写完整字面量**（写了会被任何一次朴素 grep 命中，我本人已第三次踩这条）
+     ⚠️ **防自匹配**：模式**分片拼接**（源码里从不出现连续的裸调用字面量）—— 与上面 FINGER 同款。 */
+  const B1 = 'spa' + 'wnSync\\('      /* ⚠️ `(` 必须转义（第一次漏了 ⇒ `new RegExp` 抛 Unterminated group） */
+  const B2 = "'ff" + "mpeg'"
+  const B3 = "'ff" + "probe'"
+  const BARE = new RegExp(B1 + B2 + '|' + B1 + B3, 'g')
   for (const f of files) {
     try {
       const t = readFileSync(join(ENGINE_DIR, f), 'utf8')
@@ -148,21 +156,26 @@ export function assertSingleFfDefinition() {
       if (n) envHit.push(`${f}×${n}`)
       const m = t.match(FINGER)
       if (m) sub.push(`${f}×${m.length}`)
+      const b = t.match(BARE)
+      if (b) bareHit.push(`${f}×${b.length}`)
     } catch { readFail++ }
   }
+  const bareTotal = bareHit.reduce((s, x) => s + Number(x.split('×')[1] || 0), 0)
   try { const t = readFileSync(join(ENGINE_DIR, self), 'utf8'); const n = t.split(TOKEN).length - 1; if (n !== 1) occ.push(`${self}×${n}`) } catch { readFail++ }
   if (readFail) console.error(`   （K17-ff 自检：有 ${readFail} 处文件读取失败 ⇒ 计数可能不完整）`)
   const envTotal = envHit.reduce((s, x) => s + Number(x.split('×')[1] || 0), 0)
   const subTotal = sub.reduce((s, x) => s + Number(x.split('×')[1] || 0), 0)
-  if (occ.length || envTotal !== 0 || subTotal !== 0) {
+  if (occ.length || envTotal !== 0 || subTotal !== 0 || bareTotal !== 0) {
     console.error('✗ K17-ff 断言失败：**ffmpeg 解析只许一处**（`engine-bin.mjs`）')
     console.error(`   标记注释：${occ.join(', ') || '1 ✓'}（应恰为 1）· **其它文件的候选定义/环境变量引用：${envTotal} 处（应 0）** · 候选实质指纹：${subTotal} 处（应 0）`)
+    console.error(`   **裸调用（绕过唯一实现）：${bareTotal} 处（应 0）** —— 裸用法会**无视**渲染器钉住的同一个 ffmpeg`)
     if (envHit.length) console.error(`   环境变量命中：${envHit.join(', ')}`)
     if (sub.length) console.error(`   实质命中：${sub.join(', ')}`)
-    console.error('   规矩：其它脚本**只 import `resolveFfmpeg` / `resolveFfprobe`**，不许复制候选数组或直接读该环境变量。')
+    if (bareHit.length) console.error(`   裸调用命中：${bareHit.join(', ')}`)
+    console.error('   规矩：其它脚本**只 import `resolveFfmpeg` / `resolveFfprobe`**，不许复制候选数组、直接读该环境变量、或裸调 `ffmpeg`/`ffprobe`。')
     process.exit(2)
   }
-  return { envTotal, subTotal, occ }
+  return { envTotal, subTotal, bareTotal, occ }
 }
 
 // 导入即自检（任何消费者都会触发 ⇒ 结构上拦住"复制一份"）

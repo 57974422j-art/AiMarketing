@@ -10,6 +10,8 @@
  */
 import { readFileSync, readdirSync, existsSync, unlinkSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
+/* ★ K17-ff 清扫：媒体工具解析走**唯一实现**（本文件此前裸 `ffmpeg`） */
+import { resolveFfmpeg } from './engine-bin.mjs'
 import { join, resolve } from 'node:path'
 
 const [A, B] = process.argv.slice(2).map((p) => resolve(p))
@@ -35,7 +37,7 @@ function rgbToHsv([r, g, b]) {
 }
 function grab(mp4, t) {
   const raw = join(resolve(mp4, '..'), `_m_${t}.raw`)
-  const r = spawnSync('ffmpeg', ['-v', 'error', '-y', '-ss', String(t), '-i', mp4, '-frames:v', '1',
+  const r = spawnSync(resolveFfmpeg().p, ['-v', 'error', '-y', '-ss', String(t), '-i', mp4, '-frames:v', '1',
     '-f', 'rawvideo', '-pix_fmt', 'rgb24', raw])
   if (r.status !== 0 || !existsSync(raw)) return null
   const buf = readFileSync(raw)

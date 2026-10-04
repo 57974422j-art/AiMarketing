@@ -138,12 +138,17 @@ if (!A.sheetOnly) for (const skin of skins) {
     d.style = { ...d.style, masterId: skin, palette, orientation: ori }
     /* ★ 幂等：派生档**内容不变就不落盘** —— 否则每次重跑都会刷新 mtime，
      *   让下面的"产物 ≥ 派生档"守卫失效 ⇒ `--reuse-raw` 形同虚设（每次白渲 12 条 ≈5 分钟） */
-    /* ⚠️ `--dry-run` 下**仍要保证派生档存在**：否则紧随其后的 `validate-deck [deckPath]` 直接 ENOENT
-       （实测：`--dry-run` + 新 outdir ⇒ `读/解析失败: ENOENT …\deck.…json`）⇒ dry-run 成了"崩溃预览"。
-       修法：dry-run **仅当档不存在时**落盘（正常路径仍保持"内容不变就不落盘"的幂等 ⇒ 不破坏 `--reuse-raw` 的 mtime 语义）。 */
-    if (!A.dryRun || !existsSync(deckPath)) {
+    /* 幂等：派生档**内容不变就不落盘**（否则每次重跑刷新 mtime ⇒ `--reuse-raw` 形同虚设）。
+       ⚠️ dry-run 在上面已 `continue`（不写档、不校验、不渲染）⇒ 此处只剩正常路径。 */
+    if (!A.dryRun) {
       const body = JSON.stringify(d, null, 2) + '\n'
       if (!existsSync(deckPath) || readFileSync(deckPath, 'utf8') !== body) writeFileSync(deckPath, body)
+    }
+    /* ★★ team-lead msg20 ②：`--dry-run` **必须不干活** —— 此前只挡了"报告落盘"，**照样渲染 20s / 出 2.5MB 成片** ✗。
+       现在：**不写 deck、不校验、不渲染、不合成**，只打印"将产出什么 + 目标路径"（秒级）。 */
+    if (A.dryRun) {
+      console.log(`   · ${tag}：将产出 ⇒ ${join(outRoot, 'final', `${tag}.mp4`)}`)
+      continue
     }
     const t0 = Date.now()
     const v = run('validate-deck.mjs', [deckPath])
@@ -263,5 +268,13 @@ if ((A.sheet || A.sheetOnly) && rows.some((r) => r.ok)) {
 const fail = rows.filter((r) => !r.ok).length
 const report = { at: new Date().toISOString(), base, skins: skins.length, oris, rows, ok: fail === 0, fail }
 if (!A.dryRun) writeFileSync(join(outRoot, 'batch-report.json'), JSON.stringify(report, null, 2) + '\n')
+/* ★★ team-lead msg20 ①：dry-run ⇒ **exit 1 + 专属 tag + ok=false**（"有意未产出"不许伪装成通过；
+   不新造 3 —— `§3` 的 3/4/5/6 按 stage 占用）；报告字段 `dryRun=true`（报告本身**不落盘** ✓）。 */
+if (A.dryRun) {
+  const will = skins.length * oris.length
+  console.log(`   ⚠ DRY-RUN：本次**未渲染 / 未合成 / 未产出任何文件**（将产出 ${will} 条 · 目标 ${join(outRoot, 'final')}）`)
+  console.log(`✗ [DRY_RUN_NO_OUTPUT] BATCH-RESULT ok=false · dryRun=true · 将产出=${will} · 目标=${join(outRoot, 'final')}`)
+  process.exit(EXIT.FAIL)
+}
 console.log(`✓ [BATCH-RESULT] BATCH-RESULT ok=${fail === 0} · n=${rows.length} · fail=${fail}`)
 process.exit(fail === 0 ? EXIT.OK : EXIT.FAIL)

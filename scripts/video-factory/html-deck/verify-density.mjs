@@ -18,6 +18,8 @@
  */
 import { readFileSync, readdirSync, existsSync, unlinkSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
+/* ★ K17-ff 清扫：媒体工具解析走**唯一实现**（本文件此前裸 `ffmpeg`/`ffprobe`） */
+import { resolveFfmpeg, resolveFfprobe } from './engine-bin.mjs'
 import { join, resolve } from 'node:path'
 
 const args = process.argv.slice(2)
@@ -33,12 +35,12 @@ const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2])
 function measure(dir) {
   const M = JSON.parse(readFileSync(join(dir, 'chart-meta.json'), 'utf8'))
   const mp4 = readdirSync(dir).find((f) => /^output-.*\.mp4$/.test(f))
-  const pr = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height',
+  const pr = spawnSync(resolveFfprobe().p, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height',
     '-of', 'csv=p=0', join(dir, mp4)], { encoding: 'utf8' })
   const [FW, FH] = (pr.stdout || '').trim().split(',').map(Number)
   const raw = join(dir, `_dens_${PAGE_IDX}.raw`)
   const t = PAGE_IDX * 3 + 2.70      // 必须 < S+2.75（下一页淡入起点）
-  const r = spawnSync('ffmpeg', ['-v', 'error', '-y', '-ss', String(t), '-i', join(dir, mp4),
+  const r = spawnSync(resolveFfmpeg().p, ['-v', 'error', '-y', '-ss', String(t), '-i', join(dir, mp4),
     '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'rgb24', raw])
   if (r.status !== 0 || !existsSync(raw)) return { dir, err: '抽帧失败' }
   const buf = readFileSync(raw)

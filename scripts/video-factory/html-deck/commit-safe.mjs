@@ -312,6 +312,37 @@ if (process.argv.includes('--write-silent-baseline')) {
   }
   steps.push({ name: '兜底正控（--self-test-uncaught ⇒ exit 2 + [UNCAUGHT_EXCEPTION]）', ok: bad.length === 0, detail: bad })
 }
+/* ★★ team-lead msg20 ③（**批准**）：**工具自测纳入前置** —— 此前前置不跑各工具 `--self-test`
+   ⇒ "自测红了照样能提交"（**实证两批两例**：`make-video` / `crosscheck`）。
+   范围**只收秒级免渲染**的（下表末列 = 实测秒数）；渲染型（`render-deck` / `check-engine-lint` / `verify-*` /
+   `batch` 真跑）**不许**进（分钟级）。失败时**点名哪个工具哪条** —— 与"引用须登记"同族：
+   **自测必须是机器跑的，不能是"人记得跑"**。 */
+{
+  const bad = []
+  /* [文件, argv, 期望 tag（null = 只看 exit=0）, 实测秒数] */
+  const SUITES = [
+    ['engine-bin.mjs', [], null, 0],                                  /* K17 + K17-ff 两条断言（导入即自检） */
+    ['measure-count.mjs', ['--self-test-extract'], null, 0],
+    ['measure-count.mjs', ['--self-test-scope'], null, 0],
+    ['crosscheck-deck-json.mjs', ['--self-test-page'], null, 0],
+    ['gen-deck.mjs', ['--self-test'], 'GEN-SELFTEST', 0],
+    ['mux-video.mjs', ['--self-test'], 'MUX-SELFTEST', 2],
+  ]
+  for (const [f, args, tag, sec] of SUITES) {
+    const t0 = Date.now()
+    const r = spawnSync(process.execPath, [join(HERE, f), ...args], { cwd: HERE, encoding: 'utf8', maxBuffer: 1 << 26 })
+    const out = String(r.stdout || '') + String(r.stderr || '')
+    const ms = Date.now() - t0
+    const tagOk = !tag || out.includes(`[${tag}]`)
+    if (r.status !== 0 || !tagOk) bad.push(`${f} ${args.join(' ')}：exit=${r.status}（须 0）${tag ? ` · tag=[${tag}] ${tagOk ? '✓' : '✗'}` : ''} · ${ms}ms`)
+  }
+  /* ⚠️ **被排除的两套要写明**（否则"没跑"会被读成"过了"）：它们不是秒级 ⇒ 归 `--deep`（未实现）或人手跑。 */
+  const SLOW_EXCLUDED = 'make-video --self-test（16s · 真渲染 1 条）· crosscheck --self-test-usage（45s · 13 次子进程）'
+  steps.push({
+    name: `工具自测（秒级 ${SUITES.length} 套 · 免渲染）〔未纳入：${SLOW_EXCLUDED}〕`,
+    ok: bad.length === 0, detail: bad,
+  })
+}
 /* 3) 同步 dist-rel */
 const distRel = findDistRel()
 if (!noSync && distRel) {

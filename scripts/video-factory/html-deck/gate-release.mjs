@@ -75,7 +75,17 @@ function rootWhitelist() {
      实测：未登记时本断言当场红（`✗ ⓪ 根目录白名单：多出 1 项：silent-catch-baseline.json`）—— 守卫自己在工作 ✓ */
   const okFile = (n) => /\.mjs$/.test(n) || /\.md$/.test(n) || n === '.gitignore' || n === 'package.json' || n === 'package-lock.json' || n === 'deck.schema.json' || n === 'invariants.json' || n === 'silent-catch-baseline.json' || n === 'debt-baseline.json' || n === 'measured-limits.json' || /^(allowlist-.*|docs-fork-.*|probe-path-.*|bad-.*|deck-targets|comment-killer-allowlist)\.json$/.test(n) || n === 'exclude-coverage.json'
   /* `cs-test/` `seek-test/` = **引擎自测资产**（随引擎走；原本只在不可分发树，2026-10-03 补入库） */
-  const okDir = ['masters', 'examples', 'fonts', 'evidence', 'cs-test', 'seek-test']
+  /* ★ team-lead msg22 ②：`master-layers/` = **母版层文件真源目录**（`apply-master-layers.mjs` 的输入）。
+     为什么与 `masters/` **分离**：`masters/` 下的目录被扫描器按 `master.json` 识别成"一套母版"⇒
+     层文件若混进去会被误当成母版 ⇒ 故单独立目录并在此**登记**（不是绕过）。
+     **内容约束**（team-lead 给的第二个选项，我取它）：只许放 `*.css`（层文件）—— 否则 ⇒ 判红，
+     防它退化成新的"垃圾桶"（与"新增模式必须写理由"同族）。 */
+  const okDir = ['masters', 'master-layers', 'examples', 'fonts', 'evidence', 'cs-test', 'seek-test']
+  if (existsSync(join(DECK_DIR, 'master-layers'))) {
+    for (const f of readdirSync(join(DECK_DIR, 'master-layers'))) {
+      if (!/\.css$/.test(f)) extra.push(`master-layers/${f}（层目录只许放 *.css）`)
+    }
+  }
   // 灰名单 = **运行时生成物 / 已声明不入库**：`out*/`（渲染产物，闸门的操作对象）· `node_modules/` · 点目录
   //   ⇒ 允许在树里存在，但**明示不入库**（否则闸门根本没法跑；入库清单里它们属"排除项"）。
   const grayDir = GRAY_DIR.map((g) => g.re)

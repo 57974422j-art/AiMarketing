@@ -23,7 +23,8 @@ import { readFileSync, writeFileSync, existsSync, cpSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 import { ENGINE_ROOT, DECK_DIR, selfCheck } from './paths.mjs'
-import { resolveHyperframes } from './engine-bin.mjs'
+import { resolveHyperframes, resolveFfmpeg } from './engine-bin.mjs'
+/* ★ K17-ff 清扫：本文件此前用**裸 `ffmpeg`**（无视渲染器钉住的那个）⇒ 现同走唯一实现。 */
 
 selfCheck({ quiet: true })
 const HF = resolveHyperframes().p
@@ -157,11 +158,11 @@ function renderDir(dir, outMp4) {
   return { exit: r.status, raw: (strip(r.stdout || '') + strip(r.stderr || '')).slice(0, 800), mp4: existsSync(outMp4) ? outMp4 : null }
 }
 function extractFrame(src, at, outPng) {
-  const r = spawnSync('ffmpeg', ['-v', 'error', '-y', '-ss', String(at), '-i', src, '-frames:v', '1', outPng], { encoding: 'utf8' })
+  const r = spawnSync(resolveFfmpeg().p, ['-v', 'error', '-y', '-ss', String(at), '-i', src, '-frames:v', '1', outPng], { encoding: 'utf8' })
   return r.status === 0 && existsSync(outPng) ? outPng : null
 }
 function rawRgb(png) {
-  const r = spawnSync('ffmpeg', ['-v', 'error', '-i', png, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { maxBuffer: 1 << 27 })
+  const r = spawnSync(resolveFfmpeg().p, ['-v', 'error', '-i', png, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { maxBuffer: 1 << 27 })
   return r && r.status === 0 && r.stdout && r.stdout.length ? r.stdout : null
 }
 /** 帧差分：max 通道差 + 差异像素数（阈值 tol） */
