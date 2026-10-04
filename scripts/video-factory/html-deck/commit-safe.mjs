@@ -453,7 +453,7 @@ function tokenIssues(cssText) {
       if (sameColor(a, b) !== want) badSelf.push('颜色归一化样本失败：' + a + ' vs ' + b + ' ⇒ ' + sameColor(a, b) + '（须 ' + want + '）')
     }
   }
-  steps.push({ name: `母版令牌一致性（${masterDirs.length} 套皮肤：4 关键令牌在位 + 注释-值一致）`, ok: badSelf.length === 0, detail: badSelf })
+  steps.push({ name: `母版一致性（${masterDirs.length} 套皮肤：4 令牌在位 + 注释-值一致 + **master.json ↔ css 值级**）`, ok: badSelf.length === 0, detail: badSelf })
 }
 /* 4) 漂移守卫 */
 if (!noSync && distRel && existsSync(join(HERE, 'check-probe-drift.mjs'))) {
