@@ -222,7 +222,7 @@ function mux(o) {
     subsStyle = b.mean == null ? 'plain' : pickSubsStyle(b.mean)
     console.log(b.mean == null
       ? `   ⚠ [MUX-SUBS-STYLE] 底带亮度量不到（抽帧失败 ${b.ok}/${b.total}）⇒ 回退 plain`
-      : `   · 字幕样式=**${subsStyle}**（底带亮度均值=${b.mean.toFixed(2)} · ${b.ok}/${b.total} 帧有效 · 阈值 0.6）`)
+      : `   · [MUX-SUBS-STYLE] 样式=**${subsStyle}** · 底带亮度均值=${b.mean.toFixed(2)}（${b.ok}/${b.total} 帧有效 · 阈值 0.6）`)
   }
   /* ★ 因字幕会切工作目录 ⇒ **所有**路径（in/out/**logo/bgm**）必须**先转绝对**，否则相对路径在切目录后失效。
    *   ⚠️ 第一版只转了 in/out ⇒ `--logo out-tmp-batch/logo.png` 被解析成 `<字幕目录>/out-tmp-batch/logo.png` ⇒
