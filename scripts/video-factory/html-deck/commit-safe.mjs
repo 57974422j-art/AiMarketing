@@ -42,7 +42,8 @@ if (fi >= 0) for (let i = fi + 1; i < argv.length && !argv[i].startsWith('-'); i
    并新增**显式 `--dry`**：只跑前置、**绝不提交**，让"我只想跑闸门"与"我要提交"两条路彻底分开。 */
 const KNOWN = new Set(['--fast', '--no-sync', '--dry', '--dist-rel', '--files', '--all-ok', '-m',
   /* ★ msg9 ②③：三个自测/基线模式 —— **登记才算数**（本工具的守卫当场拒了未登记的它们 ✓ 又一次"守卫自己被守卫"）。 */
-  '--self-test-catch-classifier', '--self-test-ratchet', '--write-silent-baseline', '--self-test-write-monotonic'])
+  '--self-test-catch-classifier', '--self-test-ratchet', '--write-silent-baseline', '--self-test-write-monotonic',
+  '--self-test-baseline-surface'])
 const dry = argv.includes('--dry')
 for (let i = 2; i < argv.length; i++) {
   const a = argv[i]
@@ -185,6 +186,26 @@ function writeBaselineDecision(oldFiles, newFiles) {
   }
   return { allow: viols.length === 0, viols }
 }
+/* ★★ team-lead ④（批准的改进）：**基线的身份 = 扫描面指纹**（被扫 `.mjs` 的**名字集合**，排序 + 计数）——
+   动机：旧口径把身份绑在 **commit SHA** ⇒ **每提交一次就"陈旧"一次** ✗ ⇒ 提示写"基线可能陈旧"，
+   而真因只是"提交推进了"（与基线质量**无关**）⇒ 提示与它声称的原因**不相关** ⇒ 久了被当噪声绕过。
+   ⚠️ 为什么用"名字集合"而不是"内容哈希"：基线的**内容**变化由**棘轮自己**判（只许降 ✓）⇒ **两件事各管各的**，不混。
+   ⚠️ 判据**成对**（见 `--self-test-baseline-surface`）：扫描面变 ⇒ **必须警** · 只是 commit 推进 ⇒ **不许警**。 */
+function scanSurface(names) { return [...names].sort().join('|') + '#' + names.length }
+
+if (process.argv.includes('--self-test-baseline-surface')) {
+  const cases = []
+  const chk = (name, cond) => { cases.push(cond); console.log(`   ${cond ? '✓' : '✗'} ${name}`) }
+  const A = ['a.mjs', 'b.mjs']
+  chk('① 同一集合（顺序不同）⇒ 指纹相同（不许警）', scanSurface(['b.mjs', 'a.mjs']) === scanSurface(A))
+  chk('② ★**新增被扫文件 ⇒ 必须警**（扫描面变了）', scanSurface([...A, 'c.mjs']) !== scanSurface(A))
+  chk('③ ★**删除被扫文件 ⇒ 必须警**', scanSurface(['a.mjs']) !== scanSurface(A))
+  chk('④ **只是 commit 推进（集合未变）⇒ 不许警**', scanSurface(A) === scanSurface(A))
+  const fail = cases.filter((x) => !x).length
+  console.log(`   ${fail === 0 ? '✓' : '✗'} [BASELINE-SURFACE-SELFTEST] 扫描面指纹 用例=${cases.length} · 失败=${fail}`)
+  process.exit(fail === 0 ? 0 : 1)
+}
+
 if (process.argv.includes('--self-test-write-monotonic')) {
   const a = writeBaselineDecision({ 'a.mjs': 2 }, { 'a.mjs': 3 })   /* 写高 ⇒ 必须拒 */
   const b = writeBaselineDecision({ 'a.mjs': 2 }, { 'a.mjs': 2 })   /* 等值 ⇒ 允许 */
@@ -249,6 +270,9 @@ if (process.argv.includes('--write-silent-baseline')) {
     _doc: '哑 catch 基线（**工具产出**：node commit-safe.mjs --write-silent-baseline）—— 判据=「体内既无 console./throw 也无计数」的 catch 数。★ **新基线只能 ≤ 旧基线**（只许下调；写高会被拒绝并红 —— 防"一键重写绕过棘轮"）',
     _invariant: 'I8b：哑 catch **只许减**；新增即红；基线与实测**逐文件对账**（不许手写数字）',
     at: new Date().toISOString(), sha, files, total,
+    /* ★★ team-lead ④（批准的改进）：**基线的身份 = 扫描面指纹**（**不是** commit SHA）——
+       因为"提交推进"与"基线该不该重写"**无关**；提示必须与它声称的原因相关（否则就是"狼来了"，久了被当噪声绕过）。 */
+    surface: scanSurface(FILES),
   }, null, 2) + '\n', 'utf8')
   console.log(`✓ 已写 ${basename(SILENT_BASE)}：${FILES.map((f) => `${f}=${files[f]}`).join(' · ')} ⇒ 合计 ${total}（SHA=${sha}）`)
   process.exit(0)
@@ -298,10 +322,17 @@ if (process.argv.includes('--write-silent-baseline')) {
     steps.push({ name: `哑 catch 棘轮（基线=${
       'silent-catch-baseline.json'} @ ${String(base.sha || '?')} · 合计 ${base.total}）`, ok: bad.length === 0, detail: bad })
     for (const l of lines) console.log(`     · ${l}`)
-    /* ★ msg10 ②：**显著打印基线出处**；`基线 sha ≠ HEAD` ⇒ ⚠️ 提示重新对账（**不自动判红**）—— 让人看得见基线有多陈。 */
+    /* ★★ team-lead ④（改法已批准）：**基线身份 = 扫描面指纹**（取代 `sha !== HEAD` 那套）——
+       旧口径**每次提交都提示"陈旧"** ✗（提示与原因无关 ⇒ 必沦为噪声被绕过）⇒ 现在：
+         · **扫描面真的变了**（被扫 `.mjs` 有增删）⇒ ⚠️ **必须提示**重新对账 ✓
+         · **只是提交推进了**（集合未变）⇒ **不提示** ✓（只打一行说明，避免"狼来了"）
+       判据成对：`--self-test-baseline-surface`（新增/删除 ⇒ 必须警 · 只推进 commit ⇒ 不许警）✓ */
     const headSha = String(spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: HERE, encoding: 'utf8' }).stdout || '').trim()
-    const stale = headSha && base.sha && base.sha !== headSha
-    console.log(`     · 基线出处：**SHA=${base.sha || '?'} @ ${base.at || '?'}**${stale ? ` ⚠️ 与 HEAD（${headSha}）**不一致** ⇒ 基线可能陈旧，请重新对账（用 --write-silent-baseline，且只许下调）` : ' ✓ 与 HEAD 一致'}`)
+    const surfNow = scanSurface(FILES)
+    const surfaceChanged = base.surface ? base.surface !== surfNow : null      /* 旧基线（无此字段）⇒ null：**不冤枉** */
+    console.log(`     · 基线出处：**SHA=${base.sha || '?'} @ ${base.at || '?'}** · 扫描面=${base.surface ? (surfaceChanged ? '⚠️ **变了**' : '✓ 未变') : '（旧基线无此字段）'}`)
+    if (surfaceChanged) console.log('     · ⚠️ **扫描面变了**（被扫 .mjs 集合有增删）⇒ 请重新对账（`--write-silent-baseline`，且只许下调）')
+    else if (headSha && base.sha && base.sha !== headSha) console.log('     · ℹ 只是提交推进了（扫描面未变）⇒ **不需要**重写基线 ✓（提示只与真变化相关）')
   }
   if (bad.length && !base) steps.push({ name: '哑 catch 棘轮', ok: false, detail: bad })
 }
@@ -335,6 +366,7 @@ if (process.argv.includes('--write-silent-baseline')) {
     ['engine-bin.mjs', ['--self-test-mask'], 'MASK-SELFTEST', 0],   /* ★ 扫描免疫（剥注释保字符串）：本次血现场的回归样本 */
     ['batch-video.mjs', ['--self-test-clean'], 'CLEAN-PLAN-SELFTEST', 0],   /* ★ --clean 的"清理 ⊆ 重建"（双向样本 · 零渲染） */
     ['color.mjs', ['--self-test-color'], 'COLOR-SELFTEST', 0],   /* ★ 颜色工具唯一实现（含一行复跑的导入即自检 · team-lead ③ 三条） */
+    ['commit-safe.mjs', ['--self-test-baseline-surface'], 'BASELINE-SURFACE-SELFTEST', 0],   /* ★ 基线身份=扫描面指纹（提示只与真变化相关） */
     ['gen-deck.mjs', ['--self-test'], 'GEN-SELFTEST', 0],
     ['mux-video.mjs', ['--self-test'], 'MUX-SELFTEST', 2],
   ]

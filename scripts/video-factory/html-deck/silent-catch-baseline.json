@@ -1,8 +1,8 @@
 {
   "_doc": "哑 catch 基线（**工具产出**：node commit-safe.mjs --write-silent-baseline）—— 判据=「体内既无 console./throw 也无计数」的 catch 数。★ **新基线只能 ≤ 旧基线**（只许下调；写高会被拒绝并红 —— 防\"一键重写绕过棘轮\"）",
   "_invariant": "I8b：哑 catch **只许减**；新增即红；基线与实测**逐文件对账**（不许手写数字）",
-  "at": "2026-10-04T09:21:59.441Z",
-  "sha": "d0043fe9",
+  "at": "2026-10-04T09:58:59.525Z",
+  "sha": "6759c869",
   "files": {
     "apply-master-layers.mjs": 0,
     "batch-video.mjs": 0,
@@ -20,6 +20,7 @@
     "check-schema-vs-limits.mjs": 5,
     "check-syntax-and-json.mjs": 0,
     "clean-tmp.mjs": 4,
+    "color.mjs": 0,
     "commit-safe.mjs": 1,
     "crosscheck-deck-json.mjs": 11,
     "deck-jsonpath.mjs": 0,
@@ -47,5 +48,6 @@
     "verify-image.mjs": 0,
     "verify-masters.mjs": 0
   },
-  "total": 57
+  "total": 57,
+  "surface": "apply-master-layers.mjs|batch-video.mjs|check-bad-examples.mjs|check-coverage-matrix.mjs|check-docs-fork.mjs|check-engine-lint.mjs|check-examples.mjs|check-exit-codes.mjs|check-font-coverage.mjs|check-master-manifest.mjs|check-probe-drift.mjs|check-probe-paths.mjs|check-product-freshness.mjs|check-schema-vs-limits.mjs|check-syntax-and-json.mjs|clean-tmp.mjs|color.mjs|commit-safe.mjs|crosscheck-deck-json.mjs|deck-jsonpath.mjs|deck-targets.mjs|decor-collision.mjs|derive-decks.mjs|dom-target.mjs|engine-bin.mjs|gate-release.mjs|gen-deck.mjs|inject-long-text.mjs|make-video.mjs|measure-count.mjs|measure-limits.mjs|measure-sweep.mjs|measure-table.mjs|mux-video.mjs|palette-distance.mjs|paths.mjs|render-deck.mjs|timing.mjs|validate-deck.mjs|verify-chart.mjs|verify-density.mjs|verify-image.mjs|verify-masters.mjs#43"
 }
