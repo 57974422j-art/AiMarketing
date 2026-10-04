@@ -752,7 +752,19 @@ if (ARG_VC || ROTATE) {
       else {
         for (const rc of rowsC) if (rc.inPage !== rc.N) why.push(`N=${rc.N} 但页内=${rc.inPage}（条数读回 ≠ N）`)
         const maxN = Math.max(...rowsC.map((x) => x.N)), maxIn = Math.max(...rowsC.map((x) => x.inPage))
-        if (maxIn !== Number(cell.capacityAtLeast)) why.push(`max 页内=${maxIn} ≠ capacityAtLeast=${cell.capacityAtLeast}`)
+        /* ★★ msg33 ②：**固定窗口**（minItems == maxItems）的格**没有** `capacityAtLeast` ⇒ 预期值 = **契约值**本身。
+           判据：读数必须**覆盖到**契约值（`maxIn >= fixed`）；**越契约仍渲染**（maxIn > fixed，如强注 30）**不算错**
+           —— 那是"越契约可渲染"的旁证，不是容量（我第一版把 `undefined` 拿去比 ⇒ 自证当场红，已修）。 */
+        if (cell.capacityAtLeast !== undefined) {
+          if (maxIn !== Number(cell.capacityAtLeast)) why.push(`max 页内=${maxIn} ≠ capacityAtLeast=${cell.capacityAtLeast}`)
+        } else {
+          let fixed = null
+          let rcFail = 0     /* ⚠️ catch **必须会说话**（计数）：静默 catch 会被"哑 catch 棘轮"咬 —— 我已第三次踩它 */
+          try { const n3 = get(String(cell.jsonPointer || '')); fixed = (n3 && n3.minItems !== undefined && Number(n3.minItems) === Number(n3.maxItems)) ? Number(n3.maxItems) : null } catch { fixed = null; rcFail++ }
+          if (rcFail) why.push('契约值读取失败（无法判定固定窗口的预期值）')
+          if (fixed === null) why.push('该 count 格既无 capacityAtLeast 也非固定窗口（minItems == maxItems）⇒ 表内口径不全')
+          else if (maxIn < fixed) why.push(`max 页内=${maxIn} < 契约固定值 ${fixed}（minItems == maxItems）⇒ 读数没覆盖到契约值`)
+        }
         if (cell.sweepMax !== undefined && maxN !== Number(cell.sweepMax)) why.push(`max N=${maxN} ≠ sweepMax=${cell.sweepMax}`)
       }
       if (nm && cell.sweepMax === undefined) why.push('`source` 带 `--nmax` 但表**缺 `sweepMax` 字段**（一个语义一个字段 ⇒ 请补）')
