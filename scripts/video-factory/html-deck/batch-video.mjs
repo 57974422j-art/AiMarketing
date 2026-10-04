@@ -42,6 +42,24 @@ for (let i = 2; i < process.argv.length; i++) {
   if (k === 'sheet' || k === 'dryRun' || k === 'keepRaw' || k === 'reuseRaw' || k === 'clean' || k === 'sheetOnly' || k === 'allPalettes') { A[k] = true; continue }
   A[k] = process.argv[++i]
 }
+/* ★★ 旗标三件套的**覆盖断言**。⚠️ 编排类工具**必须两张表**（team-lead msg19 ①：`make-video` 上一版正是
+   因为只有一张表而把**生产路径判红** —— 它把"传给子工具的旗标"当成自己的）。
+   本工具的自有旗标在 `FLAGS`；**传给 `mux-video` 的 `--in/--out`** 单列下游表（`--srt/--logo/--bgm` 虽也传给
+   mux，但**本工具自己也用** ⇒ 仍属自有表；`--outdir` 同理）。 */
+{
+  const DOWNSTREAM_FLAGS = ['--in', '--out']
+  const src = readFileSync(fileURLToPath(import.meta.url), 'utf8')
+  const found = [...new Set([...src.matchAll(/'(--[a-zA-Z][\w-]*)'/g)].map((m) => m[1]))]
+  const known = new Set([...Object.keys(FLAGS), ...DOWNSTREAM_FLAGS])
+  const missing = found.filter((f) => !known.has(f))
+  const dead = Object.keys(FLAGS).filter((n) => !new RegExp(`\\bA\\.${FLAGS[n]}\\b|\\bA\\['${FLAGS[n]}'\\]`).test(src))
+  if (missing.length || dead.length) {
+    console.error(`✗ 旗标三件套断言失败：**注册表不全** ${missing.join(' ') || '（无）'} · **注册但未消费** ${dead.join(' ') || '（无）'}`)
+    console.error('   规矩：自有旗标登记进 FLAGS **并被真正读取**；传给子工具的列进 DOWNSTREAM_FLAGS ⇒ exit 2')
+    process.exit(EXIT.INPUT)
+  }
+  console.log(`  ✓ 旗标三件套：自有注册 **${Object.keys(FLAGS).length}** · 下游表 **${DOWNSTREAM_FLAGS.length}** · 源码字面量 **${found.length}** 全部有归属 · 死旗标 **0**`)
+}
 const run = (file, args, opts = {}) => spawnSync(process.execPath, [join(HERE, file), ...args], { encoding: 'utf8', maxBuffer: 1 << 28, ...opts })
 
 /* ---------------- ① 皮肤清单：从每个母版的 master.json 读（唯一真源，不手抄） ---------------- */

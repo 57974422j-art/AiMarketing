@@ -50,6 +50,27 @@ for (let i = 2; i < process.argv.length; i++) {
   A[key] = process.argv[++i]
 }
 
+/* ★★ 旗标三件套的**覆盖断言**（与 `crosscheck` / `measure-count` / `gen-deck` / `make-video` 同款纳管）。
+   本工具**不编排别的工具**（只调 ffmpeg/ffprobe，其参数是**单横杠** ⇒ 不进本扫描）⇒ 只需一张自有表。
+   ① **注册表 ⊇ 源码里全部旗标字面量**（防"加了旗标忘了登记 ⇒ 照抄者只得到哑红"）
+   ② **每个注册项必须被消费**（`A.<key>`；防"登记了却没人读 = 假装覆盖"） */
+{
+  const src = readFileSync(fileURLToPath(import.meta.url), 'utf8')
+  const found = [...new Set([...src.matchAll(/'(--[a-zA-Z][\w-]*)'/g)].map((m) => m[1]))]
+  const known = new Set(Object.keys(FLAGS))
+  const missing = found.filter((f) => !known.has(f))
+  /* ⚠️ 本文件的选项对象叫 **`o`**（`const o = …`）⇒ 消费判定必须认 `o.<key>`；只认 `A.` 会把 10 个**真在用**的
+     旗标报成"未消费"（实测首跑就这么红的 —— 宽了的代价是弱一点，但"报假死旗标"会让人去删真功能）。
+     `\b` 同时防 `foo.logo` 这类误匹配。 */
+  const dead = [...known].filter((n) => !new RegExp(`\\b(A|opt|o)\\.${FLAGS[n]}\\b|\\b(A|opt|o)\\['${FLAGS[n]}'\\]`).test(src))
+  if (missing.length || dead.length) {
+    console.error(`✗ 旗标三件套断言失败：**注册表不全** ${missing.join(' ') || '（无）'} · **注册但未消费** ${dead.join(' ') || '（无）'}`)
+    console.error('   规矩：新增旗标必须登记进 FLAGS **并被真正读取** ⇒ exit 2')
+    process.exit(EXIT.INPUT)
+  }
+  console.log(`  ✓ 旗标三件套：注册 **${known.size}** · 源码字面量 **${found.length}** 全部已登记 · 死旗标 **0**`)
+}
+
 /** 结论行：**唯一**机读承载（人类细节不承载判据） */
 const concl = (tag, ok, extra = {}) => {
   const kv = Object.entries(extra).map(([k, v]) => `${k}=${v}`).join(' · ')

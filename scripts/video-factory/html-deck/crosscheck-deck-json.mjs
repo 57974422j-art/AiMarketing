@@ -131,6 +131,19 @@ function runSelfTestUsage() {
      成功路径须走通到**渲染/读数**（真底档 + 真 `--cls` + 合法 `auto=`）⇒ 断言 **exit=0** 且出现 `GATE-RESULT` 机器标记。 */
   /* ★ team-lead ③：**每个用例显式声明"期望族"** ⇒ 断言 `实际族集合 == 期望族集合`（不只"≥1 族被命中"——
      那只证明"**有话说**"，不证明"**说对了话**"）。与"每族 ≥1 用例"合起来才是完整双向。 */
+  /* ★★ **夹具必须自造**（team-lead ④"合成输入自测"的硬要求）：`judge-fixture` 用例此前依赖**手工造的**
+     `out-tmp-ctl/fx-judge33.json` ⇒ **临时目录一被清，该用例就红**（实测：本轮 `--self-test-usage` exit=2，
+     真因与实现无关，只是夹具没了）⇒ 让**自测自己生成**它（派生自真表 `measured-limits.json`，只改
+     `meta.title.judgeLimit=33` ⇒ 与用例期望的 `cap=33` 对齐）。**造物者必须随用例入库**。 */
+  {
+    const FIX_DIR = join(HERE, 'out-tmp-ctl')
+    mkdirSync(FIX_DIR, { recursive: true })
+    const t = JSON.parse(readFileSync(join(HERE, 'measured-limits.json'), 'utf8'))
+    const cell = (t.limits || []).find((c) => c.field === 'meta.title')
+    if (cell) cell.judgeLimit = 33
+    writeFileSync(join(FIX_DIR, 'fx-judge33.json'), JSON.stringify(t, null, 2) + '\n')
+    console.log(`   ℹ --judge-fixture 夹具**由自测自造**（派生自真表 · meta.title.judgeLimit=33）⇒ 用例自足`)
+  }
   const CASES = [
     /* ⚠️ 期望族曾写漏 `auto 反查`（该用例用 `auto=100` ⇒ 会打 ℹ auto 反查行）⇒ **被期望族断言当场抓到** ✓ */
     /* ⚠️ `--expect-page 1` **必须加**：我自己新立的"读数模式缺它 ⇒ 红"规则**同样适用于本自测**
