@@ -34,19 +34,13 @@ function fail(code, stage, msg, extra = {}) {
 }
 /* ------------------------------------------------------------------
    外部媒体工具（ffmpeg / ffprobe）的解析 —— ★ **不依赖平台默认 PATH**
-   引擎（hyperframes）自己会带/指定 ffmpeg：`HYPERFRAMES_FFMPEG_PATH`。
+   引擎（hyperframes）自己会带/指定 ffmpeg（**其环境变量口径只在 `engine-bin.mjs`** —— 本文件不写该名字）。
    我们的做法：它存在时**同目录**找同名工具（ffprobe 与 ffmpeg 一般同目录），否则回退 PATH。
    两种都拿不到时**大声失败**（EXIT.MEDIA），绝不静默跳过产物校验或抽帧。
    ------------------------------------------------------------------ */
-function resolveBin(name) {
-  const env = process.env.HYPERFRAMES_FFMPEG_PATH
-  if (env) {
-    const m = env.match(/\.(exe|cmd|bat)$/i)
-    const cand = join(dirname(env), name + (m ? m[1] : ''))
-    if (existsSync(cand)) return cand
-  }
-  return name
-}
+/* ★★ team-lead msg16 ①（K17 扩展）：**解析逻辑收口到 `engine-bin.mjs`**（候选数组/环境变量只许在那一处）。
+   本文件的 `resolveBin` 退化为**一行转发**（名字 → 解析器）⇒ 调用点不变，但"同一逻辑的第二份实现"消失。 */
+function resolveBin(name) { return name === 'ffprobe' ? resolveFfprobe().p : resolveFfmpeg().p }
 /** 契约枚举取值：**不许有默认值兜底**（静默降级正是要禁止的事） */
 function strictPick(map, key, what) {
   if (!map || !Object.prototype.hasOwnProperty.call(map, key)) {
@@ -66,7 +60,7 @@ selfCheck({ quiet: true })
 // ★ K17 教训（我引入的回归）：这里曾与 check-engine-lint 各写一份 HF 解析，只修了那边 ⇒ 本处一直选中
 //   PATH 上的 `hyperframes` ⇒ 本机没装 PATH 版时**渲染静默失败**（shell：'hyperframes' is not recognized），
 //   而 `--no-render`（部署闸门）不渲染 ⇒ **一直没暴露**。⇒ 解析只许一处；改调用链必须**真跑会渲染的路径**。
-import { resolveHyperframes } from './engine-bin.mjs'
+import { resolveHyperframes, resolveFfmpeg, resolveFfprobe, ffmpegEnvPath } from './engine-bin.mjs'
 const HF = resolveHyperframes().p
 const VALIDATOR = join(HERE, 'validate-deck.mjs')
 const FPS = 25
@@ -1071,7 +1065,7 @@ function main() {
   if (p.status !== 0 || !String(p.stdout || '').trim()) {
     // ★ 不许静默跳过：产物校验（规格/色彩标签）依赖 ffprobe，拿不到就不许继续装作成功
     fail(EXIT.MEDIA, 'probe', `ffprobe 不可用或产物不可读（试过：${ffprobeBin}）${p.stderr ? ' · ' + String(p.stderr).trim().split('\n').slice(-2).join(' ') : ''}`,
-      { ...ctx, mp4, hyperframes_ffmpeg_path: process.env.HYPERFRAMES_FFMPEG_PATH || null })
+      { ...ctx, mp4, hyperframes_ffmpeg_path: ffmpegEnvPath() })
   }
   console.log('ffprobe:\n' + (p.stdout || '').trim().split('\n').map((l) => '  ' + l).join('\n'))
 

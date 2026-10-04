@@ -90,5 +90,81 @@ export function assertSingleHfDefinition() {
   return { total, occ, subTotal, sub }
 }
 
+/* ★★ team-lead msg16 ①（K17 扩展 · ffmpeg 收口）：**外部媒体工具的解析也只许一处**。
+   此前 ffmpeg 解析散在 **4 处**（`render-deck` 自带的 resolveBin · `check-master-manifest` 同款自带 ·
+   `mux-video` 同款自带 · `batch-video` 直接写裸 `ffmpeg`）⇒ 与 hyperframes 那次同族（"只修一处 ⇒ 另一处静默失效"）。
+   解析顺序：① `HYPERFRAMES_FFMPEG_PATH`（**显式指定却不存在 ⇒ 红，不许静默回退**）② 与之**同目录**的兄弟工具（ffprobe 与 ffmpeg 一般同目录）
+   ③ `PATH`（交给 shell，**最后兜底**）。 */
+// 本行标记 = `FF-DEF` 加 `:ONLY-ONCE`（唯一一处 ffmpeg/ffprobe 候选定义；断言按此标记 + 候选实质指纹计数）
+// ⚠️ 注释里**不写完整标记字面量**：写了会让标记计数变成 2 ⇒ **断言把自己的真源判红**（与 HF 那次同款自匹配坑）。
+export function resolveFfmpeg() { return resolveMediaBin('ffmpeg') }
+/* ★「读该环境变量」**也走唯一实现**：否则别的文件为了"把渲染器用的 ffmpeg 报进 RESULT"而直接 `process.env…`
+   ⇒ 断言会（正确地）判红。⇒ 需要它的人调本函数（**同一真源、同一处字面量**）。 */
+export function ffmpegEnvPath() { return process.env.HYPERFRAMES_FFMPEG_PATH || null }
+export function resolveFfprobe() { return resolveMediaBin('ffprobe') }
+function resolveMediaBin(name) {
+  const env = process.env.HYPERFRAMES_FFMPEG_PATH
+  const extM = env ? /\.(exe|cmd|bat)$/i.exec(env) : null
+  const cands = [
+    env ? { p: env, why: '环境变量（渲染器同一个）' } : null,
+    env ? { p: join(dirname(env), name + (extM ? extM[1] : '')), why: '与渲染器 ffmpeg **同目录的兄弟工具**' } : null,
+    { p: name, why: 'PATH（交给 shell 解析）' },
+  ].filter(Boolean)
+  /* ★ 显式指定却**不存在** ⇒ **直接红**（§25b：环境不完整 ⇒ exit 2）—— 不许静默回退到 PATH，
+     否则"我在服务器上钉了同一个 ffmpeg"是**假话**（与 resolveHyperframes 同一条纪律）。 */
+  if (env && name === 'ffmpeg' && !existsSync(env)) {
+    console.error(`✗ HYPERFRAMES_FFMPEG_PATH 指向的路径不存在：${env}`)
+    for (const c of cands) console.error(`    · ${c.why} → ${c.p}${existsSync(c.p) ? ' ✓' : ' ✗'}`)
+    console.error('    （显式指定不许静默回退；§25b ⇒ exit 2，非判据失败）')
+    process.exit(2)
+  }
+  const hit = cands.find((c) => existsSync(c.p))
+  if (hit) return { p: hit.p, why: hit.why, candidates: cands }
+  const last = cands[cands.length - 1]      /* PATH 兜底：existsSync 判不了 shell 解析 ⇒ 交给它 */
+  return { p: last.p, why: last.why, candidates: cands }
+}
+
+/** 断言：**ffmpeg/ffprobe 的解析也只许一处** —— 与 `assertSingleHfDefinition` 同构的**双重检测**：
+ *   ① 标记注释 `FF-DEF:ONLY-ONCE` 出现次数 == 1；
+ *   ② **其它文件里**出现该环境变量字面量 / 候选实质指纹 ⇒ 红（"复制代码不复制注释"同样被抓住）。
+ *  ★ 为什么"其它文件里必须为 0"而不是"全局必须为 1"：本模块自己要多次提到该环境变量（代码 + 报错文案）⇒
+ *    "全局 == 1"会把**正常用法**判红（假阳性）。⇒ 判据落在**"别人有没有复制"**上。 */
+export function assertSingleFfDefinition() {
+  const TOKEN = 'FF-DEF:' + 'ONLY-ONCE'
+  const P1 = 'HYPERFRAMES_FFMPEG_'
+  const P2 = 'PATH'
+  const P3 = "'ff" + "mpeg'"
+  const FINGER = new RegExp(P1 + P2 + '[\\s\\S]{0,200}?' + P3, 'g')
+  let files = []
+  let readFail = 0                                  /* ★ 会说话：读失败要计数（哑 catch 会被棘轮咬 —— 实测被咬） */
+  try { files = readdirSync(ENGINE_DIR).filter((f) => f.endsWith('.mjs')) } catch { readFail++ }
+  const self = 'engine-bin.mjs'
+  const occ = [], sub = [], envHit = []
+  for (const f of files) {
+    try {
+      const t = readFileSync(join(ENGINE_DIR, f), 'utf8')
+      if (f === self) continue                      /* 本模块 = 唯一实现所在地 ⇒ 只看别人 */
+      const n = t.split(P1 + P2).length - 1
+      if (n) envHit.push(`${f}×${n}`)
+      const m = t.match(FINGER)
+      if (m) sub.push(`${f}×${m.length}`)
+    } catch { readFail++ }
+  }
+  try { const t = readFileSync(join(ENGINE_DIR, self), 'utf8'); const n = t.split(TOKEN).length - 1; if (n !== 1) occ.push(`${self}×${n}`) } catch { readFail++ }
+  if (readFail) console.error(`   （K17-ff 自检：有 ${readFail} 处文件读取失败 ⇒ 计数可能不完整）`)
+  const envTotal = envHit.reduce((s, x) => s + Number(x.split('×')[1] || 0), 0)
+  const subTotal = sub.reduce((s, x) => s + Number(x.split('×')[1] || 0), 0)
+  if (occ.length || envTotal !== 0 || subTotal !== 0) {
+    console.error('✗ K17-ff 断言失败：**ffmpeg 解析只许一处**（`engine-bin.mjs`）')
+    console.error(`   标记注释：${occ.join(', ') || '1 ✓'}（应恰为 1）· **其它文件的候选定义/环境变量引用：${envTotal} 处（应 0）** · 候选实质指纹：${subTotal} 处（应 0）`)
+    if (envHit.length) console.error(`   环境变量命中：${envHit.join(', ')}`)
+    if (sub.length) console.error(`   实质命中：${sub.join(', ')}`)
+    console.error('   规矩：其它脚本**只 import `resolveFfmpeg` / `resolveFfprobe`**，不许复制候选数组或直接读该环境变量。')
+    process.exit(2)
+  }
+  return { envTotal, subTotal, occ }
+}
+
 // 导入即自检（任何消费者都会触发 ⇒ 结构上拦住"复制一份"）
 assertSingleHfDefinition()
+assertSingleFfDefinition()

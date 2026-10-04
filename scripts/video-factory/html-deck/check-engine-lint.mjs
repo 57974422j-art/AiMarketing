@@ -26,7 +26,9 @@ selfCheck({ quiet: true })
 /** ★ hyperframes 解析：**唯一实现**在 `engine-bin.mjs`（K17 结构性收口 —— 本文件**不再保留候选数组定义**）。
     顺序：`ENGINE_HF_BIN` → `PATH` → 开发回退 `<引擎根>/node_modules/.bin/hyperframes[.cmd]`；
     全找不到 ⇒ 该模块 **exit 2**（§25b：输入/环境不完整 ≠ 判据失败）并列出所有候选。 */
-import { resolveHyperframes } from './engine-bin.mjs'
+import { resolveHyperframes, resolveFfmpeg, ffmpegEnvPath } from './engine-bin.mjs'
+/* ★ K17-ff（team-lead msg16 ① 之外我补的第 5 处）：本文件也用 ffmpeg 抽帧/裁图 —— 此前写**裸 `ffmpeg`**
+   （⇒ 无视渲染器指定的那个 ffmpeg）⇒ 现同走唯一实现（否则"只许一处"会被第 5 份裸用法架空）。 */
 const HF_INFO = resolveHyperframes()
 const HF = HF_INFO.p
 console.log(`  hyperframes = ${HF}（来源：${HF_INFO.why}；platform=${process.platform}）`)
@@ -51,7 +53,7 @@ if (args.includes('--deploy')) {
        服务器上这一行就能区分"引擎拿错版本 / PATH 没配 / chrome 找不到"。 */
     console.log(`  [部署口径] 引擎 = ${HF}（来源：${HF_INFO.why}）`)
     console.log(`  [部署口径] node = ${process.version} · platform=${process.platform}-${process.arch} · cwd=${process.cwd()}`)
-    console.log(`  [部署口径] chrome = ${process.env.HYPERFRAMES_CHROME_PATH || process.env.CHROME_PATH || '(未显式设置 ⇒ 由渲染器自行解析)'} · ffmpeg = ${process.env.HYPERFRAMES_FFMPEG_PATH || '(未显式设置)'}`)
+    console.log(`  [部署口径] chrome = ${process.env.HYPERFRAMES_CHROME_PATH || process.env.CHROME_PATH || '(未显式设置 ⇒ 由渲染器自行解析)'} · ffmpeg = ${ffmpegEnvPath() || '(未显式设置)'}`)
     const t1 = Date.now()
     const g = spawnSync(process.execPath, [join(HERE, 'render-deck.mjs'), join(HERE, d.json), '--no-render', '--outdir', tmpRoot], { encoding: 'utf8' })
     const genMs = Date.now() - t1
@@ -480,7 +482,7 @@ function settledFrame(no) {
       const at = s2.at
       const violation = s2.violation || (listed && listed !== at.toFixed(3) ? `抽帧时刻 ${at.toFixed(3)}s ≠ --at 列表里的 ${listed}s（两处漂移）` : null)
       const out = join(process.env.TEMP || process.env.TMP || '.', `cgl-settled-${process.pid}-p${no}.png`)
-      const r = spawnSync('ffmpeg', ['-v', 'error', '-y', '-ss', at.toFixed(3), '-i', mp4, '-frames:v', '1', out])
+      const r = spawnSync(resolveFfmpeg().p, ['-v', 'error', '-y', '-ss', at.toFixed(3), '-i', mp4, '-frames:v', '1', out])
       if (r.status === 0 && existsSync(out)) res = { png: out, at: at.toFixed(3), fp: fp(readFileSync(out)), mp4, violation }
     }
   }
@@ -496,7 +498,7 @@ function rectContrast(png, rect) {
   const w = Math.round(rect.width ?? rect.w ?? 0)
   const h = Math.round(rect.height ?? rect.h ?? 0)
   if (w < 6 || h < 6 || x < 0 || y < 0) return null
-  const r = spawnSync('ffmpeg', ['-v', 'error', '-i', png, '-vf', `crop=${w}:${h}:${x}:${y}`, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { maxBuffer: 1 << 26 })
+  const r = spawnSync(resolveFfmpeg().p, ['-v', 'error', '-i', png, '-vf', `crop=${w}:${h}:${x}:${y}`, '-f', 'rawvideo', '-pix_fmt', 'rgb24', '-'], { maxBuffer: 1 << 26 })
   const b = r && r.status === 0 ? r.stdout : null
   if (!b || b.length < 3 * 6 * 6) return null
   const N = Math.floor(b.length / 3)

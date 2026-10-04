@@ -16,8 +16,10 @@
  */
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, rmSync, statSync } from 'node:fs'
-import { join, dirname, resolve, basename } from 'node:path'
+import { join, dirname, resolve, basename, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+/* ★ K17-ff（team-lead msg16 ① 补的第 4 处）：本工具此前**直接写裸 `ffmpeg`/`ffprobe`** ⇒ 现统一走唯一实现。 */
+import { resolveFfmpeg, resolveFfprobe } from './engine-bin.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const EXIT = { OK: 0, FAIL: 1, INPUT: 2 }
@@ -175,7 +177,16 @@ if (!A.sheetOnly) for (const skin of skins) {
       console.log(`   ✓ [BATCH-ITEM-OK] ${tag} · ${mf.name || skin} · ${ori} · ${size}MB（无合成项 ⇒ 交付渲染原片）· ${((Date.now() - t0) / 1000).toFixed(0)}s`)
       rows.push({ skin, ori, ok: true, final: rawMp4.replace(HERE + '\\', ''), sizeMB: Number(size) })
     }
-    if (!A.keepRaw && final !== rawMp4) rmSync(rawDir, { recursive: true, force: true })
+    /* ★ 删除守卫（probe-html 建议，属"超限"同族）：删之前断言目标**真的在自己 outdir 之下** ——
+     *   否则一律拒绝并点名（工具**不许删调用者的输入**；第一版 `rmSync(outdir)` 就删掉过 --srt/--logo）。 */
+    if (!A.keepRaw && final !== rawMp4) {
+      const rp = resolve(rawDir), op = resolve(outRoot)
+      if (rp === op || !rp.startsWith(op + sep)) {
+        console.log(`   ✗ [BATCH-DELETE-REFUSED] 拒绝删除 ${rawDir}（不在 outdir ${outRoot} 之下）—— 工具不许删调用者的输入`)
+        rows.push({ skin, ori, ok: false, why: 'delete-refused' }); continue
+      }
+      rmSync(rawDir, { recursive: true, force: true })
+    }
    }
   }
 }
@@ -184,7 +195,8 @@ if (!A.sheetOnly) for (const skin of skins) {
  * ⚠️ 第一版把 12 张图直接 hstack ⇒ 横版 1280×720 与竖版 720×1280 **高度不同** ⇒ ffmpeg 报错（对照图生成失败）。
  *   修法：先各自缩放到统一高度，**同方向一行**，再把两行**补宽对齐**后 vstack。 */
 if ((A.sheet || A.sheetOnly) && rows.some((r) => r.ok)) {
-  const ff = spawnSync('ffmpeg', ['-version']).status === 0 ? 'ffmpeg' : null
+  const FF_BIN = resolveFfmpeg().p
+  const ff = spawnSync(FF_BIN, ['-version']).status === 0 ? FF_BIN : null
   if (ff) {
     const H = 320
     const rowsPng = {}
@@ -211,7 +223,7 @@ if ((A.sheet || A.sheetOnly) && rows.some((r) => r.ok)) {
       /* 两行宽度不同（横版一行远宽于竖版一行）⇒ 用 ffprobe 量出各行宽度，再把窄行 pad 到最宽（居中）后 vstack。
        * 不用 `max(overlay_w…)` 那类表达式：ffprobe 量**真实像素宽**更直接、可回读。 */
       const wOf = (p) => {
-        const pr = spawnSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width', '-of', 'csv=p=0', p], { encoding: 'utf8' })
+        const pr = spawnSync(resolveFfprobe().p, ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width', '-of', 'csv=p=0', p], { encoding: 'utf8' })
         return Number(String(pr.stdout || '').trim()) || 0
       }
       const W = Math.max(...rowFiles.map((r) => wOf(r.rowFile)))

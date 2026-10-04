@@ -19,21 +19,16 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs'
 import { join, resolve, dirname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
+/* ★ K17-ff：媒体工具解析的**唯一实现**（本文件不许再出现候选数组/该环境变量字面量） */
+import { resolveFfmpeg, resolveFfprobe } from './engine-bin.mjs'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const EXIT = { OK: 0, FAIL: 1, INPUT: 2 }
 
-/* ---------------- ffmpeg / ffprobe 解析 ----------------
- * ⚠️ 本仓已有 3 处各写一份同逻辑（render-deck / check-master-manifest）⇒ 这里**不再复制第四份**：
- *   优先复用渲染器用的同一个环境变量口径（HYPERFRAMES_FFMPEG_PATH）⇒ 与渲染阶段**同一个 ffmpeg**。 */
-function resolveBin(name) {
-  const env = process.env.HYPERFRAMES_FFMPEG_PATH
-  if (env && existsSync(env)) {
-    const cand = join(dirname(env), name + (process.platform === 'win32' ? '.exe' : ''))
-    if (existsSync(cand)) return cand
-  }
-  return name   // 交给 PATH
-}
+/* ---------------- ffmpeg / ffprobe 解析（★ K17-ff：唯一实现在 engine-bin.mjs） ----------------
+ * ⚠️ 本仓已有 3 处各写一份同逻辑（render-deck / check-master-manifest）⇒ team-lead msg16 ① 已把它们连同本处
+ *   一起**收口**：候选数组与环境变量只许在 `engine-bin.mjs`（有出现次数断言拦着）⇒ 本处退化为**一行转发**。 */
+function resolveBin(name) { return name === 'ffprobe' ? resolveFfprobe().p : resolveFfmpeg().p }
 
 /* ---------------- 旗标：全部登记（未登记 ⇒ 大声红；本仓"引用须登记"纪律） ---------------- */
 const FLAGS = {

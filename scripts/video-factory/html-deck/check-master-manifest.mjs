@@ -27,6 +27,8 @@ import { fileURLToPath } from 'node:url'
 const HERE = dirname(fileURLToPath(import.meta.url))
 /* ★ 路径收口：唯一来源 `paths.mjs`（本文件**不再**自己 `resolve(HERE,'..')`；硬编码 `deck-contract` 也一并去掉） */
 import { ENGINE_ROOT as ROOT, DECK_DIR, selfCheck } from './paths.mjs'
+/* ★ K17-ff：外部媒体工具解析的**唯一实现**在 `engine-bin.mjs`（本文件只 import —— 断言：其它文件里该环境变量字面量必须为 0） */
+import { resolveFfmpeg, resolveFfprobe } from './engine-bin.mjs'
 selfCheck({ quiet: true })
 /** 母版清单目录（可用 --masters 指向副本，用于"改清单必须变红"的敏感性自证） */
 const MASTERS = (() => {
@@ -66,16 +68,8 @@ const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b)
 const fx = (n, d = 2) => (typeof n === 'number' ? n.toFixed(d) : String(n))
 
 /* ---------------- 二进制解析（复用 hyperframes 给出的 ffmpeg 路径） ---------------- */
-function resolveBin(name) {
-  const env = process.env.HYPERFRAMES_FFMPEG_PATH
-  if (env) {
-    const dir = dirname(env)
-    const m = env.match(/\.(exe|cmd|bat)$/i)
-    const cand = join(dir, name + (m ? m[1] : ''))
-    if (existsSync(cand)) return cand
-  }
-  return name
-}
+/* ★★ team-lead msg16 ①（K17 扩展）：**收口到 `engine-bin.mjs`**（候选数组/环境变量只许在那一处）⇒ 本处退化为一行转发。 */
+function resolveBin(name) { return name === 'ffprobe' ? resolveFfprobe().p : resolveFfmpeg().p }
 function probe(file) {
   const r = spawnSync(resolveBin('ffprobe'), ['-v', 'error', '-select_streams', 'v:0',
     '-show_entries', 'stream=width,height,pix_fmt,nb_frames,avg_frame_rate,color_range,color_space',
