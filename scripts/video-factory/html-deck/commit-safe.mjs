@@ -40,7 +40,7 @@ if (fi >= 0) for (let i = fi + 1; i < argv.length && !argv[i].startsWith('-'); i
 /* ★ team-lead ②(a)：**未识别参数 ⇒ exit 2**（把纪律用在自己身上 —— crosscheck/measure-table 早就这么做；
    第一版把 `--check-only` **静默吞掉**、一路走到 commit 那步，只因缺 `-m` 才没提交 ⇒ 不许靠"恰好"兜底）。
    并新增**显式 `--dry`**：只跑前置、**绝不提交**，让"我只想跑闸门"与"我要提交"两条路彻底分开。 */
-const KNOWN = new Set(['--fast', '--no-sync', '--dry', '--dist-rel', '--files', '-m',
+const KNOWN = new Set(['--fast', '--no-sync', '--dry', '--dist-rel', '--files', '--all-ok', '-m',
   /* ★ msg9 ②③：三个自测/基线模式 —— **登记才算数**（本工具的守卫当场拒了未登记的它们 ✓ 又一次"守卫自己被守卫"）。 */
   '--self-test-catch-classifier', '--self-test-ratchet', '--write-silent-baseline', '--self-test-write-monotonic'])
 const dry = argv.includes('--dry')
@@ -516,8 +516,33 @@ if (dry) {
 console.log('\n✓ 前置全过 ⇒ 执行 git add / git commit')
 const run = (args) => { const r = spawnSync('git', ['--no-pager', ...args], { cwd: ROOT, encoding: 'utf8' }); if (r.status !== 0) { console.error(String(r.stderr || r.stdout)); process.exit(1) } return String(r.stdout || '') }
 if (!msgParts.length) { console.error('✗ 没有 -m 提交信息 ⇒ 拒绝提交'); process.exit(1) }
-if (files.length) run(['add', ...files])
-else run(['add', '-A', 'scripts/video-factory/html-deck'])
+/* ★★ team-lead msg30 ③（流程纪律 · 事故根因在用法不在门禁）：**多人协作时"提交时机"不许由 `add -A` 替别人决定** ——
+   `add -A <目录>` 是"把**整目录此刻的状态**入库"，而多人在飞时目录里有**别人未完成**的改动（实测：他提交时把我的
+   `validate-deck.mjs` 一并带走 ⇒ 我的"意图 4"变成"实际 3"）⇒ 两条硬化：
+     ① **提交前**算"将入库清单"并与意图比对（`--files` 给了就查"含不含意图外文件"；不给就**逐行打印全部**并要显式 `--all-ok`）；
+     ② 原来的**提交后**核对**保留**（双保险：*前置绿 ≠ 提交对*）。 */
+if (!files.length && !argv.includes('--all-ok')) {
+  console.error('✗ **未传 `--files` 且未显式确认** ⇒ 拒绝提交')
+  console.error('   理由：`add -A <目录>` 会把**别人在飞的改动**一起入库（等于替别人决定提交时机）⇒ 二选一：')
+  console.error('     (a) 传 `--files <你自己的文件清单>`（推荐）· (b) 确认"此刻整目录都是我的" ⇒ 加 `--all-ok`')
+  const cand = spawnSync('git', ['--no-pager', 'status', '--porcelain'], { cwd: ROOT, encoding: 'utf8' })
+  const lines = String(cand.stdout || '').trim().split('\n').filter(Boolean)
+  console.error(`   当前工作树改动 **${lines.length}** 条（逐行）：`)
+  for (const l of lines.slice(0, 40)) console.error(`      · ${l}`)
+  process.exit(2)
+}
+if (files.length) {
+  run(['add', ...files])
+  const staged = run(['diff', '--cached', '--name-only']).split('\n').map((s) => s.trim()).filter(Boolean)
+  const extra = staged.filter((p) => !files.includes(p))
+  if (extra.length) {
+    console.error(`✗ **将入库清单含"意图外文件"** ⇒ 拒绝提交（防"顺手带走别人的改动"）：`)
+    for (const p of extra) console.error(`      · ${p}`)
+    process.exit(1)
+  }
+  if (staged.length !== files.length) console.error(`⚠ 将入库 ${staged.length} 个 ≠ 意图 ${files.length} 个（差额通常是"该文件此刻无改动"）`)
+  console.log(`  ✓ **提交前核对**：将入库 ${staged.length} 个 ⊆ 意图 ${files.length} 个（无意图外文件）`)
+} else run(['add', '-A', 'scripts/video-factory/html-deck'])
 run(['commit', ...msgParts.flatMap((m) => ['-m', m])])
 /* ★ team-lead ②(b)：**"前置绿 ≠ 提交对"**（我那条 `--files` 把 `-m` 当路径就是"前置全过、栽在最后一步"）⇒
    提交后**断言"实际提交的文件集 == 意图"**：用 `diff-tree --name-only` 取真文件集，与 `--files` 数量比对（不等 ⇒ 红）。 */
