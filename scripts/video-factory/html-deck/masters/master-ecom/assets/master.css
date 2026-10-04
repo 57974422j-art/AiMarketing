@@ -1,0 +1,433 @@
+/* ============================================================
+   master-v1 · 动态 PPT 母版 样式与设计令牌
+   两套画布共用本文件：16:9 (1280x720) / 9:16 (720x1280, body.p)
+   所有可调项集中在本 :root 块 —— 见 PARAMS.md
+   ★ 坑：带 .clip 的元素会被引擎移出文档流 → 本文件全部用绝对定位/自身定位
+   ============================================================ */
+:root {
+  /* ---- 配色（暗色低饱和；禁：高饱和紫蓝 / 纯黑底 / 纯白字 / 实心黑框） ---- */
+  --bg: #fff7f1;   /* 暖白底（高饱和亮底） */
+  --bg2: #ffece0;   /* 次层暖粉（色块/卡片） */
+  --ink: #1f1410;   /* 主文字：深暖褐（近黑） */
+  --ink-dim: #7a6a62;   /* 次文字：暖灰褐 */
+  --ink-faint: #a8968c;   /* 弱文字：浅暖灰 */
+  --accent: #ff4d2e;   /* 唯一强调色：橙红（投放色） */
+  --accent-rgb: 255,77,46;   /* 强调色 rgb（光晕/描边用） */
+  /* ★ 文字专用的 accent：比 --accent 更亮（20px 正文要 ≥4.5:1；--accent 实测只有 3.75:1）。
+     只给"用 accent 着色的小字/正文"用（如尾页 CTA）；色块/线条/图表继续用 --accent。 */
+  --accent-text: #d63a1f;   /* 强调文字：深橙红 */
+  --rule: rgba(31,20,16,.14);   /* 分隔线：浅暖褐 */
+  --photo-dim: saturate(1.12) contrast(1.05) brightness(1.02);   /* 照片：提饱和（亮底上更抓眼） */
+
+  /* ---- 版心 ----
+     ★ 坑：自定义属性在**声明它的元素**上就求值完毕。所以 `--pad: var(--pad-base)` 写在 :root 上，
+       会立刻算成 84px 并向下继承 —— 子孙再改 --pad-base 也不会重算 --pad。
+       ⇒ 必须「谁设 --pad-base，谁就在同一块里再派生一次 --pad」。
+     ★ density 只调增量 --pad-dense，基准由横/竖屏各自提供 ⇒ 横竖屏都能生效。 */
+  --pad-dense: 0px;
+  --pad-base: calc(84px + var(--pad-dense));   /* 横屏基准 */
+  --pad: var(--pad-base);
+  /* ---- 装饰带（**契约级不变量**：装饰层只许出现在内容安全区**之外**）----
+     ★ 不变量：`--pad-deco < --pad`（装饰更靠页边沿）；内容（文字/图表/媒体）必须留在 `--pad` inset 之内。
+       事故（team-lead 裁定 A，2026-10-03）：`.progress` 原为 `bottom: var(--pad)` ⇒ 与内容区**同边界** ⇒
+       封面标题变长时 `.cover-sub` 行框下移到 y 634–636 与进度线相撞 ⇒ 引擎 `text_occluded`（金线穿字，k=37 实测）。
+     ★ 与 `--pad` 一样有"声明处求值"的坑：谁设 `--pad-base`（如 `body.p`），谁就必须在同一块里再派生 `--pad-deco`。
+     ⚠️ 曾一度判"横竖屏取值必须不同"（9:16 不得下移）—— **那是误判，已纠正**：真因是**我们自己的像素验证器
+        把这条 2px 细亮线当成了"文字块"**（`verify-image` 的亮行启发式：>0.72 且连续 ≥6 行 ≈ 抗锯齿后的 7 行），
+        再拿它算对比度 ⇒ 报 1.10:1 假失败。现已修验证器（① 最小文字高度 = `--t-tiny`；② 装饰白名单 rect 排除），
+        **横竖屏统一用 `--pad/2`**（见 `verify-image.mjs` 与 README §25e）。 */
+  --pad-deco: calc(var(--pad) / 2);
+  --gap: 20px;            /* 竖向节奏 */
+  --photoW: 404px;        /* 封面素材宽度 */
+
+  /* ---- 字阶 ---- */
+  --t-title: 74px;        /* 封面主标题 */
+  --t-h2: 42px;           /* 内页标题 */
+  --t-lead: 25px;         /* 副标 */
+  --t-body: 25px;         /* 正文/要点 */
+  --t-small: 19px;        /* 小字 */
+  --t-tiny: 16px;         /* 最小 */
+  --t-num: 128px;         /* 数据页大数字 */
+  --t-unit: 30px;         /* 单位 */
+
+  /* ---- 动效语言（四页共用同一组动作） ---- */
+  --enter: .72s;          /* 单元素入场时长 */
+  --enter-gap: .55s;      /* 错峰间隔 */
+  --xover: .5s;           /* 页间转场时长 */
+  --page: 3s;             /* 单页时长 */
+  --roll: 1.6s;           /* 数字滚动时长 */
+  --push: 1.4s;           /* 素材缓推时长 */
+  --drift: 12px;          /* 页内持续微动幅度 */
+
+  /* ---- 字体（内嵌开源，禁外部 CDN） ---- */
+  --serif: "Noto Serif SC", "Noto Serif CJK SC", serif;
+  --sans: "Noto Sans SC", "Noto Sans CJK SC", sans-serif;
+}
+
+@font-face { font-family: "Noto Serif SC"; src: url("NotoSerifSC-sub.woff2") format("woff2"); font-weight: 100 900; font-display: block; }
+@font-face { font-family: "Noto Sans SC";  src: url("NotoSansSC-sub.woff2")  format("woff2"); font-weight: 100 900; font-display: block; }
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  width: var(--W); height: var(--H); overflow: hidden; background: var(--bg);
+  font-family: var(--sans); color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+#stage { position: relative; width: var(--W); height: var(--H); overflow: hidden;
+  background: radial-gradient(120% 90% at 14% -8%, var(--bg2) 0%, var(--bg) 58%), var(--bg); }
+
+/* ---------- 全局层 ---------- */
+.glow { position: absolute; left: -14%; top: -22%; width: 78%; height: 96%;
+  background: radial-gradient(closest-side, rgba(var(--accent-rgb),.085), rgba(var(--accent-rgb),0) 70%);
+  pointer-events: none; }
+
+.page { position: absolute; inset: 0; opacity: 0; }
+body.p .page { inset: 0; }
+
+/* 页内极轻纹理层（持续微动：整页缓慢上移 drift px） */
+.tex { position: absolute; left: 0; right: 0; top: 0; height: calc(var(--H) + var(--drift) * 2);
+  background-image: repeating-linear-gradient(90deg, var(--rule) 0 1px, transparent 1px 132px);
+  opacity: .16; pointer-events: none; }
+
+/* 底部细进度线：每页走完自己那 3 秒
+   ★ 位置用 **--pad-deco**（不是 --pad）：装饰带必须在内容安全区之外（不变量 --pad-deco < --pad）。
+     team-lead 裁定 A：原先与内容区同边界 ⇒ 内容变长即被压字（见 :root 里的事故记录）。 */
+.progress { position: absolute; left: var(--pad); right: var(--pad); bottom: var(--pad-deco);
+  height: 2px; background: var(--rule); }
+.progress > i { display: block; height: 100%; width: 100%; background: var(--accent);
+  transform: scaleX(0); transform-origin: left center; }
+
+/* 通用文字元素 */
+.rule { width: 68px; height: 3px; background: var(--accent); transform-origin: left center; }
+.kicker { font-size: var(--t-tiny); letter-spacing: .22em; color: var(--accent); text-transform: uppercase; }
+/* 出品方放左下（左侧是深色底；放右下会压在封面素材的高亮区上，读不清） */
+.issuer { position: absolute; left: var(--pad); bottom: calc(var(--pad) + 26px);
+  font-size: var(--t-tiny); color: var(--ink-dim); letter-spacing: .06em; }
+
+/* ---------- P1 封面 ---------- */
+.cover-copy { position: absolute; left: var(--pad); top: calc(var(--pad) + 34px); width: 56%; }
+.cover-title { margin-top: 26px; font-family: var(--serif); font-weight: 800;
+  font-size: var(--t-title); line-height: 1.14; letter-spacing: .01em; color: var(--ink); }
+.cover-sub { margin-top: 24px; font-size: var(--t-lead); line-height: 1.55; color: var(--ink-dim); }
+
+.photo { position: absolute; right: 0; top: 0; width: var(--photoW); height: 100%; overflow: hidden; }
+.photo > img { width: 100%; height: 100%; object-fit: cover; display: block;
+  filter: var(--photo-dim); }
+/* 素材左缘柔化，融入深色底 */
+.photo { -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 22%); mask-image: linear-gradient(90deg, transparent 0, #000 22%); }
+
+/* ---------- P2 要点页 ---------- */
+.h2 { font-family: var(--serif); font-weight: 700; font-size: var(--t-h2); line-height: 1.3; color: var(--ink); }
+.p2-head { position: absolute; left: var(--pad); top: var(--pad); }
+.p2-head .rule { margin-bottom: 22px; }
+.p2-list { position: absolute; left: var(--pad); top: calc(var(--pad) + 118px); width: calc(100% - var(--pad) * 2 - 24px); list-style: none; }
+.p2-list li { display: flex; align-items: baseline; gap: 18px; padding: 15px 0; border-bottom: 1px solid var(--rule); }
+.p2-list .n { font-family: var(--serif); font-weight: 700; font-size: var(--t-small); color: var(--accent);
+  min-width: 34px; letter-spacing: .04em; }
+.p2-list .t { font-size: var(--t-body); line-height: 1.45; color: var(--ink); }
+.p2-sum { position: absolute; left: var(--pad); bottom: calc(var(--pad) + 24px);
+  font-size: var(--t-small); color: var(--ink-dim); }
+
+/* ---------- P3 数据页 ---------- */
+.p3-head { position: absolute; left: var(--pad); top: var(--pad); }
+.p3-head .rule { margin-bottom: 22px; }
+.p3-body { position: absolute; left: var(--pad); top: calc(var(--pad) + 108px); display: flex; align-items: flex-end; gap: 16px; }
+.bignum { display: flex; align-items: flex-end; font-family: var(--serif); font-weight: 800;
+  font-size: var(--t-num); line-height: 1.12; color: var(--ink); }
+.digit { display: inline-block; height: 1.12em; overflow: hidden; }
+/* 大数字里的静态字符（小数点 / 负号）——由生成器用于非整数数字 */
+.digitstatic { display: inline-block; height: 1.12em; line-height: 1.12em; }
+.strip { display: flex; flex-direction: column; }
+.strip > span { display: block; height: 1.12em; line-height: 1.12em; }
+.unit { font-size: var(--t-unit); color: var(--accent); padding-bottom: 14px; letter-spacing: .02em; }
+.p3-explain { position: absolute; left: var(--pad); top: calc(var(--pad) + 296px);
+  font-size: var(--t-body); color: var(--ink-dim); }
+.p3-metrics { position: absolute; left: var(--pad); bottom: calc(var(--pad) + 30px); display: flex; gap: 40px; }
+.p3-metrics > div { border-left: 1px solid var(--rule); padding-left: 16px; }
+.p3-metrics .k { font-family: var(--serif); font-size: var(--t-small); color: var(--ink); }
+/* ★ WCAG AA：次指标是**小字**（大字豁免不适用）⇒ 必须把对比提到 ≥4.5:1。
+   引擎实测 `--ink-faint` 在数据页底上只有 **3.75:1** ⇒ 改用 `--ink-dim`（更亮的次要色）。 */
+.p3-metrics .v { margin-top: 7px; font-size: var(--t-tiny); color: var(--ink-dim); }
+
+/* ---------- P4 尾页 ---------- */
+.p4-wrap { position: absolute; left: var(--pad); top: 50%; transform: translateY(-50%); width: calc(100% - var(--pad) * 2 - var(--photoW) - 40px); }
+.p4-line { font-family: var(--serif); font-weight: 800; font-size: var(--t-h2); line-height: 1.35; color: var(--ink); }
+.p4-line + .p4-line { margin-top: 4px; }
+/* 尾页 CTA：引擎实测**未报**对比度问题（`--accent` 在该处 ≥4.5:1）⇒ 保持原样，不做无谓的视觉改动。 */
+.p4-cta { margin-top: 30px; font-size: var(--t-body); color: var(--accent); }
+/* ★ WCAG AA：引擎实测 `--ink-faint` 在尾页底上只有 **3.75:1**（小字，大字豁免不适用）⇒ 改用 `--ink-dim`。 */
+.p4-en { position: absolute; right: var(--pad); bottom: calc(var(--pad) + 26px);
+  font-size: var(--t-tiny); color: var(--ink-dim); letter-spacing: .12em; }
+
+/* ============================================================
+   竖屏 9:16 —— 只覆盖几何/字阶令牌 + 两处版式差异（body.p）
+   ============================================================ */
+body.p {
+  --pad-base: calc(54px + var(--pad-dense));   /* 竖屏基准（必须与 --pad 在同一块里再派生一次，见 :root 的坑说明） */
+  --pad: var(--pad-base);
+  --pad-deco: calc(var(--pad) / 2);  /* 与横屏**统一**：装饰让出内容区（见 :root 记录：曾误判"9:16 不得下移"，
+                                        真因是我们验证器把 2px 装饰线当文字块 ⇒ 已修验证器而非迁就假阳性） */
+  --gap: 18px; --photoW: 720px;
+  --t-title: 62px; --t-h2: 40px; --t-lead: 23px; --t-body: 25px;
+  --t-small: 19px; --t-tiny: 16px; --t-num: 132px; --t-unit: 30px;
+  --enter-gap: .5s;
+}
+body.p .cover-copy { width: calc(100% - var(--pad) * 2); top: calc(var(--pad) + 26px); }
+body.p .cover-title { font-size: var(--t-title); }
+/* 竖屏：素材改成底部横带，顶缘由透明柔化 */
+body.p .photo { right: 0; left: 0; top: auto; bottom: 0; width: 100%; height: 44%;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 26%); mask-image: linear-gradient(180deg, transparent 0, #000 26%); }
+body.p .p2-list { top: calc(var(--pad) + 132px); }
+body.p .p2-list li { padding: 13px 0; }
+body.p .p3-body { top: calc(var(--pad) + 118px); }
+body.p .p3-explain { top: calc(var(--pad) + 316px); }
+body.p .p3-metrics { flex-direction: column; gap: 18px; bottom: auto; top: calc(var(--pad) + 404px); }
+body.p .p4-wrap { top: 26%; width: calc(100% - var(--pad) * 2); }
+body.p .p4-en { right: auto; left: var(--pad); bottom: 48%; }
+body.p .issuer { left: var(--pad); right: auto; bottom: auto; top: calc(var(--pad) + 348px); }
+
+/* ============================================================
+   新增页型 5~8（本轮 4 → 8）：章节 / 图表 / 对比 / 引用
+   ★ 约定沿用母版：**容器可用 CSS transform 定位，只有叶子元素挂 data-anim**
+     （若对带 CSS transform 的元素 tween transform 属性，GSAP 会覆盖它）
+   ============================================================ */
+
+/* ---------- P5 章节页 ---------- */
+.p5-num { position: absolute; left: var(--pad); top: calc(var(--pad) + 40px);
+  font-family: var(--serif); font-weight: 800; font-size: 186px; line-height: .92; letter-spacing: .01em;
+  color: rgba(var(--accent-rgb), .15); -webkit-text-stroke: 2px var(--accent); }
+.p5-copy { position: absolute; left: calc(var(--pad) + 262px); top: calc(var(--pad) + 74px);
+  width: calc(100% - var(--pad) * 2 - 262px); }
+.p5-copy .rule { margin-bottom: 22px; }
+.p5-title { font-family: var(--serif); font-weight: 800; font-size: 52px; line-height: 1.24; color: var(--ink); }
+.p5-sub { margin-top: 22px; font-size: var(--t-lead); line-height: 1.55; color: var(--ink-dim); }
+
+/* ---------- P6 图表页 ---------- */
+.p6-head { position: absolute; left: var(--pad); top: var(--pad); }
+.p6-head .rule { margin-bottom: 22px; }
+.p6-unit { position: absolute; right: var(--pad); top: calc(var(--pad) + 58px);
+  font-size: var(--t-small); color: var(--accent); letter-spacing: .04em; }
+.p6-plot { position: absolute; left: var(--pad); top: calc(var(--pad) + 110px);
+  width: calc(100% - var(--pad) * 2); height: 300px; }
+.p6-plot svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.ch-axis { stroke: var(--rule); stroke-width: 1; }
+.ch-grid { stroke: var(--rule); stroke-width: 1; stroke-dasharray: 2 7; }
+.ch-bar { fill: rgba(var(--accent-rgb), .5); transform-box: fill-box; transform-origin: bottom center; }
+.ch-bar--peak { fill: var(--accent); }
+.ch-line { fill: none; stroke: var(--accent); stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }
+.ch-dot { fill: var(--ink); }
+.ch-donut-track { fill: none; stroke: var(--rule); stroke-width: 26; }
+.ch-donut-arc { fill: none; stroke: var(--accent); stroke-width: 26; stroke-linecap: butt; }
+/* 相邻扇片三档明度循环：既提升可读性，也让扇区角**能从像素上验证**（同色相邻则边界不可分辨） */
+.ch-donut-arc.ch-s0 { opacity: 1; }
+.ch-donut-arc.ch-s1 { opacity: .78; }
+.ch-donut-arc.ch-s2 { opacity: .58; }
+.ch-tick { fill: var(--ink-dim); font-size: 15px; font-family: var(--sans); }
+.ch-val { fill: var(--ink-dim); font-size: 15px; font-family: var(--sans); }
+.p6-explain { position: absolute; left: var(--pad); bottom: calc(var(--pad) + 26px);
+  font-size: var(--t-small); color: var(--ink-dim); }
+.p6-src { position: absolute; right: var(--pad); bottom: calc(var(--pad) + 26px);
+  font-size: var(--t-tiny); color: var(--ink-dim); }
+
+/* ---------- P7 对比页 ---------- */
+.p7-head { position: absolute; left: var(--pad); top: var(--pad); }
+.p7-head .rule { margin-bottom: 22px; }
+.p7-grid { position: absolute; left: var(--pad); right: var(--pad); top: calc(var(--pad) + 116px);
+  display: flex; gap: 52px; }
+.p7-col { flex: 1 1 0; min-width: 0; }
+.p7-label { font-family: var(--serif); font-weight: 700; font-size: var(--t-body); color: var(--accent);
+  padding-bottom: 12px; border-bottom: 1px solid var(--rule); }
+.p7-col--b .p7-label { color: var(--ink-dim); }
+.p7-points { list-style: none; }
+.p7-points li { position: relative; padding: 9px 0 9px 20px; font-size: var(--t-small); line-height: 1.5; color: var(--ink); }
+.p7-points li::before { content: ""; position: absolute; left: 0; top: 16px; width: 7px; height: 7px;
+  border-radius: 50%; background: var(--accent); }
+.p7-col--b .p7-points li::before { background: transparent; border: 1px solid var(--ink-faint); }
+.p7-concl { position: absolute; left: var(--pad); right: var(--pad); bottom: calc(var(--pad) + 26px);
+  font-size: var(--t-body); color: var(--ink); }
+.p7-concl::before { content: ""; display: block; width: 68px; height: 3px; background: var(--accent); margin-bottom: 15px; }
+
+/* ---------- P8 引用页 ---------- */
+.p8-mark { position: absolute; left: calc(var(--pad) - 8px); top: calc(var(--pad) + 20px);
+  font-family: var(--serif); font-weight: 800; font-size: 150px; line-height: .8;
+  color: rgba(var(--accent-rgb), .17); }
+.p8-quote { position: absolute; left: var(--pad); right: var(--pad); top: calc(var(--pad) + 122px);
+  font-family: var(--serif); font-weight: 700; font-size: 38px; line-height: 1.56; color: var(--ink); }
+.p8-author { position: absolute; left: var(--pad); bottom: calc(var(--pad) + 88px);
+  font-size: var(--t-body); color: var(--accent); }
+.p8-context { position: absolute; left: var(--pad); bottom: calc(var(--pad) + 58px);
+  font-size: var(--t-tiny); color: var(--ink-dim); }
+
+/* ---------- 目录页 / 小结页（复用要点页版式，只换装饰） ---------- */
+.p2-list--toc li { border-bottom: none; padding: 11px 0; }
+.p2-list--toc .n { font-family: var(--sans); font-weight: 400; font-size: var(--t-tiny);
+  color: var(--ink-dim); min-width: 26px; }
+.p2-list--toc .t { font-size: var(--t-body); }
+
+/* ============================================================
+   竖屏 9:16 覆盖（新页型）
+   ============================================================ */
+body.p .p5-num { font-size: 142px; top: calc(var(--pad) + 26px); }
+body.p .p5-copy { left: var(--pad); top: calc(var(--pad) + 216px); width: calc(100% - var(--pad) * 2); }
+body.p .p5-title { font-size: 42px; }
+body.p .p5-sub { font-size: var(--t-small); }
+body.p .p6-unit { top: calc(var(--pad) + 96px); }
+body.p .p6-plot { top: calc(var(--pad) + 146px); height: 400px; }
+body.p .p6-explain { bottom: calc(var(--pad) + 58px); }
+body.p .p6-src { bottom: calc(var(--pad) + 28px); }
+body.p .p7-grid { flex-direction: column; gap: 24px; }
+body.p .p7-points li { padding: 7px 0 7px 18px; }
+body.p .p7-concl { bottom: calc(var(--pad) + 22px); font-size: var(--t-small); }
+body.p .p8-quote { font-size: 31px; top: calc(var(--pad) + 142px); }
+body.p .p8-mark { font-size: 120px; }
+
+/* ============================================================
+   新增页型 11~12（本轮 10 → 12）：图片 / 步骤
+   ★ 所有选择器都带 .p9 / .p10 前缀 —— 绝不能出现能匹配到已有页型的裸选择器，
+     否则会改动已批准产物的字节（母版改动必须做字节回归）。
+   ============================================================ */
+
+/* ---------- P9 图片页 ---------- */
+.p9-media { position: absolute; overflow: hidden; background: var(--bg2); }
+.p9-media > img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.p9-copy { position: absolute; }
+.p9-kicker { font-size: var(--t-tiny); letter-spacing: .22em; color: var(--accent); text-transform: uppercase; }
+.p9-title { margin-top: 20px; font-family: var(--serif); font-weight: 800; font-size: var(--t-h2); line-height: 1.26; color: var(--ink); }
+.p9-caption { margin-top: 20px; font-size: var(--t-small); line-height: 1.6; color: var(--ink-dim); }
+.p9-head .rule { margin-bottom: 0; }
+
+/* left / right：出血面板 + 对侧文案 */
+.p9--left .p9-media { left: 0; top: 0; width: 46%; height: 100%; }
+.p9--left .p9-copy { left: calc(46% + 56px); right: var(--pad); top: calc(var(--pad) + 48px); }
+.p9--right .p9-media { right: 0; top: 0; width: 46%; height: 100%; }
+.p9--right .p9-copy { left: var(--pad); right: calc(46% + 56px); top: calc(var(--pad) + 48px); }
+
+/* full：满幅压字 + **渐隐底衬**（我们的规矩：不用实心黑框） */
+.p9--full .p9-media { left: 0; top: 0; width: 100%; height: 100%; }
+.p9-full-scrim { position: absolute; left: 0; right: 0; bottom: 0; height: 64%; pointer-events: none;
+  background: linear-gradient(to top, rgba(0,0,0,.80) 0%, rgba(0,0,0,.55) 32%, rgba(0,0,0,.20) 66%, rgba(0,0,0,0) 100%); }
+.p9--full .p9-copy { left: var(--pad); right: var(--pad); top: auto; bottom: calc(var(--pad) + 30px); }
+/* ★ 压字时文字颜色**强制浅色**、不跟随母版 --ink —— 浅色母版若用深字会直接读不出。
+   这是"全幅图文"的对比度规矩：靠渐隐底衬保证对比度，不靠实心底框。 */
+.p9--full .p9-title, .p9--full .p9-caption { color: #f4f2ef; }
+.p9--full .p9-kicker { color: #ecdfc8; }
+.p9--full .p9-head .rule { background: #f4f2ef; }
+
+/* ---------- P10 步骤页 ---------- */
+.p10-head { position: absolute; left: var(--pad); top: var(--pad); }
+.p10-head .rule { margin-bottom: 22px; }
+.p10-list { position: absolute; left: var(--pad); top: calc(var(--pad) + 118px);
+  width: calc(100% - var(--pad) * 2 - 24px); list-style: none; }
+.p10-list li { position: relative; display: flex; align-items: baseline; gap: 22px; padding: 16px 0; }
+.p10-list .n { font-family: var(--serif); font-weight: 800; font-size: 34px; line-height: 1; color: var(--accent); min-width: 54px; }
+.p10-list .t { font-size: var(--t-body); line-height: 1.5; color: var(--ink); }
+/* 步骤之间的竖向连接线（第 1 条不画） */
+.p10-list li + li::before { content: ""; position: absolute; left: 23px; top: -16px; width: 1px; height: 24px; background: var(--rule); }
+/* index=dot：序号改成强调色圆点 */
+.p10-list--dot .n { font-size: 0; min-width: 24px; }
+.p10-list--dot .n::before { content: ""; display: inline-block; width: 11px; height: 11px; border-radius: 50%; background: var(--accent); }
+.p10-list--dot li + li::before { left: 5px; }
+
+/* ---------- 竖屏 9:16 覆盖（新页型） ---------- */
+body.p .p9-media { left: 0; right: 0; top: 0; width: 100%; height: 42%; }
+/* ★ 竖屏 full 必须仍是**满幅**：上面那条把媒体压成了 42% 顶带，若不给 full 单开一条，
+   full 就退化成"顶带图 + 底部文字压在空底上"，与 master.json 里 full=整页 的声明冲突。 */
+body.p .p9--full .p9-media { height: 100%; }
+body.p .p9-copy { left: var(--pad); right: var(--pad); top: 48%; }
+body.p .p9-title { font-size: var(--t-h2); }
+body.p .p9--full .p9-copy { top: auto; bottom: calc(var(--pad) + 30px); }
+body.p .p9--full .p9-full-scrim { height: 58%; }
+body.p .p10-list { top: calc(var(--pad) + 138px); }
+body.p .p10-list li { padding: 15px 0; gap: 18px; }
+body.p .p10-list .t { font-size: var(--t-small); }
+
+
+/* ============================================================
+   SKIN LAYER · master-ecom（电商高饱和）
+   用途气质：投放 / 带货 / 大促 / 招商 · 亮底高饱和，信息层次靠"色块+大字"
+   规则：**不改任何类名/结构**，只覆盖视觉（与 v1 同契约）
+   基调：暖白底 + 橙红强调 + 大圆角色块 + 实心药丸 CTA
+   ============================================================ */
+
+/* ---------- 全局：去掉暗色光晕，改暖光斑 ---------- */
+.glow { opacity: .55; }
+.tex { opacity: .18; }
+.page::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 10px;
+  background: linear-gradient(90deg, var(--accent), #ff8a3d, var(--accent));
+}
+.progress i { background: var(--accent); height: 4px; border-radius: 0 2px 2px 0; }
+
+/* ---------- P1 封面：大字重标题 + 药丸角标 ---------- */
+.cover-title { font-size: calc(var(--t-title) * 1.12); font-weight: 900; letter-spacing: .01em; line-height: 1.04; }
+.cover-sub { color: #6b564d; font-size: var(--t-lead); font-weight: 600; }
+.kicker {
+  display: inline-block; background: var(--accent); color: #fff;
+  padding: 6px 16px; border-radius: 999px; letter-spacing: .18em; font-size: var(--t-small); font-weight: 700;
+}
+.rule { height: 8px; width: 120px; background: var(--accent); border-radius: 4px; opacity: 1; }
+.issuer { color: #7a6a62; font-weight: 600; }
+.photo img { filter: saturate(1.12) contrast(1.05) brightness(1.02); }
+
+/* ---------- P2 要点：白卡 + 实心圆号 ---------- */
+.p2-list li {
+  background: #fff; border-radius: 14px; padding: 16px 18px; margin-bottom: 12px;
+  box-shadow: 0 6px 18px rgba(31,20,16,.08);
+}
+.p2-list .n {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 38px; height: 38px; margin-right: 12px; border-radius: 50%;
+  background: var(--accent); color: #fff; font-size: 19px; font-weight: 800;
+}
+.p2-list .t { font-size: 27px; font-weight: 700; }
+.p2-sum { background: #fff2ec; border-left: 6px solid var(--accent); border-radius: 10px; padding: 14px 18px; color: #6b3a26; font-weight: 600; }
+
+/* ---------- P3 数据：色卡 + 超大号数字 ---------- */
+.p3-body .bignum { font-weight: 900; color: var(--accent); }
+.p3-body .unit { color: #8a6a5c; letter-spacing: .12em; font-weight: 700; }
+.p3-explain { border-left: 6px solid var(--accent); padding-left: 14px; color: #5c4a42; }
+.p3-metrics > div { background: #fff; border-radius: 14px; padding: 20px 22px; box-shadow: 0 6px 18px rgba(31,20,16,.08); }
+.p3-metrics .k { color: #1f1410; font-weight: 800; }
+.p3-metrics .v { color: #7a6a62; }
+
+/* ---------- P4 尾页：整块实色 CTA（反白）---------- */
+.p4-line { font-size: 46px; font-weight: 900; }
+.p4-cta {
+  display: inline-block; background: var(--accent); color: #fff;
+  font-size: 32px; font-weight: 900; padding: 14px 34px; border-radius: 999px;
+  box-shadow: 0 10px 24px rgba(255,77,46,.32);
+}
+.p4-en { color: #8a6a5c; letter-spacing: .30em; font-size: var(--t-small); font-weight: 700; }
+
+/* ---------- P5 章节：实心大号 + 色块底 ---------- */
+.p5-num { color: var(--accent); opacity: .18; font-size: 260px; line-height: .82; font-weight: 900; }
+.p5-copy { background: #fff; border-radius: 16px; padding: 24px 28px; box-shadow: 0 8px 22px rgba(31,20,16,.08); }
+.p5-title { font-weight: 900; font-size: calc(var(--t-h2) * 1.12); }
+.p5-sub { color: #7a6a62; }
+
+/* ---------- P6 图表：白卡 + 粗色边 ---------- */
+.p6-plot { background: #fff; border-radius: 16px; padding: 22px; box-shadow: 0 8px 22px rgba(31,20,16,.08); border-top: 8px solid var(--accent); }
+.p6-unit { color: #8a6a5c; letter-spacing: .12em; font-weight: 700; }
+.p6-explain { color: #5c4a42; }
+.p6-src { color: #9c8a80; }
+
+/* ---------- P7 对比：双卡（右卡着色）---------- */
+.p7-col { background: #fff; border-radius: 14px; padding: 22px; box-shadow: 0 6px 18px rgba(31,20,16,.08); }
+.p7-col:nth-child(2) { background: #fff2ec; box-shadow: 0 6px 18px rgba(255,77,46,.16); border: 2px solid var(--accent); }
+.p7-label { font-weight: 900; font-size: 28px; color: #1f1410; }
+.p7-concl { background: var(--accent); color: #fff; border-radius: 10px; padding: 14px 18px; font-weight: 700; }
+
+/* ---------- P8 引用：大字 + 色引号 ---------- */
+.p8-quote { font-size: 56px; line-height: 1.28; font-weight: 800; }
+.p8-mark { color: var(--accent); opacity: .35; }
+.p8-author { color: #8a6a5c; letter-spacing: .10em; font-weight: 700; }
+
+/* ---------- P9 图片：圆角 + 底部渐隐 ---------- */
+.p9-media img { border-radius: 16px; }
+.p9-kicker { display: inline-block; background: var(--accent); color: #fff; padding: 5px 14px; border-radius: 999px; letter-spacing: .16em; font-weight: 700; }
+.p9-full-scrim { background: linear-gradient(180deg, rgba(255,247,241,0) 30%, rgba(255,247,241,.94) 100%); }
+
+/* ---------- P10 步骤：白卡 + 圆点 ---------- */
+.p10-list li { background: #fff; border-radius: 12px; padding: 14px 18px; margin-bottom: 10px; box-shadow: 0 4px 14px rgba(31,20,16,.07); }
+.p10-list--dot li::before { background: var(--accent); }

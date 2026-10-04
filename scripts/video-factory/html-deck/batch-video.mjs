@@ -25,6 +25,7 @@ const EXIT = { OK: 0, FAIL: 1, INPUT: 2 }
 const FLAGS = {
   '--base': 'base', '--skins': 'skins', '--orientations': 'orientations', '--outdir': 'outdir',
   '--srt': 'srt', '--logo': 'logo', '--bgm': 'bgm', '--palette': 'palette', '--only': 'only',
+  '--palettes': 'palettes', '--all-palettes': 'allPalettes', '--palette-index': 'paletteIndex',
   '--sheet': 'sheet', '--dry-run': 'dryRun', '--keep-raw': 'keepRaw', '--reuse-raw': 'reuseRaw',
   '--clean': 'clean', '--sheet-only': 'sheetOnly',
 }
@@ -36,7 +37,7 @@ for (let i = 2; i < process.argv.length; i++) {
     process.exit(EXIT.INPUT)
   }
   const k = FLAGS[a]
-  if (k === 'sheet' || k === 'dryRun' || k === 'keepRaw' || k === 'reuseRaw' || k === 'clean' || k === 'sheetOnly') { A[k] = true; continue }
+  if (k === 'sheet' || k === 'dryRun' || k === 'keepRaw' || k === 'reuseRaw' || k === 'clean' || k === 'sheetOnly' || k === 'allPalettes') { A[k] = true; continue }
   A[k] = process.argv[++i]
 }
 const run = (file, args, opts = {}) => spawnSync(process.execPath, [join(HERE, file), ...args], { encoding: 'utf8', maxBuffer: 1 << 28, ...opts })
@@ -80,10 +81,35 @@ if (!A.sheetOnly) for (const skin of skins) {
   if (A.only && skin !== A.only) continue
   const mf = JSON.parse(readFileSync(join(mastersDir, skin, 'master.json'), 'utf8'))
   const palKeys = Object.keys(mf.palette || {})
-  const palette = A.palette && palKeys.includes(A.palette) ? A.palette : palKeys[0]
-  if (!palette) { console.log(`   ✗ ${skin}：master.json 没声明 palette ⇒ 无法派生（红）`); rows.push({ skin, ori: '-', ok: false, why: 'no-palette' }); continue }
-  for (const ori of oris) {
-    const tag = `${skin.replace('master-', '')}-${ori.replace(':', 'x')}`
+  /* 配色挑选（四选一，按优先级）：
+   *   ① `--all-palettes` ⇒ 该母版**全部**配色各出一条（组合最丰富）
+   *   ② `--palette <名>`  ⇒ 指定单一配色（不存在则**红**，不静默回退 —— 与"找不到 leaf 就红"同族）
+   *   ③ `--palettes a,b,c` ⇒ **轮流**取第一个在该母版存在的（跨皮肤自动多样化）
+   *   ④ 都没有 ⇒ 母版默认（palette 首项） */
+  let palList
+  /* `--palette-index <n>`：按**序号**取（跨母版通用 —— 各母版配色名语言都不统一：warm-gold / 松绿 / black …） */
+  if (A.paletteIndex != null) {
+    const i = Number(A.paletteIndex)
+    if (!Number.isInteger(i) || i < 0 || i >= palKeys.length) {
+      console.log(`   ✗ ${skin}：--palette-index=${A.paletteIndex} 越界（本母版 ${palKeys.length} 项：${palKeys.join('/')}）⇒ 红`)
+      rows.push({ skin, ori: '-', ok: false, why: 'palette-index-out-of-range' }); continue
+    }
+    palList = [palKeys[i]]
+  }
+  else if (A.allPalettes) palList = palKeys.slice()
+  else if (A.palette) {
+    if (!palKeys.includes(A.palette)) { console.log(`   ✗ ${skin}：指定的配色 ${A.palette} 不在本母版（可选：${palKeys.join('/')}）⇒ 红`); rows.push({ skin, ori: '-', ok: false, why: 'palette-not-in-master' }); continue }
+    palList = [A.palette]
+  } else if (A.palettes) {
+    const want = String(A.palettes).split(',').map((x) => x.trim()).filter(Boolean)
+    const pick = want.find((w) => palKeys.includes(w))
+    if (!pick) console.log(`   ℹ ${skin}：--palettes 里没有本母版认识的配色（可选：${palKeys.join('/')}）⇒ 用默认 ${palKeys[0]}`)
+    palList = [pick || palKeys[0]]
+  } else palList = [palKeys[0]]
+  for (const palette of palList) {
+    if (!palette) { console.log(`   ✗ ${skin}：master.json 没声明 palette ⇒ 无法派生（红）`); rows.push({ skin, ori: '-', ok: false, why: 'no-palette' }); break }
+   for (const ori of oris) {
+    const tag = `${skin.replace('master-', '')}-${palette}-${ori.replace(':', 'x')}`
     const deckPath = join(outRoot, 'decks', `deck.${tag}.json`)
     const d = JSON.parse(JSON.stringify(baseDeck))
     d.style = { ...d.style, masterId: skin, palette, orientation: ori }
@@ -150,6 +176,7 @@ if (!A.sheetOnly) for (const skin of skins) {
       rows.push({ skin, ori, ok: true, final: rawMp4.replace(HERE + '\\', ''), sizeMB: Number(size) })
     }
     if (!A.keepRaw && final !== rawMp4) rmSync(rawDir, { recursive: true, force: true })
+   }
   }
 }
 

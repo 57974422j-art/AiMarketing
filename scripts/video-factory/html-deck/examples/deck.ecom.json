@@ -1,0 +1,127 @@
+{
+  "version": "1.0",
+  "meta": {
+    "title": "AI 营销视频工厂",
+    "subtitle": "一句话把文案变成可投放的短视频",
+    "issuer": "AiMarketing 视频工厂",
+    "date": "2026-10",
+    "lang": "zh-CN"
+  },
+  "style": {
+    "masterId": "master-ecom",
+    "palette": "橙红",
+    "density": "normal",
+    "tempo": "normal",
+    "orientation": "16:9"
+  },
+  "pages": [
+    {
+      "type": "cover",
+      "kicker": "AI MARKETING · VIDEO FACTORY",
+      "duration": 3.4
+    },
+    {
+      "type": "bullets",
+      "title": "为什么值得换",
+      "items": [
+        "传统剪辑一条片四小时起步",
+        "这套流程十分钟出片",
+        "同一条文案可批量出多版本",
+        "换行业只换皮肤不换流程"
+      ],
+      "summary": "省下的是重复劳动，不是创意",
+      "duration": 3.4
+    },
+    {
+      "type": "data",
+      "title": "单条成片成本",
+      "metric": {
+        "number": 3,
+        "unit": "分钟",
+        "explain": "从文案到可投放 MP4 的全流程耗时"
+      },
+      "secondary": [
+        {
+          "label": "人工剪辑",
+          "note": "平均 240 分钟"
+        },
+        {
+          "label": "本流程",
+          "note": "首次约 40 分钟，之后约 3 分钟"
+        }
+      ],
+      "duration": 3.4
+    },
+    {
+      "type": "steps",
+      "title": "上线四步",
+      "steps": [
+        "定稿文案与旁白",
+        "导出带时间戳的字幕",
+        "生成页面并过契约校验",
+        "渲染成片并抽帧验收"
+      ],
+      "duration": 3.4
+    },
+    {
+      "type": "chart",
+      "title": "一天能出多少条",
+      "unit": "条 / 天",
+      "explain": "同内容多皮肤多版本，用于投放测试",
+      "source": "本机实测估算",
+      "chart": {
+        "type": "bar",
+        "series": [
+          6,
+          40,
+          80,
+          120
+        ],
+        "labels": [
+          "人工剪辑",
+          "模板化出片",
+          "换皮肤出片",
+          "批量多版本"
+        ]
+      },
+      "duration": 3.4
+    },
+    {
+      "type": "compare",
+      "title": "和传统方式的差别",
+      "left": {
+        "label": "传统剪辑",
+        "points": [
+          "每条都要人过一遍时间轴",
+          "改一句文案要重新导出",
+          "多版本成本线性增长"
+        ]
+      },
+      "right": {
+        "label": "这套流程",
+        "points": [
+          "文案与画面分离，改文案不动版式",
+          "皮肤可换，一条内容多套气质",
+          "批量出片成本近乎为零"
+        ]
+      },
+      "conclusion": "把重复劳动压缩到分钟级",
+      "duration": 3.4
+    },
+    {
+      "type": "quote",
+      "quote": "同一条内容，换皮就换受众。",
+      "author": "投放经验",
+      "context": "2026-10",
+      "duration": 3.4
+    },
+    {
+      "type": "end",
+      "line1": "文案定稿之后的活交给流程",
+      "line2": "版式、渲帧、成片都可以复用",
+      "cta": "下一步：挑一套皮肤，出第一条片",
+      "en": "ONE SCRIPT · MANY SKINS",
+      "duration": 2.8
+    }
+  ]
+}

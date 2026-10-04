@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=720, height=1280" />
+<title>master-v1 · 竖屏 9:16</title>
+<link rel="stylesheet" href="assets/master.css" />
+<style>:root{ --W:720px; --H:1280px; }</style>
+</head>
+<body class="p">
+<div id="stage" data-composition-id="main" data-start="0" data-duration="12"
+     data-fps="25" data-width="720" data-height="1280">
+
+  <div class="glow clip" data-start="0" data-duration="12" data-track-index="0"></div>
+
+  <!-- ============ P1 封面（竖屏：素材改为底部横带） ============ -->
+  <section class="page clip" data-start="0" data-duration="3.25" data-track-index="1">
+    <div class="tex"></div>
+    <div class="photo" data-anim="push" data-at="0.15"><img src="assets/cover.jpg" alt="" /></div>
+    <div class="cover-copy">
+      <div class="rule" data-anim="rule" data-at="0.10"></div>
+      <div class="kicker" data-anim="rise" data-at="0.28">AIMARKETING · 视频工厂</div>
+      <h1 class="cover-title" data-anim="rise" data-at="0.44">动态 PPT 母版 v1</h1>
+      <p class="cover-sub" data-anim="rise" data-at="0.99">HTML 驱动 · 逐帧可 seek · 与现有成片无缝拼接</p>
+    </div>
+    <div class="issuer" data-anim="rise" data-at="2.05">出品：AiMarketing 视频工厂 · 2026 年 10 月</div>
+    <div class="progress"><i></i></div>
+  </section>
+
+  <!-- ============ P2 要点页 ============ -->
+  <section class="page clip" data-start="2.75" data-duration="3.5" data-track-index="1">
+    <div class="tex"></div>
+    <div class="p2-head">
+      <div class="rule" data-anim="rule" data-at="0.30"></div>
+      <h2 class="h2" data-anim="rise" data-at="0.38">这套母版解决什么</h2>
+    </div>
+    <ul class="p2-list">
+      <li data-anim="rise" data-at="0.58"><span class="n">01</span><span class="t">一页一套时间轴，按帧精确定位</span></li>
+      <li data-anim="rise" data-at="1.08"><span class="n">02</span><span class="t">母版参数化，AI 只在参数里取值</span></li>
+      <li data-anim="rise" data-at="1.58"><span class="n">03</span><span class="t">同一输入同一输出，字节级可复现</span></li>
+      <li data-anim="rise" data-at="1.76"><span class="n">04</span><span class="t">与现有 ffmpeg 成片直接拼接成条</span></li>
+    </ul>
+    <div class="p2-sum" data-anim="rise" data-at="1.98">四页型覆盖封面、要点、数据与收尾</div>
+    <div class="progress"><i></i></div>
+  </section>
+
+  <!-- ============ P3 数据页 ============ -->
+  <section class="page clip" data-start="5.75" data-duration="3.5" data-track-index="1">
+    <div class="tex"></div>
+    <div class="p3-head">
+      <div class="rule" data-anim="rule" data-at="0.30"></div>
+      <h2 class="h2" data-anim="rise" data-at="0.38">实测性能 · 本机 12 核</h2>
+    </div>
+    <div class="p3-body">
+      <div class="bignum" data-anim="fade" data-at="0.46">
+        <span class="digit"><span class="strip" data-anim="roll" data-at="0.52" data-roll-steps="8"></span></span>
+        <span class="digit"><span class="strip" data-anim="roll" data-at="0.52" data-roll-steps="12"></span></span>
+      </div>
+      <div class="unit" data-anim="rise" data-at="0.64">ms / 帧</div>
+    </div>
+    <div class="p3-explain" data-anim="rise" data-at="1.05">1920×1080 单帧平均渲染耗时</div>
+    <div class="p3-metrics">
+      <div data-anim="rise" data-at="1.45">
+        <div class="k">34 镜 ≈ 7 分钟</div>
+        <div class="v">720p 单进程估算</div>
+      </div>
+      <div data-anim="rise" data-at="1.75">
+        <div class="k">两次渲染 MD5 相同</div>
+        <div class="v">字节级可复现</div>
+      </div>
+    </div>
+    <div class="progress"><i></i></div>
+  </section>
+
+  <!-- ============ P4 尾页 ============ -->
+  <section class="page clip" data-start="8.75" data-duration="3.25" data-track-index="1">
+    <div class="tex"></div>
+    <div class="p4-wrap">
+      <div class="p4-line" data-anim="rise" data-at="0.34">四页型母版已经跑通</div>
+      <div class="p4-line" data-anim="rise" data-at="0.62">可直接接入出片链路</div>
+      <div class="p4-cta" data-anim="rise" data-at="1.05">下一步：把母版参数接进分镜契约</div>
+    </div>
+    <div class="p4-en" data-anim="fade" data-at="1.45">FRAME-ACCURATE · DETERMINISTIC</div>
+    <div class="progress"><i></i></div>
+  </section>
+</div>
+
+<!-- ★ 内联同步注册（**必须内联**）：引擎 lint 只在 **composition HTML 内部**看到 `window.__timelines` 的注册；
+     写在外部 assets/master.js 里它看不见 ⇒ lint error `missing_timeline_registry`（check 永远 exit=1）。
+     占位 timeline，母版 JS 随后用真 gsap.timeline 覆盖同一键；键名 = data-composition-id（"main"）。 -->
+<script>window.__timelines = window.__timelines || {}; window.__timelines["main"] = { seek: function () {}, duration: function () { return 12; }, pause: function () {}, play: function () {} };</script>
+<script src="assets/gsap.min.js"></script>
+<script src="assets/master.js"></script>
+</body>
+</html>
