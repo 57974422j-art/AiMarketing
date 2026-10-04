@@ -114,7 +114,12 @@ steps.push({ name: `JSON.parse ${jsons.length} 个 .json`, ok: jsonBad.length ==
   for (const [l, want] of samples) {
     if (isI9Violation(l) !== want) bad.push(`分类器自测失败：${JSON.stringify(l)} ⇒ ${isI9Violation(l)}（须 ${want}）`)
   }
-  for (const f of mjs) {
+  /* ★★ **I9 明细扩面**（team-lead 现场 · 真缺口）：`.mjs` + **`.css` / `.js`** ——
+     **为什么必须连窄判据一起扩**：他那种形态（注释里写 `.p6-` 加 斜杠 星号）**提前闭合**后，
+     宽判据（`check-syntax-and-json` 的平衡扫描）**depth 会归零** ⇒ **宽层原理上抓不到**（见 README §25u 的可判伪实验）
+     ⇒ 只扩宽层 = 他的事故**仍然漏** ⇒ **两层同扩**（同一判据、同一明细口径）✓ */
+  const i9Files = [...mjs, ...collect(HERE, '.css'), ...collect(HERE, '.js')]
+  for (const f of i9Files) {
     /* ⚠️ 本条属"**I9 有意的两层**"的一部分：本处 = **明细**（窄判据 · 能定格行号），
        **结论来源** = `check-syntax-and-json` 的"块注释平衡"（见 README §25u + 该文件内注释）。
        ★ team-lead ② 的**加强**已落地：边界样本改为**合成样本**（`--self-test` 里运行期拼串 ⇒ 不落文件）
@@ -133,7 +138,7 @@ steps.push({ name: `JSON.parse ${jsons.length} 个 .json`, ok: jsonBad.length ==
       }
     })
   }
-  steps.push({ name: `I9 **明细**（窄判据：续行引述闭合符 · 能定格行号；**结论来源**=check-syntax-and-json 的块注释平衡）（${mjs.length} 个 .mjs：注释续行不得含闭合符）`, ok: bad.length === 0, detail: bad })
+  steps.push({ name: `I9 **明细**（窄判据：续行引述闭合符 · 能定格行号；**结论来源**=check-syntax-and-json 的块注释平衡）（${i9Files.length} 个文件＝.mjs ${mjs.length} + **.css/.js ${i9Files.length - mjs.length}**：注释续行不得含闭合符）`, ok: bad.length === 0, detail: bad })
 }
 /* ★★ team-lead msg9 ②③：**哑 catch 判据要"工具产出 + 有负控 + 有合成自测"** ——
    我上一版把 `26` **手写**进代码/步名（正是 `COUNT_DEBT_MAX = 12` 的老病：**人读的数字守机读的事实**）⇒ 现改为：

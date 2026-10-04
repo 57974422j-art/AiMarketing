@@ -30,7 +30,7 @@ const collect = (dir, depth = 0) => {
   try { es = readdirSync(dir, { withFileTypes: true }) } catch { return }
   for (const e of es) {
     if (e.isDirectory()) { if (!SKIP_DIR.test(e.name) && depth < 3) collect(join(dir, e.name), depth + 1); continue }
-    if (/\.(mjs|json)$/i.test(e.name)) files.push(join(dir, e.name))
+    if (/\.(mjs|json|css|js)$/i.test(e.name)) files.push(join(dir, e.name))
   }
 }
 collect(DECK_DIR)
@@ -39,6 +39,15 @@ if (existsSync(fontsDir)) collect(fontsDir)
 
 const mjs = files.filter((f) => /\.mjs$/i.test(f))
 const json = files.filter((f) => /\.json$/i.test(f))
+/* ★★ **I9 扩面**（team-lead 现场 · **真覆盖缺口**）：注释卫生原先**只扫 `.mjs`** ⇒
+   `.css` / `.js`（母版里也有手写 JS）**无人管** —— 他的事故正是在 `skin-health.css` 的**头部注释**里
+   写了【星号紧跟斜杠】⇒ 注释**提前闭合** ⇒ 其后文本被当 CSS 解析（**本机看不出**，靠他的审计量尺才抓到）。
+   ★ 做法照 **K32 的正面用法**：**同一实现 + 扩大文件面**（复用下方的 `blockCommentBalance`，不另写扫描器）；
+     新增的只有"**被扫描的文件名集合**"这一处 ✓
+   ⚠️ **两层都要扩**：本文件是**宽判据**（平衡 ⇒ 结论来源）；"提前闭合但**仍然平衡**"那种形态由
+     `commit-safe.mjs` 的**窄判据**（注释续行引述闭合符 · 能定格行号）抓 ⇒ 那边同步扩面 ✓
+     （否则他那种 `.p6-` + 斜杠星号 的形态在**宽**这一层**仍会漏** —— 实测其 `depth` 归零 ✓）。 */
+const styleFiles = files.filter((f) => /\.(css|js)$/i.test(f))
 const check = mjs.filter((f) => spawnSync(process.execPath, ['--check', f], { encoding: 'utf8' }).status !== 0)
 const badJson = []
 for (const f of json) {
@@ -61,7 +70,8 @@ for (const f of json) {
       且**其余是合法 JS** ⇒ `node --check` 通过、平衡也成立 ⇒ 宽判据**抓不到**）⇒ **两者能力真的不同** ⇒ 保留两层。 */
 const commentDrift = []
 const notModeled = []      /* ★ 可见债务：本扫描**没能建模**的文件（模板 `${}` 嵌套等）—— 计数必须打印，不许静默 */
-for (const f of mjs) {
+/* ★ I9 扩面（team-lead 现场）：`.mjs` + **`.css` / `.js`** 共用同一状态机（**同一实现 + 扩大文件面** · K32 正面用法） */
+for (const f of [...mjs, ...styleFiles]) {
   let s = ''
   /* ⚠️ catch **必须会说话**：哑 catch 棘轮的判据原文是「体内**既无 `console.`/`throw` 也无计数**」
      （silent-catch-baseline.json 的 `_doc`）—— 首版我只在 catch 里给一个布尔赋值（不 print/不计数）⇒ 被棘轮**当场咬到**
@@ -191,20 +201,20 @@ if (process.argv.includes('--self-test-i9')) {
   console.log(`  ✓ 裸媒体工具调用 = 0（${mjs.length} 个 .mjs 全走 resolveFfmpeg/resolveFfprobe）`)
 }
 
-console.log(`\n⓪f 全量语法/JSON 守卫：.mjs ${mjs.length} 个（node --check + 块注释平衡）· .json ${json.length} 个（JSON.parse）`)
-if (!mjs.length || !json.length) {
-  console.error(`✗ 扫描到 0 个 .mjs 或 0 个 .json ⇒ exit 2（"无事可查" ≠ "查过且通过"）`)
+console.log(`\n⓪f 全量语法/JSON 守卫：.mjs ${mjs.length} 个（node --check + 块注释平衡）· .json ${json.length} 个（JSON.parse）· ★**I9 扩面**：.css/.js ${styleFiles.length} 个（块注释平衡 —— 原先**只扫 .mjs** ⇒ 缺口）`)
+if (!mjs.length || !json.length || !styleFiles.length) {
+  console.error(`✗ 扫描面异常（.mjs ${mjs.length} · .json ${json.length} · .css/.js ${styleFiles.length}）⇒ exit 2（"无事可查" ≠ "查过且通过"；css/js 计数为 0 说明 I9 扩面没生效）`)
   process.exit(2)
 }
 if (check.length || badJson.length || commentDrift.length) {
   console.error(`\n✗ 语法/JSON/块注释 错（§25a：原始清单，未过滤）`)
   for (const f of check) console.error(`    · [node --check 失败] ${relative(ENGINE_ROOT, f)}`)
   for (const f of badJson) console.error(`    · [JSON.parse 失败] ${relative(ENGINE_ROOT, f)}`)
-  for (const f of commentDrift) console.error(`    · [块注释不平衡 · I9] ${f}`)
+  for (const f of commentDrift) console.error(`    · [块注释不平衡 · I9 · .mjs/.css/.js] ${f}`)
   console.error('  ⇒ 优先查"块注释里是否原样写了【星号紧跟斜杠】"（该写法会提前终止注释、尾部当代码）')
   process.exit(1)
 }
-console.log(`  ✓ ${mjs.length} 个 .mjs 语法全过 + 块注释平衡 · ${json.length} 个 .json 全部可解析`)
+console.log(`  ✓ ${mjs.length} 个 .mjs 语法全过 + 块注释平衡 · ${json.length} 个 .json 全部可解析 · ★ .css/.js ${styleFiles.length} 个块注释平衡（I9 扩面）`)
 if (notModeled.length) {
   console.log(`  ⚠ 块注释扫描**未建模** ${notModeled.length} 个（模板 ${'${}'} 嵌套等 ⇒ 这些文件只受 node --check 保护）：${notModeled.join(' · ')}`)
   console.log('    （可见债务：把扫描升级为带 ${} 嵌套的迷你词法器 —— 按"1 格 + 修法专美 ⇒ 挂债"处理，等第 2 例再建）')
