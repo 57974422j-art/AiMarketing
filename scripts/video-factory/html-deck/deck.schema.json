@@ -97,7 +97,9 @@
             "master-v1",
             "master-v2",
             "master-editorial",
-            "master-tech"
+            "master-tech",
+            "master-festive",
+            "master-mono"
           ],
           "description": "母版 ID（枚举；决定版式/皮肤/几何/动效语言，资产在 masters/<id>/）"
         },
