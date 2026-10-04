@@ -43,6 +43,9 @@ const argv = process.argv
 const arg = (k, d) => { const i = argv.indexOf(k); return i >= 0 && argv[i + 1] !== undefined ? argv[i + 1] : d }
 const DECK = arg('--deck', 'master-v1')
 const PAGE = Number(arg('--page', '2'))
+/* ★★ team-lead msg29 ③(b)：容器唯一性守卫的**显式豁免**（`--containers-expect <n>` + **必带理由** `--containers-why`）。 */
+const CONT_EXPECT = arg('--containers-expect', '')
+const CONT_WHY = arg('--containers-why', '')
 const JSONPATH = arg('--jsonpath', 'pages.1.items')
 const CLS = arg('--cls', 'li:first-child .t')
 /* ★ team-lead ①：**默认值必须安全** —— 旧默认 `li` = **全篇计数**（正是"读回 23"那个坑）⇒
@@ -72,6 +75,7 @@ const MC_FLAGS = [
   { name: '--max', argv: true }, { name: '--stride', argv: true }, { name: '--nmax', argv: true },
   { name: '--maxitems-ptr', argv: true }, { name: '--keep', argv: false },
   { name: '--self-test-extract', argv: false }, { name: '--self-test-scope', argv: false },
+  { name: '--containers-expect', argv: true }, { name: '--containers-why', argv: true },
   { name: '--self-test-uncaught', argv: false },   /* ★ msg8 ③：兜底正控（主动抛 ⇒ 断言转 tag） */
 ]
 /* ⚠️ 这四个是**下游引擎**旗标（透传给 crosscheck/render）—— 我第一版留空表 ⇒ **本工具自己的注册表断言当场点名**
@@ -178,6 +182,16 @@ function pageArgTag(jsonpath, page) {
   if (!m) return null                      /* 非页内数组（如顶层 pages）⇒ 没有"应在页"可声明 */
   return Number(page) === Number(m[1]) + 1 ? null : 'PAGE_ARG_MISMATCH'
 }
+/* ★★ team-lead msg29 ③(b)：**容器唯一性守卫的显式豁免**（守卫**不弱化**）——
+   有些页**天然多容器**（如 compare 页左右各一个 `<ul>`）⇒ 合并计数会**高估** ⇒ 此时不该"关掉守卫"，
+   而应**声明预期**：`--containers-expect <n>`（本页该选择器预期命中几个容器）+ **必带理由** `--containers-why`（与灰名单同款）。
+   判据：未声明 ⇒ 原守卫（>1 红）不变；声明了 ⇒ 命中数必须 == n（≠ ⇒ `CONTAINERS_EXPECT_MISMATCH`）；
+        声明了却**没给理由** ⇒ `CONTAINERS_EXPECT_NO_REASON`（豁免必须写理由）。 */
+function containerExpectTag(containers, expect, why) {
+  if (expect === '' || expect === null || expect === undefined) return null
+  if (!String(why || '').trim()) return 'CONTAINERS_EXPECT_NO_REASON'
+  return Number(containers) === Number(expect) ? null : 'CONTAINERS_EXPECT_MISMATCH'
+}
 function pageArgExpect(jsonpath) {
   const m = /^pages\.(\d+)\./.exec(String(jsonpath || ''))
   return m ? Number(m[1]) + 1 : null
@@ -193,10 +207,16 @@ if (process.argv.includes('--self-test-scope')) {
   const pa1 = pageArgTag('pages.9.items', 10) === null
   const pa2 = pageArgTag('pages.9.items', 9) === 'PAGE_ARG_MISMATCH'
   const pa3 = pageArgTag('pages', 5) === null      /* 顶层数组 ⇒ 无应在页 ⇒ 不红 */
-  const ok = c1 && c2 && s3 && p1 && p2 && pa1 && pa2 && pa3
+  /* ★ msg29 ③(b)：**容器豁免**的合成自测 —— 未声明⇒原守卫 / 声明且相符⇒通过 / 不符⇒恰为该 tag / 无理由⇒恰为理由 tag。 */
+  const ce1 = containerExpectTag(2, '', '') === null
+  const ce2 = containerExpectTag(2, 2, 'compare 页左右各一 ul') === null
+  const ce3 = containerExpectTag(2, 3, '理由') === 'CONTAINERS_EXPECT_MISMATCH'
+  const ce4 = containerExpectTag(2, 2, '   ') === 'CONTAINERS_EXPECT_NO_REASON'
+  const ok = c1 && c2 && s3 && p1 && p2 && pa1 && pa2 && pa3 && ce1 && ce2 && ce3 && ce4
   console.log(`  合成自测(scope)：单容器=${containerCount(one)}(须 1) ${c1 ? '✓' : '✗'} · **双容器=${containerCount(two)}(须 2 ⇒ 红)** ${c2 ? '✓' : '✗'} · 切条数=${scopedCount(one, 'li')}(须 3) ${s3 ? '✓' : '✗'}`)
   console.log(`                    页断言：同页(4,4)=${pageAssertOk(4, 4)}(须 true) ${p1 ? '✓' : '✗'} · **异页(3,4)=${pageAssertOk(3, 4)}(须 false ⇒ 红)** ${p2 ? '✓' : '✗'}`)
   console.log(`                    **--page 声明**：一致(pages.9.items, 10)=${pageArgTag('pages.9.items', 10)}(须 null) ${pa1 ? '✓' : '✗'} · **不一致(9)=${pageArgTag('pages.9.items', 9)}(须恰为 PAGE_ARG_MISMATCH)** ${pa2 ? '✓' : '✗'} · 顶层数组(pages, 5)=${pageArgTag('pages', 5)}(须 null) ${pa3 ? '✓' : '✗'}`)
+  console.log(`                    **容器豁免**：未声明(2,'')=${containerExpectTag(2, '', '')}(须 null) ${ce1 ? '✓' : '✗'} · 声明相符(2,2,理由)=${containerExpectTag(2, 2, '理由')}(须 null) ${ce2 ? '✓' : '✗'} · **不符(2,3)=${containerExpectTag(2, 3, '理由')}(须恰为 CONTAINERS_EXPECT_MISMATCH)** ${ce3 ? '✓' : '✗'} · **无理由(2,2,'  ')=${containerExpectTag(2, 2, '  ')}(须恰为 CONTAINERS_EXPECT_NO_REASON)** ${ce4 ? '✓' : '✗'}`)
   process.exit(ok ? 0 : 1)
 }
 
@@ -327,11 +347,23 @@ for (let N = MIN; N <= N_MAX; N += STRIDE) {
   }
   /* ⚠️ team-lead ②：这行原**只打 ✗**、看不出会不会红 ⇒ 现明写"已计入失败"，且它**确实**进 contOk ⇒ exit 2
      （通则：**凡打印 ✗ 的行，必须有对应的失败标记/退出码** —— ✗ 与退出码同源）。 */
-  if (containers > 1) console.log(`      ✗ **页内同类容器数 = ${containers} > 1** ⇒ 切片内计数会**合并高估** ⇒ 读数不可信（**已计入失败 ⇒ exit 2**）`)
+  /* ★★ msg29 ③(b)：容器守卫 + **显式豁免**（声明预期 + 必带理由）；两者都**计入失败**（contOk）。 */
+  const contTag = containerExpectTag(containers, CONT_EXPECT, CONT_WHY)
+  if (contTag) {
+    const whyTxt = contTag === 'CONTAINERS_EXPECT_NO_REASON'
+      ? '**声明了 `--containers-expect` 却没给 `--containers-why` 理由**（豁免必须写理由）'
+      : `**页内同类容器数 = ${containers} ≠ 声明的 ${CONT_EXPECT}**`
+    console.log(`      ✗ [${contTag}] ${whyTxt} ⇒ 切片内计数会**合并高估** ⇒ 读数不可信（**已计入失败 ⇒ exit 2**）`)
+  } else if (CONT_EXPECT !== '' && Number(CONT_EXPECT) === containers) {
+    console.log(`      ✓ 页内同类容器数 = ${containers} == 声明的 ${CONT_EXPECT}（**豁免理由**：${CONT_WHY}）`)
+  } else if (containers > 1) {
+    console.log(`      ✗ **页内同类容器数 = ${containers} > 1** ⇒ 切片内计数会**合并高估** ⇒ 读数不可信（**已计入失败 ⇒ exit 2**）`)
+  }
   /* ⚠️ 赋值放到 push **之后**（第一版把 `twoPath` 写进 push 的对象字面量、而声明在其后 ⇒ `Cannot access 'twoPath' before initialization`） */
   const lastRow = rows[rows.length - 1]
   lastRow.twoPath = twoPath
   lastRow.containers = containers
+  lastRow.contOk = (!contTag) && (containers <= 1 || (CONT_EXPECT !== '' && Number(CONT_EXPECT) === containers && String(CONT_WHY).trim() !== ''))
   if (global < counted) console.log(`      ⚠️ **作用域异常**：页内 ${counted} > 全篇 ${global} ⇒ 切片逻辑有问题`)
   console.log(`  N=${String(N).padStart(2)} · 渲染 exit=${r.status} · 引擎 exit=${g.status} · **页内=${counted}**（需 ${N}${counted === N ? ' ✓' : ' ✗'}）· 全篇=${global}${dtPage !== null ? ` · dt.pageNo=${dtPage}` : ''} · 判据码=[${judgeHit.join(', ')}]${outsider.length ? ' · 非判据码=[' + outsider.join(', ') + ']' : ''}`)
   /* ⚠️ **渲染失败必须打原样输出**（§25a：不许过滤失败输出）—— 我第一版把它 `void` 掉了 ⇒ 事后无从定位 */
@@ -358,7 +390,7 @@ if (badReadback.length) console.log(`  ✗ **页内条数不匹配** ${badReadba
 /* ★ (c) **作用域自己的负控**：若所有行的 `global == scoped` ⇒ 作用域**没生效**（把整篇当一页）⇒ 读数可能"恰好对" = 假绿 */
 const scopeOk = rows.some((r) => r.global > r.counted)
 if (!scopeOk) console.log(`  ✗ **作用域未生效**（所有行 全篇 == 页内）⇒ 切片逻辑没起作用 ⇒ 读数可能"恰好对" = **假绿** ⇒ exit 2`)
-const contOk = rows.every((r) => (r.containers || 0) <= 1)
+const contOk = rows.every((r) => (r.contOk !== undefined ? r.contOk : (r.containers || 0) <= 1))
 if (!contOk) console.log(`  ✗ **页内同类容器数 > 1**（某 N 的切片里不止一个列表容器）⇒ 计数会**合并高估** ⇒ 读数不可信 ⇒ exit 2`)
 console.log(`  twoPath 记录：${[...new Set(rows.map((r) => r.twoPath))].join(' / ')}`)
 if (scopeOk) console.log(`  ✓ 作用域负控：至少有 ${rows.filter((r) => r.global > r.counted).length} 行出现 **全篇 > 页内** ⇒ 切片确实在起作用`)
