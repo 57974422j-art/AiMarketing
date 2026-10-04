@@ -29,7 +29,7 @@ const PAGE_IDX = numArg('--page', 2)                 // deck.types8 的 index 2 
 const dirs = args.filter((a) => !a.startsWith('--') && !/^\d+(\.\d+)?$/.test(a)).slice(0, 3).map((p) => resolve(p))
 if (dirs.length < 3) { console.error('用法: node verify-density.mjs <normalDir> <airyDir> <denseDir> [--page 2] [--tol 2]'); process.exit(2) }
 
-const hex2rgb = (h) => { const s = String(h).replace('#', ''); return [0, 2, 4].map((i) => parseInt(s.slice(i, i + 2), 16)) }
+import { hex2rgbTrusted as hex2rgb } from './color.mjs'   /* ★ 颜色工具**唯一实现**（此前本文件是 5 份副本之一；用别名 ⇒ **零调用点改动**） */
 const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2])
 
 function measure(dir) {

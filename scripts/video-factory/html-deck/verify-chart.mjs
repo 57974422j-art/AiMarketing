@@ -46,7 +46,7 @@ const pr = spawnSync(resolveFfprobe().p, ['-v', 'error', '-select_streams', 'v:0
 const [FW, FH] = (pr.stdout || '').trim().split(',').map(Number)
 if (!FW || !FH) { console.error('✗ 无法取到帧尺寸'); process.exit(1) }
 
-const hex2rgb = (h) => { const s = String(h).replace('#', ''); return [0, 2, 4].map((i) => parseInt(s.slice(i, i + 2), 16)) }
+import { hex2rgbTrusted as hex2rgb } from './color.mjs'   /* ★ 颜色工具**唯一实现**（此前本文件是 5 份副本之一；用别名 ⇒ **零调用点改动**） */
 const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2])
 
 const { plot: PL, padBox: PB, pad, plotTop } = M

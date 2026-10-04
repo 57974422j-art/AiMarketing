@@ -42,7 +42,7 @@ const pr = spawnSync(resolveFfprobe().p, ['-v', 'error', '-select_streams', 'v:0
 const [FW, FH] = (pr.stdout || '').trim().split(',').map(Number)
 if (!FW || !FH) { console.error('✗ 无法取到帧尺寸'); process.exit(1) }
 
-const hex2rgb = (h) => { const s = String(h).replace('#', ''); return [0, 2, 4].map((i) => parseInt(s.slice(i, i + 2), 16)) }
+import { hex2rgbTrusted as hex2rgb } from './color.mjs'   /* ★ 颜色工具**唯一实现**（此前本文件是 5 份副本之一；用别名 ⇒ **零调用点改动**） */
 const BG = hex2rgb(M.bg || '#000000')                 // 母版底色（判"媒体区外是不是底"用，浅色母版也成立）
 const toLin = (c) => { const s = c / 255; return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4) }
 const relLum = ([r, g, b]) => 0.2126 * toLin(r) + 0.7152 * toLin(g) + 0.0722 * toLin(b)

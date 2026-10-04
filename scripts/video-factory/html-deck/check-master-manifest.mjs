@@ -122,12 +122,7 @@ function loadManifest(id) {
   if (m.id !== id) throw new Error(`${p} 的 id(${m.id}) 与目录名不一致`)
   return m
 }
-const hex2rgb = (h) => {
-  const m = /^#?([0-9a-f]{6})$/i.exec(String(h || '').trim())
-  if (!m) return null
-  const n = parseInt(m[1], 16)
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255].join(',')
-}
+import { hex2rgbStr as hex2rgb } from './color.mjs'   /* ★ 颜色工具**唯一实现**（此前本文件是 5 份副本之一；用别名 ⇒ **零调用点改动**，行为 1:1：只认 6 位、非法 null、返回字符串） */
 
 /* ==================================================================
    主流程

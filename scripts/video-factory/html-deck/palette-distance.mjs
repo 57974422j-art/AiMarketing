@@ -68,12 +68,7 @@ for (let i = 2; i < process.argv.length; i++) {
 }
 
 /* ---------------- 颜色数学（ΔE76 = CIELAB 欧氏；sRGB → 线性 → XYZ(D65) → Lab） ---------------- */
-function hex2rgb(h) {
-  const s = String(h).trim().replace('#', '')
-  if (!/^[0-9a-fA-F]{3}$|^[0-9a-fA-F]{6}$/.test(s)) return null
-  const f = s.length === 3 ? s.split('').map((c) => c + c).join('') : s
-  return [0, 2, 4].map((i) => parseInt(f.slice(i, i + 2), 16))
-}
+import { hex2rgb } from './color.mjs'   /* ★ 颜色工具**唯一实现**（此前本文件是 5 份副本之一；同名 ∴ 零调用点改动；语义 1:1：认 3/6 位、非法 null） */
 function rgb2lab(rgb) {
   const [r, g, b] = rgb.map((v) => {
     const c = v / 255
