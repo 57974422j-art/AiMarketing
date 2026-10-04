@@ -65,6 +65,32 @@ for (const it of (limits.limits || [])) {
   if (!node) { viol.push(`${it.jsonPointer} ⇒ 实测表指向的 schema 节点不存在（表/schema 不同源）`); continue }
   /* ★ 队列回填：**`kind` 必填**（14 格里曾有 **11 格**未标 ⇒ 断言把它变成"填了才绿"，避免"只记录未断言"） */
   if (!it.kind) viol.push(`${labelC(it)} ⇒ **kind 必填**：该格未标类型（content = 几何判据驱动 · editorial = 容量、上限由编辑意图定）`)
+  /* ★★ team-lead msg27 ③：**定位口径一致**（I7 的延伸）—— ⚠️ **语义经判决实验修正**（probe-html）：
+     ① **实质判据 = `--jsonpath pages.<i>…` ↔ `page`**：**`--jsonpath` 才是定位权威**（实测：`--page` 的数值
+        **不决定**被量对象 —— `--page 9` 打 `pages.9.items` 与 `--page 10` **同值通过**；`--page 3` 打
+        `pages.3.steps`（实际第 4 页）**也通过**）⇒ 只有 jsonpath 的 0-based 下标能决定"量的是哪个对象"。
+     ② `--page N == page`、③ 长度格 `--expect-page N == page` ⇒ 属**文本一致性/卫生**判据（防"纸面口径漂移"），
+        **不是**正确性判据（`--page` 写错并**不会**量错对象 —— 我一度据此误诊，见 `pages.9.items` 的 readback 撤回）。
+     ⇒ 本断言拦的是"**表内三处纸面口径互相矛盾**"（含"该补的没补"），拦不了"读数量错对象"（那要靠 jsonpath 下标）。 */
+  {
+    const src = String(it.source || '')
+    const one = (re) => { const m = re.exec(src); return m ? Number(m[1]) : null }
+    const pPage = one(/--page\s+(\d+)/)
+    const pExp = one(/--expect-page\s+(\d+)/)
+    const jpM = /--jsonpath\s+pages\.(\d+)\./.exec(src)
+    const want = it.page
+    if (want !== undefined) {
+      if (it.unit === 'count' || it.capacityAtLeast !== undefined) {
+        if (pPage === null) viol.push(`${labelC(it)} ⇒ **定位口径**：条数格 source 缺 --page（无法定位 ⇒ 读数可能量到了别的页）`)
+        else if (pPage !== want) viol.push(`${labelC(it)} ⇒ **定位口径**：source 的 --page ${pPage} ≠ 表内 page ${want} ⇒ **读数被归到错的格子**`)
+        if (!jpM) viol.push(`${labelC(it)} ⇒ **定位口径**：条数格 source 缺 --jsonpath pages.<i>.<字段>（0-based 口径无法核）`)
+        else if (Number(jpM[1]) + 1 !== want) viol.push(`${labelC(it)} ⇒ **定位口径**：--jsonpath pages.${jpM[1]}（0-based ⇒ 第 ${Number(jpM[1]) + 1} 页）≠ 表内 page ${want}`)
+      } else {
+        if (pExp === null) viol.push(`${labelC(it)} ⇒ **定位口径**：长度格 source 缺 --expect-page（无法核「命中页 == 该格 page」）`)
+        else if (pExp !== want) viol.push(`${labelC(it)} ⇒ **定位口径**：--expect-page ${pExp} ≠ 表内 page ${want}`)
+      }
+    }
+  }
   /* ★★ **I1/I2-「条数版」按 `kind` 分派**（team-lead msg2 ②：此前 `capacityAtLeast` **0 命中** ⇒
      该格的"唯一断言 `maxItems ≤ 容量`"**只是散文**（写在 `judgeLimitNote` 里）⇒ 与"汇总句 vs 逐格"同族。
      分派：`kind:'editorial'`（条数）⇒ 断言 `maxItems ≤ capacityAtLeast`（容量是**下限**，不是判据）；

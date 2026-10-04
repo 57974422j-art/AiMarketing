@@ -415,7 +415,7 @@
         "**无几何失败模式**（N_MAX=30 内**未触发任何判据码**：引擎原样「重叠判据（content_overlap）[--assert-overlap]：共 0 条」）"
       ],
       "page": 10,
-      "readback": "**页内条数 == N** ✓（N=3 ⇒ 页内 3 · N=30 ⇒ 页内 30；**全篇 22 / 49 作对照** ⇒ 作用域负控成立）· ★ **更正（probe-html 实测）**：原 `source` 写 `--page 9` **不能复现**本行读数（实测 `--page 10` ⇒ `页内=6（需 6 ✓）`；toc 是**第 10 个** section）⇒ 已改为 `--page 10`（详见 judgeLimitNote 的页作用域说明）",
+      "readback": "**页内条数 == N** ✓（N=3 ⇒ 页内 3 · N=30 ⇒ 页内 30；**全篇 22 / 49 作对照** ⇒ 作用域负控成立）。★ **复核与更正（probe-html，含一次撤回）**：本格已在**第 10 页（真 toc）**上复测 ⇒ 读数与前记录**逐项同值**（页内 3/30 · 全篇 22/49）。**撤回**我上一条「原 `--page 9` 不能复现」的判断 —— 判决实验证明 **`--page` 的数值并不决定被量对象**（`--page 9` 打 `pages.9.items` 与 `--page 10` 同值通过；`--page 3` 打 `pages.3.steps`（第 4 页）亦然）⇒ **定位权威是 `--jsonpath pages.<i>`**，原 `--page 9` **未**导致错读；改 10 只是**文本一致**（与 `page` 字段对齐）",
       "twoPath": "**未交叉（页切片单源）** —— dom-target 选到**别的页**（pageNo=3 ≠ 注入页）⇒ 按裁定**不许**记成「交叉通过」",
       "evidence": "**恒定非判据码的证据行**：timeline_track_too_dense 与 nested_structure_needs_subcomposition **在 N=3 亦出现**（各 N 都有 ⇒ 与容量无关 ⇒ 按**跨 N 差分**排除）；引擎原样：lint ok=true · 提取器扫 28/38 行 · 提出 2 码（其中判据 0）",
       "source": "node measure-count.mjs --deck all12 --page 10 --jsonpath pages.9.items --sel li --min 3 --max 6 --nmax 30 --stride 27 --maxitems-ptr '#/$defs/pageToc/properties/items'",
