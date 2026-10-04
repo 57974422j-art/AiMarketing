@@ -101,12 +101,16 @@ for (const it of (limits.limits || [])) {
      必须 == 该节点 `maxItems`（**不许把 schema 上限包装成"容量"**）；③ `basis` 必须写明"由编辑意图定、非几何容量"；
      ④ 与 `capacityAtLeast` **互斥**（同时给 ⇒ 语义冲突 ⇒ 红）。 */
   if (it.boundSource) {
+    let BS_READ_FAIL = 0
     const m = /^([\w.-]+)#(.+)$/.exec(String(it.boundSource))
     if (!m) viol.push(`${labelC(it)} ⇒ **boundSource 形态**：应为 <契约文件>#<指针>（现 ${it.boundSource}）`)
     else {
       const st = m[1].endsWith('.json') ? join(DECK_DIR, m[1]) : join(DECK_DIR, `${m[1]}.json`)
       let n2 = null
-      try { n2 = get(m[2]) } catch { n2 = null }
+      /* ⚠️ 本文件的 `get` 期待 **`#/` 前缀** 的指针（与各格 `jsonPointer` 同形）⇒ 解析出的路径要补 `#`（实测漏了 ⇒ 判"不存在"）。
+         ⚠️ catch **必须会说话**（计数）：静默 catch 会被"哑 catch 棘轮"咬（我这版加了 1 处空的 ⇒ 当场被判红）。 */
+      try { n2 = get(String(m[2]).startsWith('#') ? m[2] : `#${m[2].startsWith('/') ? '' : '/'}${m[2]}`) } catch { n2 = null; BS_READ_FAIL++ }
+      if (BS_READ_FAIL) console.error(`   （boundSource 自检：有 ${BS_READ_FAIL} 处读取失败 ⇒ 判定可能不完整）`)
       if (!n2) viol.push(`${labelC(it)} ⇒ **boundSource 不存在**：${it.boundSource}（上界来源声明不可解析 ⇒ 等于没声明）`)
       else {
         if (it.renderedMax !== undefined && Number(it.renderedMax) !== Number(n2.maxItems)) viol.push(`${labelC(it)} ⇒ **renderedMax ${it.renderedMax} ≠ schema maxItems ${n2.maxItems}** ⇒ 不许把 schema 上限包装成容量`)
