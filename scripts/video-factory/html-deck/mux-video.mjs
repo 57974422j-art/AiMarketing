@@ -12,7 +12,7 @@
  * 用法：
  *   node mux-video.mjs --in <raw.mp4> --out <final.mp4> [--srt a.srt] [--logo logo.png]
  *        [--logo-pos tr|br|tl|bl] [--logo-w 160] [--logo-opacity 0.85] [--logo-margin 40]
- *        [--bgm music.m4a] [--bgm-vol -18]
+ *        [--bgm music.m4a] [--bgm-vol -18] [--subs-style auto|plain|dark]
  *   node mux-video.mjs --self-test
  */
 import { spawnSync } from 'node:child_process'
@@ -36,6 +36,7 @@ const FLAGS = {
   '--logo-w': 'logoW', '--logo-opacity': 'logoOpacity', '--logo-margin': 'logoMargin',
   '--bgm': 'bgm', '--bgm-vol': 'bgmVol', '--self-test': 'selfTest', '--workdir': 'workdir',
   '--dry-run': 'dryRun', '--subs-size': 'subsSize', '--subs-margin-v': 'subsMarginV',
+  '--subs-style': 'subsStyle',
 }
 /* ★★ 旗标类型 ④（唯一真源）：**哪些选项键是 bool**（不带值）—— 解析器**从这里派生**，
    并由下面的断言核"① ⊆ 注册表键 ② 解析器真的用它 ③ 非 bool 键必须走有值路径"。
@@ -114,6 +115,32 @@ function probe(file) {
  *    以**字幕所在目录为工作目录**运行 ffmpeg，只传**裸文件名**。 */
 const escSub = (p) => basename(p)
 
+/* ★★ 字幕样式：**从产物读数决定**（不靠人挑、也不信"声明值"）——
+ *   抽一帧量"**字幕脚下那条底带**"的平均亮度：亮底 ⇒ **深字 + 白描边**；暗底 ⇒ **白字 + 深描边**。
+ *   为什么不按皮肤名/母版声明：**同一皮肤的不同页底亮也不同**（封面 vs 数据页），该管的是"字幕下面那块像素"。
+ *   为什么量产物而不是读 `master.json`：母版 `bg` 只是**基色声明**，实际画面还有色块/图片 ⇒ **以像素为准**。
+ *   `--subs-style plain|dark|auto`（默认 `auto`）；`auto` 量不到（抽帧失败/无时长）⇒ **回退 plain 并打印**（可见回退，不静默）。 */
+const SUBS_STYLE_PLAIN = 'BorderStyle=1,Outline=1,Shadow=0'
+const SUBS_STYLE_DARK = 'BorderStyle=1,Outline=2,Shadow=0,PrimaryColour=&H00101010,OutlineColour=&H00FFFFFF'
+/** 纯函数：按底带平均亮度（0..1）选样式（阈值 0.6）—— 可用**合成样本**证伪，不必渲染 */
+const pickSubsStyle = (meanY) => (Number(meanY) > 0.6 ? 'dark' : 'plain')
+/** 量"字幕底带"平均亮度：**多帧均值**（样式应**整片一致** ⇒ 均值才是对的统计量；单帧会撞到深色页 ⇒ 脆）
+ *  ⇒ 返回 `{ mean, ok, total }`；一帧都没量到 ⇒ `{ mean: null }`（调用方**可见回退**，不静默） */
+function bandLuminance(file, dur, samples = 5) {
+  const fr = []
+  if (dur && dur > 0.6) for (let i = 1; i <= samples; i++) fr.push((dur * i) / (samples + 1))
+  else fr.push(0)
+  const vals = []
+  for (const at of fr) {
+    const r = spawnSync(resolveBin('ffmpeg'), ['-v', 'error', '-ss', String(Math.max(0, at - 0.1)), '-i', file,
+      '-vf', 'crop=iw:ih*0.20:0:ih*0.76,scale=1:1', '-frames:v', '1', '-f', 'rawvideo', '-pix_fmt', 'gray', '-'],
+    { encoding: 'buffer', maxBuffer: 1 << 20 })
+    if (r.status === 0 && r.stdout && r.stdout.length) vals.push(r.stdout[0] / 255)
+  }
+  if (!vals.length) return { mean: null, ok: 0, total: fr.length }
+  return { mean: vals.reduce((s, x) => s + x, 0) / vals.length, ok: vals.length, total: fr.length }
+}
+
 function buildArgs(o) {
   const inputs = ['-i', o.in]
   let idx = 1, logoI = -1, bgmI = -1
@@ -146,7 +173,10 @@ function buildArgs(o) {
   const marginVPx = bottomLogo ? m + logoH + Math.round(H0 * 0.02) : Math.round(H0 * 0.05)
   const marginV = Number(o.subsMarginV) || px2script(marginVPx)
   if (o.srt) {
-    const style = `FontSize=${subSize},MarginV=${marginV},Alignment=2,BorderStyle=1,Outline=1,Shadow=0`
+    /* ★ 样式由 `o.subsStyle`（`plain`|`dark`）决定 —— `auto` 已在主路径**量完产物**后解析掉；
+       buildArgs 保持"只拼参数"（不自己抽帧）：否则 `--dry-run` 会**真的去跑 ffmpeg**（与 dry-run 纪律冲突）。 */
+    const kind = o.subsStyle === 'dark' ? 'dark' : 'plain'
+    const style = `FontSize=${subSize},MarginV=${marginV},Alignment=2,${kind === 'dark' ? SUBS_STYLE_DARK : SUBS_STYLE_PLAIN}`
     steps.push(`[${v}]subtitles=filename='${escSub(o.srt)}':original_size=${W0}x${H0}:force_style='${style}'[vsub]`)
     v = 'vsub'
   }
@@ -185,11 +215,20 @@ function mux(o) {
   }
   const src = probe(o.in)
   const bin = resolveBin('ffmpeg')
+  /* ★ auto：**先量产物**（字幕底带亮度）再定样式；量不到 ⇒ 回退 `plain` 并**打印**（可见回退） */
+  let subsStyle = o.subsStyle || 'auto'
+  if (o.srt && subsStyle === 'auto') {
+    const b = bandLuminance(resolve(o.in), src && src.dur)
+    subsStyle = b.mean == null ? 'plain' : pickSubsStyle(b.mean)
+    console.log(b.mean == null
+      ? `   ⚠ [MUX-SUBS-STYLE] 底带亮度量不到（抽帧失败 ${b.ok}/${b.total}）⇒ 回退 plain`
+      : `   · 字幕样式=**${subsStyle}**（底带亮度均值=${b.mean.toFixed(2)} · ${b.ok}/${b.total} 帧有效 · 阈值 0.6）`)
+  }
   /* ★ 因字幕会切工作目录 ⇒ **所有**路径（in/out/**logo/bgm**）必须**先转绝对**，否则相对路径在切目录后失效。
    *   ⚠️ 第一版只转了 in/out ⇒ `--logo out-tmp-batch/logo.png` 被解析成 `<字幕目录>/out-tmp-batch/logo.png` ⇒
    *   `Error opening input file … No such file or directory`（端到端跑「文案→字幕→合成」时暴露）。 */
   const abs = (p) => (p ? resolve(p) : p)
-  const args = buildArgs({ ...o, in: abs(o.in), out: abs(o.out), logo: abs(o.logo), bgm: abs(o.bgm),
+  const args = buildArgs({ ...o, subsStyle, in: abs(o.in), out: abs(o.out), logo: abs(o.logo), bgm: abs(o.bgm),
     srcW: src && src.w, srcH: src && src.h })
   /* 字幕用"工作目录 + 裸文件名"⇒ 运行目录必须切到字幕所在目录 */
   const cwd = o.srt ? dirname(resolve(o.srt)) : undefined
@@ -279,6 +318,27 @@ function selfTest() {
     console.log(`    ${fOk ? '✓' : '✗'} 滤镜图含 original_size=640x360 / FontSize / MarginV${fOk ? '' : ' ⇒ ' + fc.slice(0, 150)}`)
     if (!fOk) fail++
   }
+  /* 用例 G：**样式选择的纯函数样本**（必红/不许红**成对** + 边界）——不必渲染，秒级 */
+  console.log('  — 用例 G 样式选择纯函数（底带亮度 ⇒ 样式）')
+  {
+    const g1 = pickSubsStyle(0.85) === 'dark'        // 亮底 ⇒ 深字白描边
+    const g2 = pickSubsStyle(0.35) === 'plain'       // 暗底 ⇒ 白字深描边
+    const g3 = pickSubsStyle(0.6) === 'plain'        // 边界：**严格大于** 0.6 才算亮底（把口径钉住）
+    console.log(`    ${g1 && g2 && g3 ? '✓' : '✗'} 0.85⇒${pickSubsStyle(0.85)} · 0.35⇒${pickSubsStyle(0.35)} · 0.60⇒${pickSubsStyle(0.6)}（须 dark/plain/plain）`)
+    if (!(g1 && g2 && g3)) fail++
+  }
+  /* 用例 H：**样式真的进了滤镜图**（防"算了样式却没拼进去"）＋ 两种样式必须**不同**（防 dark 是空操作） */
+  console.log('  — 用例 H 样式入图（结构断言）')
+  {
+    const fcOf = (st) => {
+      const a = buildArgs({ in: raw, out: join(wd, 'h.mp4'), srt, srcW: 640, srcH: 360, subsStyle: st })
+      return a[a.indexOf('-filter_complex') + 1] || ''
+    }
+    const fcD = fcOf('dark'), fcP = fcOf('plain')
+    const hOk = fcD.includes(SUBS_STYLE_DARK) && fcP.includes(SUBS_STYLE_PLAIN) && fcD !== fcP
+    console.log(`    ${hOk ? '✓' : '✗'} dark 已拼进=${fcD.includes(SUBS_STYLE_DARK)} · plain 已拼进=${fcP.includes(SUBS_STYLE_PLAIN)} · 两者不同=${fcD !== fcP}`)
+    if (!hOk) fail++
+  }
 
   /* 回归用例 E2：**相对路径 + 字幕**（覆盖"切 cwd"的副作用 —— 第一版只把 in/out 转绝对，
    *   `--logo` 相对路径会被解析到字幕目录下 ⇒ 找不到。用**相对路径**才测得到，全用绝对路径测不出来） */
@@ -302,7 +362,7 @@ function selfTest() {
   const eOk = rE === EXIT.INPUT
   console.log(`    ${eOk ? '✓' : '✗'} 负控 E ⇒ exit=${rE}（须 2）`)
   if (!eOk) fail++
-  concl('MUX-SELFTEST', fail === 0, { 用例: cases.length + 1, 失败: fail })
+  concl('MUX-SELFTEST', fail === 0, { 用例: cases.length + 3, 失败: fail })
   return fail === 0 ? EXIT.OK : EXIT.FAIL
 }
 
