@@ -446,3 +446,70 @@ body.p .p10-list .t { font-size: var(--t-small); }
 /* ---------- P10 步骤：金色方号 ---------- */
 .p10-list li { border-bottom: 1px solid rgba(224,182,74,.28); padding-bottom: 14px; }
 .p10-list--dot li::before { background: var(--accent); border-radius: 2px; }
+
+/* ===== PORTRAIT PASS v1 =====
+   竖屏节奏打磨：基础母版的竖屏规则全是"固定 top 偏移"（`--pad + N px`）⇒ 内容堆在 1280 高的上半屏、
+   中下段大片留白。本层**只作用于 `body.p`**（横屏零影响），做三件事：
+     ① 把关键块从"固定偏移"改成**按高度分布**（百分比），让内容铺满全高；
+     ② 手机观看需要更大字号 ⇒ 放大标题/正文/步骤；
+     ③ 加大行距/内边距，避免"看起来空"。
+   ★ 幂等：本块带固定标记，重复追加脚本会先删旧块再写（见 append-portrait-pass.mjs）。 */
+
+/* 封面：文案上移一点、标题更大，图像带下移 */
+body.p .cover-copy { top: 18%; }
+body.p .cover-title { font-size: calc(var(--t-title) * 1.12); line-height: 1.16; }
+body.p .cover-sub { font-size: var(--t-lead); }
+body.p .rule { width: 120px; height: 5px; }
+body.p .photo { height: 38%; }
+
+/* 要点页：起始 16%、行距加大、总结条压到下部 */
+body.p .p2-list { top: 33%; }
+body.p .p2-list li { padding: 30px 0; }
+body.p .p2-list .t { font-size: calc(var(--t-lead) * 1.18); }
+body.p .p2-sum { bottom: 16%; font-size: var(--t-lead); padding: 18px 20px; }
+
+/* 数据页：大数字 20%、说明 45%、次指标 56%（铺满中下段） */
+body.p .p3-body { top: 30%; }
+body.p .p3-explain { top: 53%; font-size: var(--t-lead); }
+body.p .p3-metrics { top: 57%; gap: 26px; }
+body.p .p3-metrics > div { padding: 22px 26px; }
+body.p .p3-metrics .k { font-size: var(--t-body); }
+body.p .p3-metrics .v { font-size: var(--t-small); }
+
+/* 章节页：巨号上移、标题压到中段 */
+body.p .p5-num { font-size: 190px; }
+body.p .p5-copy { top: 48%; }
+body.p .p5-title { font-size: 50px; }
+
+/* 图表页：绘图区更高、说明抬到下三分之一 */
+body.p .p6-unit { top: 12%; }
+body.p .p6-plot { top: 22%; height: 50%; }
+body.p .p6-explain { bottom: calc(var(--pad) + 88px); font-size: var(--t-lead); }
+
+/* 对比页：两栏间距更大、每行更松、结论条上提 */
+body.p .p7-grid { gap: 34px; }
+body.p .p7-label { font-size: 34px; }
+body.p .p7-points li { padding: 12px 0 12px 20px; font-size: var(--t-body); }
+body.p .p7-concl { bottom: calc(var(--pad) + 46px); font-size: var(--t-body); padding: 16px 20px; }
+
+/* 引用页：字号加大、位置下移到视觉中心 */
+body.p .p8-quote { font-size: 42px; top: 36%; line-height: 1.42; }
+body.p .p8-author { font-size: var(--t-body); }
+
+/* 图片页：文案起点下移到 50%，避免顶部挤 */
+body.p .p9-copy { top: 50%; }
+body.p .p9-title { font-size: calc(var(--t-h2) * 1.05); }
+
+/* 步骤页：起始 17%、行距与序号间距加大 */
+body.p .p10-list { top: 29%; }
+body.p .p10-list li { padding: 26px 0; gap: 24px; }
+body.p .p10-list .t { font-size: var(--t-body); }
+
+/* 尾页：整体下移到视觉中心，CTA 更大 */
+body.p .p4-wrap { top: 36%; }
+body.p .p4-line { font-size: 54px; line-height: 1.24; }
+body.p .p4-cta { font-size: 34px; padding: 16px 38px; }
+body.p .p4-en { bottom: 45%; }
+body.p .issuer { top: 64%; }
+/* ===== PORTRAIT PASS v1 END ===== */
+

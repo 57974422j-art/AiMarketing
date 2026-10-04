@@ -17,7 +17,8 @@
   "pages": [
     {
       "type": "cover",
-      "kicker": "AI MARKETING · VIDEO FACTORY"
+      "kicker": "AI MARKETING · VIDEO FACTORY",
+      "duration": 3.4
     },
     {
       "type": "bullets",
@@ -28,7 +29,8 @@
         "同一条文案可批量出多版本",
         "换行业只换皮肤不换流程"
       ],
-      "summary": "省下的是重复劳动，不是创意"
+      "summary": "省下的是重复劳动，不是创意",
+      "duration": 3.4
     },
     {
       "type": "data",
@@ -47,7 +49,8 @@
           "label": "本流程",
           "note": "首次约 40 分钟，之后约 3 分钟"
         }
-      ]
+      ],
+      "duration": 3.4
     },
     {
       "type": "steps",
@@ -57,7 +60,8 @@
         "导出带时间戳的字幕",
         "生成页面并过契约校验",
         "渲染成片并抽帧验收"
-      ]
+      ],
+      "duration": 3.4
     },
     {
       "type": "chart",
@@ -79,7 +83,8 @@
           "换皮肤出片",
           "批量多版本"
         ]
-      }
+      },
+      "duration": 3.4
     },
     {
       "type": "compare",
@@ -100,20 +105,23 @@
           "批量出片成本近乎为零"
         ]
       },
-      "conclusion": "把重复劳动压缩到分钟级"
+      "conclusion": "把重复劳动压缩到分钟级",
+      "duration": 3.4
     },
     {
       "type": "quote",
       "quote": "同一条内容，换皮就换受众。",
       "author": "投放经验",
-      "context": "2026-10"
+      "context": "2026-10",
+      "duration": 3.4
     },
     {
       "type": "end",
       "line1": "文案定稿之后的活交给流程",
       "line2": "版式、渲帧、成片都可以复用",
       "cta": "下一步：挑一套皮肤，出第一条片",
-      "en": "ONE SCRIPT · MANY SKINS"
+      "en": "ONE SCRIPT · MANY SKINS",
+      "duration": 2.8
     }
   ]
 }
