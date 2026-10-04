@@ -399,6 +399,27 @@
       "evidence": "**恒定非判据码的证据行**：`timeline_track_too_dense` / `nested_structure_needs_subcomposition` **在 N=3 亦出现**（各 N 都有 ⇒ **与容量无关** ⇒ 按**跨 N 差分**排除；**不是** N=30 造成的）；引擎原样：`lint: ok=true · error=0 · warning=13`",
       "source": "node measure-count.mjs --deck all12 --page 4 --jsonpath pages.3.steps --sel li --min 3 --max 6 --nmax 30 --stride 27 --maxitems-ptr '#/$defs/pageSteps/properties/steps'",
       "judgeLimitNote": "**容量 ≠ 约束**：`capacityAtLeast: 30` = **容量 ≥ 30**（能装多少），**不是**「判据 ≥ 30」（该写多少）。条数既无几何失败模式 ⇒ 其上限**只能由编辑意图定** ⇒ 这正是 `kind: editorial` 的含义；唯一断言 = `maxItems ≤ 容量`（现 cap=6 ⇒ 6 ≤ 30 ✓）。⚠️ 未证部分如实标注：**该上限的「正确值」不由几何决定**，故**不许**写「上限已验证」。★ **页作用域说明**（team-lead msg3 ③，防复核者误以为漏了）：本格**无 `--expect-page`**，因为页作用域由 `measure-count` 的 **`--page 4` 切片**结构性承担（读回按**第 4 个 `<section>`** 内的 `<li>` 计数，而非全篇）—— 见 `readback`（页内 = N）与作用域负控（全篇 23/50 对照）"
+    },
+    {
+      "jsonPointer": "#/$defs/pageToc/properties/items",
+      "field": "pages.9.items",
+      "pageType": "toc",
+      "detectPoint": "toc 页的 li（**页内唯一容器**；类前缀是位置式 ⇒ 从产物解析，不手抄）",
+      "unit": "count",
+      "kind": "editorial",
+      "detectKind": "count",
+      "capacityAtLeast": 30,
+      "sweepMax": 30,
+      "sweepMaxNote": "扫描上限（= --nmax 值）—— 与 capacityAtLeast（容量下限）**一个字段一个语义**（这样 N_MAX 变了但容量恰好没变的漂移能被 --verify-cell 发现）",
+      "basis": [
+        "**无几何失败模式**（N_MAX=30 内**未触发任何判据码**：引擎原样「重叠判据（content_overlap）[--assert-overlap]：共 0 条」）"
+      ],
+      "page": 9,
+      "readback": "**页内条数 == N** ✓（N=3 ⇒ 页内 3 · N=30 ⇒ 页内 30；**全篇 22 / 49 作对照** ⇒ 作用域负控成立）",
+      "twoPath": "**未交叉（页切片单源）** —— dom-target 选到**别的页**（pageNo=3 ≠ 注入页）⇒ 按裁定**不许**记成「交叉通过」",
+      "evidence": "**恒定非判据码的证据行**：timeline_track_too_dense 与 nested_structure_needs_subcomposition **在 N=3 亦出现**（各 N 都有 ⇒ 与容量无关 ⇒ 按**跨 N 差分**排除）；引擎原样：lint ok=true · 提取器扫 28/38 行 · 提出 2 码（其中判据 0）",
+      "source": "node measure-count.mjs --deck all12 --page 9 --jsonpath pages.9.items --sel li --min 3 --max 6 --nmax 30 --stride 27 --maxitems-ptr '#/$defs/pageToc/properties/items'",
+      "judgeLimitNote": "**容量 ≠ 约束**：capacityAtLeast:30 = **容量 ≥ 30**（能装多少），**不是**「判据 ≥ 30」（该写多少）。条数既无几何失败模式 ⇒ 上限只能由编辑意图定 ⇒ 这正是 kind: editorial 的含义；唯一断言 = maxItems ≤ 容量（现 cap=6 ⇒ 6 ≤ 30 ✓）。★ **页作用域说明**：本格无 --expect-page，因为页作用域由 measure-count 的 **--page 9 切片**结构性承担（读回按**第 10 个 section** 内的 li 计数）——见 readback 与作用域负控。⚠️ 未证部分如实标注：**该上限的「正确值」不由几何决定**，故**不许**写「上限已验证」"
     }
   ]
 }
