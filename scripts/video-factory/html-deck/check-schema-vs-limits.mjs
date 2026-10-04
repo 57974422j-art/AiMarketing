@@ -915,7 +915,12 @@ if (ARG_VC || ROTATE) {
          并对 `max(N)` / `max(页内)` 与表内 `sweepMax` / `capacityAtLeast` 对账。 */
       const rowsC = [...out.matchAll(/N=\s*(\d+)\s*·[^\n]*?页内=(\d+)/g)].map((x) => ({ N: Number(x[1]), inPage: Number(x[2]) }))
       const nm = /--nmax\s+(\d+)/.exec(src)
-      if (!rowsC.length) why.push('输出里没有 `N= … 页内=` 行（条数读数缺失）')
+      /* ★★ team-lead ④(1)：**降级档（弱档）** —— source 的工具**不是 `measure-count`**（例：`pages` 格的 source 是
+         `render-deck`）⇒ **读数字段根本不会出现在输出里** ⇒ 此时**不许沉默、也不许按"缺读数"判红**（那是**误红** ✗）。
+         改为：只断言"**源可跑通**"（上面已核 `exit` 与 tag ⇒ exit 0 / 无 tag 即过），并把**强度缺口明写**出来。 */
+      if (!/measure-count\.mjs$/.test(mm[1])) {
+        console.log(`  [VERIFY-CELL-WEAK] ${cell.field || cell.jsonPointer}：source 工具 = \`${mm[1]}\`（**非 measure-count**）⇒ **不核对读数**（只验"源可跑通"：exit 0 / 无 tag）`)
+      } else if (!rowsC.length) why.push('输出里没有 `N= … 页内=` 行（条数读数缺失）')
       else {
         for (const rc of rowsC) if (rc.inPage !== rc.N) why.push(`N=${rc.N} 但页内=${rc.inPage}（条数读回 ≠ N）`)
         const maxN = Math.max(...rowsC.map((x) => x.N)), maxIn = Math.max(...rowsC.map((x) => x.inPage))

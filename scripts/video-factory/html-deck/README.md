@@ -1097,6 +1097,24 @@ node commit-safe.mjs --dry --fast               ⇒ ✓ I9 **明细**步（窄�
 
 ---
 
+## 25x. **K28：校验强度必须"分级 + 明写"**（"弱档"不许沉默，也不许按缺读数**误红**）
+
+**事实现场**：`measured-limits` 的 count 格里，`pages`（页数）格的 `source` 是 **`render-deck`**（不是 `measure-count`）
+⇒ `--verify-cell` 的读数核对（`N= … 页内=` 对账）**根本不适用** ⇒ 旧实现报
+`✗ 输出里没有 N= … 页内= 行（条数读数缺失）` = **误红**（把"工具不适用"读成"表与实测不同源"）✗。
+
+**修法（两级 + 明写）**：
+· **强档**（source = `measure-count`）⇒ **核对读数**（逐行 `页内 == N` + 与 `sweepMax` / `capacityAtLeast` 对账）；
+· **弱档**（source 是别的工具）⇒ 只断言"**源可跑通**"（`exit 0` / 无 tag），并**打强度标签**：
+  `[VERIFY-CELL-WEAK] <格>：source 工具 = \`X\`（非 measure-count）⇒ **不核对读数**`。
+
+★ 口径：**校验强度是结论的一部分** —— 不许把"弱档通过"读成"读数已核对"（与"结论要带证据"同族）；
+  也不许把"工具不适用"判成"表与实测矛盾"（**归因要对** ← 与 **K27** 的"渲染失败 ≠ 切片错"同一条纪律）。
+★ **实测**：`--verify-cell pages` ⇒ **exit=0** + `[VERIFY-CELL-WEAK]` ✓ ·
+  `--verify-cell pages.7.secondary` ⇒ **强档仍逐项对账** ✓
+
+---
+
 ## 22b. 证据目录登记（`tmp-k17/` · `tmp-rendercheck/`）
 
 ### 22b.0 总表（team-lead 要求收敛成一张表 —— 以后**只查这里**）
