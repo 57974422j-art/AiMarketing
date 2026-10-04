@@ -55,6 +55,60 @@ const leaves = new Map()
   for (const k of Object.keys(n)) walk(n[k], `${p}/${k}`)
 })(schema, '#')
 
+/* ★★ team-lead msg35 ②：把本轮两条新判据抽成**纯函数** —— ⇒ 可用**合成输入**证伪（免渲染、不碰真表），
+   且真表走的**就是同一个函数**（单一实现）。两个函数各返回"违规信息数组/单条"⇒ 调用方直接上报。 */
+
+/** 判据 1（`fixedWindowVerdict`）：**固定窗口不许报容量** + `boundSource` 路线的一致性
+ *   · (a) `minItems == maxItems` 且给 `capacityAtLeast` ⇒ 违反（契约固定 ⇒ 那不是容量）
+ *   · (b) `boundSource` 指向的节点**不存在/不可解析** ⇒ 违反（= 等于没声明）
+ *   · (c) `renderedMax ≠ 该节点 maxItems` ⇒ 违反（不许把 schema 上限包装成容量）
+ *   · (d) `boundSource` 与 `capacityAtLeast` **互斥** ⇒ 违反 */
+export function fixedWindowVerdict(cell, node, boundNode) {
+  const out = []
+  if (!cell) return out
+  if (cell.boundSource !== undefined) {
+    if (boundNode == null) { out.push('boundSource 不存在/不可解析'); return out }
+    if (boundNode.minItems === undefined && boundNode.maxItems === undefined) out.push('boundSource 指向的节点无 minItems/maxItems（无处生效）')
+    if (cell.renderedMax !== undefined && Number(cell.renderedMax) !== Number(boundNode.maxItems)) out.push(`renderedMax ${cell.renderedMax} ≠ schema maxItems ${boundNode.maxItems}（不许把上限包装成容量）`)
+    if (cell.capacityAtLeast !== undefined) out.push('既声明 boundSource（编辑意图）又给 capacityAtLeast（几何容量）⇒ 二者互斥')
+    return out
+  }
+  if (node && node.minItems !== undefined && Number(node.minItems) === Number(node.maxItems) && cell.capacityAtLeast !== undefined) {
+    out.push(`固定窗口（minItems == maxItems == ${node.maxItems}，契约固定）不许给 capacityAtLeast=${cell.capacityAtLeast} ⇒ 应改走 boundSource 路线`)
+  }
+  return out
+}
+
+/** 判据 2（`verifyCoverageVerdict`）：`--verify-cell` 对 count 格的"预期值" ——
+ *   · 有 `capacityAtLeast` ⇒ `maxIn == capacityAtLeast`
+ *   · 无（**固定窗口**）⇒ `maxIn >= 契约值`（**必须覆盖到**；**越契约仍渲染不算错** —— 那是"越契约可渲染"的旁证）
+ *   · 既无容量也非固定窗口 ⇒ 口径不全 */
+export function verifyCoverageVerdict(cell, maxIn, fixed) {
+  if (!cell) return null
+  if (cell.capacityAtLeast !== undefined) return Number(maxIn) === Number(cell.capacityAtLeast) ? null : `max 页内=${maxIn} ≠ capacityAtLeast=${cell.capacityAtLeast}`
+  if (fixed === null || fixed === undefined) return '该 count 格既无 capacityAtLeast 也非固定窗口（minItems == maxItems）⇒ 表内口径不全'
+  return Number(maxIn) >= Number(fixed) ? null : `max 页内=${maxIn} < 契约固定值 ${fixed} ⇒ 读数没覆盖到契约值`
+}
+
+/* ★★ 合成负控（team-lead msg35 ② 的四条，**免渲染、秒级**）：这两条判据此前只有正向证据（真表全绿）⇒
+   按"判据必须能被合成样本证伪"必须补负控；**并含正控**（越契约不算错那条要能"不红"）。 */
+if (process.argv.includes('--self-test-synth')) {
+  const cases = []
+  const chk = (name, cond) => { cases.push(cond); console.log(`   ${cond ? '✓' : '✗'} ${name}`) }
+  chk('(a) min==max 且给 capacityAtLeast ⇒ 必红', fixedWindowVerdict({ capacityAtLeast: 30 }, { minItems: 3, maxItems: 3 }, null).length > 0)
+  chk('(b) boundSource 指向不存在的指针 ⇒ 必红', fixedWindowVerdict({ boundSource: 'deck.schema.json#/nope', renderedMax: 3 }, null, null).length > 0)
+  chk('(c) renderedMax ≠ 该节点 maxItems ⇒ 必红', fixedWindowVerdict({ boundSource: 'x#/y', renderedMax: 9 }, null, { minItems: 3, maxItems: 3 }).length > 0)
+  chk('(d) verify-cell 读数未覆盖契约值（fixed=3 · max=2）⇒ 必红', verifyCoverageVerdict({}, 2, 3) !== null)
+  /* 正控（必须"不红"，否则判据等于恒红） */
+  chk('正控：读数恰为契约值（max=3 · fixed=3）⇒ 不红', verifyCoverageVerdict({}, 3, 3) === null)
+  chk('正控：**越契约仍渲染**（max=30 · fixed=3）⇒ 不红', verifyCoverageVerdict({}, 30, 3) === null)
+  chk('正控：有容量时 max==capacityAtLeast ⇒ 不红', verifyCoverageVerdict({ capacityAtLeast: 30 }, 30) === null)
+  chk('正控：区间窗口的格（有容量）不被判"固定窗口"', fixedWindowVerdict({ capacityAtLeast: 30 }, { minItems: 3, maxItems: 6 }, null).length === 0)
+  const fail = cases.filter((x) => !x).length
+  console.log(`   ${fail === 0 ? '✓' : '✗'} [SYNTH-SELFTEST] 合成负控/正控 用例=${cases.length} · 失败=${fail}`)
+  process.exit(fail === 0 ? 0 : 1)
+}
+
 const viol = [], noted = []
 /* ★ team-lead msg2 ②：**「每格必有断言」的机器化** —— 用来区分「已测且已断言」与「只记录未断言」（I10 的分子/分母要用）。 */
 const IT_ASSERTED = [], IT_RECORD_ONLY = []
@@ -113,10 +167,9 @@ for (const it of (limits.limits || [])) {
       if (BS_READ_FAIL) console.error(`   （boundSource 自检：有 ${BS_READ_FAIL} 处读取失败 ⇒ 判定可能不完整）`)
       if (!n2) viol.push(`${labelC(it)} ⇒ **boundSource 不存在**：${it.boundSource}（上界来源声明不可解析 ⇒ 等于没声明）`)
       else {
-        if (it.renderedMax !== undefined && Number(it.renderedMax) !== Number(n2.maxItems)) viol.push(`${labelC(it)} ⇒ **renderedMax ${it.renderedMax} ≠ schema maxItems ${n2.maxItems}** ⇒ 不许把 schema 上限包装成容量`)
-        if (n2.minItems === undefined && n2.maxItems === undefined) viol.push(`${labelC(it)} ⇒ **boundSource 指向的节点无 minItems/maxItems**（无处生效）`)
+        /* ★ msg35 ②：**真表路径走同一个纯函数**（renderedMax 包装 / 互斥 / 无 min-max ⇒ 都在它里面） */
+        for (const m of fixedWindowVerdict(it, node, n2)) viol.push(`${labelC(it)} ⇒ **上界来源**：${m}`)
         if (!Array.isArray(it.basis) || !it.basis.length) viol.push(`${labelC(it)} ⇒ **每格必有断言**：上界来源格缺 basis`)
-        if (it.capacityAtLeast !== undefined) viol.push(`${labelC(it)} ⇒ **语义冲突**：既声明 boundSource（编辑意图）又给 capacityAtLeast（几何容量）⇒ 二者互斥`)
         else noted.push(`${labelC(it)} ⇒ ✓ **上界来源**：${it.boundSource}（min=${n2.minItems ?? '-'} / max=${n2.maxItems ?? '-'} · renderedMax=${it.renderedMax ?? '-'} 对照 · **无容量读数**）`)
         IT_ASSERTED.push(it.field || it.jsonPointer)
       }
@@ -130,9 +183,8 @@ for (const it of (limits.limits || [])) {
          · summary（恰 3 条）与 secondary（恰 2 条）：`capacityAtLeast: 30` / `: 2` 都**不是在说容量**
            （前者把**违约变体**（强注 30 条）的渲染成功当容量；后者只是把 schema 上限抄了一遍）
        ⇒ 这类格走 `boundSource` 路线（不设 capacityAtLeast）＋ basis 写"契约固定为 N，非几何容量"。 */
-    if (cap !== undefined && node.minItems !== undefined && Number(node.minItems) === Number(cap) && it.capacityAtLeast !== undefined) {
-      viol.push(`${labelC(it)} ⇒ **固定窗口不许报容量**：minItems == maxItems == ${cap}（契约固定）却给了 capacityAtLeast=${it.capacityAtLeast} ⇒ 请改走 boundSource 路线（与"renderedMax 不许包装成容量"同族）`)
-    }
+    /* ★ msg35 ②：**真表路径走同一个纯函数**（单一实现 —— 合成负控证伪的就是它） */
+    for (const m of fixedWindowVerdict(it, node, null)) viol.push(`${labelC(it)} ⇒ **固定窗口不许报容量**：${m}`)
     if (cal == null) viol.push(`${labelC(it)} ⇒ **I1-count**：条数格必须声明 \`capacityAtLeast\`（容量下限 = 已证能装多少）`)
     else if (cap === undefined) viol.push(`${labelC(it)} ⇒ **I1-count**：schema 该指针**无 \`maxItems\`** ⇒ 条数上限**无处生效**（断言无法落地）`)
     else if (cap > cal) viol.push(`${labelC(it)} ⇒ **I2-count**：maxItems=${cap} > capacityAtLeast=${cal} ⇒ **上限超出已证容量**（该断言落地就会拒掉自己证过的容量）`)

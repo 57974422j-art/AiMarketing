@@ -325,6 +325,7 @@ if (process.argv.includes('--write-silent-baseline')) {
     ['measure-count.mjs', ['--self-test-extract'], null, 0],
     ['measure-count.mjs', ['--self-test-scope'], null, 0],
     ['crosscheck-deck-json.mjs', ['--self-test-page'], null, 0],
+    ['check-schema-vs-limits.mjs', ['--self-test-synth'], 'SYNTH-SELFTEST', 0],
     ['gen-deck.mjs', ['--self-test'], 'GEN-SELFTEST', 0],
     ['mux-video.mjs', ['--self-test'], 'MUX-SELFTEST', 2],
   ]
