@@ -7,12 +7,19 @@
  * ⇒ 与 **K17** 同族（同一逻辑多份 ⇒ 只改一处 ⇒ 静默分叉）⇒ 收拢到本模块；
  *   `check-syntax-and-json` 有"**颜色工具只许定义一处**"的出现次数断言守着（与 K17-ff 同款）。
  *
- * ⚠️ **两个口径（有意并存，如实）**：
+ * ⚠️ **三个口径（有意并存，如实）**：
  *   · `hex2rgb(h)` —— **严格版**：认 `#rgb` / `#rrggbb`（`#` 可省）；**非法 ⇒ `null`**。
- *     新代码一律用它，并**显式处理 `null`**（我们选"**响亮地失败**"，而不是让 `NaN` 静默传播成"看着合理但是错的"数）。
- *   · `hex2rgbTrusted(h)` —— **可信输入版**：**不做校验**，直接切片解析（保留旧三个调用点的**1:1 行为**）。
- *     仅用于"值来自 `master.json` / schema / 常量"的场景（那时非法即**上游已坏**，校验在更早处）。
- *     ⚠️ **不许**用它处理**外部/用户输入**（那条路必须走严格版）。
+ *     **新代码一律用它**，并**显式处理 `null`**（我们选"**响亮地失败**"，而不是让 `NaN` 静默传播成"看着合理但是错的"数）。
+ *   · `hex2rgbStr(h)` —— 严格版的**字符串**形态（`check-master-manifest` 用它做累计比较）；非法 ⇒ `null`。
+ *   · `hex2rgbTrusted(h)` —— ★ **可信输入版（零校验 · 公认危险类）**：**不做校验**，直接切片解析
+ *     （保留旧三个调用点的**1:1 行为**）。仅用于"值来自 `master.json` / schema / 常量"的场景
+ *     （那时非法即**上游已坏**，校验在更早处）。⚠️ **不许**用它处理**外部 / 用户输入**（那条路必须走严格版）。
+ *
+ * ★★ **`hex2rgbTrusted` 的两条使用规矩**（team-lead ② 批准三个口径时追加；它的失败形态是**静默 `NaN`**）：
+ *   ① **数量必须可见**：每次运行打印 `[COLOR-TRUSTED-USAGE] 使用处 = N（分布：文件×N …）` ——
+ *      **涨了立刻看得见**（与本仓"哑 catch 基线"同款手法：**不搞白名单**，避免累积分叉）。
+ *   ② **要用它 ⇒ 必须在调用点写明"为何来源已校验"**（新代码默认用严格版；这条是**人读的规矩**，
+ *      机器只保证①的可见性 —— 与"能力边界如实"同族：**能自动化的与只能靠读的，分开说清**）。
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -20,6 +27,34 @@ import { dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { maskSource } from './engine-bin.mjs'
 const ENGINE_DIR = dirname(fileURLToPath(import.meta.url))
+/* 「本文件被**直接执行**」（而非被 import）—— 自测的开关与"避免重复打印用量行"**共用这一处判定** */
+const IS_MAIN = Boolean(process.argv[1]) && String(process.argv[1]).replace(/\\/g, '/').endsWith('color.mjs')
+
+/* ★★ `hex2rgbTrusted`（**零校验版 · 公认危险类**）的**用量可见**（team-lead ②）——
+   **唯一的计算处**（导入即打印 + 自测再打印，两处共用本函数，避免"同一数量两种算法"）。
+   ⚠️ 口径（照 team-lead）：**只报数、不判红** —— 因为**不搞白名单**（白名单本身会累积成新的分叉面）；
+   它要的是"**涨了立刻看得见**"（与哑 catch 基线同款手法：**可见量 + 人读规矩**，而非机器红线）。 */
+function trustedUsage() {
+  let files = []
+  let readFail = 0
+  try { files = readdirSync(ENGINE_DIR).filter((f) => f.endsWith('.mjs') && f !== 'color.mjs') } catch (e) { readFail++; console.error(`   ⚠ [COLOR-TRUSTED-USAGE] 目录读取失败：${e.message}`) }
+  const dist = []
+  let total = 0
+  for (const f of [...files].sort()) {
+    let t = ''
+    try { t = readFileSync(join(ENGINE_DIR, f), 'utf8') } catch (e) { readFail++; console.error(`   ⚠ [COLOR-TRUSTED-USAGE] 读取失败 ${f}：${e.message}`); continue }
+    /* ⚠️ 用**剥字符串版**计数：真实调用点的标识符在字符串**之外**（`hex2rgbTrusted('…')`）⇒ 照样计到；
+       而"文案里提到它"（错误提示等）**不应**计数 ⇒ 否则计数被自己的说明文字污染（今晚"规则被自己的文档触发"同族）。 */
+    const n = (maskSource(t, { maskStrings: true }).match(/hex2rgbTrusted/g) || []).length
+    if (n) { dist.push(`${f}×${n}`); total += n }
+  }
+  if (readFail) console.error(`   （[COLOR-TRUSTED-USAGE] 有 ${readFail} 处读取失败 ⇒ 计数可能不完整）`)
+  return { total, dist }
+}
+const trustedUsageLine = () => {
+  const u = trustedUsage()
+  return `[COLOR-TRUSTED-USAGE] hex2rgbTrusted（零校验版）使用处 = ${u.total}${u.dist.length ? `（分布：${u.dist.join(' · ')}）` : ''} —— 新代码请用严格版 \`hex2rgb\`；要用它须在调用点写明"为何来源已校验"`
+}
 
 /** 严格：`'#0af'` / `'#00aaff'` / `'00aaff'` ⇒ `[0,170,255]`；非法 ⇒ `null` */
 export function hex2rgb(h) {
@@ -62,6 +97,9 @@ export function hex2rgbTrusted(h) {
     if (n) hits.push(`${f}×${n}`)
   }
   if (readFail) console.error(`   （颜色工具唯一性：有 ${readFail} 处读取失败 ⇒ 计数可能不完整）`)
+  /* ★ **每次运行都打印零校验版的用量**（team-lead ②：危险变体的用量必须是可见量 ⇒ "涨了看得见"）。
+     ⚠️ 直接执行本文件时**不在这里打**（自测那段会打）⇒ **每次运行恰好一行**（重复行＝噪声 ⇒ 会教人忽略输出，K34）。 */
+  if (!IS_MAIN) console.log(`   ${trustedUsageLine()}`)
   if (hits.length) {
     console.error('✗ **颜色工具只许定义一处**（`color.mjs`）：')
     console.error(`   违规：${hits.join(' · ')} ⇒ 请改 import：严格版 \`hex2rgb\` · 字符串形态 \`hex2rgbStr\` · 可信输入版 \`hex2rgbTrusted\``)
@@ -71,7 +109,7 @@ export function hex2rgbTrusted(h) {
 
 /* ---- 自测（仅直接执行本文件时跑；被 import 时**零副作用**）：
  *  必红/不许红成对（本次收拢的验收：口径要能被合成样本证伪） ---- */
-if (process.argv[1] && String(process.argv[1]).replace(/\\/g, '/').endsWith('color.mjs')) {
+if (IS_MAIN) {
   const cases = []
   const chk = (name, cond) => { cases.push(cond); console.log(`   ${cond ? '✓' : '✗'} ${name}`) }
   chk('① 6 位（带 #）⇒ 正确数组', JSON.stringify(hex2rgb('#00aaff')) === '[0,170,255]')
@@ -87,6 +125,8 @@ if (process.argv[1] && String(process.argv[1]).replace(/\\/g, '/').endsWith('col
       JSON.stringify(t6) === JSON.stringify([0, 170, 255]) && t3[0] === 10 && t3[1] === 15 && Number.isNaN(t3[2]))
   }
   const fail = cases.filter((x) => !x).length
+  /* ★ 自测里**再打印一次**用量（team-lead ②）：闸门跑的就是这条路径 ⇒ 提交闸门处也看得见 ✓ */
+  console.log(`   ${trustedUsageLine()}`)
   console.log(`   ${fail === 0 ? '✓' : '✗'} [COLOR-SELFTEST] 颜色工具 用例=${cases.length} · 失败=${fail}`)
   process.exit(fail === 0 ? 0 : 1)
 }
