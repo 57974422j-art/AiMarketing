@@ -12,8 +12,8 @@
  *   ⚠️ 标记字符串在本文件里**拼接构造**（不写字面量）：注释卫生检查会扫"块注释里的闭合符"，
  *      写字面量会被判红（我们踩过同族：注释里写闭合符）。
  *
- * 行尾（probe-html ③a）：目标文件若用 CRLF，追加文本也**转成 CRLF**，避免同一文件混用行尾
- *   （混用会让"下次触碰整文件变化"变成假脏改动）。脚本会打印每套母版的行尾口径。
+ * 行尾（probe-html ③a/③）：**以仓库声明为准** —— `.gitattributes` 是 `* text=auto eol=lf` ⇒ 规范 = **LF**。
+ *   故本工具把追加文本与**整文件**都规范到 LF，并打印修正处数（第一版统一成 CRLF，与仓库方向相反，已改）。
  *
  * 用法：
  *   node apply-master-layers.mjs [--layer portrait-pass-v1] [--masters all|master-mono,master-v1]
@@ -72,7 +72,7 @@ let fail = 0
 for (const m of masters) {
   const p = join(mastersDir, m, 'assets', 'master.css')
   let css = readFileSync(p, 'utf8')
-  const eol = css.includes('\r\n') ? '\r\n' : '\n'
+  const eol = '\n'   /* 仓库声明 LF（`.gitattributes`）⇒ 统一目标 */
   const applied = []
   for (const f of wantLayers) {
     const name = basename(f, '.css')
@@ -92,20 +92,21 @@ for (const m of masters) {
     css = css.replace(/\s+$/, '') + eol + body
     applied.push(name)
   }
-  /* ★ 行尾统一（probe-html ③a）：目标文件可能是**历史混用**（早先编辑写入 LF）
-   *   ⇒ 整文件规范到"主流行尾"，并把修正处数打出来（不许静默改） */
-  const loneLF = (s) => (s.match(/(?<!\r)\n/g) || []).length
+  /* ★ 行尾：**以仓库声明为准**（`.gitattributes`: `* text=auto eol=lf` ⇒ 库内/工作树规范 = **LF**）
+   *   —— probe-html ③ 指出我第一版统一成 CRLF 与仓库**方向相反**（虽不阻塞：git 会按 clean filter 归一，
+   *   但会让工作树"看着脏"且每次触碰报行尾警告）⇒ 改为**整文件规范到 LF**，并打印修正处数（不许静默改）。 */
+  const crlfCount = (s) => (s.match(/\r\n/g) || []).length
   let normNote = ''
-  if (eol === '\r\n' && loneLF(css) > 0) {
-    const n = loneLF(css)
-    css = css.replace(/\r?\n/g, '\r\n')
-    normNote = `（已统一行尾：修正 ${n} 处 LF→CRLF）`
+  if (crlfCount(css) > 0) {
+    const n = crlfCount(css)
+    css = css.replace(/\r\n/g, '\n')
+    normNote = `（已统一行尾：修正 ${n} 处 CRLF→LF）`
   }
-  /* 重读断言：每层标记**恰 1 份** */
+  /* 重读断言：每层标记**恰 1 份** + 行尾无 CRLF */
   const back = A.dryRun ? css : (writeFileSync(p, css), readFileSync(p, 'utf8'))
   const bad = applied.filter((n) => (back.split(marks(n)[0]).length - 1) !== 1)
-  const eolOk = loneLF(back) === 0
-  console.log(`   ${m.padEnd(18)} 层 ${applied.length} 个 · 重读标记 ${bad.length ? '✗ ' + bad.join(',') : '✓ 各 1 份'} · 行尾 ${eol === '\r\n' ? 'CRLF' : 'LF'}${eolOk ? '（统一 ✓）' : '（**混用 ✗**）'}${normNote}`)
+  const eolOk = crlfCount(back) === 0
+  console.log(`   ${m.padEnd(18)} 层 ${applied.length} 个 · 重读标记 ${bad.length ? '✗ ' + bad.join(',') : '✓ 各 1 份'} · 行尾 LF${eolOk ? '（统一 ✓）' : '（**仍有 CRLF ✗**）'}${normNote}`)
   if (bad.length || !eolOk) fail++
 }
 console.log(`${fail ? '✗' : '✓'} [LAYERS-RESULT] LAYERS-RESULT ok=${fail === 0} · 母版 ${masters.length} · 层 ${wantLayers.length} · 失败 ${fail}${A.dryRun ? '（dry-run：未落盘）' : ''}`)
