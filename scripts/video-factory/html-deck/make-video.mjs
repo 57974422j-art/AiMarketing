@@ -188,21 +188,30 @@ function main(text, opt) {
      *   ② 成片文件名里必须出现本次配色（否则"名不符实"⇒ 投放时拿错片）
      *   只在 `r.ok` 为真时判（失败行另有原因，不叠加噪声）。 */
     const decksDir = join(outRoot, 'skins', skin.replace('master-', ''), 'decks')
+    /* 单皮肤结论行必须**由本工具的 rows 计算**（含下面的回读断言），不能只看下游报告 ——
+     *   否则负控现场出现"✓ [MAKE-ITEM-OK]"与"✗ MAKE-RESULT ok=false"同屏（**两条结论行互相矛盾**）。 */
+    const rowStart = rows.length
     for (const r of rep.rows) {
       const oriTag = String(r.ori).replace(':', 'x')
       const allHere = existsSync(decksDir) ? readdirSync(decksDir).filter((f) => f.startsWith('deck.') && f.includes(oriTag)) : []
       const cands = allHere.filter((f) => f.includes(palTag))
       let palInArtifact = null
       /* ⚠️ 哑 catch 棘轮：此处原先只在 catch 里赋 null ⇒ 判"哑"（该文件基线 0 ⇒ 新增即红，**会阻塞全体提交**）
-         ⇒ 改为**会说话**（计数 + 事后打印），与今晚其余各处修法一致（probe-html 代修 · 一行级 · 不动作业逻辑）。 */
+         ⇒ 改为**会说话**（计数 + 用于下面的判据分支），与今晚其余各处修法一致（probe-html 代修一行级 · 我保留该修法）。 */
       let palReadFail = 0
       try { palInArtifact = cands.length === 1 ? JSON.parse(readFileSync(join(decksDir, cands[0]), 'utf8')).style.palette : null } catch { palInArtifact = null; palReadFail++ }
-      if (palReadFail) console.log(`   ⚠ [MAKE-PAL-READ-FAIL] ${skin} ${r.ori}：派生档读取失败 ⇒ 配色核对**未完成**（不计入判据，但必须可见）`)
       const nameOk = String(r.final || '').includes(String(pal))
       if (r.ok && cands.length !== 1) {
         console.log(`   ✗ [MAKE-DECK-AMBIGUOUS] ${skin} ${r.ori}：本配色「${pal}」的派生档命中 ${cands.length} 个（应恰好 1）⇒ 无法证明渲染用的是哪个配色`)
         console.log(`      该方向现有派生档：${allHere.join(', ') || '(无)'}`)
         rows.push({ skin, ori: r.ori, palette: pal, ok: false, final: r.final, why: 'derived-deck-ambiguous' }); continue
+      }
+      /* ★ 独立性：读失败**必须单独判红并归因读失败** —— 否则它会掉进下面的"配色不匹配"里，
+       *   打印出"配色没传到下游"这种**错误原因**（判据要能红，还要**为正确的原因红** ——
+       *   这正是 probe-html 本批记进 K 表的那条元纪律：负控必须核对"为什么红"）。 */
+      if (r.ok && palReadFail) {
+        console.log(`   ✗ [MAKE-PAL-READ-FAIL] ${skin} ${r.ori}：派生档 ${cands[0] || '(未命中)'} 读取失败 ⇒ **无法证明**渲染所用配色（不许当成通过，也不许归因"配色没传下去"）`)
+        rows.push({ skin, ori: r.ori, palette: pal, ok: false, final: r.final, why: 'derived-deck-unreadable' }); continue
       }
       if (r.ok && palInArtifact !== pal) {
         console.log(`   ✗ [MAKE-PALETTE-MISMATCH] ${skin} ${r.ori}：**渲染所用派生档的** palette=${palInArtifact} ≠ 要求的 ${pal}（配色没传到下游 ⇒ 静默回退默认配色）`)
@@ -215,7 +224,11 @@ function main(text, opt) {
       rows.push({ skin, ori: r.ori, palette: pal, ok: r.ok, final: r.final, dur: r.dur, sizeMB: r.sizeMB, why: r.why })
     }
     const pages = (() => { try { return JSON.parse(readFileSync(deckPath, 'utf8')).pages.length } catch { return '?' } })()
-    console.log(`   ✓ [MAKE-ITEM-OK] ${skin} · 配色 ${pal} · ${pages} 页 · 方向 ${rep.rows.filter((r) => r.ok).length}/${rep.rows.length} 条成片`)
+    /* 结论行**只看本工具的 rows**（下游报告的 ok 不等于最终 ok：回读断言可能把某条改判） */
+    const mine = rows.slice(rowStart)
+    const mineOk = mine.filter((x) => x.ok).length
+    console.log(`   ${mineOk === mine.length ? '✓ [MAKE-ITEM-OK]' : '✗ [MAKE-ITEM-FAILED]'} ${skin} · 配色 ${pal} · ${pages} 页 · 方向 ${mineOk}/${mine.length} 条成片` +
+      (mineOk === mine.length ? '' : '（原因见上）'))
   }
   /* ★ 覆盖守卫（纯名字层、零成本）：同一批里**两条成片不许落到同一路径** ——
    *   本工具曾因"派生档/产物名不带配色"让 4 次 `--palette-index` 运行**互相覆盖**（8 条只活 2 条，且都算"成功"）。 */
