@@ -161,6 +161,14 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
 
+### 2026-10-05 DECKRESCUE：sanitize flatMap 真凶修复 + gen-deck 救援网（✅ 代码完成，待部署重测）
+
+- **用户实测炸点**：vf1791195178923 整单红「gen-deck 退出码 1：GEN-TOO-FEW-PAGES 只生成 2 页」。
+- **真凶**：MATDOM/PAGEMIX 改造时 `sanitizeDeckMd` 的 `flatMap` 误写成 `map`——节数组没摊平，join 把每节变成「## 标题，要点，要点」**一行**，gen-deck 全部节丢弃 = 恰好 2 页。上午端测只喂手写 md 绕过了 sanitize，没测出（教训：**端测必须过 sanitize 再喂 gen-deck**，已写进代码注释）。
+- **修四刀（`VF_DECKRESCUE_V1`）**：flatMap 修复；sanitize 硬化（弱表格不当图表节/非数值表降条目/表格节保留 items/6~7 字步骤按节型放行/剥粗体与【标签】）；**救援网**（buildRuleMd 闭包化，gen-deck 失败回退规则映射重跑一次，`rescued:true` 落任务文件）；prompt 数据节禁表格。
+- **端测**（过 sanitize → gen-deck）：std 六页五型全亮、chart/shortstep/bold 各 4 页，全绿。
+- ⚠️ **待部署重测**：服务器 build 后重出同款单。
+
 ### 2026-10-05 MATDOM/PAGEMIX/SUBATOM 三连修：素材量破窗 40 页 + 页型混排 + 字幕原子切块（✅ 代码完成，待部署实测）
 
 - **用户定案**（实测 004/005/006 后）：「4 日语腔先不动；其它再改。素材图必有、量要大于 PPT；不一定要页页有图、图也不一定要页页背 PPT。」

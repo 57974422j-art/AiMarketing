@@ -151,6 +151,17 @@ ck 'VF_PAGEMIX_V1'                 'src/app/api/agent/chat/route.ts' 2    # 转�
 #   单位）：SUBCHUNK 定宽盲切+回退防不住 → 改原子块贪心打包（数字+单位/英文单词不断、标点粘前块、
 #   句读过半即收、<2 字碎块并邻）。单测 10 例全过（含三事故原句）。
 ck 'VF_SUBATOM_V1'                 'src/lib/agent/vf/vf-deck-render.ts' 2 # chunkSub 实现 + 调用点
+# ★VF_DECKRESCUE_V1（2026-10-05 傍晚用户实测 vf1791195178923 整单红「gen-deck 退出码 1：
+#   GEN-TOO-FEW-PAGES 只生成 2 页」——真凶 = 上一版 sanitizeDeckMd 把 flatMap 误写成 map，
+#   节数组没摊平 ⇒ join('\n') 把每节 toString 成「## 标题,要点,要点」一行 ⇒ gen-deck 只见到
+#   1 行假标题 ⇒ 全部节被丢 ⇒ 恰好 cover+end=2 页；且上午的「端测」只喂手写 md 绕过了 sanitize，
+#   所以没测出来）。修四刀：① flatMap 修复（emit 结构单测：不得出现 /^## .*,/ 逗号行）；
+#   ② sanitize 硬化——弱表格（数据行<4）不再当图表节、非数值表降「- 标签：值」条目、表后保留
+#   items（图表落空还能救成要点页）、6~7 字步骤按节型放行（steps 窗口 min=6）、剥 ** 粗体与
+#   行首【节型标签】；③ gen-deck 整建制失败时**回退规则映射文案重跑一次**（buildRuleMd 闭包化，
+#   AI 文案再怪也死不了单）；④ prompt 数据节禁 markdown 表格。端测四场景过 sanitize 后全绿：
+#   std=cover→bullets→data→steps→compare→end · chart/shortstep/bold 各 4 页 ✓。
+ck 'VF_DECKRESCUE_V1'               'src/lib/agent/vf/vf-deck-render.ts' 7 # sanitize 头注/flatMap/收集线/fromAi/buildRuleMd/救援重跑/AI分支注释
 # ★VF_DECKROUTE_V1（首版 镜>12/预计>90s 就提示走老引擎；VF_MATDOM_V1 破窗 40 页后放宽到真超容量）：
 #   新引擎且预计 >300s（40 页 × ~6s ≈ 5 分钟）→ 确认卡明示建议拆条或换老引擎（只提示不拦）。
 ck 'VF_DECKROUTE_V1'               'src/app/api/agent/chat/route.ts' 2   # 提示拼接 + 注释

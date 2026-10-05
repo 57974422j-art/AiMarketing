@@ -25,6 +25,15 @@
 
 ---
 
+## ✅ 已解决（2026-10-05 傍晚 · vf1791195178923 整单红「GEN-TOO-FEW-PAGES 只生成 2 页」→ DECKRESCUE）
+
+- ✅ **真凶**：MATDOM/PAGEMIX 改造时 `sanitizeDeckMd` 的 `flatMap` 误写成 `map`——节数组没摊平，`join('\n')` 把每节 toString 成「## 标题,要点,要点」**一行** ⇒ gen-deck 只见到假标题 ⇒ 全部节丢弃 = 恰好 cover+end 2 页。上午的端测只喂手写 md 绕过了 sanitize，故未测出。**教训**：AI 转写链路的测试必须「sanitize → gen-deck」整链跑，任何一环单测都不够。
+- ✅ 顺修三颗同源雷：弱表格节（数据行<4）被当图表节且丢 items（gen-deck 图表落空⇒整节死）；6~7 字步骤被 BULLET_MIN=8 一刀切（schema steps.items min=6）；`**粗体**`/行首【节型标签】把数字行垫得以数字开头失效。
+- ✅ **救援网**：gen-deck 对 AI 文案整建制失败 → 自动回退规则映射文案重跑一次（任务文件记 `rescued:true`）——AI 输出再怪也死不了单。
+- 📋 端测：std/chart/shortstep/bold 四场景过 sanitize 后全绿（std 六页五型：bullets+data+steps+compare 混排）。
+
+---
+
 ## ✅ 已解决（2026-10-05 · 004/005/006 三片四问题：素材量/1.2.3 列表/字幕切块 → 三连修；日语腔按用户指示不动）
 
 - ✅ **素材图没几张**（005 171s 仅 3~4 帧 / 006 仅 1 帧）：12 页 schema 硬顶 + 图片只按顺序取前 N。已修（`VF_MATDOM_V1`）：schema 12→40（`deck.p40-test` 40 页实测渲染 exit 0 · measured-limits 同步）；注帧 = min(图镜, max(句数−PPT, PPT+1))，图帧背 1 句配音（voice-over，时长不膨胀）。003 单推演：20 帧 > 8 PPT。

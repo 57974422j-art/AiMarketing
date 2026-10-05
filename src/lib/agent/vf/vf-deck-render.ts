@@ -107,7 +107,18 @@ export function deckConfirmArgsOf(m: string): { skin: string; ori: string } {
  *   · 节 ≥2 个、上限 MAX_SECTIONS 节。
  */
 export function sanitizeDeckMd(md: string): string {
-  const lines = String(md || '').replace(/```[a-z]*\n?/gi, '').split('\n').map((l) => l.trim()).filter(Boolean)
+  // ★VF_DECKRESCUE_V1（2026-10-05 用户实测整单红「GEN-TOO-FEW-PAGES 只生成 2 页」根因三连）：
+  //   ① 表格节致死：okSec 只数「表格行 ≥4」就当图表节、且**把 items 扔了**——AI 写「表头+分隔+2 行数据」
+  //     （凑 4 行）时 gen-deck 的图表分支要 **数据行 ≥4**（rows 不含表头/分隔）⇒ 图表落空 ⇒ 节里既没
+  //     items 也没 paras ⇒ sectionToPage=null **整节被丢**。全篇这种节 = cover+end = 恰好 2 页。
+  //     修复：数**数据行**（剥分隔行）；数据行 ≥4 才发表格、且表后**保留 items/段行**（图表落空还能救成要点页）。
+  //   ② 短步骤致死：步骤/对比点窗口 min=6（schema steps.items/cmpPts），prompt 也说 6~28，但收集线
+  //     一刀切 BULLET_MIN=8 ⇒ 6~7 字步骤全被丢 ⇒ 流程节凑不齐 3 条整节死。修复：≥6 就收（8~28 的
+  //     强条目 ≥3 保 bullets 兜底；纯短步骤只在标题含 步/阶段/流程 时放行——gen-deck steps 窗口收 6 字起）。
+  //   ③ 粗体/【标签】致死：AI 爱 `**94%…**` / 行首 `【数据节】` ⇒ 数字行不以数字开头（数据节丢）、
+  //     假副题混进封面。修复：行预处理剥 `**` 和行首【…】。
+  const lines = String(md || '').replace(/```[a-z]*\n?/gi, '').split('\n')
+    .map((l) => l.replace(/\*\*|__/g, '').replace(/^【[^】]{0,10}】\s*/, '').trim()).filter(Boolean)
   const start = lines.findIndex((l) => /^#\s+\S/.test(l))
   if (start < 0) return ''
   const body = lines.slice(start)
@@ -128,24 +139,53 @@ export function sanitizeDeckMd(md: string): string {
     if (h) { if (cur) secs.push(cur); cur = { title: h[1].slice(0, 16).trim(), items: [], paras: [], table: [] }; continue }
     if (!cur) continue
     if (/^\|.*\|/.test(l)) { cur.table.push(l); continue }
-    if (isItemL(l)) { const t = stripItemL(l).slice(0, BULLET_MAX); if (t.length >= BULLET_MIN) cur.items.push(t); continue }
+    // ★VF_DECKRESCUE_V1：≥6 就收（步骤/对比点窗口 min=6）；8~28 的强条目在 okSec 里单独数
+    if (isItemL(l)) { const t = stripItemL(l).slice(0, BULLET_MAX); if (t.length >= 6) cur.items.push(t); continue }
     cur.paras.push(l.slice(0, 40))      // 段行：数据节的数字行/标签行、对比节的左右标签、要点节的 summary
   }
   if (cur) secs.push(cur)
   // 每节 → md 行（保留形状）或 null（不够成页）：
-  //   ① 表格 ≥4 行 → chart 候选；② 条目 ≥3 → bullets/steps/compare 候选（段行带上：
-  //     gen-deck 里 bullets.summary/compare 左右标签都从段行取）；③ 段行 ≥3 且含数字行 → data 候选
+  //   ① 表格**数据行** ≥4 → chart 候选（表后保留段行+条目：gen-deck 图表落空时条目还能救成要点页）；
+  //   ② 强条目（8~28）≥3 → bullets/steps/compare 候选（段行带上：bullets.summary/compare 左右标签从段行取）；
+  //     纯短条目（6~7 字）只在标题含 步/阶段/流程 时放行（gen-deck steps 窗口 min=6）；
+  //   ③ 段行 ≥3 且含数字行 → data 候选
+  const tableDataRows = (rows: string[]) => rows.filter((r) => {
+    const cells = r.trim().replace(/^\||\|$/g, '').split('|').map((x) => x.trim())
+    return !/^[-:\s|]+$/.test(cells.join(''))          // 与 gen-deck 同口径：剥分隔行
+  })
   const okSec = (s: Sec): string[] | null => {
     if (!s.title) return null
-    if (s.table.length >= 4) return ['## ' + s.title, ...s.table]
-    if (s.items.length >= 3) return ['## ' + s.title, ...s.paras.slice(0, 2), ...s.items.map((x) => '- ' + x)]
+    const rows = tableDataRows(s.table)
+    const itemLines = s.items.map((x) => '- ' + x)
+    if (rows.length >= 4) {
+      // 与 gen-deck 同口径（series ≥4 个可读数值）判图表能不能成；**成不了不丢节**：
+      // 降成「- 标签：值」条目（还能救成要点/摘要页）
+      const cellsOf = (r: string) => r.trim().replace(/^\||\|$/g, '').split('|').map((x) => x.trim())
+      const numeric = rows.filter((r) => Number.isFinite(Number(String(cellsOf(r)[1] ?? '').replace(/[^\d.\-]/g, ''))))
+      if (numeric.length >= 4) return ['## ' + s.title, ...s.table, ...s.paras.slice(0, 2), ...itemLines]
+      const asItems = rows.map((r) => {
+        const c = cellsOf(r)
+        return '- ' + String(c[1] !== undefined && c[1] !== '' ? `${c[0]}：${c[1]}` : c[0]).slice(0, BULLET_MAX)
+      }).filter((x) => x.length - 2 >= 6)
+      if (asItems.length >= 3) return ['## ' + s.title, ...s.paras.slice(0, 2), ...asItems, ...itemLines]
+      return null
+    }
+    const strong = s.items.filter((x) => x.length >= BULLET_MIN && x.length <= BULLET_MAX)
+    if (strong.length >= 3) return ['## ' + s.title, ...s.paras.slice(0, 2), ...itemLines]
+    if (/步|阶段|流程/.test(s.title) && s.items.length >= 3 && s.items.every((x) => x.length >= 6)) {
+      return ['## ' + s.title, ...s.paras.slice(0, 2), ...itemLines]
+    }
     const hasNum = s.paras.some((p) => /^[0-9][\d,.，]*\s*(%|分钟|小时|天|条|次|元|万|倍|个|人|秒|K|k)?/.test(p) && p.length <= 28)
     if (s.paras.length >= 3 && hasNum) return ['## ' + s.title, ...s.paras]
     return null
   }
   const good = secs.map(okSec).filter((x): x is string[] => !!x).slice(0, MAX_SECTIONS)
   if (good.length < 2) return ''
-  return (['# ' + cover, coverSub, '', ...good.map((ls) => [...ls, ''])]
+  // ★VF_DECKRESCUE_V1：**必须 flatMap**——上一版误写成 map（嵌套数组没摊平），join('\n') 把每个节
+  //   toString 成「## 标题,要点,要点,…」**一行**⇒ gen-deck 只见到 1 行假标题 ⇒ 全部节被丢 ⇒
+  //   「只生成 2 页」整单红（2026-10-05 用户实测 vf1791195178923）。端测教训：**必须过 sanitize 再喂
+  //   gen-deck**（只喂手写 md 测不到这条）。
+  return (['# ' + cover, coverSub, '', ...good.flatMap((ls) => [...ls, ''])]
     .filter((l) => l !== undefined).join('\n').replace(/\n{3,}/g, '\n\n').trim()) + '\n'
 }
 
@@ -214,12 +254,14 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, db, log 
     // ── 分镜 → copy.md（与 /api/agent/vf/deck-preview 同一映射：首 title 镜=封面；每 3 镜并一节；引擎自动尾页）──
     // ★VF_DECKCOPY_V1：有 AI 转写的 PPT 版文案（deckMd 已校验）就直接用 —— 两套文案口径：
     //   口播版（draft.script）给配音/字幕；要点版（deckMd）给 PPT。deckMd 为空才走下面的规则映射。
-    let used = 0
     let copyMd = String(deckMd || '').trim()
     let byScript = false            // 走了"文案切句"兜底（任务文件里记一笔，诊断用）
-    if (copyMd) {
-      used = (copyMd.match(/^##\s+\S/gm) || []).length
-    } else {
+    const fromAi = !!copyMd         // ★VF_DECKRESCUE_V1：copy.md 来自 AI 转写（gen-deck 阶段整建制失败时回退规则映射重跑）
+    // ★VF_DECKRESCUE_V1（2026-10-05 用户实测整单红「GEN-TOO-FEW-PAGES 只生成 2 页」）：规则映射
+    //   提取成闭包——deckMd 为空时直接用；**AI 版文案在 gen-deck 整建制失败**（节形状全不合引擎胃口，
+    //   如弱表格节被整节丢弃）时也用它**救援重跑一次**。规则映射产出的 md 形状固定（引擎验证过的
+    //   路径），AI 文案再怪也死不了单——宁可全要点页，不整单红。
+    const buildRuleMd = (): { md?: string; err?: string; byScript?: boolean } => {
     const bulletOf = (s: any): string => {
       const text = String(s?.text || '').trim()
       const sub = String(s?.subtitle || '').trim()
@@ -232,6 +274,7 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, db, log 
     //   过滤后常 < 6 条（引擎最低 = 封面 + 2 内容节 × 3 要点 + 尾页）。分镜要点本来就把文案切走了，
     //   所以**按文案全文切句补足**（内容仍 100% 来自用户自己的文案，不编造、不凑数）。
     //   文案也切不出 6 条（文案本身太短）才如实报错 —— 此时新引擎确实做不出结构完整的 PPT。
+    let viaScript = false
     if (mid.length < 6) {
       const midN = mid.length
       // ★VF_SCRIPTCHUNK_V1（2026-10-05 用户实测整单失败「可用要点 5 条，文案切句也不足 6 条」）：
@@ -261,12 +304,12 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, db, log 
       }
       if (sents.length >= 6) {
         mid.splice(0, mid.length, ...sents)
-        byScript = true
+        viaScript = true
         vflog(`[新引擎出片] 分镜要点只有 ${midN} 条不足 6 → 按文案切句（碎句合并+长句二切）得 ${sents.length} 条出 PPT（内容不变，仍是你自己的文案）`)
       }
     }
     if (mid.length < 6) {
-      return { ok: false, msg: `分镜可用的文字太少（可用要点 ${mid.length} 条，文案切句也不足 6 条，新引擎至少需要 6 条）。回「重试」重排分镜，或在设置卡把成片方式换回「图文成片」走老引擎。` }
+      return { err: `分镜可用的文字太少（可用要点 ${mid.length} 条，文案切句也不足 6 条，新引擎至少需要 6 条）。回「重试」重排分镜，或在设置卡把成片方式换回「图文成片」走老引擎。` }
     }
     const lines: string[] = []
     const first = shots.find((s) => String(s?.text || '').trim() || String(s?.subtitle || '').trim())
@@ -274,11 +317,20 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, db, log 
     const covRaw = String(first?.text || '').trim() || '营销内容成片'
     const covT = covRaw.length >= COVER_MIN ? covRaw : '营销内容成片'
     lines.push(`# ${covT}`, String(first?.subtitle || '').trim(), '')
-    for (let i = 0; i + 3 <= mid.length && used < MAX_SECTIONS; i += 3, used++) {
+    let u = 0
+    for (let i = 0; i + 3 <= mid.length && u < MAX_SECTIONS; i += 3, u++) {
       const grp = mid.slice(i, i + 3)
       lines.push(`## ${grp[0].split('：')[0].slice(0, 12)}`, ...grp.map((b) => `- ${b}`), '')
     }
-    copyMd = lines.filter((l) => l !== '').join('\n') + '\n'
+    return { md: lines.filter((l) => l !== '').join('\n') + '\n', byScript: viaScript }
+    }
+    if (copyMd) {
+      // ★VF_DECKRESCUE_V1：AI 版文案直接用（节型混排）；gen-deck 阶段失败才回退规则映射
+    } else {
+      const r = buildRuleMd()
+      if (r.err) return { ok: false, msg: r.err }
+      copyMd = String(r.md || '')
+      byScript = !!r.byScript
     }
 
     // ── 引擎在位检查（standalone 部署下用 vfRootDir 多候选找，与 make_ai_video 同防线）──
@@ -368,8 +420,24 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, db, log 
       if (!pal) { await finishFail(`读取母版配色失败（masters/${skin}）`); return }
       const baseP = path.join(workDir, 'base.json')
       const genSrtP = path.join(workDir, 'gen.srt')
-      const g = await runCmd(process.execPath, [genP, '--in', mdP, '--out', baseP, '--srt', genSrtP, '--master', 'master-' + skin, '--palette', pal], { cwd: engDir, timeoutMs: 180000 })
+      const genArgs = ['--in', mdP, '--out', baseP, '--srt', genSrtP, '--master', 'master-' + skin, '--palette', pal]
+      let g = await runCmd(process.execPath, [genP, ...genArgs], { cwd: engDir, timeoutMs: 180000 })
       push(g.out)
+      // ★VF_DECKRESCUE_V1（2026-10-05 用户实测整单红「gen-deck 退出码 1：GEN-TOO-FEW-PAGES 只生成 2 页」）：
+      //   AI 版文案的节形状若全不合引擎胃口（弱表格节整节被丢等）⇒ gen-deck 产不出 4 页。**回退规则映射
+      //   文案重跑一次**（内容 100% 仍来自用户分镜/文案——宁可全要点页，不整单红）。规则映射也建不出
+      //   （分镜+文案文字本来就 <6 条）才如实失败。
+      if (g.code !== 0 && fromAi) {
+        const r = buildRuleMd()
+        if (r.md) {
+          copyMd = r.md
+          fs.writeFileSync(mdP, copyMd, 'utf8')
+          push('[救援] AI 版文案 gen-deck 失败 → 已回退规则映射文案重跑一次（内容不变，仍是你自己的文案）')
+          writeTask({ rescued: true, byScript: r.byScript || undefined })
+          g = await runCmd(process.execPath, [genP, ...genArgs], { cwd: engDir, timeoutMs: 180000 })
+          push(g.out)
+        }
+      }
       if (g.code !== 0) { await finishFail(`gen-deck 退出码 ${g.code}`); return }
 
       // ── ③ 读 deck + 注入素材图帧（分镜 bgimage 镜 → pageImage；素材拷进派生档同目录 assets/，
