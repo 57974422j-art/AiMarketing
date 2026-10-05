@@ -821,6 +821,12 @@ function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect
       (_i2vSkipHint ? `；${_i2vSkipHint}` : '') +
       // ★VF_MATUI_V1：picked 模式 → 没勾 🎞 的那几张也别藏着（用户才知道"打勾才动"是真的）
       (_i2vNotPickedHint ? `；${_i2vNotPickedHint}` : '') +
+      // ★VF_DECKROUTE_V1（2026-10-05 用户实测 38 镜单成片"只有几帧"：deck 线结构上限 12 页，
+      //   长单信息密度被压平 3~5 倍）：新引擎且 镜数>12 或预计>90s → 确认卡明示建议走老引擎
+      //   （只是建议不拦——用户仍可强行用新引擎出 PPT 风）。
+      (vd.engine === 'deck' && (shots.length > 12 || estSec > 90)   // ★VF_DECKROUTE_V1：长单导流提示（只提示不拦）
+        ? `；⚠️ 动态 PPT 结构上限 12 页，这单 ${shots.length} 镜·约 ${estSec} 秒会被压成几页长画面——建议在设置卡把成片方式换成「图文成片」（老引擎逐镜出画面、密度不丢）`
+        : '') +
       `——回复「确认」开始出片；也可说要改什么`,
   })
 }

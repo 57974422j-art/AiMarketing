@@ -135,6 +135,12 @@ ck 'VF_DECKRETRY_V1'               'src/app/api/agent/chat/route.ts' 2    # 重�
 # ★VF_SCRIPTCHUNK_V1（同上单）：规则兜底切句增强——<8 字碎句与后句合并、>28 字长句按逗号二切
 #   （片段贪心合并进 8~28 窗口），替代「短句直接丢、长句截断加…」。单测：上午实文案出 8 条 ✓。
 ck 'VF_SCRIPTCHUNK_V1'             'src/lib/agent/vf/vf-deck-render.ts' 2 # 碎句合并+长句二切 实现+注释
+# ★VF_IMGFRAME_V1（2026-10-05 用户实测 38 镜单成片"只有几帧"+定案「图片帧就是帧，不用每张图
+#   背一个 PPT 页」）：图片页改独立快闪帧——2.5s/张、不背旁白（配音只落非图片页）、上限从写死 6
+#   改为填满 12 页窗（12−PPT页数）、均摊穿插到各内容页后。单测：7页PPT/27图→注5帧总12页 ✓。
+ck 'VF_IMGFRAME_V1'                'src/lib/agent/vf/vf-deck-render.ts' 2 # 注入段 + 配音分配段
+# ★VF_DECKROUTE_V1（同上）：新引擎且 镜数>12 或预计>90s → 确认卡明示建议走老引擎（只提示不拦）。
+ck 'VF_DECKROUTE_V1'               'src/app/api/agent/chat/route.ts' 2   # 提示拼接 + 注释
 # ★VF_AVIMG_V1（2026-10-05 用户定案「加图片页 + 字幕去重 + 配音/BGM 回归新引擎」）：
 #   新引擎正式出片不再走 make-video 一把梭，改为分步编排（gen-deck → 注入 pageImage 图片页/
 #   按配音定页时长 → 逐句TTS(百炼→硅基→火山) → 自产SRT(字幕=口播,与页面大字不再同文) →

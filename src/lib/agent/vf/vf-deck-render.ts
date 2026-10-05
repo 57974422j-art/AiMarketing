@@ -356,9 +356,13 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, db, log 
       const assetsDir = path.join(batchOut, 'decks', 'assets')
       let deck: any = null
       try { deck = JSON.parse(fs.readFileSync(baseP, 'utf8')) } catch { await finishFail('base.json 解析失败'); return }
+      // ★VF_IMGFRAME_V1（2026-10-05 用户定案「不是每张图都要背一个 PPT 页——图片帧就是帧」）：
+      //   图片页 = 独立快闪帧（2.5s、不背旁白——配音分配见 ⑤），上限从写死 6 张改为
+      //   「填满 schema 的 12 页窗口」（12 − PPT 页数）：分镜里排的 bgimage 尽量全用上，
+      //   均摊穿插到各内容页后（不再一个内容页只配一张长图页）。
       const imgShots = shots.filter((s: any) =>
         /^(bgimage|image)$/i.test(String(s?.type || '')) && /\.(jpe?g|png|webp)$/i.test(String(s?.src || '')) && fs.existsSync(String(s?.src))
-      ).slice(0, 6)
+      ).slice(0, Math.max(0, 12 - (Array.isArray(deck?.pages) ? deck.pages.length : 12)))
       if (imgShots.length && Array.isArray(deck?.pages) && deck.pages.length >= 2) {
         try { fs.mkdirSync(assetsDir, { recursive: true }) } catch { /* ignore */ }
         const imgPages: any[] = []
@@ -370,21 +374,23 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, db, log 
           const t = String(imgShots[i]?.text || '').trim()
           const title = t.length >= 4 ? t.slice(0, 24) : '现场画面'      // pageImage.title 硬性 4~24
           const capRaw = String(imgShots[i]?.subtitle || '').trim()
-          const pg: any = { type: 'image', title, asset: 'assets/img_' + i + '.' + ext, layout: ori === '9:16' ? 'full' : (i % 2 ? 'right' : 'left'), duration: 3 }
+          const pg: any = { type: 'image', title, asset: 'assets/img_' + i + '.' + ext, layout: ori === '9:16' ? 'full' : (i % 2 ? 'right' : 'left'), duration: 2.5 }
           if (capRaw.length >= 8) pg.caption = capRaw.slice(0, 48)        // caption 给了就 ≥8
           imgPages.push(pg)
         }
-        // 穿插：每个内容页后插一张图（总页数 ≤12 —— schema maxItems；end 恒最后）
+        // 穿插：图片帧均摊到各内容页后（总页数 ≤12 —— schema maxItems；end 恒最后）
         const oldPages: any[] = deck.pages
+        const nGap = Math.max(1, oldPages.length - 2)      // 内容页数 = 可插帧的缝隙数
+        const perGap = Math.ceil(imgPages.length / nGap)   // 每缝插几张（均摊，不堆在一个缝里）
         const np = [oldPages[0]]
         let ii = 0
         for (let i = 1; i < oldPages.length - 1; i++) {
           np.push(oldPages[i])
-          if (ii < imgPages.length && np.length < 11) { np.push(imgPages[ii]); ii++ }
+          for (let k = 0; k < perGap && ii < imgPages.length; k++) { np.push(imgPages[ii]); ii++ }
         }
         np.push(oldPages[oldPages.length - 1])
         deck.pages = np
-        push(`[图片页] 注入 ${ii} 张素材图（bgimage 镜 · ${ori === '9:16' ? '全幅压字' : '左/右图'}）`)
+        push(`[图片帧] 注入 ${ii} 张素材图快闪帧（2.5s/张 · 不背旁白 · ${ori === '9:16' ? '全幅' : '左/右图'}）`)
         fs.writeFileSync(baseP, JSON.stringify(deck, null, 2) + '\n', 'utf8')
       }
 
@@ -413,13 +419,17 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, db, log 
       let srtP = genSrtP
       if (voiceSents.length && pages.length) {
         // 句子按累计时长近似均分到各页（连续分组；首页/尾页也会分到旁白——快节奏营销片常态）
+        // ★VF_IMGFRAME_V1：图片页(type=image)是快闪帧**不背旁白**——旁白只均分到非图片页，
+        //   图片页时长保持注入时的 2.5s 不动（配音轨里 = 一段短静默，BGM 照常铺过）。
         const totalDur = voiceSents.reduce((a, b) => a + b.dur, 0)
-        const target = totalDur / pages.length
+        const contentIdx = pages.map((_: any, i: number) => i).filter((i: number) => String(pages[i]?.type || '') !== 'image')
+        const ci = contentIdx.length ? contentIdx : pages.map((_: any, i: number) => i)   // 兜底：全是图页（几乎不可能）
+        const target = totalDur / ci.length
         const groups: Sent[][] = pages.map(() => [])
-        let gi = 0, acc = 0
+        let k = 0, acc = 0
         for (const s of voiceSents) {
-          groups[gi].push(s); acc += s.dur
-          if (gi < pages.length - 1 && acc >= target) { gi++; acc = 0 }
+          groups[ci[Math.min(k, ci.length - 1)]].push(s); acc += s.dur
+          if (k < ci.length - 1 && acc >= target) { k++; acc = 0 }
         }
         // 页时长 = 本页句子 + 0.4s 呼吸；无句页保留原时长；clamp 1~30（schema 硬窗）
         const pageDur: number[] = pages.map((p: any, i: number) => {
