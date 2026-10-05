@@ -4000,7 +4000,7 @@ PUBLISH_DRAFT.delete(uidW)
                 }
               }
               vfLog(uidVF2, `[新引擎出片] 确认卡按钮（草稿线 ${_df.tag} · skin=${_dc.skin} ${_ori}${_deckMd ? ' · AI 要点版文案' : ' · 规则映射文案'}）`)
-              const _dr = await runDeckVideoTask({ uid: uidVF2, draft: _df.draft, skin: _dc.skin, ori: _ori, deckMd: _deckMd, log: (u: any, m: string) => vfLog(u, m) })
+              const _dr = await runDeckVideoTask({ uid: uidVF2, draft: _df.draft, skin: _dc.skin, ori: _ori, deckMd: _deckMd, db: prisma, log: (u: any, m: string) => vfLog(u, m) })
               if (_dr.ok) {
                 await stdClearAllDrafts(uidVF2)
                 vfLog(uidVF2, `[新引擎出片] 已入队 ${_dr.taskId} → 草稿作废（下一条不必再点两次）`)

@@ -21,9 +21,14 @@ import { spendTokens, checkTokens } from '@/lib/token-wallet'
  *     url/tail/error）→ make-video-status 进度轮询、完成推送、入库/签名 URL 前端展示**全复用**。
  *   · 多记 engine:'deck' + skin/ori（诊断用）。
  *
- * ⚠️ 诚实口径：新引擎成片 = 动态 PPT（HTML 逐帧，与预览同画面），**无配音、无 BGM、无动图/AI 画面**
- *   （make-video.mjs 无音频参数——实测 CLI 只有 --in/--skins/--orientations/--outdir 等）。
- *   前端按钮 tooltip 与服务端日志都如实写明；动图/AI 画面那两笔钱**不收**（只少收不多收）。
+ * ⚠️ 诚实口径（★VF_AVIMG_V1 2026-10-05 用户定案「新制片也要配音和BGM」后更新）：
+ *   新引擎成片 = 动态 PPT（HTML 逐帧）+ **配音（逐句 TTS，百炼→硅基→火山三级降级）+
+ *   BGM（AI 音乐库选曲）+ 图片页（分镜 bgimage 素材镜注入 pageImage）**。
+ *   配音/BGM/图片页**不另收费**（报价仍 = 文案费 ceil(字数/20)，与老链同公式）；
+ *   动图/AI 画面那两笔钱**不收**（新引擎不调它们）。
+ *   管线 = BGM选曲 → gen-deck → 注入图片页/按配音定页时长 → 逐句TTS → 自产SRT(字幕=口播,
+ *   不再与页面大字同文重复) → batch-video 渲染+烧字幕 → ffmpeg 混音(配音±BGM) → 入库/扣费。
+ *   老引擎（make.py）一行没改，默认仍是它。
  */
 
 /** 皮肤白名单 = masters/ 的权威清单（与 deck-preview 路由逐字一致，防任意参数注入 spawn） */
@@ -35,7 +40,38 @@ const BULLET_MIN = 8            // ★VF_WINFIX_V1（2026-10-05 用户实测「�
                                 //   （deck.schema.json 实测：要点每条 ≥8 字，短了整节被丢 → GEN-TOO-FEW-PAGES → exit 1）。
                                 //   之前过滤线是 6/4 字 ⇒ 6~7 字要点混进节里 → 节凑不齐 3 条落窗 → 整节丢弃。一律对齐 8。
 const COVER_MIN = 4             // 同上：meta.title 硬性 ≥4 字（封面主标题短于 4 字 = GEN-VALIDATE-FAILED 直接红）
-const TIMEOUT_MS = 420000       // 与 deck-preview 同值（页面多时 1~3 分钟级）
+const TIMEOUT_MS = 420000       // 渲染步超时（与 deck-preview 同值；TTS/混音各步另有独立超时）
+
+/** ★VF_AVIMG_V1：跑一条命令并收集输出（超时 kill；**不抛异常**，失败回 code!=0 —— 引擎各步/ffmpeg 共用） */
+function runCmd(cmd: string, args: string[], opts: { cwd?: string; timeoutMs: number }): Promise<{ code: number | null; out: string }> {
+  return new Promise((resolve) => {
+    try {
+      const ch = spawn(cmd, args, { windowsHide: true, cwd: opts.cwd })
+      let s = ''
+      const push = (d: any) => { s = (s + String(d)).slice(-20000) }
+      ch.stdout.on('data', push)
+      ch.stderr.on('data', push)
+      const t = setTimeout(() => { try { ch.kill() } catch { /* ignore */ } resolve({ code: -2, out: s }) }, opts.timeoutMs)
+      ch.on('error', (e: any) => { clearTimeout(t); resolve({ code: -1, out: s + '\n' + String(e?.message || e) }) })
+      ch.on('close', (c: number | null) => { clearTimeout(t); resolve({ code: c, out: s }) })
+    } catch (e: any) { resolve({ code: -1, out: String(e?.message || e) }) }
+  })
+}
+
+/** SRT 时间戳（00:00:00,000） */
+function srtTime(t: number): string {
+  const tt = Math.max(0, t)
+  const h = Math.floor(tt / 3600), m = Math.floor((tt % 3600) / 60), s = Math.floor(tt % 60)
+  const ms = Math.round((tt - Math.floor(tt)) * 1000)
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(ms).padStart(3, '0')}`
+}
+
+/** ffprobe 取媒体时长（秒；失败回 0） */
+async function probeDur(f: string): Promise<number> {
+  const r = await runCmd('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', f], { timeoutMs: 15000 })
+  const d = parseFloat(String(r.out || '').trim())
+  return Number.isFinite(d) && d > 0 ? d : 0
+}
 
 /** 四条成片线的草稿 tag（★VF_DRAFT_ISOLATE_V1：一律 equals 精确匹配；素材线含历史旧 tag） */
 const DRAFT_TAGS = ['vf_draft_base', 'vf_draft', 'vf_draft_ai', 'vf_draft_mix', 'vf_draft_video']
@@ -128,13 +164,15 @@ export async function findDeckConfirmDraft(db: any, uid: number | string): Promi
  * 返回 { ok:true, taskId, cost } = 已入队；{ ok:false, msg } = 人话原因（预检失败/余额不足/引擎缺失/文字太少）。
  * 扣费时机：**渲染成功入库后**才扣（失败不扣；与老链 I2V_BILL_V1 的"没生成出来不收"同精神）。
  */
-export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, log }: {
+export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, db, log }: {
   uid: number | string
   draft: any
   skin: string
   ori: string
   /** ★VF_DECKCOPY_V1：AI 转写的 PPT 版文案（已经 sanitizeDeckMd 校验；空/缺省 = 走规则映射兜底） */
   deckMd?: string
+  /** ★VF_AVIMG_V1：prisma 句柄 —— BGM 选曲（mediaAsset 音乐库）用；缺省 = 本次不配乐 */
+  db?: any
   log?: (u: any, m: string) => void
 }): Promise<{ ok: boolean; taskId?: string; cost?: number; msg?: string }> {
   const uidS = String(uid)
@@ -202,9 +240,12 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, log }: {
     }
 
     // ── 引擎在位检查（standalone 部署下用 vfRootDir 多候选找，与 make_ai_video 同防线）──
+    // ★VF_AVIMG_V1：不再经 make-video 一把梭（它中间不开放改 deck）——直接编排
+    //   gen-deck →（注入图片页/页时长）→ batch-video →（自己混音），因此两个工具都要在位。
     const engDir = path.join(vfRootDir() || '', 'scripts', 'video-factory', 'html-deck')
-    const mkP = path.join(engDir, 'make-video.mjs')
-    if (!fs.existsSync(mkP)) {
+    const genP = path.join(engDir, 'gen-deck.mjs')
+    const batchP = path.join(engDir, 'batch-video.mjs')
+    if (!fs.existsSync(genP) || !fs.existsSync(batchP)) {
       return { ok: false, msg: '服务端缺少 html-deck 引擎（scripts/video-factory/html-deck 未部署）' }
     }
 
@@ -224,85 +265,248 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, log }: {
       cost, script: String(draft?.script || '').slice(0, 200), engine: 'deck', skin, ori, uid: uidS,
       byScript: byScript || undefined })
 
-    // ── 后台渲染（不 await；超时 kill；close 后入库/扣费/收尾，异常全部就地消化）──
+    // ── 后台渲染（不 await；★VF_AVIMG_V1 分步管线：BGM选曲 → gen-deck → 注入图片页/页时长
+    //    → 逐句TTS → 自产SRT → batch-video 渲染+烧字幕 → 混音(配音±BGM) → 入库/扣费。
+    //    异常全部就地消化（只落任务文件，绝不炸掉聊天主流程））──
     const workDir = path.join(outDir, 'deck_' + Date.now())
-    const od = path.join(workDir, 'out')
-    fs.mkdirSync(od, { recursive: true })
+    fs.mkdirSync(workDir, { recursive: true })
     const mdP = path.join(workDir, 'copy.md')
     fs.writeFileSync(mdP, copyMd, 'utf8')
     writeTask({ work: workDir })
-    vflog(`[新引擎出片] 入队 ${taskId}：skin=${skin} ${ori} · ${used + 2} 页预计 · 报价 ${cost} 点（=文案费；无配音/BGM/动图费）`)
+    vflog(`[新引擎出片] 入队 ${taskId}：skin=${skin} ${ori} · 报价 ${cost} 点（=文案费；配音/BGM/图片页不另收费）`)
 
     let so = ''
-    const push = (d: any) => { so = (so + String(d)).slice(-20000) }
-    const finish = async (code: number | null) => {
+    const push = (s: string) => { so = (so + '\n' + s).slice(-20000) }
+
+    const finishFail = async (reason: string) => {
+      // ★VF_WINFIX_V1：从引擎输出抓最后一条 ✗[XXX-YYY] 结论行当原因（退出码对人没信息量）
+      const tagLine = (so.match(/✗\s*\[[A-Z][A-Z-]+\][^\n]*/g) || []).pop() || ''
+      const why = tagLine ? reason + '：' + tagLine.trim().slice(0, 90) : reason
+      writeTask({ status: 'failed', finishedAt: new Date().toISOString(), error: why, tail: so.split('\n').filter(Boolean).slice(-40) })
+      vflog(`[新引擎出片] 失败：${why}（不扣点）`)
+    }
+    const finishOk = async (mp4: string, pagesN: number) => {
       const finishedAt = new Date().toISOString()
-      const tail = so.split('\n').filter(Boolean).slice(-40)
-      const mp4s: string[] = []
-      const walk = (d: string) => {
-        try {
-          for (const it of fs.readdirSync(d, { withFileTypes: true })) {
-            const p = path.join(d, it.name)
-            if (it.isDirectory()) walk(p)
-            else if (it.name.toLowerCase().endsWith('.mp4')) mp4s.push(p)
-          }
-        } catch { /* 目录缺失时按"无产物"处理 */ }
-      }
-      walk(od)
-      const okDone = code === 0 && mp4s.length === 1 && (() => { try { return fs.statSync(mp4s[0]).size > 0 } catch { return false } })()
-      if (!okDone) {
-        // ★VF_WINFIX_V1：退出码对人没信息量 —— 从引擎输出里抓最后一条 `✗ [XXX-YYY]` 结论行当原因
-        //   （如 "GEN-TOO-FEW-PAGES 只生成 3 页 < 下限 4"），用户一眼看懂是文案不足还是渲染挂了。
-        const tagLine = (so.match(/✗?\s*\[[A-Z][A-Z-]+\][^\n]*/g) || []).filter((x) => /^\s*✗/.test(x)).pop() || ''
-        const reason = code !== 0
-          ? `make-video.mjs 退出码 ${code}${tagLine ? '：' + tagLine.trim().slice(0, 90) : ''}`
-          : `产物数异常（${mp4s.length} 条 MP4，应恰好 1）`
-        writeTask({ status: 'failed', finishedAt, error: reason, tail })
-        vflog(`[新引擎出片] 失败：${reason}（不扣点）`)
-        return
-      }
       const { readFile } = await import('node:fs/promises')
       const { saveToPersonalRepo } = await import('@/lib/personal-storage')
       const { signedUrl } = await import('@/lib/oss')
-      const buf = await readFile(mp4s[0])
+      const buf = await readFile(mp4)
       const { name } = await saveToPersonalRepo({ userId: uidS, buffer: buf, ext: 'mp4', mime: 'video/mp4' })
       const url = await signedUrl(`storage/${uidS}/${name}`, 86400)
-      let pages = used + 2
-      try {
-        const rep = JSON.parse(fs.readFileSync(path.join(od, 'make-report.json'), 'utf8'))
-        const row = (rep.rows || [])[0] || {}
-        if (row.pages) pages = Number(row.pages) || pages
-      } catch { /* 报告缺失不阻塞（MP4 已验证存在且非空） */ }
-      writeTask({ status: 'done', finishedAt, out: mp4s[0], repoName: name, url, pages, tail })
+      writeTask({ status: 'done', finishedAt, out: mp4, repoName: name, url, pages: pagesN, tail: so.split('\n').filter(Boolean).slice(-40) })
       // 扣费：渲染成功入库后才扣（失败不扣）
       spendTokens(uidN, cost, 'make_ai_video').catch(() => {})
-      vflog(`[新引擎出片] 成功：${name}（skin=${skin} ${ori} · ${pages} 页 · 实扣 ${cost} 点）`)
+      vflog(`[新引擎出片] 成功：${name}（skin=${skin} ${ori} · ${pagesN} 页 · 实扣 ${cost} 点）`)
       try { fs.rmSync(workDir, { recursive: true, force: true }) } catch { /* 清理失败不影响结果 */ }
     }
 
-    try {
-      const ch = spawn(process.execPath, [mkP, '--in', mdP, '--skins', skin, '--orientations', ori, '--outdir', od],
-        { windowsHide: true, cwd: engDir })
-      ch.stdout.on('data', push)
-      ch.stderr.on('data', push)
-      const t = setTimeout(() => { try { ch.kill() } catch { /* ignore */ } }, TIMEOUT_MS)
-      ch.on('error', (e: any) => {
-        clearTimeout(t)
-        finish(-1).catch(() => {
-          writeTask({ status: 'failed', finishedAt: new Date().toISOString(), error: '无法启动 node：' + String(e?.message || e).slice(0, 120) })
+    const runDeck = async () => {
+      // ── ① BGM（draft.bgm==='auto' → AI 音乐库挑最新一首下载；老链 chat/route.ts 同源逻辑）──
+      let bgmP = ''
+      if (String(draft?.bgm || '') === 'auto' && db) {
+        try {
+          const m: any = await db.mediaAsset.findFirst({ where: { source: 'public', type: 'audio', category: 'music' }, orderBy: { createdAt: 'desc' } })
+          if (m?.ossUrl) {
+            const rb = await fetch(String(m.ossUrl), { signal: AbortSignal.timeout(30000) })
+            if (rb.ok) {
+              bgmP = path.join(workDir, 'bgm.mp3')
+              fs.writeFileSync(bgmP, Buffer.from(await rb.arrayBuffer()))
+              push(`[BGM] 已选音乐库曲目：${String(m.title || '').slice(0, 20)}`)
+            }
+          } else push('[BGM] 音乐库无公开曲目 → 本次无配乐')
+        } catch (e: any) { push('[BGM] 失败（不阻塞）: ' + String(e?.message || e).slice(0, 80)) }
+      }
+
+      // ── ② gen-deck：copy.md → base.json（配色取母版首项 = make-video 默认口径）──
+      let pal = ''
+      try {
+        const mf = JSON.parse(fs.readFileSync(path.join(engDir, 'masters', 'master-' + skin, 'master.json'), 'utf8'))
+        pal = String(Object.keys(mf.palette || {})[0] || '')
+      } catch { /* 下一步会如实报错 */ }
+      if (!pal) { await finishFail(`读取母版配色失败（masters/${skin}）`); return }
+      const baseP = path.join(workDir, 'base.json')
+      const genSrtP = path.join(workDir, 'gen.srt')
+      const g = await runCmd(process.execPath, [genP, '--in', mdP, '--out', baseP, '--srt', genSrtP, '--master', 'master-' + skin, '--palette', pal], { cwd: engDir, timeoutMs: 180000 })
+      push(g.out)
+      if (g.code !== 0) { await finishFail(`gen-deck 退出码 ${g.code}`); return }
+
+      // ── ③ 读 deck + 注入图片页（分镜 bgimage 镜 → pageImage；素材拷进派生档同目录 assets/，
+      //      asset 字段用相对路径 —— validate-deck 的素材闸门按【派生档位置】解析）──
+      const batchOut = path.join(workDir, 'batch')
+      const assetsDir = path.join(batchOut, 'decks', 'assets')
+      let deck: any = null
+      try { deck = JSON.parse(fs.readFileSync(baseP, 'utf8')) } catch { await finishFail('base.json 解析失败'); return }
+      const imgShots = shots.filter((s: any) =>
+        /^(bgimage|image)$/i.test(String(s?.type || '')) && /\.(jpe?g|png|webp)$/i.test(String(s?.src || '')) && fs.existsSync(String(s?.src))
+      ).slice(0, 6)
+      if (imgShots.length && Array.isArray(deck?.pages) && deck.pages.length >= 2) {
+        try { fs.mkdirSync(assetsDir, { recursive: true }) } catch { /* ignore */ }
+        const imgPages: any[] = []
+        for (let i = 0; i < imgShots.length; i++) {
+          const src = String(imgShots[i].src)
+          const ext = (src.match(/\.(\w+)$/)?.[1] || 'jpg').toLowerCase()
+          const dst = path.join(assetsDir, 'img_' + i + '.' + ext)
+          try { fs.copyFileSync(src, dst) } catch { continue }
+          const t = String(imgShots[i]?.text || '').trim()
+          const title = t.length >= 4 ? t.slice(0, 24) : '现场画面'      // pageImage.title 硬性 4~24
+          const capRaw = String(imgShots[i]?.subtitle || '').trim()
+          const pg: any = { type: 'image', title, asset: 'assets/img_' + i + '.' + ext, layout: ori === '9:16' ? 'full' : (i % 2 ? 'right' : 'left'), duration: 3 }
+          if (capRaw.length >= 8) pg.caption = capRaw.slice(0, 48)        // caption 给了就 ≥8
+          imgPages.push(pg)
+        }
+        // 穿插：每个内容页后插一张图（总页数 ≤12 —— schema maxItems；end 恒最后）
+        const oldPages: any[] = deck.pages
+        const np = [oldPages[0]]
+        let ii = 0
+        for (let i = 1; i < oldPages.length - 1; i++) {
+          np.push(oldPages[i])
+          if (ii < imgPages.length && np.length < 11) { np.push(imgPages[ii]); ii++ }
+        }
+        np.push(oldPages[oldPages.length - 1])
+        deck.pages = np
+        push(`[图片页] 注入 ${ii} 张素材图（bgimage 镜 · ${ori === '9:16' ? '全幅压字' : '左/右图'}）`)
+        fs.writeFileSync(baseP, JSON.stringify(deck, null, 2) + '\n', 'utf8')
+      }
+
+      // ── ④ 逐句 TTS（口播文案 → 配音；复用老链 ttsQwen3：百炼→硅基→火山三级降级）──
+      const narration = String(draft?.script || '').trim()
+        || shots.map((s: any) => String(s?.subtitle || s?.text || '')).filter(Boolean).join('。')
+      const voice = String(draft?.voice || 'longxiaochun')
+      const sents = narration.split(/[。！？!?；;\n]+/).map((x: string) => x.trim()).filter((x: string) => x.length >= 2).slice(0, 40)
+      type Sent = { text: string; file: string; dur: number }
+      const voiceSents: Sent[] = []
+      if (sents.length) {
+        const { ttsQwen3 } = await import('@/lib/qwen3-tts')
+        const ttsDir = path.join(workDir, 'tts')
+        fs.mkdirSync(ttsDir, { recursive: true })
+        for (let i = 0; i < sents.length; i++) {
+          const r = await ttsQwen3(sents[i], voice, ttsDir, i)
+          const est = Math.max(1.2, Math.round((sents[i].length / 4.2) * 10) / 10)   // 失败句按 4.2 字/秒估时长占位
+          voiceSents.push({ text: sents[i], file: r.ok ? r.path : '', dur: r.ok ? Math.max(0.8, r.duration || est) : est })
+          if (!r.ok) push(`[TTS] 第${i + 1}句合成失败 → 静默 ${est}s 占位（字幕照常）`)
+        }
+        push(`[配音] ${voiceSents.length} 句 · 音色 ${voice} · 总时长≈${voiceSents.reduce((a, b) => a + b.dur, 0).toFixed(1)}s`)
+      } else push('[配音] 无口播文案 → 静默版（字幕用页面文案）')
+
+      // ── ⑤ 页时长按配音分配 + 自产 SRT（字幕=口播内容 ⇒ 与页面大字不再同文重复）──
+      const pages: any[] = Array.isArray(deck?.pages) ? deck.pages : []
+      let srtP = genSrtP
+      if (voiceSents.length && pages.length) {
+        // 句子按累计时长近似均分到各页（连续分组；首页/尾页也会分到旁白——快节奏营销片常态）
+        const totalDur = voiceSents.reduce((a, b) => a + b.dur, 0)
+        const target = totalDur / pages.length
+        const groups: Sent[][] = pages.map(() => [])
+        let gi = 0, acc = 0
+        for (const s of voiceSents) {
+          groups[gi].push(s); acc += s.dur
+          if (gi < pages.length - 1 && acc >= target) { gi++; acc = 0 }
+        }
+        // 页时长 = 本页句子 + 0.4s 呼吸；无句页保留原时长；clamp 1~30（schema 硬窗）
+        const pageDur: number[] = pages.map((p: any, i: number) => {
+          const d = groups[i].reduce((a, b) => a + b.dur, 0)
+          if (!d) return Math.max(1, Math.min(30, Number(p?.duration) || 3))
+          return Math.max(1, Math.min(30, Math.round((d + 0.4) * 10) / 10))
         })
-      })
-      ch.on('close', (code: number | null) => {
-        clearTimeout(t)
-        finish(code).catch((eF: any) => {
-          writeTask({ status: 'failed', finishedAt: new Date().toISOString(), error: String(eF?.message || eF).slice(0, 200) })
-          vflog('[新引擎出片] 收尾异常: ' + String(eF?.message || eF).slice(0, 120))
-        })
-      })
-    } catch (eS: any) {
-      writeTask({ status: 'failed', finishedAt: new Date().toISOString(), error: String(eS?.message || eS).slice(0, 200) })
-      return { ok: false, msg: '后台渲染启动失败：' + String(eS?.message || eS).slice(0, 120) }
+        pages.forEach((p: any, i: number) => { p.duration = pageDur[i] })
+        fs.writeFileSync(baseP, JSON.stringify(deck, null, 2) + '\n', 'utf8')
+        // SRT：句内按 竖屏≤12/横屏≤22 字切块（video-task-manager 同款节奏）
+        const subMax = ori === '9:16' ? 12 : 22
+        const srtLines: string[] = []
+        let tCur = 0, idx = 1
+        for (let i = 0; i < pages.length; i++) {
+          let inPage = 0
+          for (const s of groups[i]) {
+            const chunks: string[] = []
+            for (let c = 0; c < s.text.length; c += subMax) chunks.push(s.text.slice(c, c + subMax))
+            const chunkDur = s.dur / Math.max(1, chunks.length)
+            for (const ch of chunks) {
+              srtLines.push(`${idx}\n${srtTime(tCur + inPage)} --> ${srtTime(tCur + inPage + chunkDur)}\n${ch}`)
+              idx++
+              inPage += chunkDur
+            }
+          }
+          tCur += pageDur[i]
+        }
+        srtP = path.join(workDir, 'voice.srt')
+        fs.writeFileSync(srtP, srtLines.join('\n\n') + '\n', 'utf8')
+        // 配音轨：每页 concat(句音频/静默) + apad 补齐页时长 → 全片拼接（44100 立体声统一参数）
+        const pageAudioFiles: string[] = []
+        for (let i = 0; i < pages.length; i++) {
+          const pgOut = path.join(workDir, 'pg' + i + '.m4a')
+          const inputs: string[] = []
+          for (const s of groups[i]) {
+            if (s.file) { inputs.push(s.file); continue }
+            const sil = path.join(workDir, `sil_${i}_${inputs.length}.m4a`)
+            const rSil = await runCmd('ffmpeg', ['-nostdin', '-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', String(s.dur), '-c:a', 'aac', sil], { timeoutMs: 30000 })
+            if (rSil.code === 0 && fs.existsSync(sil)) inputs.push(sil)
+          }
+          if (!inputs.length) {
+            const rS = await runCmd('ffmpeg', ['-nostdin', '-y', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', String(pageDur[i]), '-c:a', 'aac', pgOut], { timeoutMs: 30000 })
+            if (rS.code !== 0) push(`[配音] 第${i + 1}页静默生成失败（忽略）`)
+          } else {
+            const fc = inputs.map((_, k) => `[${k}:a]`).join('') + `concat=n=${inputs.length}:v=0:a=1,apad=whole_dur=${pageDur[i]}[a]`
+            const r = await runCmd('ffmpeg', ['-nostdin', '-y', ...inputs.flatMap((f) => ['-i', f]), '-filter_complex', fc, '-map', '[a]', '-t', String(pageDur[i]), '-ar', '44100', '-ac', '2', '-c:a', 'aac', pgOut], { timeoutMs: 60000 })
+            if (r.code !== 0) push(`[配音] 第${i + 1}页音频失败（忽略）`)
+          }
+          if (fs.existsSync(pgOut) && fs.statSync(pgOut).size > 100) pageAudioFiles.push(pgOut)
+        }
+        if (pageAudioFiles.length) {
+          const voiceP = path.join(workDir, 'voice.m4a')
+          if (pageAudioFiles.length === 1) fs.copyFileSync(pageAudioFiles[0], voiceP)
+          else {
+            const fc = pageAudioFiles.map((_, k) => `[${k}:a]`).join('') + `concat=n=${pageAudioFiles.length}:v=0:a=1[a]`
+            const r = await runCmd('ffmpeg', ['-nostdin', '-y', ...pageAudioFiles.flatMap((f) => ['-i', f]), '-filter_complex', fc, '-map', '[a]', '-ar', '44100', '-ac', '2', '-c:a', 'aac', voiceP], { timeoutMs: 60000 })
+            if (r.code !== 0 || !fs.existsSync(voiceP)) push('[配音] 音轨拼接失败 → 本次无声（不因此判失败）')
+          }
+        }
+      }
+
+      // ── ⑥ batch-video：渲染 + 烧字幕（--srt；音频不交给它 —— 配音不能被当 BGM 压音量，⑦自己混）──
+      const b = await runCmd(process.execPath, [batchP, '--base', baseP, '--skins', 'master-' + skin, '--orientations', ori, '--palette', pal, '--srt', srtP, '--outdir', batchOut], { cwd: engDir, timeoutMs: TIMEOUT_MS })
+      push(b.out)
+      if (b.code !== 0) { await finishFail(`batch-video 退出码 ${b.code}`); return }
+      const finalDir = path.join(batchOut, 'final')
+      const finals: string[] = fs.existsSync(finalDir)
+        ? fs.readdirSync(finalDir).filter((f) => /^final-.*\.mp4$/.test(f)).map((f) => path.join(finalDir, f))
+        : []
+      if (finals.length !== 1 || !(() => { try { return fs.statSync(finals[0]).size > 0 } catch { return false } })()) {
+        await finishFail(`产物数异常（${finals.length} 条 MP4，应恰好 1）`); return
+      }
+
+      // ── ⑦ 混音（配音 ± BGM；argv 数组不过 shell + amix normalize=0 + 时长以视频为准
+      //    —— 老链 render.py mux_audio 的三条现场教训原样继承）──
+      let outMp4 = finals[0]
+      const voiceP2 = path.join(workDir, 'voice.m4a')
+      const hasVoice = fs.existsSync(voiceP2) && fs.statSync(voiceP2).size > 100
+      if (hasVoice || bgmP) {
+        const vd = (await probeDur(outMp4)) || pages.reduce((a: number, p: any) => a + (Number(p?.duration) || 3), 0)
+        const mixP = path.join(workDir, 'final_mix.mp4')
+        let args: string[]
+        if (hasVoice && bgmP) {
+          args = ['-nostdin', '-y', '-i', outMp4, '-i', voiceP2, '-stream_loop', '-1', '-i', bgmP,
+            '-filter_complex', '[1:a]volume=1.0[voc];[2:a]volume=0.12[bg];[voc][bg]amix=inputs=2:duration=first:normalize=0[aout]',
+            '-map', '0:v', '-map', '[aout]', '-c:v', 'copy', '-c:a', 'aac', '-t', String(vd), '-movflags', '+faststart', mixP]
+        } else if (hasVoice) {
+          args = ['-nostdin', '-y', '-i', outMp4, '-i', voiceP2, '-map', '0:v', '-map', '1:a',
+            '-c:v', 'copy', '-c:a', 'aac', '-t', String(vd), '-movflags', '+faststart', mixP]
+        } else {
+          args = ['-nostdin', '-y', '-i', outMp4, '-stream_loop', '-1', '-i', bgmP,
+            '-filter_complex', '[1:a]volume=0.18[aout]', '-map', '0:v', '-map', '[aout]',
+            '-c:v', 'copy', '-c:a', 'aac', '-t', String(vd), '-movflags', '+faststart', mixP]
+        }
+        const r = await runCmd('ffmpeg', args, { timeoutMs: 180000 })
+        push(`[混音] ${hasVoice ? '配音' : ''}${hasVoice && bgmP ? ' + BGM(0.12)' : bgmP ? 'BGM(0.18)' : ''}${r.code === 0 ? ' ✓' : ' 失败 → 交无音版'}`)
+        if (r.code === 0 && fs.existsSync(mixP) && fs.statSync(mixP).size > 0) outMp4 = mixP
+      }
+
+      // ── ⑧ 入库/扣费/收尾（成功才扣 —— 与老链同规矩）──
+      await finishOk(outMp4, pages.length)
     }
+    runDeck().catch(async (e: any) => {
+      const msg = '管线异常: ' + String(e?.message || e).slice(0, 160)
+      try { await finishFail(msg) } catch { /* ignore */ }
+      vflog('[新引擎出片] 管线异常: ' + String(e?.message || e).slice(0, 120))
+    })
     return { ok: true, taskId, cost }
   } catch (e: any) {
     return { ok: false, msg: String(e?.message || e).slice(0, 160) }

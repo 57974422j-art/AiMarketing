@@ -649,16 +649,16 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
     <div className="mb-2 p-3 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/[0.06]">
       <div className="text-xs text-fuchsia-300 mb-3">🎬 成片设置{typeof vj.hint === 'string' && vj.hint ? ' · ' + vj.hint : ''}</div>
 
-      {/* ★VF_ENGINE_UI_V1：成片方式 —— 第一轮就选（默认老引擎）；新引擎=动态 PPT（HTML 逐帧 · 10 套皮肤 · 暂无配音） */}
+      {/* ★VF_ENGINE_UI_V1 + ★VF_AVIMG_V1：成片方式 —— 第一轮就选（默认老引擎）；新引擎=动态 PPT（HTML 逐帧 · 10 套皮肤 · 配音+BGM+素材图） */}
       <div className="mb-3">
         <div className="text-[10px] text-gray-400 mb-1">成片方式</div>
         <div className="flex flex-wrap gap-1.5">
           {R(engine, 'classic', '🎬 图文成片（配音+字幕）', setEngine)}
-          {R(engine, 'deck', '🆕 动态 PPT（新引擎·暂无配音）', setEngine)}
+          {R(engine, 'deck', '🆕 动态 PPT（新引擎·配音+BGM）', setEngine)}
         </div>
         {engine === 'deck' ? (
           <div className="text-[10px] text-amber-300/80 mt-1">
-            新引擎成片 = 动态 PPT（HTML 逐帧 · 10 套皮肤在确认卡选）——目前没有配音和 BGM，下面的音色/配乐本次不会用到
+            新引擎成片 = 动态 PPT（HTML 逐帧 · 10 套皮肤在确认卡选）——含逐句配音、BGM，分镜里的素材图会插入成片
           </div>
         ) : null}
       </div>
@@ -725,8 +725,8 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
         </div>
       </div>
 
-      {/* ★VF_ENGINE_UI_V1：新引擎（动态 PPT）没有配音 → 音色置灰（仍提交，服务端不消费） */}
-      <div className={'mb-3' + (engine === 'deck' ? ' opacity-40 pointer-events-none' : '')}>
+      {/* ★VF_AVIMG_V1（2026-10-05 用户定案「新制片也要配音和BGM」）：新引擎已支持配音+BGM —— 音色恢复可选 */}
+      <div className="mb-3">
         <div className="text-[10px] text-gray-400 mb-1">配音音色</div>
         <div className="flex flex-wrap gap-1.5">
           {(Array.isArray(vj.voices) ? vj.voices : []).map((v: any) => R(voice, String(v.id), '🔊 ' + String(v.name || v.id), setVoice))}
@@ -740,8 +740,8 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
           className="w-full px-2 py-1.5 rounded text-[12px] bg-white/[0.05] border border-white/[0.08] text-gray-200 placeholder-gray-600 outline-none" />
       </div>
 
-      {/* ★VF_ENGINE_UI_V1：新引擎（动态 PPT）没有 BGM → 配乐置灰（仍提交，服务端不消费） */}
-      <div className={'mb-3' + (engine === 'deck' ? ' opacity-40 pointer-events-none' : '')}>
+      {/* ★VF_AVIMG_V1：新引擎已支持 BGM —— 配乐恢复可选 */}
+      <div className="mb-3">
         <div className="text-[10px] text-gray-400 mb-1">背景音乐 <span className="text-gray-600">（AI 音乐库；无人声时也会铺底）</span></div>
         <div className="flex flex-wrap gap-1.5">
           {R(bgm, 'auto', '🎵 自动配乐', setBgm)}
@@ -1786,8 +1786,8 @@ function VfDeckPreview({ plan }: { plan: any }) {
  *  点它 = 发机器协议串 `VF_DECK_CONFIRM:{skin}`；服务端在四条成片线分派前接管，
  *  把**同一份文案**（先 AI 转成 PPT 要点版，失败退回规则映射）交给 HTML 逐帧引擎正式出片
  *  （任务文件/进度轮询/入库/签名 URL 与老链同形状全复用，见 src/lib/agent/vf/vf-deck-render.ts）。
- *  ⚠️ 诚实口径：新引擎成片 = 动态 PPT（HTML 逐帧），**无配音、无 BGM**；
- *  收费 = 文案费（与老链同公式 ceil(字数/20)），不含动图/AI 画面那两笔（新引擎不调它们）。 */
+ *  ★VF_AVIMG_V1（2026-10-05）：新引擎已支持**配音（逐句 TTS）+ BGM + 素材图片页**；
+ *  收费 = 文案费（与老链同公式 ceil(字数/20)），配音/BGM/图片页不另收费，动图/AI 画面不收。 */
 function VfDeckConfirm({ vj, onSend }: { vj: any; onSend: (m: string) => void }) {
   const [skin, setSkin] = useState('v1')
   // ★VF_ENGINE_UI_V1：比例不再单独选 —— 直接跟随第一轮定的分镜画幅（用户定的"第二轮只点头"）
@@ -1805,7 +1805,7 @@ function VfDeckConfirm({ vj, onSend }: { vj: any; onSend: (m: string) => void })
       </select>
       <span className="text-[10px] text-gray-500">{ori === '16:9' ? '横屏 16:9' : '竖屏 9:16'}（跟随分镜画幅）</span>
       <button onClick={() => onSend('VF_DECK_CONFIRM:' + JSON.stringify({ skin }))}
-        title={`用新引擎（HTML 逐帧）正式出片：动态 PPT（无配音、无 BGM），文案会先由 AI 转成 PPT 要点版。只收文案费约 ${cost} 点（与老链同公式）`}
+        title={`用新引擎（HTML 逐帧）正式出片：动态 PPT + 逐句配音 + BGM + 素材图片页，文案会先由 AI 转成 PPT 要点版。只收文案费约 ${cost} 点（配音/BGM/图片页不另收费）`}
         className="px-4 py-1.5 rounded-lg text-sm bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100 font-medium">
         🎬 确认出片 · 新引擎（约 {cost} 点）
       </button>
@@ -3850,7 +3850,7 @@ function AgentPageInner() {
                       className="px-4 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm text-gray-300">▶️ 先出字幕版（无素材画面）</button>
                   </>
                 ) : vj.engine === 'deck' ? (
-                  <span className="text-[10px] text-emerald-300/70">成片方式：新引擎 · 动态 PPT（无配音/BGM）—— 选好皮肤点下面按钮出片</span>
+                  <span className="text-[10px] text-emerald-300/70">成片方式：新引擎 · 动态 PPT（配音+BGM+素材图）—— 选好皮肤点下面按钮出片</span>
                 ) : (
                   <>
                     <button onClick={() => sendMessage('先看样板镜')}

@@ -111,6 +111,13 @@ ck 'VF_DECKCOPY_V1'                'src/app/api/agent/chat/route.ts' 1    # 确�
 #   而映射层过滤线是 6/4 字 ⇒ 6~7 字要点进节 → 整节凑不齐 3 条落窗被丢 → GEN-TOO-FEW-PAGES。
 #   本地实锤复现与修复验证：要点全 ≥8 字后 4 页 0.9MB MP4 正常产出。
 ck 'VF_WINFIX_V1'                  'src/lib/agent/vf/vf-deck-render.ts' 5  # BULLET_MIN/COVER_MIN 常量 + 三处过滤线 + sanitize + 失败原因透出（≥5 处）
+# ★VF_AVIMG_V1（2026-10-05 用户定案「加图片页 + 字幕去重 + 配音/BGM 回归新引擎」）：
+#   新引擎正式出片不再走 make-video 一把梭，改为分步编排（gen-deck → 注入 pageImage 图片页/
+#   按配音定页时长 → 逐句TTS(百炼→硅基→火山) → 自产SRT(字幕=口播,与页面大字不再同文) →
+#   batch-video 渲染+烧字幕 → ffmpeg 混音(配音±BGM)）。老引擎一行没改。
+#   本地端到端实测：注入图片页(cover,bullets,image,bullets,end)25.4s 成片 + aac 立体声混音 ✓
+ck 'VF_AVIMG_V1'                  'src/lib/agent/vf/vf-deck-render.ts' 8  # 管线分步注释+图片页注入+TTS+SRT+混音（≥8 处）
+ck 'VF_AVIMG_V1'                  'src/app/agent/page.tsx' 4            # 解除音色/BGM置灰 + 三处文案更新（≥4 处）
 
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
