@@ -135,11 +135,24 @@ ck 'VF_DECKRETRY_V1'               'src/app/api/agent/chat/route.ts' 2    # 重�
 # ★VF_SCRIPTCHUNK_V1（同上单）：规则兜底切句增强——<8 字碎句与后句合并、>28 字长句按逗号二切
 #   （片段贪心合并进 8~28 窗口），替代「短句直接丢、长句截断加…」。单测：上午实文案出 8 条 ✓。
 ck 'VF_SCRIPTCHUNK_V1'             'src/lib/agent/vf/vf-deck-render.ts' 2 # 碎句合并+长句二切 实现+注释
-# ★VF_IMGFRAME_V1（2026-10-05 用户实测 38 镜单成片"只有几帧"+定案「图片帧就是帧，不用每张图
-#   背一个 PPT 页」）：图片页改独立快闪帧——2.5s/张、不背旁白（配音只落非图片页）、上限从写死 6
-#   改为填满 12 页窗（12−PPT页数）、均摊穿插到各内容页后。单测：7页PPT/27图→注5帧总12页 ✓。
-ck 'VF_IMGFRAME_V1'                'src/lib/agent/vf/vf-deck-render.ts' 2 # 注入段 + 配音分配段
-# ★VF_DECKROUTE_V1（同上）：新引擎且 镜数>12 或预计>90s → 确认卡明示建议走老引擎（只提示不拦）。
+# ★VF_MATDOM_V1（2026-10-05 下午定案「素材图必有、量要大于 PPT；帧是帧、不用每张图背 PPT 页」，
+#   取代上午 VF_IMGFRAME_V1 的「填满 12 页窗 + 图帧不背旁白」——实测 005/006 三片 171s 里素材仅
+#   3~4 帧，静默帧方案让时长白膨胀）：注帧数 = min(图镜, max(口播句数−PPT页, PPT页+1))——每帧背
+#   1 句配音（voice-over：旁白在图帧上继续，总时长 ≈ 音频长度+0.4s×页数不膨胀）；分不到句子的帧
+#   2.5s 纯快闪。schema pages.maxItems 12→40（deck.p40-test 40 页实测渲染 exit 0，measured-limits
+#   renderedMax 同步 40、check-schema-vs-limits 绿）。单测 6 场景：003单 20帧>PPT8·28页·179s ✓。
+ck 'VF_MATDOM_V1'                  'src/lib/agent/vf/vf-deck-render.ts' 3 # 注入段 + 句子分配段 + TTS复用
+# ★VF_PAGEMIX_V1（同日实测「PPT 全是 1.2.3 列表、数据/图标排版没用」）：gen-deck 是确定性解析器，
+#   页型由 md 形状决定——sanitizeDeckMd 从「只认 3 条要点」放行 4 种节型（要点/数据/流程/对比），
+#   转写 prompt 给节型菜单让 AI 按文案选型混排。端测：混排 md → cover→bullets→data→steps→compare→end ✓。
+ck 'VF_PAGEMIX_V1'                 'src/lib/agent/vf/vf-deck-render.ts' 2 # sanitizeDeckMd 实现+注释
+ck 'VF_PAGEMIX_V1'                 'src/app/api/agent/chat/route.ts' 2    # 转写 prompt 节型菜单 + 注释
+# ★VF_SUBATOM_V1（同日实测字幕三连伤「，点击率8.5%」逗号开头条 /「出」单字条 /「3分|钟」切断数字+
+#   单位）：SUBCHUNK 定宽盲切+回退防不住 → 改原子块贪心打包（数字+单位/英文单词不断、标点粘前块、
+#   句读过半即收、<2 字碎块并邻）。单测 10 例全过（含三事故原句）。
+ck 'VF_SUBATOM_V1'                 'src/lib/agent/vf/vf-deck-render.ts' 2 # chunkSub 实现 + 调用点
+# ★VF_DECKROUTE_V1（首版 镜>12/预计>90s 就提示走老引擎；VF_MATDOM_V1 破窗 40 页后放宽到真超容量）：
+#   新引擎且预计 >300s（40 页 × ~6s ≈ 5 分钟）→ 确认卡明示建议拆条或换老引擎（只提示不拦）。
 ck 'VF_DECKROUTE_V1'               'src/app/api/agent/chat/route.ts' 2   # 提示拼接 + 注释
 # ★VF_AVIMG_V1（2026-10-05 用户定案「加图片页 + 字幕去重 + 配音/BGM 回归新引擎」）：
 #   新引擎正式出片不再走 make-video 一把梭，改为分步编排（gen-deck → 注入 pageImage 图片页/

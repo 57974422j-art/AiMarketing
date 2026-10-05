@@ -474,14 +474,14 @@
       "kind": "editorial",
       "boundSource": "deck.schema.json#/properties/pages",
       "basis": [
-        "**上下界由编辑意图定（4~12）⇒ 无几何失败模式**（一页一屏、独立渲染 ⇒ 页数不产生几何判据）",
-        "★ **不许造「容量读数」**（team-lead msg28 ③）：硬测一个 N_MAX 只会得到**同义反复**（「能渲染 12 页」= schema 上限，不是容量）",
-        "对照（**非容量**）：12 页的 all12 档**渲染通过**（`render-deck` RESULT ok=true）"
+        "**上下界由编辑意图定（4~40）⇒ 无几何失败模式**（一页一屏、独立渲染 ⇒ 页数不产生几何判据）。★2026-10-05 破窗 12→40（用户定案「素材图帧量须大于 PPT 页数」——deck 线注入素材快闪帧后页数上限须给图帧让位）",
+        "★ **不许造「容量读数」**（team-lead msg28 ③）：硬测一个 N_MAX 只会得到**同义反复**（「能渲染 40 页」= schema 上限，不是容量）",
+        "对照（**非容量**）：12 页的 all12 档**渲染通过**（`render-deck` RESULT ok=true）；40 页的 p40-test 档（cover + 38 bullets + end · 每页 3.4s）**渲染通过**（`render-deck` RESULT ok=true · 80 张审阅帧逐张点名 · 1m0.5s 渲完）"
       ],
-      "renderedMax": 12,
-      "renderedMaxNote": "**= schema 上限 ⇒ 非容量**（只作对照；**不许**读成「容量 ≥ 12」）",
-      "evidence": "**手写条数单源化**：`validate-deck` 里 `pages.length < 4` / `> 12`（原 L606/L607）已改为 `limItems('#/properties/pages')` ⇒ 条数债务棘轮 **3 ⇒ 0**（`debt-baseline.json` 由工具 `--update-baseline` 重写）",
-      "source": "node render-deck.mjs examples/deck.all12.json --outdir out-tmp-ctl/all12（12 页渲染通过 · RESULT ok=true）",
+      "renderedMax": 40,
+      "renderedMaxNote": "**= schema 上限 ⇒ 非容量**（只作对照；**不许**读成「容量 ≥ 40」）",
+      "evidence": "**手写条数单源化**：`validate-deck` 里 `pages.length < 4` / `> 12`（原 L606/L607）已改为 `limItems('#/properties/pages')` ⇒ 条数债务棘轮 **3 ⇒ 0**（`debt-baseline.json` 由工具 `--update-baseline` 重写）；破窗只改 schema maxItems 一处（单源），渲染器/生成器零手写数 ⇒ 棘轮口径不变",
+      "source": "node render-deck.mjs examples/deck.p40-test.json --outdir out-tmp-p40（40 页渲染通过 · RESULT ok=true · 2026-10-05）；历史：node render-deck.mjs examples/deck.all12.json --outdir out-tmp-ctl/all12（12 页渲染通过 · RESULT ok=true）",
       "judgeLimitNote": "**本格无 `capacityAtLeast`（有意）**：页数是**编辑意图**，不是几何容量 ⇒ 唯一可判伪的断言 = **上下界单源**（`minItems/maxItems` 只在 schema 里写一次；渲染器/生成器里**手写数 == 0**，由条数债务棘轮机械保证）。⚠️ 不许写「容量 ≥ N」，也不许把 `renderedMax` 当容量"
     },
     {

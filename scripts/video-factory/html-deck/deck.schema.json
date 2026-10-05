@@ -25,7 +25,7 @@
     "pages": {
       "type": "array",
       "minItems": 4,
-      "maxItems": 12,
+      "maxItems": 40,
       "description": "第 1 页必须是 cover（用 meta 的标题/副标渲染）；建议最后 1 页是 end。",
       "prefixItems": [
         {

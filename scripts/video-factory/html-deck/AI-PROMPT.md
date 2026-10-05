@@ -40,7 +40,7 @@
 | `image` | 图片页 | `title` + `asset`（项目内静态图 jpg/jpeg/png/webp）+ `layout`（**竖屏只有 `full`**；16:9 = `left`/`right`/`full`）+ `caption`(可选，≥8 字) + `kicker`(可选) |
 | `steps` | 步骤页 | `title` + `steps`（**3~6 步，每步 ≥6 字**）+ `index`(可选：`number` / `dot`) |
 
-**页序**：第 1 页**必须**是 `cover`；**建议**最后一页是 `end`；整篇 4~12 页。
+**页序**：第 1 页**必须**是 `cover`；**建议**最后一页是 `end`；整篇 4~40 页。
 **选型建议**：讲"是什么/为什么"用 `bullets`；有真实数字用 `data`；**有 ≥4 个真实数字的序列**才用 `chart`（点数不够就退回 `data`）；做取舍用 `compare`；要一句有分量的话用 `quote`；章节切换用 `section`；有现成素材用 `image`；讲流程用 `steps`。
 
 **★ 版式随几何变（硬规矩）**：`image.layout` —— **`16:9` 可用 `left` / `right` / `full`；`9:16` 只有 `full`**。
