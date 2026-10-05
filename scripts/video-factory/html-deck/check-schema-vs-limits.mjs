@@ -169,6 +169,17 @@ if (process.argv.includes('--self-test-synth')) {
   chk('指纹：**区间外 `capacityAtLeast` 的比较 ⇒ 必红**（区间抽样）', sameCriterionVerdicts(DEF + '\nconst bad = maxIn !== cell.' + CAP).length > 0)
   chk('指纹：**`!== undefined` 是存在性检查、不是判据 ⇒ 不许红**', sameCriterionVerdicts(DEF + '\nif (cell.' + CAP + ' !== undefined) {}').length === 0)
   chk('指纹：**纯函数两处（定义+调用）⇒ 不许红**', sameCriterionVerdicts("export function verifyCoverage" + "Verdict(a,b,c){}\nconst v = verifyCoverage" + "Verdict(cell, maxIn, fixed)").length === 0)
+  /* ★ compare 两侧**共用 pointer**（同一 `$ref` 的两个格引用）—— 成对样本（必红/不许红），且**判据不钉数字**（K41） */
+  {
+    const P = '#/$defs/compareSide/properties/points'
+    const L = { jsonPointer: P, field: 'pages.5.left.points', pageType: 'compare' }
+    const R = { jsonPointer: P, field: 'pages.5.right.points', pageType: 'compare' }
+    const n = (x) => sharedPointerVerdicts(x).viols.length
+    chk('共用 pointer：**compare 左右成对 + pointer 逐字相同 ⇒ 不许红**', n([L, R]) === 0)
+    chk('共用 pointer：**只剩左侧（右侧被删/改名）⇒ 必红**（防"只改一处"静默失效）', n([L]) > 0)
+    chk('共用 pointer：**两侧 pointer 不逐字相同 ⇒ 必红**（不许各写一个）', n([L, { ...R, jsonPointer: P + '-x' }]) > 0)
+    chk('共用 pointer：**非成对的多格复用 ⇒ 必红**（pointer 与 schema 位置脱钩）', n([{ jsonPointer: '#/$defs/x', field: 'pages.1.a' }, { jsonPointer: '#/$defs/x', field: 'pages.2.b' }]) > 0)
+  }
   const fail = cases.filter((x) => !x).length
   console.log(`   ${fail === 0 ? '✓' : '✗'} [SYNTH-SELFTEST] 合成负控/正控 用例=${cases.length} · 失败=${fail}`)
   process.exit(fail === 0 ? 0 : 1)
@@ -218,11 +229,52 @@ if (process.argv.includes('--self-test-synth')) {
   }
 }
 
+/* ★★ team-lead msg41 ②（compare 两侧**共用 pointer** 的三条要求 · 全部**可判伪**）——
+ * 背景：`compareSide` 是 `$ref` ⇒ **左右两格的 pointer 逐字相同**（`#/$defs/compareSide/properties/points`）
+ *  ⇒ 表内「条目 = 21 · 唯一 pointer = 20」是**正确形态**（不是脏数据、也不许"为了让数字好看而复制一个似是而非的 pointer"）。
+ * 三条（原样落）：
+ *   ① **多格 pointer 只允许"compare 左右成对"**（其它 ⇒ pointer 已与实际 schema 位置脱钩 ⇒ 红）；
+ *   ② **可见**：必须**打印**"N 格引用同一 pointer（列出来）" ⇒ **不许静默去重**；
+ *   ③ **防将来只改一处**：两侧 pointer **必须逐字相同**且**两侧格都存在**（只剩一侧 ⇒ 红）。
+ * ⚠️ 判据**不钉数字**（不写"必须 21/20"：那样加一格就红 —— 正是 **K41** 的坑）⇒ 断言的是**关系**
+ *    （成对性 + 存在性 + 逐字一致）；数字只**打印**出来当**可见量** ✓ */
+export function sharedPointerVerdicts(items) {
+  const out = []
+  const byPtr = new Map()
+  for (const it of (items || [])) {
+    const k = it && it.jsonPointer
+    if (!k) continue
+    if (!byPtr.has(k)) byPtr.set(k, [])
+    byPtr.get(k).push((it && it.field) || '?')
+  }
+  const multi = [...byPtr.entries()].filter(([, cells]) => cells.length > 1)
+  const isPair = (cells) => cells.length === 2 && cells.some((f) => f.endsWith('.left.points')) && cells.some((f) => f.endsWith('.right.points'))
+  for (const [p, cells] of multi) {
+    if (!isPair(cells)) out.push(`**多格 pointer 只允许 compare 左右成对**：${p} 被 ${cells.length} 格引用（${cells.join(' · ')}）⇒ 其它情形说明 pointer 与实际 schema 位置脱钩`)
+  }
+  const L = (items || []).find((it) => it && it.pageType === 'compare' && String(it.field || '').endsWith('.left.points'))
+  const R = (items || []).find((it) => it && it.pageType === 'compare' && String(it.field || '').endsWith('.right.points'))
+  if (L && !R) out.push('compare **左侧格在、右侧格缺** ⇒ "两侧共用 pointer"这条知识已随编辑静默失效（须两侧同表）')
+  if (R && !L) out.push('compare **右侧格在、左侧格缺** ⇒ 同上')
+  if (L && R && L.jsonPointer !== R.jsonPointer) out.push(`compare 两侧 pointer **不逐字相同**：${L.jsonPointer} ≠ ${R.jsonPointer} ⇒ 同一条 schema 节点必须同 pointer（不许两侧各写一个）`)
+  return { viols: out, multi, entries: (items || []).length, uniq: byPtr.size }
+}
+
 const viol = [], noted = []
 /* ★ team-lead msg2 ②：**「每格必有断言」的机器化** —— 用来区分「已测且已断言」与「只记录未断言」（I10 的分子/分母要用）。 */
 const IT_ASSERTED = [], IT_RECORD_ONLY = []
 /* ⚠️ `label` 在下面才声明（循环体后半段）⇒ 条数分派块在**之前** ⇒ 需一个同名口径的本地小助手（防 TDZ）。 */
 const labelC = (it) => `${it.jsonPointer}（${it.field || '?'}）`
+/* ★ 上面那条判据的**落点**：打印（可见 · 不许静默去重）+ 违规（可判伪）—— 数字**打印**、判据**不钉数字**（K41） */
+{
+  const sp = sharedPointerVerdicts(limits.limits || [])
+  if (sp.multi.length) {
+    console.log(`\n  表内 pointer 共用（**不静默去重**）：${sp.multi.length} 个 pointer 被**多个格**引用 ——`)
+    for (const [p, cells] of sp.multi) console.log(`     · ${p} ⇐ ${cells.join(' · ')}`)
+  }
+  console.log(`  · 表内条目 = ${sp.entries} · 唯一 pointer = ${sp.uniq}${sp.multi.length ? `（多格 pointer ${sp.multi.length} 个 ⇒ 条目数 − 唯一数 = ${sp.entries - sp.uniq}）` : ''}`)
+  viol.push(...sp.viols)
+}
 for (const it of (limits.limits || [])) {
   const node = get(it.jsonPointer)
   if (!node) { viol.push(`${it.jsonPointer} ⇒ 实测表指向的 schema 节点不存在（表/schema 不同源）`); continue }

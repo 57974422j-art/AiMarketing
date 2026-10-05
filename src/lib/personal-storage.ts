@@ -78,7 +78,15 @@ export async function saveToPersonalRepo(opts: SaveToRepoOptions): Promise<{ nam
     const existing = (await listObjects(`storage/${uid}/${datePrefix}`)).filter(
       o => !o.name.includes('/.thumbs/')
     )
-    todaySeq = existing.length + 1
+    // ★VF_NAMESEQ_V1（2026-10-05 用户实测「删了 001 后新片又占 001 → 客户端按文件名判重跳过同步，
+    //   本地永远看不到新片」）：序号取【当天已有最大序号 + 1】，不复用被删掉的空号
+    //   （原逻辑 existing.length+1：001、003 在、002 被删时会撞 003）。
+    for (const o of existing) {
+      const m = /_(\d{3})\.[A-Za-z0-9]+$/.exec(String(o.name || ''))
+      if (m) todaySeq = Math.max(todaySeq, Number(m[1]) + 1)
+    }
+    // 兜底：当天文件都不带序号（命名规范外）→ 保持 count+1 老口径
+    if (todaySeq === 1 && existing.length) todaySeq = existing.length + 1
   } catch {}
   const name = `${datePrefix}_${String(todaySeq).padStart(3, '0')}.${ext}`
   const key = `storage/${uid}/${name}`

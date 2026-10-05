@@ -125,11 +125,17 @@ function removeControlChars(text: string): string {
 }
 
 // 准备 TTS 文本：替换 Emoji → 清理控制字符 → 合并空格
+// ★VF_TTS_ACRONYM_V1（2026-10-05 用户实测「配音把 API 读成日语腔」，非首次出现）：
+//   qwen3-tts 对中文句子里夹的英文缩写会按"多语种整词"发音（实测出日语腔）。
+//   全大写 ≥3 字母的缩写（API/ROI/CEO/KOL/APP…）拆成「A P I」逐字母读 —— 中文语境的正确读法
+//   （已实测：拆读版合成正常，ASR 识别为中文）。两个字母的（AI/OK，中文里按词读）与
+//   普通英文单词（iPhone/marketing，大小写混合不匹配）不动 —— 用户定案「全部改中文肯定不合适」。
 export function prepareTextForTTS(text: string): string {
   if (!text?.trim()) return '';
   const withEmotion = replaceEmoji(text);
   const noControl = removeControlChars(withEmotion);
-  return noControl.replace(/\s+/g, ' ').trim();
+  const spacedAcronym = noControl.replace(/[A-Z]{3,}/g, (m) => m.split('').join(' '));
+  return spacedAcronym.replace(/\s+/g, ' ').trim();
 }
 
 // 清除 Emoji 和杂项符号，根据目标语言保留对应字符集
@@ -1726,6 +1732,25 @@ export async function transcribeAudio(audioBuffer: ArrayBuffer, fileName = 'audi
   return null;
 }
 
+// ★VF_VOICE_PASS_V1（2026-10-05 用户实测「选任何音色出来都是同一个声音」）：
+//   textToSpeech 的 speaker 参数此前被整个忽略 —— 百炼调用不带音色（永远默认 Cherry）、
+//   硅基兜底写死 alex。本函数把用户音色映射到硅基 CosyVoice2 预置音色
+//   （anna/bella/benjamin/charles/david/diana/alex 已逐一实测存在，2026-10-05）；
+//   不认识的 key → 默认 alex（不破坏兜底；调用失败时上层还会回退 alex 再试一次）。
+function siliconVoice(speaker: string): string {
+  const v = String(speaker || '').trim();
+  const M: Record<string, string> = {
+    // 用户可选音色（VF_VOICE_BASE 的 key）
+    longxiaochun: 'anna', longxiaoxia: 'bella', cherry: 'diana',
+    longshu: 'david', longchen: 'benjamin', longjing: 'charles', longxiaohui: 'alex',
+    // 老火山 voice id（历史草稿里可能仍存着）
+    zh_female_vv_uranus_bigtts: 'anna', zh_female_vv_aurora_bigtts: 'bella',
+    zh_female_tianmei: 'diana', zh_male_fengge_bigtts: 'benjamin',
+    zh_male_xiaoming_bigtts: 'alex', zh_male_sijie: 'david', zh_male_yanyang: 'charles',
+  };
+  return 'FunAudioLLM/CosyVoice2-0.5B:' + (M[v] || 'alex');
+}
+
 // 4. 配音 TTS（火山→硅基，先清洗文本防 Bad control character）
 // 语言参数用于路由：zh/en 走火山+硅基；其他语言直接走硅基 CosyVoice2（多语言）
 export async function textToSpeech(text: string, speaker = 'zh_female_vv_uranus_bigtts', language = 'zh'): Promise<ArrayBuffer | null> {
@@ -1741,8 +1766,8 @@ export async function textToSpeech(text: string, speaker = 'zh_female_vv_uranus_
 
   // 2026-08-14：统一平台——百炼(CosyVoice) 优先 → 硅基兜底（弃用火山 TTS，用户已删火山配置）
   if (language === 'zh' || language === 'en') {
-    // 百炼 CosyVoice（DASHSCOPE_API_KEY）
-    const dashResult = await dashscopeTTS(cleaned);
+    // 百炼 CosyVoice（DASHSCOPE_API_KEY）★VF_VOICE_PASS_V1：音色传下去（qwenTtsVoice 内做映射）
+    const dashResult = await dashscopeTTS(cleaned, speaker);
     if (dashResult && dashResult.byteLength > 100) {
       console.log(`[TTS] 百炼成功: ${dashResult.byteLength} bytes`);
       return dashResult;
@@ -1750,7 +1775,8 @@ export async function textToSpeech(text: string, speaker = 'zh_female_vv_uranus_
     console.log(`[TTS] 百炼失败, 尝试硅基...`);
   } else {
     console.log(`[TTS] 非中/英文(${language}), 直接走百炼→硅基`);
-    const dashResult = await dashscopeTTS(cleaned);
+    // ★VF_VOICE_PASS_V1：非中英文分支同样传音色（两处 dashscopeTTS 都不能漏）
+    const dashResult = await dashscopeTTS(cleaned, speaker);
     if (dashResult && dashResult.byteLength > 100) {
       console.log(`[TTS] 百炼成功: ${dashResult.byteLength} bytes`);
       return dashResult;
@@ -1758,7 +1784,11 @@ export async function textToSpeech(text: string, speaker = 'zh_female_vv_uranus_
   }
 
   // 硅基 CosyVoice2（多语言模型，支持中/英/日/韩/法/德等）
-  const siliconResult = await siliconTTS(cleaned, 'FunAudioLLM/CosyVoice2-0.5B:alex');
+  // ★VF_VOICE_PASS_V1：按用户音色映射；失败回退 alex 再试一次（保证兜底链不断）
+  let siliconResult = await siliconTTS(cleaned, siliconVoice(speaker));
+  if (!siliconResult || siliconResult.byteLength <= 100) {
+    siliconResult = await siliconTTS(cleaned, 'FunAudioLLM/CosyVoice2-0.5B:alex');
+  }
   if (siliconResult && siliconResult.byteLength > 100) {
     console.log(`[TTS] 硅基成功: ${siliconResult.byteLength} bytes`);
     return siliconResult;

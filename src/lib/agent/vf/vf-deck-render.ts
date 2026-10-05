@@ -212,15 +212,35 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, db, log 
     //   文案也切不出 6 条（文案本身太短）才如实报错 —— 此时新引擎确实做不出结构完整的 PPT。
     if (mid.length < 6) {
       const midN = mid.length
-      const sents = String(draft?.script || '')
-        .split(/[。！？!?；;\n]+/)
-        .map((x) => x.trim())
-        .filter((x) => x.length >= BULLET_MIN)      // ★VF_WINFIX_V1：切句同用 ≥8 字窗口
-        .map((x) => (x.length > BULLET_MAX ? x.slice(0, BULLET_MAX - 1) + '…' : x))
+      // ★VF_SCRIPTCHUNK_V1（2026-10-05 用户实测整单失败「可用要点 5 条，文案切句也不足 6 条」）：
+      //   老切句只按句末标点切 + <8 字整句丢 —— 口播文案天然多短句（「未来已来」「立即预约」），
+      //   短句被丢光就凑不齐 6 条。三步增强（内容 100% 仍来自用户文案，不编造）：
+      //   ① <8 字碎句与后一句合并（逗号连接，不超 28 字窗口）
+      //   ② >28 字长句按逗号/顿号二次切，片段贪心合并进 8~28 窗口（替代粗暴截断加…）
+      //   ③ 合并后仍 <8 字的孤句如实丢（schema minLength=8 硬约束，短了整节被引擎丢弃）
+      const raws = String(draft?.script || '')
+        .split(/[。！？!?；;\n]+/).map((x) => x.trim()).filter(Boolean)
+      const merged: string[] = []       // ★VF_SCRIPTCHUNK_V1：碎句向后合并 + 长句逗号二切
+      for (const s of raws) {
+        const last = merged[merged.length - 1]
+        if (last !== undefined && last.length < BULLET_MIN && last.length + s.length + 1 <= BULLET_MAX) {
+          merged[merged.length - 1] = `${last}，${s}`
+        } else merged.push(s)
+      }
+      const sents: string[] = []
+      for (const s of merged) {
+        if (s.length <= BULLET_MAX) { if (s.length >= BULLET_MIN) sents.push(s); continue }
+        let cur = ''
+        for (const p of s.split(/[，、]/).map((x) => x.trim()).filter(Boolean)) {
+          if (cur && cur.length + p.length + 1 > BULLET_MAX) { if (cur.length >= BULLET_MIN) sents.push(cur); cur = p }
+          else cur = cur ? `${cur}，${p}` : p
+        }
+        if (cur && cur.length >= BULLET_MIN) sents.push(cur)
+      }
       if (sents.length >= 6) {
         mid.splice(0, mid.length, ...sents)
         byScript = true
-        vflog(`[新引擎出片] 分镜要点只有 ${midN} 条不足 6 → 改按文案全文切句 ${sents.length} 条出 PPT（内容不变，仍是你自己的文案）`)
+        vflog(`[新引擎出片] 分镜要点只有 ${midN} 条不足 6 → 按文案切句（碎句合并+长句二切）得 ${sents.length} 条出 PPT（内容不变，仍是你自己的文案）`)
       }
     }
     if (mid.length < 6) {
@@ -410,14 +430,32 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, db, log 
         pages.forEach((p: any, i: number) => { p.duration = pageDur[i] })
         fs.writeFileSync(baseP, JSON.stringify(deck, null, 2) + '\n', 'utf8')
         // SRT：句内按 竖屏≤12/横屏≤22 字切块（video-task-manager 同款节奏）
+        // ★VF_SUBCHUNK_V1（2026-10-05 用户实测「99.8% 被切成 99 | % 两段字幕」，出现 2 次）：
+        //   固定字宽盲切会把「数字+小数点+%」块和英文单词从中间切开。切块点回退到
+        //   数字/百分号/字母串之外（整块超长时才硬切）。
+        const chunkSub = (t: string, max: number): string[] => {
+          const out: string[] = []
+          let rest = t
+          while (rest.length > max) {
+            let cut = max
+            while (cut > 0 && (
+              /[0-9.%％]/.test(rest[cut]) ||
+              (/[A-Za-z]/.test(rest[cut - 1] || '') && /[A-Za-z]/.test(rest[cut]))
+            )) cut--
+            if (cut <= 0) cut = max        // 整块就是一个超长数字/单词（罕见）→ 仍按 max 硬切
+            out.push(rest.slice(0, cut).trim())
+            rest = rest.slice(cut).trim()
+          }
+          if (rest) out.push(rest)
+          return out
+        }
         const subMax = ori === '9:16' ? 12 : 22
         const srtLines: string[] = []
         let tCur = 0, idx = 1
         for (let i = 0; i < pages.length; i++) {
           let inPage = 0
           for (const s of groups[i]) {
-            const chunks: string[] = []
-            for (let c = 0; c < s.text.length; c += subMax) chunks.push(s.text.slice(c, c + subMax))
+            const chunks: string[] = chunkSub(s.text, subMax)      // ★VF_SUBCHUNK_V1：不切断数字/%/英文串
             const chunkDur = s.dur / Math.max(1, chunks.length)
             for (const ch of chunks) {
               srtLines.push(`${idx}\n${srtTime(tCur + inPage)} --> ${srtTime(tCur + inPage + chunkDur)}\n${ch}`)

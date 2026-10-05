@@ -29,8 +29,8 @@ export async function ttsQwen3(text: string, voice: string, workDir: string, idx
     // 1) 百炼（qwen3-tts-flash）→ 2) 硅基：textToSpeech 内部就是这个顺序
     //    ★把用户选的音色传进去（内部会映射到 qwen3 的 Cherry/Serena/Ethan/Chelsie）
     try { buf = await textToSpeech(cleaned, voice) } catch {}
-    // 3) 火山最后兜底（仅当前面都失败）
-    if (!buf || buf.byteLength <= 100) { try { buf = await volcanoTTS(cleaned) } catch {} }
+    // 3) 火山最后兜底（仅当前面都失败）★VF_VOICE_PASS_V1：音色一并传下去（此前写死默认女声）
+    if (!buf || buf.byteLength <= 100) { try { buf = await volcanoTTS(cleaned, voice) } catch {} }
     if (!buf || buf.byteLength <= 100) {
       console.warn('[Qwen3TTS] 百炼/硅基/火山 全部失败')
       return { ok: false, path: '', duration: 0 }

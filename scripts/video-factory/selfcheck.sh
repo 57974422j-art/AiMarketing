@@ -111,6 +111,30 @@ ck 'VF_DECKCOPY_V1'                'src/app/api/agent/chat/route.ts' 1    # 确�
 #   而映射层过滤线是 6/4 字 ⇒ 6~7 字要点进节 → 整节凑不齐 3 条落窗被丢 → GEN-TOO-FEW-PAGES。
 #   本地实锤复现与修复验证：要点全 ≥8 字后 4 页 0.9MB MP4 正常产出。
 ck 'VF_WINFIX_V1'                  'src/lib/agent/vf/vf-deck-render.ts' 5  # BULLET_MIN/COVER_MIN 常量 + 三处过滤线 + sanitize + 失败原因透出（≥5 处）
+# ★VF_TTSFIX_V1（2026-10-05 用户实测二连：「配音把 API 读成日语腔（非首次）」+「选任何音色出来都是同一个声音」）：
+#   ① prepareTextForTTS 把全大写 ≥3 字母缩写（API/ROI/KOL…）拆成「A P I」逐字母读（AI/OK/iPhone 不动；
+#     已实测拆读版合成正常、ASR 识别为中文）② textToSpeech 的 speaker 参数此前被整个忽略（百炼永远默认
+#     Cherry、硅基写死 alex）→ 真正传下去 + 硅基音色映射（8 音色逐一实测存在）+ 火山兜底也传。
+ck 'VF_TTS_ACRONYM_V1'             'src/lib/ai-providers.ts' 1            # prepareTextForTTS 缩写拆读
+ck 'VF_VOICE_PASS_V1'              'src/lib/ai-providers.ts' 4            # siliconVoice 映射 + dashscopeTTS 两处传参 + 硅基回退 alex
+ck 'VF_VOICE_PASS_V1'              'src/lib/qwen3-tts.ts' 1               # volcanoTTS 兜底传音色
+# ★VF_SUBCHUNK_V1（2026-10-05 用户实测「99.8% 被切成 99 | % 两段字幕」，出现 2 次）：
+#   deck 线自产 SRT 的固定字宽盲切 → 块点回退到数字/百分号/英文串之外。
+ck 'VF_SUBCHUNK_V1'                'src/lib/agent/vf/vf-deck-render.ts' 2  # chunkSub 定义 + 调用
+# ★VF_SHOTIMG_V1（2026-10-05 用户实测「5 张图只排 1 张 bgimage、还排了 3 个 end 镜」）：
+#   分镜提示词加两条硬规矩：⑤素材图至少排一半以上（信息卡只是点缀）⑥end 镜只许 1 个。
+ck 'VF_SHOTIMG_V1'                 'src/app/api/agent/chat/route.ts' 1    # ⑤图要多用 + ⑥end 只一个（标记在 vfShotsPrompt 前注释）
+# ★VF_NAMESEQ_V1（2026-10-05 用户实测「删了 001 后新片又占 001 → 客户端按文件名判重跳过同步」）：
+#   个人仓库存档序号取「当天最大序号+1」，不复用被删掉的空号。
+ck 'VF_NAMESEQ_V1'                 'src/lib/personal-storage.ts' 1        # 最大序号+1 命名
+# ★VF_DECKRETRY_V1（2026-10-05 用户实测整单失败「可用要点 5 条，文案切句也不足 6 条」）：
+#   两套文案的 AI 转写层太脆——一次未过校验/异常就整个掉规则兜底。转写重试 1 次（第二次提示点名
+#   格式不合格）+ prompt 放宽（允许轻度润色扩写满足 ≥8 字窗口；数字/事实不动；用户定案「把权力
+#   放大给 AI 自主编排」）。兜底切句同轮增强见 VF_SCRIPTCHUNK_V1。
+ck 'VF_DECKRETRY_V1'               'src/app/api/agent/chat/route.ts' 2    # 重试循环 + prompt 放宽（两套文案转写段）
+# ★VF_SCRIPTCHUNK_V1（同上单）：规则兜底切句增强——<8 字碎句与后句合并、>28 字长句按逗号二切
+#   （片段贪心合并进 8~28 窗口），替代「短句直接丢、长句截断加…」。单测：上午实文案出 8 条 ✓。
+ck 'VF_SCRIPTCHUNK_V1'             'src/lib/agent/vf/vf-deck-render.ts' 2 # 碎句合并+长句二切 实现+注释
 # ★VF_AVIMG_V1（2026-10-05 用户定案「加图片页 + 字幕去重 + 配音/BGM 回归新引擎」）：
 #   新引擎正式出片不再走 make-video 一把梭，改为分步编排（gen-deck → 注入 pageImage 图片页/
 #   按配音定页时长 → 逐句TTS(百炼→硅基→火山) → 自产SRT(字幕=口播,与页面大字不再同文) →

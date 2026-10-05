@@ -125,7 +125,12 @@ async function genVideoShotsRaw(o: {
   const imgs = (o.imgPaths || []).filter(Boolean)
   const charN = String(o.script || '').length
   const avgN = Math.max(8, Math.round(charN / Math.max(1, o.shotN)))
-  const prompt = `你是短视频编导。把下面这条口播文案排成分镜。\n画幅 ${o.aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${o.dur} 秒，【必须切成 ${o.shotN} 个镜头左右（±3 以内）】，【各镜 dur 相加必须约等于 ${o.dur} 秒】。${o.retryHint ? '\n⚠️上次你没排好：' + o.retryHint : ''}\n【可用的图】共 ${imgs.length} 张（图号 1~${imgs.length}）${o.brief ? '，内容：\n' + o.brief : ''}\n\n只输出严格 JSON 数组（不要 markdown、不要解释），字段示例（注意 pick 是【纯数字】；subtitle 要像下面这么长）：\n[{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案、通宵盯屏幕，今天给你看一套能自动出片的系统。","dur":7},{"type":"title","text":"AI营销系统","subtitle":"它不是你想象里的概念，而是真正能在后台跑起来的营销引擎。","dur":5},{"type":"list","title":"三大能力","items":["写文案","做视频","自动发布"],"subtitle":"先看第一个能力：输入你的产品卖点，一键生成上百条不同风格的文案。","dur":6},{"type":"number","value":10,"suffix":"倍","label":"效率提升","subtitle":"这不是夸张说法，是我们内测团队跑出来的真实数据。","dur":5},{"type":"end","text":"评论区见","cta":"点击咨询","subtitle":"想要这套系统的，评论区留下你的行业，我把内测名额发给你。","dur":5}]\n★【type 只能是这 7 种：bgimage / title / list / number / compare / chart / end】——不要自造 subtitle、text、image、script 等其它 type！subtitle 是【字段名】，不是 type。\n  · 讲到【两个东西对比 / 有这个没这个】时用 compare：{"type":"compare","left":"旧做法","right":"新做法","leftDesc":"一句话说明","rightDesc":"一句话说明","subtitle":"这一镜念的文案","dur":5}\n  · 讲到【多个数据 / 占比 / 排名】时用 chart：{"type":"chart","title":"效果对比","items":[{"label":"人工","value":32},{"label":"AI","value":78}],"subtitle":"这一镜念的文案","dur":6}\n  · 其余情况用 bgimage（配你的素材图）最稳。\n★★【示例里的文字只是“字段长什么样”的演示，你必须全部换成与下面这段文案相关的新内容 —— **绝对不许照抄示例里的任何词句**（用户实测：照抄导致每条成片画面大字都一样）】★★\n要求：\n①【最关键】每个镜头都要给 subtitle，且【所有 subtitle 拼起来必须**完整覆盖**下面那段文案】（文案共 ${charN} 字，按 ${o.shotN} 镜算 → **平均每镜约 ${avgN} 字**；宁可一镜写到 60 字，也不许只写一部分）。★但【绝对不许扩写、不许重复】：所有 subtitle 拼起来的**总字数要≈文案字数**（最多不超过它的 1.15 倍）——实测你写超到 233%，成片会又超时又重复念，用户会直接发现\n② text 只能是 4~8 字的短语（它是画面上的大字，不是字幕）\n③【pick 必须是纯数字】（如 1、2、3），范围 1~${imgs.length}；★不要写“图1”“图 1”“第1张”这种带汉字的写法；每个 bgimage 的 pick 尽量用不同数字\n④ 不要编造素材里没有的东西。${o.wantPrompt ? `\n★★【本片画面由 AI 逐镜生成】所以每个镜头还必须多给一个 prompt 字段：**英文**的画面生成提示词，含【主体 + 动作 + 场景 + 光影 + 镜头感（如推近/平移/航拍）】，60~80 词；只描述画面，**不要在画面里出现任何文字**（文字由字幕层负责）。prompt 必须与该镜的 subtitle 语义一致 —— 文案说什么，画面就演什么。\n  示例（注意 prompt 是英文）：{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案。","prompt":"A young marketer working late at a desk at night, laptop glow on his face, camera slowly pushes in, cinematic warm lighting, shallow depth of field","dur":7}` : ''}\n` +
+  // ★VF_SHOTIMG_V1（2026-10-05 用户实测「5 张图只排 1 张 bgimage、还排了 3 个 end 镜」）：
+  //   要求清单加两条硬规矩 —— ⑤ 素材图至少排一半以上（信息卡只是点缀，别用信息卡把图挤掉）
+  //   ⑥ end 镜只许 1 个（多余的收尾句并进前一镜 subtitle）。老引擎/新引擎两条出片路都受益。
+  const prompt = `你是短视频编导。把下面这条口播文案排成分镜。\n画幅 ${o.aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${o.dur} 秒，【必须切成 ${o.shotN} 个镜头左右（±3 以内）】，【各镜 dur 相加必须约等于 ${o.dur} 秒】。${o.retryHint ? '\n⚠️上次你没排好：' + o.retryHint : ''}\n【可用的图】共 ${imgs.length} 张（图号 1~${imgs.length}）${o.brief ? '，内容：\n' + o.brief : ''}\n\n只输出严格 JSON 数组（不要 markdown、不要解释），字段示例（注意 pick 是【纯数字】；subtitle 要像下面这么长）：\n[{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案、通宵盯屏幕，今天给你看一套能自动出片的系统。","dur":7},{"type":"title","text":"AI营销系统","subtitle":"它不是你想象里的概念，而是真正能在后台跑起来的营销引擎。","dur":5},{"type":"list","title":"三大能力","items":["写文案","做视频","自动发布"],"subtitle":"先看第一个能力：输入你的产品卖点，一键生成上百条不同风格的文案。","dur":6},{"type":"number","value":10,"suffix":"倍","label":"效率提升","subtitle":"这不是夸张说法，是我们内测团队跑出来的真实数据。","dur":5},{"type":"end","text":"评论区见","cta":"点击咨询","subtitle":"想要这套系统的，评论区留下你的行业，我把内测名额发给你。","dur":5}]\n★【type 只能是这 7 种：bgimage / title / list / number / compare / chart / end】——不要自造 subtitle、text、image、script 等其它 type！subtitle 是【字段名】，不是 type。\n  · 讲到【两个东西对比 / 有这个没这个】时用 compare：{"type":"compare","left":"旧做法","right":"新做法","leftDesc":"一句话说明","rightDesc":"一句话说明","subtitle":"这一镜念的文案","dur":5}\n  · 讲到【多个数据 / 占比 / 排名】时用 chart：{"type":"chart","title":"效果对比","items":[{"label":"人工","value":32},{"label":"AI","value":78}],"subtitle":"这一镜念的文案","dur":6}\n  · 其余情况用 bgimage（配你的素材图）最稳。\n★★【示例里的文字只是“字段长什么样”的演示，你必须全部换成与下面这段文案相关的新内容 —— **绝对不许照抄示例里的任何词句**（用户实测：照抄导致每条成片画面大字都一样）】★★\n要求：\n①【最关键】每个镜头都要给 subtitle，且【所有 subtitle 拼起来必须**完整覆盖**下面那段文案】（文案共 ${charN} 字，按 ${o.shotN} 镜算 → **平均每镜约 ${avgN} 字**；宁可一镜写到 60 字，也不许只写一部分）。★但【绝对不许扩写、不许重复】：所有 subtitle 拼起来的**总字数要≈文案字数**（最多不超过它的 1.15 倍）——实测你写超到 233%，成片会又超时又重复念，用户会直接发现\n② text 只能是 4~8 字的短语（它是画面上的大字，不是字幕）\n③【pick 必须是纯数字】（如 1、2、3），范围 1~${imgs.length}；★不要写“图1”“图 1”“第1张”这种带汉字的写法；每个 bgimage 的 pick 尽量用不同数字\n④ 不要编造素材里没有的东西。
+⑤【素材图要多用】可用图 ≥2 张时，bgimage 镜至少要排【其中一半以上】（每张图最多用一次、能全用就全用）；信息卡（title/list/number/compare/chart）是点缀（每 3~4 个图镜插 1 张即可），不要反过来用信息卡把素材图挤掉（实测：5 张图只排了 1 张，成片几乎全是文字页，用户不满）。
+⑥【end 镜只能有 1 个】收尾只排 1 个 end 镜（含 CTA）；多余的收尾句并进前一镜的 subtitle，不要再加 end 镜（实测：排了 3 个 2 秒的 end 镜）。${o.wantPrompt ? `\n★★【本片画面由 AI 逐镜生成】所以每个镜头还必须多给一个 prompt 字段：**英文**的画面生成提示词，含【主体 + 动作 + 场景 + 光影 + 镜头感（如推近/平移/航拍）】，60~80 词；只描述画面，**不要在画面里出现任何文字**（文字由字幕层负责）。prompt 必须与该镜的 subtitle 语义一致 —— 文案说什么，画面就演什么。\n  示例（注意 prompt 是英文）：{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案。","prompt":"A young marketer working late at a desk at night, laptop glow on his face, camera slowly pushes in, cinematic warm lighting, shallow depth of field","dur":7}` : ''}\n` +
     // ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：「长镜必须有动效」档位 + 硬规矩（与「视频混剪」线共用
     //   同一份常量；本 prompt 就是任务里点名的 vfShotsPrompt —— 只在这里与紧邻的归一化逻辑上加，
     //   文件后半段的模型读取/传参区域一律不碰）。
@@ -3985,19 +3990,25 @@ PUBLISH_DRAFT.delete(uidW)
               //   出片这一刻把口播文案用一次便宜的文本调用转成【PPT 要点版】（短语化、按节分组），
               //   sanitizeDeckMd 严格校验（节≥2 × 每节3条、限长）—— 不过校验/调用失败一律退回
               //   规则映射兜底（分镜要点 → 文案切句），绝不因为转写失败挡住出片。
+              // ★VF_DECKRETRY_V1（2026-10-05 用户实测整单失败「可用要点 5 条，文案切句也不足 6 条」：
+              //   转写一次未过校验就整个掉规则兜底，而规则兜底对短句型文案很脆）：
+              //   ① 转写重试 1 次（第二次提示里点名"上次未过格式校验"）；
+              //   ② prompt 放宽 —— 允许轻度润色/扩写（用户定案「把权力放大给 AI 自主编排」，
+              //      数字与事实不动、不加新信息，但短句可扩成完整短语以满足 ≥8 字窗口）。
               let _deckMd = ''
               const _script = String(_df.draft?.script || '').trim()
               if (_script.length >= 20) {
-                try {
-                  const _p = '下面是一支营销短视频的口播文案。请把它改写成动态 PPT 的页面文案——同一内容的两种文体：口播版是完整句子，PPT 版是短语要点。\n\n严格按以下 markdown 格式输出，不要输出任何解释、前后缀或代码栅栏：\n# 封面标题\n封面副题\n\n## 节标题\n- 要点一\n- 要点二\n- 要点三\n\n要求：## 节共 3~6 个；每节恰好 3 条要点；封面标题 4~12 字、副题 8~18 字；节标题 4~12 字；每条要点 8~22 字、短语化（不要完整句子、不带句号，短于 8 字会被丢弃）；所有要点必须来自文案本身（可压缩、可合并），不得编造文案里没有的信息。\n\n口播文案：\n' + _script.slice(0, 2000)
-                  const _out = await genTextW(_p)
-                  _deckMd = sanitizeDeckMd(String(_out || ''))
-                  vfLog(uidVF2, _deckMd
-                    ? `[新引擎出片] PPT 版文案已由 AI 转写（${(_deckMd.match(/^##/gm) || []).length} 节 · 两套文案：口播版留档，要点版出 PPT）`
-                    : '[新引擎出片] PPT 版文案未过校验（AI 输出结构不合格）→ 走规则映射兜底')
-                } catch (eG: any) {
-                  vfLog(uidVF2, '[新引擎出片] PPT 版文案转写失败 → 走规则映射兜底：' + String(eG?.message || eG).slice(0, 80))
+                const _p = '下面是一支营销短视频的口播文案。请把它改写成动态 PPT 的页面文案——同一内容的两种文体：口播版是完整句子，PPT 版是短语要点。\n\n严格按以下 markdown 格式输出，不要输出任何解释、前后缀或代码栅栏：\n# 封面标题\n封面副题\n\n## 节标题\n- 要点一\n- 要点二\n- 要点三\n\n要求：## 节共 3~6 个；每节恰好 3 条要点；封面标题 4~12 字、副题 8~18 字；节标题 4~12 字；每条要点 8~22 字、短语化（不要完整句子、不带句号，短于 8 字会被丢弃）；要点忠于文案本身（可压缩、可合并、可轻度润色成完整短语），不得改变数字与事实、不得加入文案里没有的新信息；遇到不足 8 字的短句要扩写成完整短语（如「未来已来」→「未来已来，立即预约」）。\n\n口播文案：\n' + _script.slice(0, 2000)
+                for (let _try = 1; _try <= 2 && !_deckMd; _try++) {   // ★VF_DECKRETRY_V1：转写重试 1 次
+                  try {
+                    const _out = await genTextW(_try === 1 ? _p : _p + '\n\n（注意：上一次输出未通过格式校验，请逐行严格按上述 markdown 结构输出，封面/节标题/要点条数都别少。）')
+                    _deckMd = sanitizeDeckMd(String(_out || ''))
+                    if (!_deckMd) vfLog(uidVF2, `[新引擎出片] PPT 版文案第 ${_try} 次转写未过校验${_try === 1 ? '，重试一次' : '（AI 输出结构不合格）→ 走规则映射兜底'}`)
+                  } catch (eG: any) {
+                    vfLog(uidVF2, `[新引擎出片] PPT 版文案第 ${_try} 次转写异常${_try === 1 ? '，重试一次' : ' → 走规则映射兜底'}：` + String(eG?.message || eG).slice(0, 80))
+                  }
                 }
+                if (_deckMd) vfLog(uidVF2, `[新引擎出片] PPT 版文案已由 AI 转写（${(_deckMd.match(/^##/gm) || []).length} 节 · 两套文案：口播版留档，要点版出 PPT）`)
               }
               vfLog(uidVF2, `[新引擎出片] 确认卡按钮（草稿线 ${_df.tag} · skin=${_dc.skin} ${_ori}${_deckMd ? ' · AI 要点版文案' : ' · 规则映射文案'}）`)
               const _dr = await runDeckVideoTask({ uid: uidVF2, draft: _df.draft, skin: _dc.skin, ori: _ori, deckMd: _deckMd, db: prisma, log: (u: any, m: string) => vfLog(u, m) })
