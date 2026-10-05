@@ -106,6 +106,11 @@ ck 'VF_ENGINE_UI_V1'               'src/lib/agent/vf/vf-mix.ts' 1      # 素材+
 #   确认时 AI 把口播文案转写为 PPT 要点版（sanitizeDeckMd 严格校验，失败退规则映射）。
 ck 'VF_DECKCOPY_V1'                'src/lib/agent/vf/vf-deck-render.ts' 1  # sanitizeDeckMd + deckMd 直通
 ck 'VF_DECKCOPY_V1'                'src/app/api/agent/chat/route.ts' 1    # 确认处理器里的 AI 转写
+# ★VF_WINFIX_V1（2026-10-05 用户实测「新引擎出片失败 make-video.mjs 退出码 1 · 已跑 0s」）：
+#   根因 = deck.schema.json 硬约束 pageBullets.items.minLength=8 / meta.title.minLength=4，
+#   而映射层过滤线是 6/4 字 ⇒ 6~7 字要点进节 → 整节凑不齐 3 条落窗被丢 → GEN-TOO-FEW-PAGES。
+#   本地实锤复现与修复验证：要点全 ≥8 字后 4 页 0.9MB MP4 正常产出。
+ck 'VF_WINFIX_V1'                  'src/lib/agent/vf/vf-deck-render.ts' 5  # BULLET_MIN/COVER_MIN 常量 + 三处过滤线 + sanitize + 失败原因透出（≥5 处）
 
 line "结论"
 if [ "$FAIL" -eq 0 ]; then

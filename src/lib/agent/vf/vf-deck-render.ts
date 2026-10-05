@@ -31,6 +31,10 @@ export const DECK_SKINS = ['ecom', 'editorial', 'edu', 'festive', 'formal', 'hea
 const ORIS = ['9:16', '16:9'] as const
 const MAX_SECTIONS = 10         // 每节 3 镜 ⇒ 最多消费 30 镜（与 deck-preview 同上限）
 const BULLET_MAX = 28           // 引擎要点窗口上限（gen-deck W.iBullets，与 deck-preview 同窗）
+const BULLET_MIN = 8            // ★VF_WINFIX_V1（2026-10-05 用户实测「退出码 1 · 已跑 0s」）：schema 硬约束 pageBullets.items.minLength=8
+                                //   （deck.schema.json 实测：要点每条 ≥8 字，短了整节被丢 → GEN-TOO-FEW-PAGES → exit 1）。
+                                //   之前过滤线是 6/4 字 ⇒ 6~7 字要点混进节里 → 节凑不齐 3 条落窗 → 整节丢弃。一律对齐 8。
+const COVER_MIN = 4             // 同上：meta.title 硬性 ≥4 字（封面主标题短于 4 字 = GEN-VALIDATE-FAILED 直接红）
 const TIMEOUT_MS = 420000       // 与 deck-preview 同值（页面多时 1~3 分钟级）
 
 /** 四条成片线的草稿 tag（★VF_DRAFT_ISOLATE_V1：一律 equals 精确匹配；素材线含历史旧 tag） */
@@ -64,18 +68,21 @@ export function sanitizeDeckMd(md: string): string {
   const start = lines.findIndex((l) => /^#\s+\S/.test(l))
   if (start < 0) return ''
   const body = lines.slice(start)
+  // ★VF_WINFIX_V1：封面主标题 ≥4 字（meta.title 硬约束）—— 短了这版 md 直接判不合格
   const cover = body[0].replace(/^#\s+/, '').slice(0, 16).trim()
-  if (!cover) return ''
+  if (cover.length < COVER_MIN) return ''
   let coverSub = ''
-  if (body[1] && !/^(##\s|[-*]\s|#\s)/.test(body[1])) coverSub = body[1].slice(0, 24).trim()
+  // ★VF_WINFIX_V1：副题 <6 字留着也进不了任何窗口（pageEnd.line2 需 0~30 但观感差）—— 短于 6 字直接不收
+  if (body[1] && !/^(##\s|[-*]\s|#\s)/.test(body[1]) && body[1].trim().length >= 6) coverSub = body[1].slice(0, 24).trim()
   const sections: { title: string; bullets: string[] }[] = []
   let cur: { title: string; bullets: string[] } | null = null
   const flush = () => { if (cur && cur.bullets.length >= 3) sections.push({ title: cur.title, bullets: cur.bullets.slice(0, 3) }) }
   for (const l of body.slice(coverSub ? 2 : 1)) {
     const h = l.match(/^##\s+(.*)$/)
     if (h) { flush(); cur = { title: h[1].slice(0, 16).trim(), bullets: [] }; continue }
+    // ★VF_WINFIX_V1：要点 ≥8 字才收（pageBullets.items.minLength=8；短了整节凑不齐会被引擎丢弃）
     const b = l.match(/^[-*]\s+(.*)$/)
-    if (b && cur) { const t = b[1].trim().slice(0, BULLET_MAX); if (t.length >= 4) cur.bullets.push(t) }
+    if (b && cur) { const t = b[1].trim().slice(0, BULLET_MAX); if (t.length >= BULLET_MIN) cur.bullets.push(t) }
   }
   flush()
   const good = sections.filter((s) => s.title && s.bullets.length >= 3).slice(0, MAX_SECTIONS)
@@ -158,7 +165,7 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, log }: {
       const sub = String(s?.subtitle || '').trim()
       let b = text && sub && text !== sub ? `${text}：${sub}` : (text || sub)
       if (b.length > BULLET_MAX) b = b.slice(0, BULLET_MAX - 1) + '…'
-      return b.length >= 6 ? b : ''
+      return b.length >= BULLET_MIN ? b : ''       // ★VF_WINFIX_V1：≥8 字才落窗（6~7 字会被引擎整节丢弃）
     }
     const mid = shots.slice(1).map(bulletOf).filter(Boolean)
     // ★VF_DECKCONFIRM_V1（2026-10-04 用户实测「7 镜仍被拦」）：图视混剪等线的分镜里**视频镜多、文字镜少**，
@@ -170,7 +177,7 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, log }: {
       const sents = String(draft?.script || '')
         .split(/[。！？!?；;\n]+/)
         .map((x) => x.trim())
-        .filter((x) => x.length >= 6)
+        .filter((x) => x.length >= BULLET_MIN)      // ★VF_WINFIX_V1：切句同用 ≥8 字窗口
         .map((x) => (x.length > BULLET_MAX ? x.slice(0, BULLET_MAX - 1) + '…' : x))
       if (sents.length >= 6) {
         mid.splice(0, mid.length, ...sents)
@@ -183,7 +190,10 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, log }: {
     }
     const lines: string[] = []
     const first = shots.find((s) => String(s?.text || '').trim() || String(s?.subtitle || '').trim())
-    lines.push(`# ${String(first?.text || '').trim() || '成片'}`, String(first?.subtitle || '').trim(), '')
+    // ★VF_WINFIX_V1：封面主标题必须 ≥4 字（meta.title 硬约束；短了 = GEN-VALIDATE-FAILED 整单红）
+    const covRaw = String(first?.text || '').trim() || '营销内容成片'
+    const covT = covRaw.length >= COVER_MIN ? covRaw : '营销内容成片'
+    lines.push(`# ${covT}`, String(first?.subtitle || '').trim(), '')
     for (let i = 0; i + 3 <= mid.length && used < MAX_SECTIONS; i += 3, used++) {
       const grp = mid.slice(i, i + 3)
       lines.push(`## ${grp[0].split('：')[0].slice(0, 12)}`, ...grp.map((b) => `- ${b}`), '')
@@ -241,7 +251,12 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, log }: {
       walk(od)
       const okDone = code === 0 && mp4s.length === 1 && (() => { try { return fs.statSync(mp4s[0]).size > 0 } catch { return false } })()
       if (!okDone) {
-        const reason = code !== 0 ? `make-video.mjs 退出码 ${code}` : `产物数异常（${mp4s.length} 条 MP4，应恰好 1）`
+        // ★VF_WINFIX_V1：退出码对人没信息量 —— 从引擎输出里抓最后一条 `✗ [XXX-YYY]` 结论行当原因
+        //   （如 "GEN-TOO-FEW-PAGES 只生成 3 页 < 下限 4"），用户一眼看懂是文案不足还是渲染挂了。
+        const tagLine = (so.match(/✗?\s*\[[A-Z][A-Z-]+\][^\n]*/g) || []).filter((x) => /^\s*✗/.test(x)).pop() || ''
+        const reason = code !== 0
+          ? `make-video.mjs 退出码 ${code}${tagLine ? '：' + tagLine.trim().slice(0, 90) : ''}`
+          : `产物数异常（${mp4s.length} 条 MP4，应恰好 1）`
         writeTask({ status: 'failed', finishedAt, error: reason, tail })
         vflog(`[新引擎出片] 失败：${reason}（不扣点）`)
         return
