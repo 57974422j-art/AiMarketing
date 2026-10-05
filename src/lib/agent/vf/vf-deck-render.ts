@@ -91,6 +91,37 @@ export function deckConfirmArgsOf(m: string): { skin: string; ori: string } {
   return { skin, ori }
 }
 
+/* ---------------- ★VF_FONTFIT_V1（2026-10-05 用户实测「180s 单失败、30s 单成功」） ----------------
+ * render-deck 有道**字体覆盖闸门**（exit 8）：内嵌字体是子集（fonts/chars-cmn.txt = GB2312 一级
+ * 3755 字 + ASCII + 常用标点，共 3926 码点）—— deck 里出现表外字（二级字表汉字如 婷/鑫/喆、emoji、
+ * 特殊符号）⇒ 闸门红 ⇒ batch-video 报 render=8 未找到产物 ⇒ **整单红**。文案越长撞表外字概率越大，
+ * 所以 30 秒短文案过了、180 秒长文案炸了。
+ * 闸门本身不能放宽（服务器无 CJK 系统字体，缺字真会渲豆腐块）⇒ 在 copy.md 的**两个出口**（AI 版
+ * sanitizeDeckMd + 规则映射 buildRuleMd）把表外字符**删除**：硬保证必过闸门；删了哪些字收集进
+ * fontRemoved，由 runDeckVideoTask 打日志/落任务文件（用户可见，不静默吞字）。
+ * 后续优化（待做）：把字表扩到 GB2312 全量 6763 字（需重跑 make-fonts.py 生成 woff2），
+ * 「婷/鑫」这类营销文案高频字就不必删了。 */
+let FONT_SET: Set<string> | null = null
+let fontRemoved: string[] = []
+function fontSet(): Set<string> {
+  if (FONT_SET !== null) return FONT_SET
+  try {
+    FONT_SET = new Set(fs.readFileSync(path.join(vfRootDir() || '', 'scripts', 'video-factory', 'html-deck', 'fonts', 'chars-cmn.txt'), 'utf8'))
+  } catch { FONT_SET = new Set() }   // 引擎不在（本地开发机）⇒ 空表 = 不净化
+  return FONT_SET!
+}
+/** 表外字符删除（换行/制表保留）；删掉的字符收集进 fontRemoved（调用方读走打日志） */
+const fitFont = (t: string): string => {
+  const s = fontSet()
+  if (!s.size) return t
+  let out = ''
+  for (const ch of String(t || '')) {
+    if (s.has(ch) || ch === '\n' || ch === '\r' || ch === '\t') out += ch
+    else fontRemoved.push(ch)
+  }
+  return out
+}
+
 /**
  * ★VF_DECKCOPY_V1（2026-10-04 用户定案「两套文案：口播给配音字幕、要点给 PPT」）——
  * 校验/清洗 AI 生成的 PPT 版文案（markdown）。**不合格返回 ''**（调用方退回规则映射，不硬塞）：
@@ -118,7 +149,8 @@ export function sanitizeDeckMd(md: string): string {
   //   ③ 粗体/【标签】致死：AI 爱 `**94%…**` / 行首 `【数据节】` ⇒ 数字行不以数字开头（数据节丢）、
   //     假副题混进封面。修复：行预处理剥 `**` 和行首【…】。
   const lines = String(md || '').replace(/```[a-z]*\n?/gi, '').split('\n')
-    .map((l) => l.replace(/\*\*|__/g, '').replace(/^【[^】]{0,10}】\s*/, '').trim()).filter(Boolean)
+    // ★VF_FONTFIT_V1：表外字符在**判长度之前**删掉（净化后跌破窗口的条目被丢是正常收缩，不会死锁）
+    .map((l) => fitFont(l.replace(/\*\*|__/g, '').replace(/^【[^】]{0,10}】\s*/, '').trim())).filter(Boolean)
   const start = lines.findIndex((l) => /^#\s+\S/.test(l))
   if (start < 0) return ''
   const body = lines.slice(start)
@@ -263,8 +295,9 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, db, log 
     //   路径），AI 文案再怪也死不了单——宁可全要点页，不整单红。
     const buildRuleMd = (): { md?: string; err?: string; byScript?: boolean } => {
     const bulletOf = (s: any): string => {
-      const text = String(s?.text || '').trim()
-      const sub = String(s?.subtitle || '').trim()
+      // ★VF_FONTFIT_V1：分镜文字先过字体净化（表外字在判窗之前删，跌破窗口如实丢）
+      const text = fitFont(String(s?.text || '')).trim()
+      const sub = fitFont(String(s?.subtitle || '')).trim()
       let b = text && sub && text !== sub ? `${text}：${sub}` : (text || sub)
       if (b.length > BULLET_MAX) b = b.slice(0, BULLET_MAX - 1) + '…'
       return b.length >= BULLET_MIN ? b : ''       // ★VF_WINFIX_V1：≥8 字才落窗（6~7 字会被引擎整节丢弃）
@@ -283,7 +316,7 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, db, log 
       //   ① <8 字碎句与后一句合并（逗号连接，不超 28 字窗口）
       //   ② >28 字长句按逗号/顿号二次切，片段贪心合并进 8~28 窗口（替代粗暴截断加…）
       //   ③ 合并后仍 <8 字的孤句如实丢（schema minLength=8 硬约束，短了整节被引擎丢弃）
-      const raws = String(draft?.script || '')
+      const raws = fitFont(String(draft?.script || ''))
         .split(/[。！？!?；;\n]+/).map((x) => x.trim()).filter(Boolean)
       const merged: string[] = []       // ★VF_SCRIPTCHUNK_V1：碎句向后合并 + 长句逗号二切
       for (const s of raws) {
@@ -314,9 +347,10 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, db, log 
     const lines: string[] = []
     const first = shots.find((s) => String(s?.text || '').trim() || String(s?.subtitle || '').trim())
     // ★VF_WINFIX_V1：封面主标题必须 ≥4 字（meta.title 硬约束；短了 = GEN-VALIDATE-FAILED 整单红）
-    const covRaw = String(first?.text || '').trim() || '营销内容成片'
+    // ★VF_FONTFIT_V1：封面同样先净化（表外字删掉后短于 4 字 = 用兜底词，不让封面成为缺字源头）
+    const covRaw = fitFont(String(first?.text || '')).trim() || '营销内容成片'
     const covT = covRaw.length >= COVER_MIN ? covRaw : '营销内容成片'
-    lines.push(`# ${covT}`, String(first?.subtitle || '').trim(), '')
+    lines.push(`# ${covT}`, fitFont(String(first?.subtitle || '')).trim(), '')
     let u = 0
     for (let i = 0; i + 3 <= mid.length && u < MAX_SECTIONS; i += 3, u++) {
       const grp = mid.slice(i, i + 3)
@@ -395,6 +429,13 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, db, log 
     }
 
     const runDeck = async () => {
+      // ── ⓪ ★VF_FONTFIT_V1：字体净化日志（copy.md 生成时删掉的表外字——可见、不静默吞字）──
+      if (fontRemoved.length) {
+        const uniq = [...new Set(fontRemoved)]
+        vflog(`[字体净化] 删 ${fontRemoved.length} 个字体子集外的字符（字库没刻这些字，留着会触发字体闸门整单失败）：${uniq.slice(0, 30).map((c) => `${c}(U+${c.codePointAt(0)!.toString(16).toUpperCase()})`).join(' ')}`)
+        writeTask({ fontSanitized: uniq.slice(0, 60).join('') })
+        fontRemoved = []
+      }
       // ── ① BGM（draft.bgm==='auto' → AI 音乐库挑最新一首下载；老链 chat/route.ts 同源逻辑）──
       let bgmP = ''
       if (String(draft?.bgm || '') === 'auto' && db) {
@@ -433,6 +474,13 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, db, log 
           copyMd = r.md
           fs.writeFileSync(mdP, copyMd, 'utf8')
           push('[救援] AI 版文案 gen-deck 失败 → 已回退规则映射文案重跑一次（内容不变，仍是你自己的文案）')
+          // ★VF_FONTFIT_V1：救援版文案的净化记录也打出来（buildRuleMd 生成时收集的表外字）
+          if (fontRemoved.length) {
+            const uniq = [...new Set(fontRemoved)]
+            push(`[字体净化] 删 ${fontRemoved.length} 个字体子集外的字符：${uniq.slice(0, 30).join(' ')}`)
+            writeTask({ fontSanitized: uniq.slice(0, 60).join('') })
+            fontRemoved = []
+          }
           writeTask({ rescued: true, byScript: r.byScript || undefined })
           g = await runCmd(process.execPath, [genP, ...genArgs], { cwd: engDir, timeoutMs: 180000 })
           push(g.out)
@@ -469,12 +517,18 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, db, log 
           const ext = (src.match(/\.(\w+)$/)?.[1] || 'jpg').toLowerCase()
           const dst = path.join(assetsDir, 'img_' + i + '.' + ext)
           try { fs.copyFileSync(src, dst) } catch { continue }
-          const t = String(imgShots[i]?.text || '').trim()
+          // ★VF_FONTFIT_V1：图片页 title/caption 也进 deck ⇒ 同样过字体净化（表外字删，短于窗口如实跳过）
+          const t = fitFont(String(imgShots[i]?.text || '')).trim()
           const title = t.length >= 4 ? t.slice(0, 24) : '现场画面'      // pageImage.title 硬性 4~24
-          const capRaw = String(imgShots[i]?.subtitle || '').trim()
+          const capRaw = fitFont(String(imgShots[i]?.subtitle || '')).trim()
           const pg: any = { type: 'image', title, asset: 'assets/img_' + i + '.' + ext, layout: ori === '9:16' ? 'full' : (i % 2 ? 'right' : 'left'), duration: 2.5 }
           if (capRaw.length >= 8) pg.caption = capRaw.slice(0, 48)        // caption 给了就 ≥8
           imgPages.push(pg)
+        }
+        // ★VF_FONTFIT_V1：素材帧文字的净化记录落任务 tail（copy.md 的记录已在 ⓪ 打过并清空）
+        if (fontRemoved.length) {
+          push(`[字体净化] 素材图帧文字删 ${fontRemoved.length} 个字体子集外的字符：${[...new Set(fontRemoved)].slice(0, 20).join(' ')}`)
+          fontRemoved = []
         }
         // 穿插：素材帧均摊到各内容页后（总页数 ≤40 —— schema maxItems；end 恒最后）
         const oldPages: any[] = deck.pages

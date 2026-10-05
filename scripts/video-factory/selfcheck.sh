@@ -162,6 +162,17 @@ ck 'VF_SUBATOM_V1'                 'src/lib/agent/vf/vf-deck-render.ts' 2 # chun
 #   AI 文案再怪也死不了单）；④ prompt 数据节禁 markdown 表格。端测四场景过 sanitize 后全绿：
 #   std=cover→bullets→data→steps→compare→end · chart/shortstep/bold 各 4 页 ✓。
 ck 'VF_DECKRESCUE_V1'               'src/lib/agent/vf/vf-deck-render.ts' 7 # sanitize 头注/flatMap/收集线/fromAi/buildRuleMd/救援重跑/AI分支注释
+# ★VF_FONTFIT_V1（2026-10-05 晚用户实测 vf1791197069965「batch-video 退出码 1：BATCH-ITEM-FAILED
+#   render=8 未找到产物 mp4」且 30s 单成功、180s 单失败）：render=8 = render-deck 的**字体覆盖闸门**
+#   （EXIT.FONT）—— 内嵌字体是子集（chars-cmn.txt=GB2312 一级 3755+ASCII+标点=3926 码点），deck 里
+#   出现一个表外字（二级字表 婷/鑫/喆、emoji、特殊符号）整单红；文案越长撞表概率越大，故短单过、长单炸。
+#   修法 = copy.md 三个出口全部先过 fitFont（表外字符删除+fontRemoved 收集）：① sanitizeDeckMd 行预处理、
+#   ② buildRuleMd（bulletOf/切句/封面）、③ 图片页注入（pageImage.title/caption）。删字打日志+落任务文件
+#   （fontSanitized），不静默吞字；转写 prompt 补「禁 emoji/生僻字」。闸门本身不动（服务器无 CJK 系统字体，
+#   缺字真会豆腐块）。端测对照：脏文案（含😀/婷/鑫/喆/燚）→ gen-deck → render-deck = exit 8 复现；
+#   同文案净化后 = ok=true 6 页 19.8s 渲染成功、reconcile 全 0；纯表内文案净化零动作（不误伤）。
+#   ⚠️ 后续优化（未做）：字表扩到 GB2312 全量 6763 字（重跑 make-fonts.py 生成 woff2），高频二级字就不删了。
+ck 'VF_FONTFIT_V1'                  'src/lib/agent/vf/vf-deck-render.ts' 8 # 注释块/sanitize行/bulletOf/封面/图片页×2/日志⓪/救援日志
 # ★VF_DECKROUTE_V1（首版 镜>12/预计>90s 就提示走老引擎；VF_MATDOM_V1 破窗 40 页后放宽到真超容量）：
 #   新引擎且预计 >300s（40 页 × ~6s ≈ 5 分钟）→ 确认卡明示建议拆条或换老引擎（只提示不拦）。
 ck 'VF_DECKROUTE_V1'               'src/app/api/agent/chat/route.ts' 2   # 提示拼接 + 注释

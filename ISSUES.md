@@ -25,6 +25,15 @@
 
 ---
 
+## ✅ 已解决（2026-10-05 晚 · vf1791197069965「render=8 未找到产物 mp4」30s 成功/180s 失败 → FONTFIT）
+
+- ✅ **根因**：render-deck 的**字体覆盖闸门**（exit 8）——PPT 内嵌字体是子集（chars-cmn.txt=GB2312 一级 3755 字+ASCII+标点，3926 码点），deck 出现一个表外字（二级字表高频字 婷/鑫/喆、emoji、特殊符号）⇒ 闸门红 ⇒ batch-video 报 render=8 ⇒ 整单红。文案越长撞表概率越大 ⇒ 30s 单过、180s 单炸。
+- ✅ **修复**：copy.md 三个进字出口（AI 版 sanitize / 规则映射 buildRuleMd / 图片页 title·caption）全部先过 `fitFont` 删表外字——净化发生在判窗之前（跌破窗口如实收缩）；删字打日志+落任务文件 `fontSanitized`（可见不静默）；转写 prompt 补「只用常规简体字、禁 emoji/生僻字」。闸门本身不动（服务器无 CJK 系统字体，缺字真豆腐块）。
+- 📋 端测对照：脏文案（😀婷鑫喆燚）render-deck `exit 8` 复现故障；净化后 `ok=true` 6 页 19.8s 成片、reconcile 全 0、覆盖闸门 PASS；纯表内文案零动作不误伤。
+- 🟡 后续优化（未做）：字表扩 GB2312 全量 6763 字（本机重跑 `fonts/make-fonts.py` 生成 woff2 入库）——「婷/鑫」级高频营销字不必删。
+
+---
+
 ## ✅ 已解决（2026-10-05 傍晚 · vf1791195178923 整单红「GEN-TOO-FEW-PAGES 只生成 2 页」→ DECKRESCUE）
 
 - ✅ **真凶**：MATDOM/PAGEMIX 改造时 `sanitizeDeckMd` 的 `flatMap` 误写成 `map`——节数组没摊平，`join('\n')` 把每节 toString 成「## 标题,要点,要点」**一行** ⇒ gen-deck 只见到假标题 ⇒ 全部节丢弃 = 恰好 cover+end 2 页。上午的端测只喂手写 md 绕过了 sanitize，故未测出。**教训**：AI 转写链路的测试必须「sanitize → gen-deck」整链跑，任何一环单测都不够。

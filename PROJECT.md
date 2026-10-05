@@ -161,6 +161,14 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
 
+### 2026-10-05 FONTFIT：render=8 字体覆盖闸门整单红 → 三出口净化（✅ 代码完成，待部署重测）
+
+- **用户实测炸点**：vf1791197069965「batch-video 退出码 1：BATCH-ITEM-FAILED · render=8 · 未找到产物 mp4」，且 **30s 单成功、180s 单失败**。
+- **根因**：`render=8` = render-deck **字体覆盖闸门**（`EXIT.FONT`）。PPT 内嵌字体是子集（`fonts/chars-cmn.txt` = GB2312 一级 3755 + ASCII + 标点 = 3926 码点），deck 出现一个表外字（婷/鑫/喆/emoji/特殊符号）⇒ 闸门红 ⇒ 整单红。文案越长撞表概率越大——解释 30s/180s 差异。
+- **修复（`VF_FONTFIT_V1`）**：copy.md 三个进字出口（sanitizeDeckMd 行预处理 / buildRuleMd 分镜·切句·封面 / 图片页 title·caption）全部先过 `fitFont` 删表外字，删字打日志+落任务文件 `fontSanitized`；prompt 补「禁 emoji/生僻字」。闸门不动（服务器无 CJK 系统字体，缺字真豆腐块）。
+- **端测对照**：脏文案 render-deck `exit 8` 一字不差复现；净化后 `ok=true` 6 页 19.8s 渲染成功；纯表内文案净化零动作。
+- ⚠️ **待部署重测**：服务器 build 后重出 180s 长单。后续优化（未做）：字表扩 GB2312 全量 6763（重跑 make-fonts.py）。
+
 ### 2026-10-05 DECKRESCUE：sanitize flatMap 真凶修复 + gen-deck 救援网（✅ 代码完成，待部署重测）
 
 - **用户实测炸点**：vf1791195178923 整单红「gen-deck 退出码 1：GEN-TOO-FEW-PAGES 只生成 2 页」。
