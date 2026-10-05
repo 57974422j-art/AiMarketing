@@ -118,9 +118,9 @@ ck 'VF_WINFIX_V1'                  'src/lib/agent/vf/vf-deck-render.ts' 5  # BUL
 ck 'VF_TTS_ACRONYM_V1'             'src/lib/ai-providers.ts' 1            # prepareTextForTTS 缩写拆读
 ck 'VF_VOICE_PASS_V1'              'src/lib/ai-providers.ts' 4            # siliconVoice 映射 + dashscopeTTS 两处传参 + 硅基回退 alex
 ck 'VF_VOICE_PASS_V1'              'src/lib/qwen3-tts.ts' 1               # volcanoTTS 兜底传音色
-# ★VF_SUBCHUNK_V1（2026-10-05 用户实测「99.8% 被切成 99 | % 两段字幕」，出现 2 次）：
-#   deck 线自产 SRT 的固定字宽盲切 → 块点回退到数字/百分号/英文串之外。
-ck 'VF_SUBCHUNK_V1'                'src/lib/agent/vf/vf-deck-render.ts' 2  # chunkSub 定义 + 调用
+# ★VF_SUBCHUNK_V1：**已被 VF_SUBATOM_V1 取代（标记不再存在，见下方 SUBATOM 段）**——
+#   同日先做了「定宽盲切 + 块点回退防 99|%」，当天晚些又整体改成原子块贪心打包（chunkSub 一处实现，
+#   只有一个标记）。旧的 ck 行留着会让 ④ 段永远红（代码里已无该字符串），故删除，历史留在本注释。
 # ★VF_SHOTIMG_V1（2026-10-05 用户实测「5 张图只排 1 张 bgimage、还排了 3 个 end 镜」）：
 #   分镜提示词加两条硬规矩：⑤素材图至少排一半以上（信息卡只是点缀）⑥end 镜只许 1 个。
 ck 'VF_SHOTIMG_V1'                 'src/app/api/agent/chat/route.ts' 1    # ⑤图要多用 + ⑥end 只一个（标记在 vfShotsPrompt 前注释）
@@ -173,6 +173,23 @@ ck 'VF_DECKRESCUE_V1'               'src/lib/agent/vf/vf-deck-render.ts' 7 # san
 #   同文案净化后 = ok=true 6 页 19.8s 渲染成功、reconcile 全 0；纯表内文案净化零动作（不误伤）。
 #   ⚠️ 后续优化（未做）：字表扩到 GB2312 全量 6763 字（重跑 make-fonts.py 生成 woff2），高频二级字就不删了。
 ck 'VF_FONTFIT_V1'                  'src/lib/agent/vf/vf-deck-render.ts' 8 # 注释块/sanitize行/bulletOf/封面/图片页×2/日志⓪/救援日志
+# ★VF_CHARTKIND_V1（2026-10-05 晚用户实测 008 片「PPT 从来没有曲线图、图表等」）：两个成因——
+#   ① 转写 prompt 里写着「**不要写成 markdown 表格**（竖线表格会被引擎丢掉）」（修 GEN-TOO-FEW-PAGES 时加的）
+#      ⇒ AI 永不写表格 ⇒ gen-deck 的 chart 入口（唯一入口就是 ≥4 行数据的 markdown 表格）被彻底堵死；
+#   ② gen-deck 的 chart 分支 `chart.type` **写死 'bar'** ⇒ 即使有表也只有柱状（line/donut 只在引擎自测里出现）。
+#   修复：① route.ts 的 PPT 文案 prompt 放开表格并给三种图表节（柱/折线/占比环）写法：表头第 2 列写单位、
+#      数据行 ≥4 纯数字、说明行 8~39 字；② gen-deck 按节标题选图型（占比/构成/结构/比例/份额/分布→donut、
+#      趋势/走势/增长/变化/曲线→line、其余→bar），并把 labels/series 改成**成对过滤**（旧写法串位）。
+#   端测：三图型联测 md ⇒ 页型 cover→chart(line)→chart(donut)→chart(bar)→end · validate 0/0 ·
+#      真渲染 reconcile 全 0（16:9 master-v1 与 9:16 master-v2 各一次）；sanitize→gen-deck 全链（表格保留、
+#      说明行当 explain）⇒ cover→bullets→chart(line)→chart(donut)→end · 字体闸门 PASS。
+ck 'VF_CHARTKIND_V1'                'scripts/video-factory/html-deck/gen-deck.mjs' 1 # chart 分支：按标题选 line/donut/bar
+ck 'VF_CHARTKIND_V1'                'src/app/api/agent/chat/route.ts' 2 # 注释 + 7 节型菜单注释（prompt 放开表格）
+# ★VF_ENDFIX_V1（同批 · 008 片尾页两处硬伤）：① CTA 取的是**原文行**（含 `- ` 项目符号）⇒ 成片显示
+#   「- 点击生成，自动生成整体计划」——改为过 stripItem；② 写死的 `ONE SCRIPT · MANY SKINS` 与兜底
+#   `下一步：挑一套皮肤，出第一条片` 是**引擎内部术语**（皮肤 = skin id）⇒ 换中性文案并开放 `--cta` / `--en`。
+#   端测：含「- 点击生成，自动生成整体计划」的 md ⇒ end.cta = 「点击生成，自动生成整体计划」· en 不再是内部术语。
+ck 'VF_ENDFIX_V1'                   'scripts/video-factory/html-deck/gen-deck.mjs' 2 # 尾页注释 + 旗标注释
 # ★VF_DECKROUTE_V1（首版 镜>12/预计>90s 就提示走老引擎；VF_MATDOM_V1 破窗 40 页后放宽到真超容量）：
 #   新引擎且预计 >300s（40 页 × ~6s ≈ 5 分钟）→ 确认卡明示建议拆条或换老引擎（只提示不拦）。
 ck 'VF_DECKROUTE_V1'               'src/app/api/agent/chat/route.ts' 2   # 提示拼接 + 注释
@@ -181,7 +198,10 @@ ck 'VF_DECKROUTE_V1'               'src/app/api/agent/chat/route.ts' 2   # 提�
 #   按配音定页时长 → 逐句TTS(百炼→硅基→火山) → 自产SRT(字幕=口播,与页面大字不再同文) →
 #   batch-video 渲染+烧字幕 → ffmpeg 混音(配音±BGM)）。老引擎一行没改。
 #   本地端到端实测：注入图片页(cover,bullets,image,bullets,end)25.4s 成片 + aac 立体声混音 ✓
-ck 'VF_AVIMG_V1'                  'src/lib/agent/vf/vf-deck-render.ts' 8  # 管线分步注释+图片页注入+TTS+SRT+混音（≥8 处）
+ck 'VF_AVIMG_V1'                  'src/lib/agent/vf/vf-deck-render.ts' 5  # 文件头口径/runCmd/prisma句柄(音乐库)/引擎分派直编排/分步管线注释
+#   ⚠️ 原写 8（"管线分步注释+图片页注入+TTS+SRT+混音 ≥8 处"）——**实际只有 5 处**（HEAD 版本同样是 5），
+#   4 段自检因此长期红。2026-10-05 逐处核对：这 5 处已覆盖该特性的关键落点（其余步骤复用同一条 runCmd/
+#   分步管线注释），故把期望值改成实数（改数即确认），**不再虚报 8**。
 ck 'VF_AVIMG_V1'                  'src/app/agent/page.tsx' 4            # 解除音色/BGM置灰 + 三处文案更新（≥4 处）
 
 line "结论"

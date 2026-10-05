@@ -13,7 +13,8 @@
  *
  * 用法：
  *   node gen-deck.mjs --in copy.md --out out-tmp-gen/deck.json [--master master-tech] [--palette cyan]
- *        [--orientation 16:9] [--title 标题] [--issuer 出品方] [--toc] [--plan] [--seconds 3.4] [--allow-truncate]
+ *        [--orientation 16:9] [--title 标题] [--issuer 出品方] [--cta CTA] [--en 英文行]
+ *        [--toc] [--plan] [--seconds 3.4] [--allow-truncate]
  *   node gen-deck.mjs --self-test
  */
 import { spawnSync } from 'node:child_process'
@@ -27,6 +28,7 @@ const EXIT = { OK: 0, FAIL: 1, INPUT: 2 }
 const FLAGS = {
   '--in': 'in', '--out': 'out', '--master': 'master', '--palette': 'palette', '--orientation': 'orientation',
   '--title': 'title', '--subtitle': 'subtitle', '--issuer': 'issuer', '--seconds': 'seconds',
+  '--en': 'en', '--cta': 'cta',      // ★VF_ENDFIX_V1：尾页英文行 / CTA 可由调用方覆盖（默认中性文案，不再写死内部术语）
   '--toc': 'toc', '--plan': 'plan', '--self-test': 'selfTest', '--allow-truncate': 'allowTruncate',
   '--keep-invalid': 'keepInvalid', '--srt': 'srt',
 }
@@ -163,16 +165,27 @@ function sectionToPage(sec, opt, notes) {
     return hit
   }
 
-  /* ① 表（≥4 行）⇒ 图表页 */
+  /* ① 表（≥4 行）⇒ 图表页
+     ★VF_CHARTKIND_V1（2026-10-05 用户实测「PPT 从来没有曲线图/图表等」）：此前**只出柱状**（type 写死 'bar'），
+       而引擎三种图型都真画（render-deck 的 line/bar/donut 都有像素级对账；verify-chart 反推顶点/柱高/扇区角）。
+       改为**按节标题选图型**：占比/构成/结构/比例/份额/分布 → donut（占比环）；趋势/走势/增长/变化/曲线 → line（折线）；其余 → bar。
+       （生成器缺这一跳 ⇒ 即使 deck 手写的 line/donut 也只出现在引擎自测里，真实成片永远只有柱状或干脆没有图。） */
   if (sec.table && sec.table.rows.length >= 4) {
-    const labels = sec.table.rows.map((r) => r.cells[0])
-    const series = sec.table.rows.map((r) => Number(String(r.cells[1] ?? '').replace(/[^\d.\-]/g, ''))).filter((x) => Number.isFinite(x))
+    /* 数据行**成对取**（标签+数值，同一行一起过滤）——旧写法 labels 取全行、series 只留数值行 ⇒ 两者错位
+       （labels 数 ≠ series 数，validate 报 warn；行里有非数值时标签会串位） */
+    const pairs = sec.table.rows
+      .map((r) => ({ label: cut(String(r.cells[0] ?? '').trim(), { max: 10 }), v: Number(String(r.cells[1] ?? '').replace(/[^\d.\-]/g, '')) }))
+      .filter((x) => Number.isFinite(x.v))
+    const series = pairs.map((x) => x.v)
+    const labels = pairs.map((x) => x.label)
+    const kind = /占比|构成|结构|比例|份额|分布/.test(title) ? 'donut'
+      : (/趋势|走势|增长|变化|曲线/.test(title) ? 'line' : 'bar')
     const unit = cut(sec.table.header[1] || '', win('pageChart', 'unit'))
     const expl = fitExplain(W.explChart, `${title}：${sec.table.header.join(' / ')}`)
     if (series.length >= 4 && unit && expl) {
       return { type: 'chart', title: fitTitle(W.tChart), unit, explain: expl,
         source: pick([...paras], { min: 0, max: 40 }) || undefined,
-        chart: { type: 'bar', series: series.slice(0, 12), labels: labels.slice(0, 12) }, duration: N }
+        chart: { type: kind, series: series.slice(0, 12), labels: labels.slice(0, 12).every((x) => x) ? labels.slice(0, 12) : undefined }, duration: N }
     }
     notes.push(`${tag}：表可读但 explain/unit 无法落窗（8~39） ⇒ 降级为要点页`)
   }
@@ -266,11 +279,18 @@ function build(text, opt) {
   const clip = (s, n = 24) => { const t = String(s || '').replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n - 1) + '…' : t }
   const first = (arr) => (Array.isArray(arr) && arr.length ? String(arr[0]) : '')
   const lastSec = sections[sections.length - 1]
-  const ctaLine = text.split(/\r?\n/).map((l, i) => ({ t: l.trim(), line: i + 1 })).find((l) => l.t && isCta(l.t))
+  /* ★VF_ENDFIX_V1（2026-10-05 用户实测成片尾页两处硬伤）：
+     ① CTA 找到的那行**取的是原文行**（含 markdown 项目符号）⇒ 成片显示成「- 点击生成，自动生成整体计划」——
+        先过 `stripItem`（与 items 同口径）；
+     ② 写死的 `ONE SCRIPT · MANY SKINS` 与兜底 `下一步：挑一套皮肤，出第一条片` 是**引擎内部术语**
+        （"皮肤" = skin id，"一份脚本多种皮肤" 是开发概念）⇒ 换成中性文案，并开放 `--cta` / `--en` 供调用方覆盖。 */
+  const ctaLine = text.split(/\r?\n/).map((l, i) => ({ t: stripItem(l.trim()), line: i + 1 })).find((l) => l.t && isCta(l.t))
   const line1 = pick([lastSec && lastSec.title, title, '谢谢观看'], win('pageEnd', 'line1')) || '谢谢观看'
+  const CTA_FB = '立即体验 AI 营销助手'
+  const EN_FB = 'AI MARKETING · VIDEO FACTORY'
   body.push({ type: 'end', line1, line2: inWin(docSubtitle || '', { min: 0, max: 30 }) ? docSubtitle : undefined,
-    cta: pick([ctaLine && ctaLine.t, '下一步：挑一套皮肤，出第一条片'], win('pageEnd', 'cta')) || '下一步：挑一套皮肤，出第一条片',
-    en: 'ONE SCRIPT · MANY SKINS', duration: 2.8, _line: ctaLine ? ctaLine.line : 0 })
+    cta: pick([opt.cta, ctaLine && ctaLine.t, CTA_FB], win('pageEnd', 'cta')) || CTA_FB,
+    en: pick([opt.en, EN_FB], win('pageEnd', 'en')) || EN_FB, duration: 2.8, _line: ctaLine ? ctaLine.line : 0 })
 
   /* 页数必须落 4~12（schema 硬约束）——超出要显式 */
   const lim = SCH.properties.pages

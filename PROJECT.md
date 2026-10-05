@@ -161,6 +161,17 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
 
+### 2026-10-05 CHARTKIND + ENDFIX：图表页入口恢复（折线/占比环/柱状）+ 尾页硬伤（✅ 代码完成，待部署重出片）
+
+- **用户反馈**（看 008 片后）：「为什么 PPT 始终都是打字，没有任何曲线图、图表等」+ 尾页两处问题。
+- **根因①（图表恒为 0）**：`gen-deck` 的 chart 页唯一入口 = ≥4 行数据的 markdown 表格；而 PPT 转写 prompt 里写着「不要写成 markdown 表格」（修 GEN-TOO-FEW-PAGES 时加的）⇒ AI 永不写表格 ⇒ 入口堵死；且 `chart.type` 写死 `bar`（`line`/`donut` 引擎早支持、有像素对账，只是生成器没入口）。
+- **修复（`VF_CHARTKIND_V1`）**：① prompt 放开表格（数据节 = 大数字页 + 柱状/折线/占比环三种图表节，规定表头第 2 列写单位、≥4 行纯数字、说明 8~39 字）；② gen-deck 按节标题选图型（占比/构成/结构/比例/份额/分布→donut、趋势/走势/增长/变化/曲线→line、其余→bar），labels/series 成对过滤。
+- **修复（`VF_ENDFIX_V1`）**：尾页 CTA 过 `stripItem`（去掉 `- ` 横杠）；去掉写死的 `ONE SCRIPT · MANY SKINS` 与开发术语兜底，改中性文案 + 开放 `--cta`/`--en`。
+- **端测**：三图型联测（16:9 + 9:16 各渲一次 reconcile 全 0）· sanitize→gen-deck 全链（表格保留、字体闸门 PASS）· 引擎 lint PASS · gen-deck 自测 3/3。
+- **闸门卫生**：selfcheck ④ 段两处陈旧标记修掉（`VF_SUBCHUNK_V1` 重复、`VF_AVIMG_V1` 期望 8→实数 5）⇒ ④ 段 61 OK / 0 FAIL。
+- ⚠️ **待部署重测**：服务器 build 后重出片，确认出现折线/占比环/柱状页、尾页无横杠、无内部术语。
+- 🟡 **已知既有红（不在部署闸门里）**：`node check-examples.mjs` 11/22 样例偏离基线（bad 样例的"不达标项数"多于基线，是 validate-deck 后来加检查后的漂移，非本批引入；未改基线，等排期确认）。
+
 ### 2026-10-05 FONTFIT：render=8 字体覆盖闸门整单红 → 三出口净化（✅ 代码完成，待部署重测）
 
 - **用户实测炸点**：vf1791197069965「batch-video 退出码 1：BATCH-ITEM-FAILED · render=8 · 未找到产物 mp4」，且 **30s 单成功、180s 单失败**。

@@ -25,6 +25,23 @@
 
 ---
 
+## ✅ 已解决（2026-10-05 晚 · 008 片「PPT 从来没有曲线图/图表」+ 尾页两处硬伤 → CHARTKIND / ENDFIX）
+
+- ✅ **图表恒为 0（用户主诉）**：`gen-deck` 的 chart 页**唯一入口**是 ≥4 行数据的 markdown 表格，而 PPT 转写 prompt 里写着「**不要写成 markdown 表格**」（修 GEN-TOO-FEW-PAGES 时加的副作用）⇒ AI 永不写表格 ⇒ 图表页恒为 0；且 `chart.type` 写死 `bar` ⇒ 引擎早已真画的 `line`/`donut` 只存在于自测里。**修复**：prompt 放开表格（数据节 = 大数字 + 柱状/折线/占比环 三种图表节；表头第 2 列写单位、数据行 ≥4 纯数字、说明行 8~39 字）；gen-deck 按节标题选图型（占比/构成/结构/比例/份额/分布→donut，趋势/走势/增长/变化/曲线→line，其余→bar），labels/series 成对过滤。
+- ✅ **尾页 CTA 带前导横杠**（显示「- 点击生成，自动生成整体计划」）：`ctaLine` 取原文行未剥项目符号 ⇒ 改过 `stripItem`。
+- ✅ **尾页英文行/兜底 CTA 是引擎内部术语**（`ONE SCRIPT · MANY SKINS` / 「下一步：挑一套皮肤，出第一条片」）：改中性文案（`AI MARKETING · VIDEO FACTORY` /「立即体验 AI 营销助手」）并开放 `--cta` / `--en`。
+- 📋 端测：三图型联测（16:9/9:16 各渲一次，reconcile 全 0）· sanitize→gen-deck 全链（表格保留、字体闸门 PASS）· 引擎 lint PASS · gen-deck 自测 3/3 · `end.cta` 无横杠。
+- 📋 **闸门卫生（既有红，同批修）**：selfcheck ④ 段 `VF_SUBCHUNK_V1`（已被 `VF_SUBATOM_V1` 取代，代码 0 处）与 `VF_AVIMG_V1`（期望 8 / 实际 5，HEAD 同为 5）⇒ 删重复 + 改实数，④ 段 61 OK / 0 FAIL。
+
+---
+
+## 🟡 待处理（既有，非本批引入）
+
+- 🟡 **`check-examples.mjs` 11/22 样例偏离基线**：bad 样例的「不达标项数」多于基线（如 `deck.bad.json` 13→20、`deck.bad-compare.json` 3→6），符合"validate-deck 后来新增了检查项"的漂移特征；该脚本**不在部署闸门里**（selfcheck.sh 不调用它）。修法 = 按仓库规矩**显式改 BASELINE 数字（改数即确认）**，需人确认后再改，本次未动。
+- 🟢 **selfcheck ①③ 段在 Windows 开发机不可判**：脚本用 `python3` 做 `ast.parse` 语法自检与渲染自测，本机 `python3` 是 Windows 商店占位 exe ⇒ 恒报"语法错误"；服务器上有真 python3 才可判。（④ 标记段本机可判，已全绿。）
+
+---
+
 ## ✅ 已解决（2026-10-05 晚 · vf1791197069965「render=8 未找到产物 mp4」30s 成功/180s 失败 → FONTFIT）
 
 - ✅ **根因**：render-deck 的**字体覆盖闸门**（exit 8）——PPT 内嵌字体是子集（chars-cmn.txt=GB2312 一级 3755 字+ASCII+标点，3926 码点），deck 出现一个表外字（二级字表高频字 婷/鑫/喆、emoji、特殊符号）⇒ 闸门红 ⇒ batch-video 报 render=8 ⇒ 整单红。文案越长撞表概率越大 ⇒ 30s 单过、180s 单炸。
