@@ -1599,6 +1599,112 @@ def card_number(shot, th, W, H, fps):
             ','.join(parts), dur)
 
 
+# ══════════════════ ★VF_DUO_V1（2026-10-06 用户定案 B3）双幅拼版 / 相框多幅 ══════════════════
+#   用户原话：「素材不够是否可以 **2 副拼一副**或者**加相框多副排版**？……如果有更美观方案可以考虑添加。」
+#   做法：**不新增第二套素材页管线** —— 先用 ffmpeg 把 2~4 张素材拼成**一张合成 PNG**
+#   （等比缩放 + 统一底色留边 + 细缝分隔），再把这张 PNG 交给既有的 `card_bgimage` 渲染。
+#   于是 ★VF_SCRIM_V1 渐变遮罩、★VF_MATGUARD_* 大字避让、动效、字幕**全部自动继承**。
+#   为什么不在渲染链里塞多输入 xstack：那等于把"已经调过好几轮"的素材页观感重写一遍
+#   （用户反复强调过"最怕你们设计了共用，出问题都不能用"）——先合成再复用才是稳的。
+_COLLAGE_DIR = None
+
+
+def _collage_dir():
+    """拼版 PNG 的落地目录（进程内缓存；取不到就退到系统临时目录）。"""
+    global _COLLAGE_DIR
+    if _COLLAGE_DIR is None:
+        _COLLAGE_DIR = os.path.join(tempfile.gettempdir(), 'vf-collage')
+        try:
+            os.makedirs(_COLLAGE_DIR, exist_ok=True)
+        except OSError:
+            _COLLAGE_DIR = tempfile.gettempdir()
+    return _COLLAGE_DIR
+
+
+def _collage(srcs, W, H, out_png, gap=10, bg='#0d1015'):
+    """把 2~4 张图拼成一张 W×H 的 PNG；成功返回 True。
+
+    版式（按画幅取向自动选）：
+      · 竖屏 9:16 + 2 张 ⇒ **上下两格**（早先想过左右分栏，但竖屏左右分栏每格更窄、观感更差）；
+      · 横屏 16:9 + 2 张 ⇒ **左右两格**；
+      · 3~4 张 ⇒ **2×2 网格**（3 张时右下留底色 —— 不硬拉不硬塞，"排版感"来自留白）。
+    每格：等比缩放（`force_original_aspect_ratio=decrease`）+ 居中 `pad` 到格内底色。
+    """
+    n = len(srcs)
+    if n < 2:
+        return False
+    landscape = W >= H
+    cols, rows = (2, 1) if (n == 2 and landscape) else ((1, 2) if n == 2 else (2, 2))
+    cw = max(2, (W - gap * (cols + 1)) // cols)
+    ch = max(2, (H - gap * (rows + 1)) // rows)
+    ff = find_ffmpeg()
+    if not ff:
+        return False
+    args = [ff, '-y', '-v', 'error']
+    for s in srcs:
+        args += ['-i', s]
+    fl = []
+    for i in range(n):
+        fl.append('[%d:v]scale=%d:%d:force_original_aspect_ratio=decrease,'
+                  'pad=%d:%d:(ow-iw)/2:(oh-ih)/2:color=%s,setsar=1[c%d]'
+                  % (i, cw, ch, cw, ch, bg, i))
+    layout = ('0_0|w0_0' if landscape else '0_0|0_h0') if n == 2 else '0_0|w0_0|0_h0|w0_h0'
+    fl.append(''.join('[c%d]' % i for i in range(n)) +
+              'xstack=inputs=%d:layout=%s:fill=%s[st]' % (n, layout, bg))
+    # ★VF_DUO_V1：拼完再**补齐到画幅尺寸** —— 不然合成图比画布小一圈，会走 `_bg_filters` 的
+    #   "不放大（保清晰）"分支（整张拼版被缩成一小块居中 + 周边填平均色），观感就散了。
+    #   补到 W×H 后，比率/尺寸都与画幅一致 ⇒ 走 cover 分支（清晰铺满）。
+    fl.append('[st]pad=%d:%d:(ow-iw)/2:(oh-ih)/2:color=%s[out]' % (W, H, bg))
+    args += ['-filter_complex', ';'.join(fl), '-map', '[out]', '-frames:v', '1', out_png]
+    try:
+        r = subprocess.run(args, capture_output=True)
+    except OSError:
+        return False
+    if r.returncode != 0 or not os.path.exists(out_png):
+        try:
+            print('[VF] ★VF_DUO_V1 拼版失败：' + (r.stderr or b'').decode('utf-8', 'ignore')[:160])
+        except Exception:
+            pass
+        return False
+    return True
+
+
+def _collage_card(shot, th, W, H, fps, maxn=4):
+    """拼版 → 交给 `card_bgimage` 渲染（凑不齐两张 / 拼版失败 一律**老实回落单图**，绝不让整镜崩）。"""
+    srcs = [str(x) for x in (shot.get('srcs') or [])
+            if str(x).strip() and os.path.exists(str(x))][:maxn]
+    if len(srcs) < 2:
+        s1 = dict(shot)
+        s1['src'] = srcs[0] if srcs else str(shot.get('src') or '')
+        return card_bgimage(s1, th, W, H, fps)
+    import zlib
+    key = '%s|%dx%d|%d' % ('#'.join(os.path.basename(x) for x in srcs), W, H, len(srcs))
+    png = os.path.join(_collage_dir(), 'cl-%08x.png' % (zlib.crc32(key.encode('utf-8')) & 0xffffffff))
+    if not os.path.exists(png):
+        if not _collage(srcs, W, H, png):
+            s1 = dict(shot)
+            s1['src'] = srcs[0]
+            return card_bgimage(s1, th, W, H, fps)
+        print('[VF] ★VF_DUO_V1 拼版 %d 张 ⇒ %s' % (len(srcs), os.path.basename(png)))
+    s2 = dict(shot)
+    s2['src'] = png
+    # ★VF_DUO_V1：标记"这是我们主动排的拼版" —— 素材页的"素材不适合当背景 ⇒ 改质感底板"判据
+    #   （`_screen`：又深又满字）**不许否掉拼版**：拼上去的就是用户点名要的那几张图，
+    #   被换成空底板等于把用户要的画面弄丢。见 card_bgimage 里的 `_collage` 判断。
+    s2['_collage'] = True
+    return card_bgimage(s2, th, W, H, fps)
+
+
+def card_duo(shot, th, W, H, fps):
+    """★VF_DUO_V1：**双幅拼版**（用户说的"2 副拼一副"）—— 素材不够时的主用版式。"""
+    return _collage_card(shot, th, W, H, fps, maxn=2)
+
+
+def card_frame(shot, th, W, H, fps):
+    """★VF_DUO_V1：**相框多幅**（3~4 张走 2×2 网格）—— 回顾 / 合集镜用。"""
+    return _collage_card(shot, th, W, H, fps, maxn=4)
+
+
 def card_image(shot, th, W, H, fps):
     """图片 + Ken Burns 推拉
 
@@ -3434,6 +3540,11 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
         if _land:
             print('[VF] ★VF_TPL_LAND_V1 横屏 + 竖/方素材 → 左图右字：%s'
                   % os.path.basename(str(src))[:24])
+    if _screen and shot.get('_collage'):
+        # ★VF_DUO_V1：拼版（duo/frame）**例外** —— 那几张图是用户点名要拼的，换成空底板等于弄丢画面。
+        #   只按"满字素材"路径处理（大字缩到 0.72 + 落"下三分之一 + 渐隐底衬带"，见下面的 _busy 分支）。
+        print('[VF] ★VF_DUO_V1 拼版镜命中"素材不适合当背景"判据 → 仍保留拼版（只按满字素材让位）')
+        _screen = False
     if _screen:
         # 又深又满字 = 典型"深色界面截图" → 【不硬塞这张图】，改用主题质感底板 + 大字
         #（规划文档 P2「缺就承认缺」：宁可出一张设计过的文字卡，也不要一张看不清的截图）
@@ -5153,6 +5264,9 @@ CARDS = {
     'compare': card_compare,
     'chart': card_chart,
     'bgimage': card_bgimage,
+    # ★VF_DUO_V1（2026-10-06 B3）：素材不够时的拼版 —— `duo` 双幅、`frame` 相框多幅（3~4 张）
+    'duo': card_duo,
+    'frame': card_frame,
     'end': card_end,
 }
 
