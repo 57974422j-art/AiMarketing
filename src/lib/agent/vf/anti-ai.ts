@@ -888,6 +888,46 @@ export function ensurePersistentMotion(shots: any[]): { shots: any[]; notes: str
  *   · 因为替换值保证 ≠ 前一镜大字 → **幂等**（改完再跑一次 0 改动）。
  * 返回 `{shots, notes}`，notes 写清改了哪几镜（如 `第 6/7 镜大字重复（智能营销方案）→ 第 7 镜改为 …`）。
  */
+/* ══════════ ★VF_BIGSUB_V1（2026-10-06）「大字与字幕同文」治理 ══════════
+ * 用户实拍 20261006_043：同一镜里画面大字「4个认知升级的关键帧」与底部字幕「4个认知升级的关键帧。」
+ * 几乎一字不差 —— 两层写同一句，观感是"重复 + 挤"。根因：AI 把同一句既填 `text`（画面大字）
+ * 又填 `subtitle`（口播/字幕），提示词没拦住（`bgimage` 这条尤其是"照抄 subtitle"）。
+ * 治法（保守、只减不增、**字幕一个字都不动**）——只在**画面主体已在的镜**上做（bgimage/image/video，
+ * 这类镜的大字只是叠加层）：大字若是该镜字幕的**前缀**（忽略标点后比对，≥4 字）⇒
+ *   ① 有 `kicker`/`label` ⇒ 换成它（换个信息点，画面不空）；
+ *   ② 都没有 ⇒ **清掉大字**（该镜只留字幕，画面更干净 —— 与用户把「画面大字」设为"不加"同一观感）。
+ * ⚠️ 独立文字卡（title/list/number/compare/chart/end）**一律不动** —— 那些卡的大字就是它的全部内容，
+ *    清掉就是空屏（那是 ★VF_BIGTEXT_FALLBACK_V1 当年专门兜过的坑）。
+ * 纯函数、不联网、**不改字幕** ⇒ 覆盖/时长/TTS 零影响；幂等（清完再跑一遍 0 改动）。 */
+export function quietBigSameAsSubtitle(shots: any[]): { shots: any[]; notes: string[] } {
+  const notes: string[] = []
+  const OVERLAY = new Set(['bgimage', 'image', 'video'])
+  const norm = (x: any) => String(x == null ? '' : x)
+    .replace(/[\s，。！？；：、,.!?;:'"“”‘’（）()【】\[\]—-]/g, '')
+  const out = (Array.isArray(shots) ? shots : []).map((s0: any, i: number) => {
+    const s = s0 || {}
+    if (!OVERLAY.has(String(s.type || ''))) return s
+    const bigKey = String(s.text || '').trim() ? 'text' : (String(s.title || '').trim() ? 'title' : '')
+    if (!bigKey) return s
+    const big = String(s[bigKey]).trim()
+    const nb = norm(big)
+    const sub = norm(s.subtitle)
+    if (nb.length < 4 || !sub) return s
+    if (!sub.startsWith(nb)) return s
+    const kick = String(s.kicker || s.label || '').trim()
+    if (kick && !sub.startsWith(norm(kick))) {
+      notes.push(`第 ${i + 1} 镜大字与字幕同文（${big}）→ 大字改用 kicker「${kick.slice(0, 14)}」`)
+      return { ...s, [bigKey]: kick.slice(0, 14) }
+    }
+    notes.push(`第 ${i + 1} 镜大字与字幕同文（${big}）→ 该镜不出大字（只留字幕，画面更干净）`)
+    const o: any = { ...s }
+    delete o.text
+    delete o.title
+    return o
+  })
+  return { shots: out, notes }
+}
+
 export function dedupeAdjacentSameText(shots: any[]): { shots: any[]; notes: string[] } {
   const notes: string[] = []
   const src = Array.isArray(shots) ? shots : []

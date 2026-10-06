@@ -669,10 +669,12 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
           <button
             onClick={() => { if (uploading) return; if (fileRef.current) fileRef.current.click() }}
             className={`px-2 py-1 rounded text-[11px] border transition ${source === 'upload' ? 'bg-fuchsia-500/30 border-fuchsia-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>
-            {uploading ? '⏳ 上传中…' : '📤 我上传素材'}
+            {uploading ? '⏳ 上传中…' : (isVideoLine ? '📤 我上传素材（图片 + 视频）' : '📤 我上传素材（图片）')}
           </button>
         </div>
-        <input ref={fileRef} type="file" accept="image/*,video/*" multiple className="hidden"
+        {/* ★VF_LINETAG_V1（2026-10-06·A2）：accept 也按线走 —— 图片成片只吃图片，
+            就别让文件框能选到视频（选了不用 = 就是"误导"的老毛病；要视频请走「图视混剪」）。 */}
+        <input ref={fileRef} type="file" accept={isVideoLine ? 'image/*,video/*' : 'image/*'} multiple className="hidden"
           onChange={(e: any) => { doUpload(e.target.files); e.target.value = '' }} />
         {uploaded.length > 0 && (
           <div className="text-[10px] mt-1">
@@ -701,7 +703,11 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
           </div>
         )}
         {source === 'upload' && !uploaded.length && !uploading && (
-          <div className="text-[10px] text-amber-300/80 mt-1">点「📤 我上传素材」选图或选视频（可多选）；不选则用仓库现有的</div>
+          <div className="text-[10px] text-amber-300/80 mt-1">
+            {isVideoLine
+              ? '点「📤 我上传素材」选图或选视频（可多选）；传了就只有这批参与成片，仓库里的旧素材不会掺进来'
+              : '点「📤 我上传素材」选图（可多选；要视频请用「图视混剪」）；不选则用仓库现有的'}
+          </div>
         )}
       </div>
 
@@ -948,7 +954,11 @@ function VfAiSetupCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
       <div className="mb-3">
         <button onClick={() => { if (uploading) return; fileRef.current?.click() }}
           className={`px-2.5 py-1 rounded text-[11px] border transition ${uploaded.length ? 'bg-emerald-500/25 border-emerald-400/40 text-emerald-100' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>
-          {uploading ? '⏳ 上传中…' : (uploaded.length ? `📤 已上传 ${uploaded.length} 张（只看这几张）` : '📤 上传这次的素材（可选）')}
+          {/* ★VF_LINETAG_V1（2026-10-06·A2）：与「图片成片/图视混剪」那张卡**统一口径** ——
+              ① 回显统一成"本次只从这几张取（不掺仓库）"；② 明说本线**只吃图片**（本线画面 = 素材 + AI 生成，
+              视频进来没有意义）⇒ 而不是让用户以为"传了就会被用"。accept 保持 image/*（不放开视频，
+              放开只会制造新的"传了不用"误导）。 */}
+          {uploading ? '⏳ 上传中…' : (uploaded.length ? `📤 已上传 ${uploaded.length} 张（本次只从这几张取，不掺仓库）` : '📤 上传这次的素材（可选 · 本线只吃图片）')}
         </button>
         <input ref={fileRef} type="file" accept="image/*" multiple className="hidden"
           onChange={(e: any) => { doUpload(e.target.files); e.target.value = '' }} />

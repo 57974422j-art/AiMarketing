@@ -307,6 +307,20 @@ ck 'VF_BIGCUT_V1'                   'src/app/api/agent/chat/route.ts' 2
 ck 'VF_BIGCUT_V1'                   'src/lib/agent/vf/vf-video.ts' 2
 ck 'VF_BIGCUT_V1'                   'src/lib/agent/vf/vf-mix.ts' 1
 ck 'VF_BIGCUT_V1'                   'scripts/video-factory/render.py' 2
+# ★VF_BIGSUB_V1（2026-10-06 用户实拍 043：同一镜大字「4个认知升级的关键帧」= 字幕「4个认知升级的关键帧。」）：
+#   根因 = AI 把同一句既填 text（画面大字）又填 subtitle（字幕），提示词没拦住（bgimage/video 尤其爱照抄）。
+#   治法（保守、只减不增、**字幕一个字不动**）：只治 bgimage/image/video（大字是叠加层）——大字若是该镜
+#   字幕前缀（忽略标点、≥4 字）⇒ ① 有 kicker/label 就换成它；② 没有就清掉大字（只留字幕，画面更干净）。
+#   ⚠️ 独立文字卡（title/list/number/compare/chart/end）一律不动（它们的大字=卡的全部内容，清掉会空屏）。
+#   接线：图片成片线两处（首次起草 + 重排分镜，紧邻 dedupeAdjacentSameText）+ 图视混剪线一处。
+#   端测：直接 import 真函数 —— 同文无 kicker ⇒ 清掉 ✓ / 同文有 kicker ⇒ 换 kicker ✓ / 不同文 ⇒ 不动 ✓ /
+#   title 卡同文 ⇒ **不动** ✓ / video 镜同文 ⇒ 清掉 ✓。
+ck 'VF_BIGSUB_V1'                   'src/lib/agent/vf/anti-ai.ts' 1
+ck 'VF_BIGSUB_V1'                   'src/app/api/agent/chat/route.ts' 3
+ck 'VF_BIGSUB_V1'                   'src/lib/agent/vf/vf-video.ts' 2
+# ★VF_LINETAG_V1（A2 续）：上传卡的两处文案/accept 也按线分（图片成片只吃图片、图视混剪吃图+视频；
+#   素材+AI 保持只吃图片但**注明**，回显统一成"本次只从这几张取，不掺仓库"）
+ck 'VF_LINETAG_V1'                  'src/app/agent/page.tsx' 4
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"

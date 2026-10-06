@@ -42,7 +42,9 @@ import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, s
   //   用户选了就给提示词补一句「版式由系统统一负责，你只要把内容写足」。
   normalizeStyle, stylePromptNote,
   // ★VF_BIGCUT_V1（2026-10-06）：画面大字"避词边界"截断（与 route.ts / render.py 同口径）
-  bigTextCut } from './anti-ai'
+  bigTextCut,
+  // ★VF_BIGSUB_V1（2026-10-06）：同一镜"大字=字幕"的治理（本线 video/bgimage 镜的叠加大字尤其容易照抄字幕）
+  quietBigSameAsSubtitle } from './anti-ai'
 // ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：`VF_MOTION_PROMPT` = 「长镜必须有动效」的档位说明
 //   （与 ANTI_AI_PROMPT 同样**两个分镜 prompt 共用**一份，免得两条线走偏）；
 //   `ensurePersistentMotion` = 服务端兜底（AI 忘写时给 title/end 长镜自动补 `motion='grow'`）。
@@ -911,6 +913,11 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
     if (_dd.notes.length) ctx.log(uid, '[VF-V][大字] ' + _dd.notes.join('；'))
     shotsOut.length = 0
     shotsOut.push(..._dd.shots)
+    // ★VF_BIGSUB_V1（2026-10-06）：本线的 video/bgimage 镜最容易"大字照抄字幕"（043 实测）
+    const _bs = quietBigSameAsSubtitle(shotsOut)
+    if (_bs.notes.length) ctx.log(uid, '[VF-V][大字] ' + _bs.notes.join('；'))
+    shotsOut.length = 0
+    shotsOut.push(..._bs.shots)
   }
   vd.shots = shotsOut
   // ★VF_VIDI2V_V1：把"本地路径 → 仓库 key"的映射存进草稿 —— 出片（确认那一步）时用它现算 i2vShots

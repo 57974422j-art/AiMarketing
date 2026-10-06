@@ -48,7 +48,9 @@ import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, s
   // ★VF_STYLES_WIRE_V1（2026-10-01）：用户选了「画面风格」→ 值归一化 + 提示词补一句「版式由系统统一负责」。
   normalizeStyle, stylePromptNote,
   // ★VF_BIGCUT_V1（2026-10-06）：画面大字"避词边界"截断（治成片里「真正价值在6」这种被切坏的数字/英文）
-  bigTextCut } from '@/lib/agent/vf/anti-ai'
+  bigTextCut,
+  // ★VF_BIGSUB_V1（2026-10-06）：同一镜"大字=字幕"的治理（清掉重复的那层，字幕不动）
+  quietBigSameAsSubtitle } from '@/lib/agent/vf/anti-ai'
 // ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：把「长镜必须有动效」的档位接进【图片成片线】的分镜提示词
 //   （与「视频混剪」线共用 anti-ai.ts 里同一份常量，两条线的字段说明与硬规矩逐字一致），
 //   并在 genVideoShots 出口跑服务端兜底 ensurePersistentMotion（AI 忘写时给 title/end 长镜补 grow）。
@@ -4772,6 +4774,16 @@ PUBLISH_DRAFT.delete(uidW)
                     for (const _n of _ddN.notes) vfLog(uidVF2, '[大字] ' + _n)
                   }
                 }
+                // ── ★VF_BIGSUB_V1（2026-10-06）：「大字与字幕同文」治理（紧邻上一步、同一批）──
+                //   用户实拍 043：同一镜大字「4个认知升级的关键帧」= 字幕「4个认知升级的关键帧。」。
+                //   只治 bgimage/image/video（大字是叠加层）；独立文字卡的大字=卡的内容，一律不动。字幕零改动。
+                {
+                  const _bsN = quietBigSameAsSubtitle(vfShots)
+                  if (_bsN.notes.length) {
+                    vfShots.splice(0, vfShots.length, ..._bsN.shots)
+                    for (const _n of _bsN.notes) vfLog(uidVF2, '[大字] ' + _n)
+                  }
+                }
                 // ★A8（2026-09-22）：原「[时长护栏] 分镜合计偏离目标 >25% 就缩放到目标秒数」**已删除**。
                 //   理由（也是原代码自己的注释）：素材成片的最终时长 = tts.py 逐镜配音真实时长之和
                 //   （tts.py 会 `s['dur'] = round(配音+0.35, 2)` 覆盖这里的 dur），
@@ -5060,6 +5072,14 @@ PUBLISH_DRAFT.delete(uidW)
                 if (_dd2.notes.length) {
                   vfAgain.splice(0, vfAgain.length, ..._dd2.shots)
                   for (const _n of _dd2.notes) vfLog(uidVF2, '[大字] ' + _n)
+                }
+              }
+              // ── ★VF_BIGSUB_V1（2026-10-06）：重排分镜同样治「大字与字幕同文」（与首次起草同口径）──
+              {
+                const _bs2 = quietBigSameAsSubtitle(vfAgain)
+                if (_bs2.notes.length) {
+                  vfAgain.splice(0, vfAgain.length, ..._bs2.shots)
+                  for (const _n of _bs2.notes) vfLog(uidVF2, '[大字] ' + _n)
                 }
               }
               {
