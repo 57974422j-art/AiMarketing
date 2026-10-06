@@ -329,6 +329,16 @@ ck 'VF_LINETAG_V1'                  'src/app/agent/page.tsx' 4
 #   ⚠️ 纯仓库模式（没上传）durAuto=false ⇒ 行为与改前一字不差（零回归）。
 ck 'VF_DURAUTO_V1'                  'src/lib/agent/vf/vf-video.ts' 4
 ck 'VF_DURAUTO_V1'                  'src/app/agent/page.tsx' 1
+# ★VF_SCRIM_V1（2026-10-06 老板「注意审美」+「我的素材都是海报截图、文字多的很」）：
+#   视频/AI 片段镜原来是 **整幅 `black@0.15` 均匀压暗 + 0.72H 以下一块 `black@0.30` 硬边黑板**
+#   ⇒ 文字多的截图被整体压灰、72% 处还有一条可见水平分界线（观感"糊 + 脏"）。
+#   改为**带状渐变遮罩** `scrim_boxes()`：顶部由 0.42 渐隐到 0（承托固定标题/大字）、中段只留 0.05
+#   （保对比不发灰）、底部由 0 渐到 0.52（承托字幕）；深色素材（lum<78）三条 alpha 整体 ×0.35
+#   （沿用 ★VF_MATGUARD_V1 口径）。实现 = steps 条 drawbox 近似（单输入链内确定性可做，
+#   不引第二输入、不用慢的 geq；alpha 3 位小数、绝不输出 0/科学计数法）。
+#   端测：`python render.py --selftest` 12 镜全过、成片 41.56s（视频镜/AI 片段镜/素材镜都跑到）。
+#   📋 待办：`card_bgimage` 那两条同样改（它另有 _band_box/深色守卫，改前要单独对照一次）。
+ck 'VF_SCRIM_V1'                    'scripts/video-factory/render.py' 3
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"

@@ -1637,6 +1637,50 @@ def card_image(shot, th, W, H, fps):
     return (f"-loop 1 -t {dur} -i \"{src}\"", vf, dur)
 
 
+def scrim_boxes(W, H, mat=None, steps=16, top_ratio=0.22, bot_ratio=0.30,
+                top_a=0.42, bot_a=0.52, mid_a=0.05):
+    """★VF_SCRIM_V1（2026-10-06 老板「注意审美」+「我的素材都是海报截图、文字多的很」）——
+    素材/视频镜的**带状渐变遮罩**，取代原来那两行（整幅 `black@0.15` 均匀压暗
+    + 0.72H 以下一块 `black@0.30` 硬边黑板）。
+
+    为什么要换：均匀压暗把**文字多的截图整体压灰**（越看越糊），而硬边黑板在画面 72% 处留下
+    一条**可见的水平分界线**（观感"脏"）。渐变遮罩只压"该压的地方"：
+      · 顶部：由 top_a 渐隐到 0（承托固定标题 / 大字）；
+      · 中段：只留 mid_a（保住对比但不发灰）；
+      · 底部：由 0 渐到 bot_a（承托字幕）。
+    实现：用 steps 条 drawbox 近似（单输入滤镜链内确定性可做 —— 不引第二个输入、不用慢的 geq；
+    alpha 一律 3 位小数、**绝不输出科学计数法或 0**，沿用 ★VF_GRAD_SPEED_V1 的同一条铁律）。
+    素材本身就暗（lum < 78，深色录屏）⇒ 三条 alpha **整体 ×0.35**（沿用 ★VF_MATGUARD_V1
+    "深色素材别再压成一片黑"的口径）。
+    返回 drawbox 串列表（调用方统一过 ★VF_FILTERJOIN_V1 的空串清洗）。
+    """
+    lum = int((mat or {}).get('lum', 160) or 160)
+    k = 0.35 if lum < 78 else 1.0
+    top_h = min(max(2, int(H * top_ratio)), H)
+    bot_h = min(max(2, int(H * bot_ratio)), max(2, H - top_h))
+    out = []
+    for i in range(steps):
+        y0 = int(top_h * i / float(steps))
+        y1 = int(top_h * (i + 1) / float(steps))
+        if y1 <= y0:
+            continue
+        a = top_a * k * (1.0 - (i + 0.5) / steps)
+        if a > 0.008:
+            out.append("drawbox=x=0:y=%d:w=%d:h=%d:color=black@%.3f:t=fill" % (y0, W, y1 - y0, a))
+    mid_h = H - top_h - bot_h
+    if mid_a * k > 0.008 and mid_h > 0:
+        out.append("drawbox=x=0:y=%d:w=%d:h=%d:color=black@%.3f:t=fill" % (top_h, W, mid_h, mid_a * k))
+    for i in range(steps):
+        y0 = int(H - bot_h + bot_h * i / float(steps))
+        y1 = int(H - bot_h + bot_h * (i + 1) / float(steps))
+        if y1 <= y0:
+            continue
+        a = bot_a * k * ((i + 0.5) / steps)
+        if a > 0.008:
+            out.append("drawbox=x=0:y=%d:w=%d:h=%d:color=black@%.3f:t=fill" % (y0, W, y1 - y0, a))
+    return out
+
+
 def card_video(shot, th, W, H, fps):
     """视频片段：截取 + 缩放（不裁切）+ 压暗/大字（与 bgimage/aivideo 观感统一）
 
@@ -1684,13 +1728,9 @@ def card_video(shot, th, W, H, fps):
         # ★OVERLAY_TEXT_SWITCH_V1：开关关闭 → 这一镜不叠大字（压暗与字幕照旧）
         _reveal = (_rev if _rev else center_lines_drawtext(font, _lines, fs, txc, W, H, dur,
                                                            x_off=_ov_tx)) if overlay_text_on() else []
-    _bar_y = int(H * 0.72)
-    # ★VF_MATGUARD_V1 同款口径：素材本来就暗（深色录屏）就别再压 15%（否则"一片黑"）
-    _dim = 0.06 if int(_mat.get('lum', 160) or 160) < 78 else 0.15
-    _chain = [
-        f"drawbox=x=0:y=0:w={W}:h={H}:color=black@{_dim}:t=fill",
-        f"drawbox=x=0:y={_bar_y}:w={W}:h={H - _bar_y}:color=black@0.30:t=fill",
-    ] + ([_band_v] if _band_v else []) + _reveal
+    # ★VF_SCRIM_V1（2026-10-06）：原来的"整幅均匀压暗 + 0.72H 硬边黑板"换成**带状渐变遮罩**
+    #   （顶部承托固定标题/大字、中段轻压、底部承托字幕；深色素材自动减半 —— 口径见 scrim_boxes）。
+    _chain = scrim_boxes(W, H, _mat) + ([_band_v] if _band_v else []) + _reveal
     # ★VF_FILTERJOIN_V1（2026-09-30 线上事故防御）：拼滤镜前丢掉空串/纯逗号 ——
     #   事故现场：第 8 镜 bgimage 崩「No such filter: ''」（空滤镜）；根因是某处拼进了空串或尾逗号。
     #   这里统一清洗，以后任何一处忘了判空都不会再让整条片崩掉。
@@ -1755,12 +1795,8 @@ def card_aivideo(shot, th, W, H, fps):
         _rev = _reveal_seq(shot, font, fs, txc, dur, box=_boxc, x_off=_ov_tx, W=W, H=H) \
             if overlay_text_on() else []   # ★OVERLAY_TEXT_SWITCH_V1
         _reveal = _rev
-    _bar_y = int(H * 0.72)
-    _dim = 0.06 if int(_mat.get('lum', 160) or 160) < 78 else 0.15
-    _chain = [
-        f"drawbox=x=0:y=0:w={W}:h={H}:color=black@{_dim}:t=fill",
-        f"drawbox=x=0:y={_bar_y}:w={W}:h={H - _bar_y}:color=black@0.30:t=fill",
-    ] + ([_band_v] if _band_v else []) + _reveal
+    # ★VF_SCRIM_V1（2026-10-06）：同上 —— AI 生成片段镜也走渐变遮罩（不再整幅压暗 + 硬边黑板）
+    _chain = scrim_boxes(W, H, _mat) + ([_band_v] if _band_v else []) + _reveal
     # ★VF_FILTERJOIN_V1（2026-09-30 线上事故防御）：拼滤镜前丢掉空串/纯逗号 ——
     #   事故现场：第 8 镜 bgimage 崩「No such filter: ''」（空滤镜）；根因是某处拼进了空串或尾逗号。
     #   这里统一清洗，以后任何一处忘了判空都不会再让整条片崩掉。
