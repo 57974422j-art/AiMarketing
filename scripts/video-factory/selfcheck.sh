@@ -252,6 +252,18 @@ ck 'VF_AVIMG_V1'                  'src/app/agent/page.tsx' 3            # 解除
 #   ⚠️ 原写 4：★VF_PPT_SPLIT_V1（2026-10-06 拆线）把素材卡上的「成片方式（含动态 PPT）」整块删了，
 #   那块注释里带 1 处 VF_AVIMG_V1 ⇒ 实测 3。改数即确认（拆线是有意为之：deck 已独占给「PPT成片」线）。
 
+# ★VF_ONELAYER_V1（2026-10-06 用户定案「目的只有一套 PPT 选择…确定重复内容冗余 删除」，先做图片成片/图视混剪）：
+#   病根：图片成片卡上并列三层视觉选项 —— ①「🎨 画面风格」5 套（style）②「高级：主题」10 个（theme）
+#   ③「高级：PPT 版式」7 项（deck_style）；而 themes.py 的 STYLES **内部就是 theme+deck 的打包**
+#   （bluewhite=news+deck / darkgrad=data+deck-grad / cleanlight=light+deck-soft / magazine=journal+deck-mag
+#   / softlux=mono+deck-glass，见 themes.py:194-234）⇒ 同一件事的三个旋钮，原本靠"选了风格就把后两层置灰"
+#   （VF_STYLELOCK_ADV_V1）回避冲突，用户当然觉得乱（原话「我感觉很乱。其实都是一个东西」）。
+#   修法（本轮只动图片成片/图视混剪共用的 VideoFormCard，**PPT 成片线零改动**）：删掉「高级：主题」+「高级：PPT 版式」
+#   两段 + 置灰逻辑 styleOn + 折叠按钮 openStyleAdv + 「成片方式」死段落 ⇒ 只剩「🎨 画面风格」一层 + 5 张样张。
+#   theme / deckStyle 改为普通常量但**仍照原值提交**（默认 vj / 'dark' / 'auto'）⇒ 服务端契约与「跟随 AI」零回归。
+#   能力去向：news/data/light/journal/mono 这 5 个主题**就是**5 套风格内部用的那 5 个（未丢）；另 5 个裸主题
+#   （dark/blue/tech/mint/vivid）暂无入口，待「皮肤扩库」（升级成正式皮肤 + 与新引擎 10 母版并列表）时回归。
+ck 'VF_ONELAYER_V1'                 'src/app/agent/page.tsx' 6 # 状态注释/成片方式删除说明/风格块过渡说明×2/高级删除块/提交注释
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"

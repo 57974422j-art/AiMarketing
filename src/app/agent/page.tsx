@@ -547,23 +547,18 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
   const [topic, setTopic] = useState(vj.topic || '')
   const [script, setScript] = useState('')
   const [bgm, setBgm] = useState('auto')   // ★VF_BGM_V1：默认自动配乐（AI 音乐库挑一首）
-  // ★VF_THEME_UI_V1（2026-09-20）：画面风格 —— render.py 早就有 3 套主题预设（dark/tech/light），
-  //   之前没在表单里暴露 → 用户永远只能拿到 dark。这里加一栏让用户选。
-  const [theme, setTheme] = useState(vj.theme || 'dark')
-  // ★VF_DECK_STYLES_V1（2026-10-01 用户原话「我本次选的是新闻资讯，因为我没看到新模版」）：
-  //   「🎨 画面模版」= **富编排 PPT 页（deck）的风格**，之前界面根本没有这个选项、只有 AI 自动选。
-  //   值一路带：设置卡 → 草稿 → 出片 plan 根级 `deck_style`（渲染层读它）。
-  //   'auto'（默认）= AI 按题材自选（与旧行为一致）；其余 6 个 = 用户指定，AI 必须用用户选的。
-  const [deckStyle, setDeckStyle] = useState(vj.deckStyle || 'auto')
+  // ★VF_ONELAYER_V1（2026-10-06 用户定案「目的只有一套 PPT 选择…确定重复内容冗余 删除」）：
+  //   theme / deck_style **不再上卡** —— 原「高级：主题(10) / PPT 版式(7)」两层手动挡整段删除。
+  //   为什么它们是冗余：5 套成品风格（themes.py 的 STYLES）**内部就是 theme + deck 的打包** ——
+  //     bluewhite = news + deck ／ darkgrad = data + deck-grad ／ cleanlight = light + deck-soft
+  //     ／ magazine = journal + deck-mag ／ softlux = mono + deck-glass（见 themes.py:194-234）
+  //   ⇒ 三层并列 = 同一件事的三个旋钮（原本靠"选了风格就把这两层置灰"回避冲突，用户当然觉得乱）。
+  //   值仍照原样提交（默认取 vj / 'dark' / 'auto'）—— 服务端契约与「跟随 AI」这条路径**零回归**。
+  const theme = vj.theme || 'dark'
+  const deckStyle = vj.deckStyle || 'auto'
   // ★VF_STYLES_WIRE_V1（2026-10-01）：「🎨 画面风格」= 5 套成品风格的**主入口**；'' = 跟随 AI / 不指定
   //   （= 不写 plan 根级 style，走老链路 theme + deck_style，行为与今天逐字一致）。
-  //   原来的「主题 / PPT 版式」收进下面默认收起的「高级」。
   const [style, setStyle] = useState(vj.style || '')
-  const [openStyleAdv, setOpenStyleAdv] = useState(false)
-  // ★VF_STYLELOCK_ADV_V1（2026-10-02 用户原话「选了画面风格时，把高级里的主题/版式置灰并写一句"当前由画面风格统一决定"」）：
-  //   选了具体风格（style !== ''）→ 高级里的 theme / deck_style 由画面风格统一决定，**置灰不可点**；
-  //   选「跟随 AI / 不指定」→ 恢复可点。⚠️ 只影响可点性，**不改提交逻辑**（该发什么还是发什么，零回归）。
-  const styleOn = style !== ''
   // ★OVERLAY_TEXT_SWITCH_V1（2026-09-29 用户定案「在视频图片上直接加大字，加一个开关」）：
   //   只关【压在素材/视频上的大字】；独立文字卡（标题/结尾/列表…）与字幕照旧 ——
   //   用户要的就是"有的视频不一定要，需要文字时用单独的文字卡（几帧）也行"。
@@ -650,13 +645,9 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
       {/* ★VF_PPT_SPLIT_V1（2026-10-06 用户定案「彻底拆开」）：本卡 = 图文成片（老引擎）专用。
           动态 PPT（HTML 逐帧 deck）自今日起是**独立一线**，入口词「PPT成片」——
           两条线时序真源不同（本线 = 分镜 dur；deck = 配音句），混在一起会出现"卡片承诺 6s/镜、
-          实际一页 20 秒"这种对不上的现象（2026-10-06 实测 20261006_001）。 */}
-      <div className="mb-3">
-        <div className="text-[10px] text-gray-400 mb-1">成片方式</div>
-        <div className="text-[10px] text-gray-500">
-          本线 = 图文成片（老引擎）· <b>每镜时长与字幕按下面的分镜清单执行</b>；要做动态 PPT 请用「PPT成片」（独立一条线）
-        </div>
-      </div>
+          实际一页 20 秒"这种对不上的现象（2026-10-06 实测 20261006_001）。
+          ★VF_ONELAYER_V1（2026-10-06）：原「成片方式」一整段（纯架构说明、没有任何可选项）删除；
+          唯一还需要用户知道的那句「要做动态 PPT 走独立线」已并进下面「🎨 画面风格」的说明行。 */}
 
       <div className="mb-3">
         <div className="text-[10px] text-gray-400 mb-1">画面来源</div>
@@ -748,7 +739,8 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
           把原来并列的【主题（10 个）】+【🎨 画面模版（6 个）】两套下拉，收敛成**一个「🎨 画面风格」主入口**
           （5 套成品风格 + 一个「跟随 AI / 不指定」）。选项键名/中文名逐字来自渲染层 themes.py 的 STYLES。
           「跟随 AI / 不指定」= ''（不写 plan 根级 style）→ 老链路 theme + deck_style，行为与今天逐字一致。
-          旧能力（主题 / PPT 版式）没删，收进下面默认收起的「高级」。 */}
+          ★VF_ONELAYER_V1（2026-10-06 用户定案）：当时"旧能力收进高级"只是过渡 —— 现已**整段删除**
+             （theme / deck_style 与风格同维度，见下面 ★VF_ONELAYER_V1 注释），本卡**只剩这一层视觉选择**。 */}
       <div className="mb-3">
         <div className="text-[10px] text-gray-400 mb-1">
           🎨 画面风格 <span className="text-gray-600">（一套搞定配色 + 整页 PPT 版式；只选一个）</span>
@@ -763,68 +755,23 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
         <VfStyleSamples onPick={setStyle} cur={style} />
         <div className="text-[10px] text-gray-500 mt-1">
           选一套 → 纯文字页会自动排成该风格的整页 PPT（标签条/要点/数据卡/页码）；不选则由 AI 按题材决定。
+          <br />本线 = 图文成片（素材画面 + 整页 PPT 版式页混排）。要做**不含素材、整片都是 PPT 版式页**的
+          「动态 PPT 成片」请用独立入口词「PPT成片」。
         </div>
       </div>
 
-      {/* ★VF_STYLES_WIRE_V1：默认收起的「高级」——原来的「主题(theme)」与「PPT 版式(deck_style)」原样保留，
-          但不再是主入口（老板不展开就永远不会被"两套"搞混）。 */}
-      <button onClick={() => setOpenStyleAdv(!openStyleAdv)} className="text-[10px] text-gray-500 hover:text-gray-300 mb-2">
-        {openStyleAdv ? '▲ 收起「高级：主题 / PPT 版式」' : '▼ 高级：主题 / PPT 版式（一般不用动）'}
-      </button>
-      {openStyleAdv ? (
-        <>
-          <div className="mb-3">
-            <div className="text-[10px] text-gray-400 mb-1">主题 <span className="text-gray-600">（底色/文字/强调色；留空由 AI 决定）</span></div>
-            {/* ★VF_STYLELOCK_ADV_V1：选了画面风格时，主题由画面风格统一决定 → 置灰 + 明示原因 */}
-            {styleOn ? (
-              <div className="text-[10px] text-amber-300/90 mb-1">当前由画面风格统一决定（选「跟随 AI」才可单独指定）</div>
-            ) : null}
-            <div className="flex flex-wrap gap-1.5">
-              {/* ★VF_THEMES_V1（2026-09-29 用户定案「挑一些模版给 AI 套」）：主题从 3 套扩到 8 套。
-                  对应 scripts/video-factory/themes.py（唯一真相源）——每套含：渐变底/文字/强调色/底衬/字幕带。
-                  新增主题只改那一个文件 + 这里加一行。 */}
-              {R(theme, 'dark', '🌌 深蓝墨', setTheme, styleOn)}
-              {R(theme, 'blue', '🔷 深蓝科技', setTheme, styleOn)}
-              {R(theme, 'tech', '🧊 深青科技', setTheme, styleOn)}
-              {R(theme, 'mint', '🌿 清新薄荷', setTheme, styleOn)}
-              {R(theme, 'light', '📄 浅色纸感', setTheme, styleOn)}
-              {R(theme, 'journal', '📔 手账暖色', setTheme, styleOn)}
-              {R(theme, 'vivid', '🔥 高饱和电商', setTheme, styleOn)}
-              {R(theme, 'mono', '⬛ 杂志黑白', setTheme, styleOn)}
-              {/* ★VF_STYLE_V1（2026-09-30 用户定案「先固定新闻资讯和科技数据」）：
-                  两套"编辑风"——用户看了 5 张博主视频截图后要的：
-                    news = 深蓝底 + 蓝底白字小标签条 + 白色信息卡 + 黑色横条 + 英文副标（报纸/电视台观感）
-                    data = 近黑青底 + 青色强调 + 深色数据卡 + 超大数字与细线
-                  ⚠️ 用户定案：**主题由用户定死、AI 不许改**（服务端 lockUserTheme 会把 AI 写的 theme 删掉）。 */}
-              {R(theme, 'news', '📰 新闻资讯', setTheme, styleOn)}
-              {R(theme, 'data', '📊 科技数据', setTheme, styleOn)}
-            </div>
-          </div>
-
-          {/* ★VF_DECK_STYLES_V1（2026-10-01 用户定案「我没看到新模版」）：PPT 版式 = 富编排 PPT 页（deck）风格。
-              "自动" = AI 按题材自选（旧行为）；选了具体一套 → 所有 deck 页强制用它（值经服务端归一化后
-              写进分镜 plan 的根级 `deck_style`，渲染层读取）。 */}
-          <div className="mb-3">
-            <div className="text-[10px] text-gray-400 mb-1">
-              PPT 版式 <span className="text-gray-600">（「富编排 PPT 页」整页排版风格：标签条/要点/数据卡/页码）</span>
-            </div>
-            {/* ★VF_STYLELOCK_ADV_V1：选了画面风格时，PPT 版式由画面风格统一决定 → 置灰 + 明示原因 */}
-            {styleOn ? (
-              <div className="text-[10px] text-amber-300/90 mb-1">当前由画面风格统一决定（选「跟随 AI」才可单独指定）</div>
-            ) : null}
-            <select value={deckStyle} disabled={styleOn} onChange={(e: any) => setDeckStyle(e.target.value)}
-              className={`w-full px-2 py-1.5 rounded text-[12px] border outline-none ${styleOn ? 'bg-white/[0.02] border-white/[0.06] text-gray-600 cursor-not-allowed' : 'bg-white/[0.05] border-white/[0.08] text-gray-200'}`}>
-              <option value="auto">自动（AI 按题材选）</option>
-              <option value="deck">经典（通用默认）</option>
-              <option value="deck-grad">渐变（氛围/开场）</option>
-              <option value="deck-mono">极简（数据/参数）</option>
-              <option value="deck-mag">杂志（资讯/观点）</option>
-              <option value="deck-glass">玻璃（产品/科技）</option>
-              <option value="deck-soft">柔和（生活/品牌）</option>
-            </select>
-          </div>
-        </>
-      ) : null}
+      {/* ★VF_ONELAYER_V1（2026-10-06 用户定案「目的只有一套 PPT 选择 … 确定重复内容冗余 删除」）：
+          原「高级：主题 / PPT 版式」**两段整段删除**（连同 ★VF_STYLELOCK_ADV_V1 的置灰逻辑与两条 amber 提示、
+          以及那个默认收起的折叠按钮）。理由 = 与上面「🎨 画面风格」**完全同维度**：
+            5 套风格内部就是 theme + deck_style 的打包（themes.py STYLES），选了风格本来就把这两层置灰
+            ⇒ 留着只会让用户以为"还要自己组合"，这就是"很乱/其实都是一个东西"的来源。
+          ⚠️ 能力去向（不是丢能力，是换入口）：
+            · 原来 10 个主题里，news/data/light/journal/mono 这 5 个**就是** 5 套风格内部用的那 5 个
+              （bluewhite=news、darkgrad=data、cleanlight=light、magazine=journal、softlux=mono）→ 未丢失；
+            · 另外 5 个"裸主题"（dark/blue/tech/mint/vivid）当前无处可选 —— 待「皮肤扩库」把裸主题升级成
+              正式皮肤（并与新引擎 10 母版并入同一列表）时，以皮肤卡的形式回归；
+            · theme / deckStyle 两个字段**仍照原样提交**（默认 vj / 'dark' / 'auto'），服务端契约与
+              「跟随 AI」路径与改前逐字一致（零回归，老草稿照样能出片）。 */}
 
       {/* ★OVERLAY_TEXT_SWITCH_V1：压在素材/视频上的大字开关（用户：有的视频不一定要） */}
       <div className="mb-3">
@@ -899,7 +846,9 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
           // ★VF_PPT_SPLIT_V1（2026-10-06）：本线只出老引擎 —— deck 已独占给独立的「PPT成片」线（服务端也会强制）
           engine: 'classic',
           aspect, dur: parseInt(dur) || 30, voice, source, topic, script, bgm, theme, big,
-          // ★VF_DECK_STYLES_V1：🎨 画面模版（'auto' | 6 个 deck 风格）—— 服务端写进 plan 根级 deck_style
+          // ★VF_DECK_STYLES_V1 / ★VF_ONELAYER_V1（2026-10-06）：deckStyle 已不再上卡（冗余层删除），
+          //   但**仍按原值提交** —— 选了「🎨 画面风格」时由风格内部决定，没选时 = 'auto'（AI 按题材选）。
+          //   服务端 trim/normalize 契约与改前逐字一致（零回归）。
           deckStyle,
           // ★VF_STYLES_WIRE_V1：🎨 画面风格（'' = 跟随 AI / 不指定 | 5 套成品风格）——
           //   服务端 normalizeStyle 归一后，出片时写进 plan 根级 `style`（渲染层 apply_style 读它）。
