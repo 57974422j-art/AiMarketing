@@ -67,6 +67,27 @@ export interface VfMixCtx {
   splitScript: (script: string, n: number, maxLen?: number) => string[]
 }
 
+/* ★VF_BIGCUT_V1（2026-10-06）：画面大字"避词边界"截断 —— **本文件刻意自带一份**，不 import anti-ai。
+ * 为什么重复：本文件的第 1 条设计约束就是"**零 import**（三条线互不 import，防互相连累）"，
+ * 所以宁可重复这 12 行，也不破契约。口径与 `anti-ai.bigTextCut` / `render.py::_cut_big_text` **逐字一致**
+ * （三处任一处单独改了，都会让"卡片承诺"与"成片画面"不一致 —— 改一处请三处一起改）。
+ * 治的问题：用户实拍成片出现大字「真正价值在6」（原句「真正价值在6.1MB背后的逻辑。」）——按字符硬切
+ * 会切在数字/英文中间。规则：① 窗口末尾落在字母数字串（含 . % - /）中间 ⇒ 回退到串首；② 剥末尾悬挂标点；
+ * ③ 回退/剥完为空 ⇒ 保留硬切结果。 */
+function cutBig(t: any, n = 14): string {
+  const s = String(t == null ? '' : t).replace(/\s+/g, ' ').trim()
+  if (!s) return ''
+  if (s.length <= n) return s
+  const isW = (c: string) => /[0-9A-Za-z.%\-/]/.test(c)
+  let cut = n
+  if (isW(s[cut - 1]) && isW(s[cut])) {
+    while (cut > 1 && isW(s[cut - 1])) cut--
+    if (cut < 2) cut = n
+  }
+  const out = s.slice(0, cut).replace(/[\s，、：；,.:;!?！？'"“”‘’（(【\[\-]+$/, '')
+  return out || s.slice(0, n)
+}
+
 /* ==================== ① 草稿（本线自己一份） ==================== */
 
 const VF_MIX_DRAFT = new Map<number, VfMixDraft>()
@@ -550,7 +571,7 @@ function mapShots(arr: any[], imgs: string[], charN: number, shotN: number, scri
       const sub = String(s.subtitle || s.text || '').slice(0, 200)
       // 无图可用 → 降级 title（但若 need_ai，画面由 AI 生成，仍可保留）
       if (!lp && !need_ai) return { type: 'title', text: notDemo(s.text) || notDemo(s.title), subtitle: sub, dur, need_ai: false, ..._pp }
-      return { type: 'bgimage', src: lp, text: notDemo(s.text).slice(0, 14), subtitle: sub, dur, need_ai, ..._pp }
+      return { type: 'bgimage', src: lp, text: cutBig(notDemo(s.text), 14), subtitle: sub, dur, need_ai, ..._pp }
     }
     const o: any = { ...s, dur, need_ai, ..._pp }
     if (o.text !== undefined) o.text = notDemo(o.text)

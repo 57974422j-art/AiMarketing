@@ -202,6 +202,29 @@ export function deckStylePromptNote(v?: any): string {
     `（优先于上面的风格推荐；用户选的说了算）。\n`
 }
 
+/* ══════════ ★VF_BIGCUT_V1（2026-10-06）画面大字的"避词边界"截断 ══════════
+ * 用户实拍 `20261006_043` 成片里出现大字「**真正价值在6**」——原句是「真正价值在6.1MB背后的逻辑。」：
+ * 画面大字（bgimage/title 的 text）原来一律 `String(t).slice(0, 14)` ⇒ **切在数字/英文中间**，
+ * 一眼就露机器味。老引擎四线（图片成片/图视混剪/素材+AI/AI 制片）共用同一套大字，故把口径放在这里。
+ * 规则（只处理**末端**，绝不改动词序、不改写内容）：
+ *   ① 窗口末尾若正好落在"字母数字串"（含 `. % - /`）中间 ⇒ **回退到该串起点之前**（保住 "6.1MB" 完整）；
+ *   ② 再剥掉末尾悬挂的标点（，、：；,.:;!? 与半开括号/引号/短横）；
+ *   ③ 回退/剥完若为空（整段就是一个超长英文数字串）⇒ 保留硬切结果（宁短勿空）。
+ * Python 侧同口径镜像见 `scripts/video-factory/render.py::_cut_big_text`（两道闸，防单边漏改）。 */
+export function bigTextCut(t: any, n = 14): string {
+  const s = String(t == null ? '' : t).replace(/\s+/g, ' ').trim()
+  if (!s) return ''
+  if (s.length <= n) return s
+  const isW = (c: string) => /[0-9A-Za-z.%\-/]/.test(c)
+  let cut = n
+  if (isW(s[cut - 1]) && isW(s[cut])) {
+    while (cut > 1 && isW(s[cut - 1])) cut--
+    if (cut < 2) cut = n            // 整段都是一串英文/数字 → 维持原窗口（否则等于清空）
+  }
+  const out = s.slice(0, cut).replace(/[\s，、：；,.:;!?！？'"“”‘’（(【\[\-]+$/, '')
+  return out || s.slice(0, n)
+}
+
 /* ══════════ ★VF_STYLES_WIRE_V1（2026-10-01）「成品风格」= 一套人话名字 ══════════
  * 老板原话：「目前模版有2套我是不是有点乱。能统一一下吗？或者删减不成熟的」
  *          「我本次选的是新闻资讯，因为我没看到新模版」「还是很多大字」

@@ -293,6 +293,20 @@ ck 'VF_PREVIEWTXT_V1'           'src/app/agent/page.tsx' 1
 #   【上一镜已用区间】里就顺延到区间之后；顺延不动（已到片尾）则退到该视频还没用过的最前一段；
 #   顺延几次如实写日志（不删镜、不改文案、不硬造画面）。
 ck 'VF_VDUP_V1'                     'src/lib/agent/vf/vf-video.ts' 2
+# ★VF_BIGCUT_V1（2026-10-06 用户实拍 20261006_043 成片里出现大字「真正价值在6」——原句含「6.1MB」）：
+#   画面大字原来一律 `String(t).slice(0,14)` ⇒ 会切在**数字/英文串中间**，一眼露机器味。
+#   修法 = 避词边界截断（窗口末尾落在字母数字串（含 . % - /）中间 ⇒ 回退到串首；再剥末尾悬挂标点；
+#   剥空则保留硬切）。**三处刻意同口径（改一处必须三处一起改）**：
+#     TS `anti-ai.bigTextCut`（route.ts 图片成片线 4 个调用点 + vf-video 混剪线）
+#     / `vf-mix.cutBig`（该文件契约是"零 import、三条线互不 import"，故自带一份重复实现）
+#     / Python `render.py::_cut_big_text`（渲染侧最后一道闸）。
+#   端测：直接 import 真函数 ——「真正价值在6.1MB背后的逻辑。」→「真正价值在6.1MB背后的逻」✓、
+#   「96.5%的企业都忽略了这个细节」→「96.5%的企业都忽略了这个」✓（% 保住）、长纯英文串仍硬切（无法避免）。
+ck 'VF_BIGCUT_V1'                   'src/lib/agent/vf/anti-ai.ts' 1
+ck 'VF_BIGCUT_V1'                   'src/app/api/agent/chat/route.ts' 2
+ck 'VF_BIGCUT_V1'                   'src/lib/agent/vf/vf-video.ts' 2
+ck 'VF_BIGCUT_V1'                   'src/lib/agent/vf/vf-mix.ts' 1
+ck 'VF_BIGCUT_V1'                   'scripts/video-factory/render.py' 2
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"

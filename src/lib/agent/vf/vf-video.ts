@@ -40,7 +40,9 @@ import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, s
   dedupeAdjacentSameText, deckStylePromptNote, normalizeDeckStyle,
   // ★VF_STYLES_WIRE_V1（2026-10-01）：「🎨 画面风格」（5 套成品风格）→ 草稿 → plan 根级 `style`；
   //   用户选了就给提示词补一句「版式由系统统一负责，你只要把内容写足」。
-  normalizeStyle, stylePromptNote } from './anti-ai'
+  normalizeStyle, stylePromptNote,
+  // ★VF_BIGCUT_V1（2026-10-06）：画面大字"避词边界"截断（与 route.ts / render.py 同口径）
+  bigTextCut } from './anti-ai'
 // ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：`VF_MOTION_PROMPT` = 「长镜必须有动效」的档位说明
 //   （与 ANTI_AI_PROMPT 同样**两个分镜 prompt 共用**一份，免得两条线走偏）；
 //   `ensurePersistentMotion` = 服务端兜底（AI 忘写时给 title/end 长镜自动补 `motion='grow'`）。
@@ -661,7 +663,8 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   for (const s of arr) {
     const ty = String(s?.type || '')
     const sub = cleanText(s?.subtitle, 300)
-    const big = cleanText(s?.text, 14)
+    // ★VF_BIGCUT_V1：先按 40 字清洗（保住 "6.1MB" 这类词完整），再按 14 字**避词边界**截断
+    const big = bigTextCut(cleanText(s?.text, 40), 14)
     if (ty === 'video' && clips.length) {
       const ci = parseInt(s?.vclip) - 1
       const i0 = ci >= 0 && ci < clips.length ? ci : 0

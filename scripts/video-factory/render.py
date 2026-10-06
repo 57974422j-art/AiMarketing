@@ -461,6 +461,33 @@ def esc_text(t):
             .replace("'", r"\'").replace('%', r'\\%'))
 
 
+def _cut_big_text(t, limit=14):
+    """★VF_BIGCUT_V1（2026-10-06）与 TS 侧 `anti-ai.bigTextCut` **同口径**的画面大字截断。
+
+    用户实拍 20261006_043 成片里出现大字「真正价值在6」——原句「真正价值在6.1MB背后的逻辑。」：
+    按字符 `t[:limit]` 会**切在数字/英文中间**，一眼露机器味。规则（只动末端，不改写内容）：
+      ① 窗口末尾落在"字母数字串"（含 . % - /）中间 ⇒ 回退到该串起点之前（保住 "6.1MB"）；
+      ② 剥掉末尾悬挂标点（，、：；,.:;!? 与半开括号/引号/短横）；
+      ③ 回退/剥完为空 ⇒ 保留硬切结果（宁短勿空）。
+    ⚠️ 两道闸（TS + Python）是刻意的：任何一边单独改了都会让"卡片承诺"与"成片画面"不一致。
+    """
+    s = str(t or '')
+    if len(s) <= limit:
+        return s
+
+    def _w(c):
+        return c.isalnum() or c in '.%-/'
+
+    cut = limit
+    if _w(s[cut - 1]) and _w(s[cut]):
+        while cut > 1 and _w(s[cut - 1]):
+            cut -= 1
+        if cut < 2:
+            cut = limit
+    out = s[:cut].rstrip(' \t，、：；,.:;!?！？\'"“”‘’（(【[-')
+    return out or s[:limit]
+
+
 def _big_text(shot, limit=14):
     """取这一镜的"画面大字"。★VF_BIGTEXT_FALLBACK_V1（2026-09-24 服务端实测事故）
 
@@ -474,7 +501,8 @@ def _big_text(shot, limit=14):
     """
     t = clean_big_text(shot.get('text') or shot.get('title') or '')
     if t:
-        return t[:limit]
+        # ★VF_BIGCUT_V1：不再 `t[:limit]` 硬切（会切坏 "6.1MB" 这类词）
+        return _cut_big_text(t, limit)
     s = ''.join(str(shot.get('subtitle') or '').split())
     if not s:
         return ''
@@ -482,7 +510,7 @@ def _big_text(shot, limit=14):
         if sep in s:
             s = s.split(sep)[0]
             break
-    return s[:10]
+    return _cut_big_text(s, 10)
 
 
 # ══════════════════ ★VF_TEXTFIT_V2（2026-09-28 用户实测：「成片的文字看着怪怪的」）══════════════════

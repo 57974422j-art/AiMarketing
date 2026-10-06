@@ -46,7 +46,9 @@ import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, s
   //   （非法/缺省 → 'auto'；渲染层读 plan 根级 deck_style 的逐字契约）。
   dedupeAdjacentSameText, deckStylePromptNote, normalizeDeckStyle,
   // ★VF_STYLES_WIRE_V1（2026-10-01）：用户选了「画面风格」→ 值归一化 + 提示词补一句「版式由系统统一负责」。
-  normalizeStyle, stylePromptNote } from '@/lib/agent/vf/anti-ai'
+  normalizeStyle, stylePromptNote,
+  // ★VF_BIGCUT_V1（2026-10-06）：画面大字"避词边界"截断（治成片里「真正价值在6」这种被切坏的数字/英文）
+  bigTextCut } from '@/lib/agent/vf/anti-ai'
 // ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：把「长镜必须有动效」的档位接进【图片成片线】的分镜提示词
 //   （与「视频混剪」线共用 anti-ai.ts 里同一份常量，两条线的字段说明与硬规矩逐字一致），
 //   并在 genVideoShots 出口跑服务端兜底 ensurePersistentMotion（AI 忘写时给 title/end 长镜补 grow）。
@@ -203,11 +205,12 @@ async function genVideoShotsRaw(o: {
    */
   const bigText = (raw: any, subtitle: any, limit = 14): string => {
     const t = notDemo(raw)
-    if (t) return t.slice(0, limit)
+    // ★VF_BIGCUT_V1：改用避词边界截断（原来 `t.slice(0, limit)` 会把 "6.1MB" 切成 "6"）
+    if (t) return bigTextCut(t, limit)
     const s = String(subtitle == null ? '' : subtitle).replace(/\s+/g, '')
     if (!s) return ''
     const head = s.split(/[。！？!?；;，,、]/)[0] || s
-    return head.slice(0, 10)
+    return bigTextCut(head, 10)
   }
   const nextIdx = (want: number): number => {
     const n = imgs.length
@@ -242,7 +245,7 @@ async function genVideoShotsRaw(o: {
       //   （白名单校验统一交给 genVideoShots 外层的 sanitizeAntiAiShots，别在这里判）。
       if (!lp || o.aiOnly) return { ...pickDesignFields(s), type: 'title', text: bigText(s.text, sub), subtitle: sub, dur: 3.5, ..._pp }
       // 注意：bgimage 的 text 是“画面大字”，**不能**当配音文案，所以这里只取 subtitle
-      return { ...pickDesignFields(s), type: 'bgimage', src: lp, text: notDemo(s.text).slice(0, 14), subtitle: sub, dur: Math.min(8, Math.max(2, parseInt(s.dur) || 4)), ..._pp }
+      return { ...pickDesignFields(s), type: 'bgimage', src: lp, text: bigTextCut(notDemo(s.text), 14), subtitle: sub, dur: Math.min(8, Math.max(2, parseInt(s.dur) || 4)), ..._pp }
     }
     if (KNOWN_TYPES.includes(ty)) {
       // ★VF_NOCLONE_V1：清掉照抄的示例文字（text/title/label/cta/items）
@@ -275,8 +278,8 @@ async function genVideoShotsRaw(o: {
         const head3 = notDemo(s.text) || notDemo(s.title) || sub3.slice(0, 8)
         const dur3 = Math.min(8, Math.max(2, parseInt(s.dur) || 5))
         // ★注意：这里必须用 aiOnlyShot（上面单独存的），不能用 o.aiOnly（此处 o 已被遮蔽）
-        if (!lp3 || aiOnlyShot) return { type: 'title', text: String(head3).slice(0, 14), subtitle: sub3, dur: dur3 }
-        return { type: 'bgimage', src: lp3, text: String(head3).slice(0, 14), subtitle: sub3, dur: dur3 }
+        if (!lp3 || aiOnlyShot) return { type: 'title', text: bigTextCut(head3, 14), subtitle: sub3, dur: dur3 }
+        return { type: 'bgimage', src: lp3, text: bigTextCut(head3, 14), subtitle: sub3, dur: dur3 }
       }
       return o
     }
@@ -287,8 +290,8 @@ async function genVideoShotsRaw(o: {
     const lp2 = idx2 >= 0 ? imgs[Math.max(0, Math.min(imgs.length - 1, idx2))] : ''
     const head2 = bigText(s?.title || s?.text, sub2)   // ★VF_BIGTEXT_FALLBACK_V1：统一走兜底
     const dur2 = Math.min(8, Math.max(2, parseInt(s?.dur) || 5))
-    if (!lp2 || o.aiOnly) return { type: 'title', text: String(head2).slice(0, 14), subtitle: sub2, dur: dur2 }
-    return { type: 'bgimage', src: lp2, text: String(head2).slice(0, 14), subtitle: sub2, dur: dur2 }
+    if (!lp2 || o.aiOnly) return { type: 'title', text: bigTextCut(head2, 14), subtitle: sub2, dur: dur2 }
+    return { type: 'bgimage', src: lp2, text: bigTextCut(head2, 14), subtitle: sub2, dur: dur2 }
   }).filter(Boolean).slice(0, Math.max(4, Math.min(40, o.shotN || 8)))
   // ★VF_SHOTCOUNT_V1（2026-09-20 用户实测“13 镜/190 秒、一镜 14.6 秒太闷”）：
   //   AI 常排不够镜头（目标 36 只给 13），而兜底又是“按现有镜数切” → 一镜 24 秒。
