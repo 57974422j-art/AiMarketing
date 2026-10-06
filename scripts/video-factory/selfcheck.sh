@@ -353,6 +353,13 @@ ck 'VF_SCRIM_V1'                    'scripts/video-factory/render.py' 6
 #   端测：本机真渲 `--storyboard`（duo 2 张 + frame 3 张）⇒ 两镜 OK、成片 8.00s；抽帧核对
 #      上行蓝图/下行橙图、2×2 网格右下留白、大字渐隐底衬与上下渐变遮罩都在。
 ck 'VF_DUO_V1'                      'scripts/video-factory/render.py' 10
+# ★VF_DUO_WIRE_V1（2026-10-06 批 4 接线）：把引擎已就绪的 `duo`/`frame` 拼版接进两条线的分镜 ——
+#   图片成片（route.ts：提示词从"7 种 type"放开到 9 种 + `picks`→本地路径取材；取不到 2 张**不接管**，
+#   走"未知 type → 归一化成 bgimage/title"那条已验证的兜底路）与图视混剪（vf-video.ts：同口径，
+#   取材用本线的图片清单）。**刻意不把 duo/frame 加进 KNOWN_TYPES** —— 加了会让"取不到图"的 duo
+#   原样透给渲染层（srcs 空 ⇒ 白镜）。渲染侧另有兜底：凑不齐 2 张 = 回落单图（见 ★VF_DUO_V1）。
+ck 'VF_DUO_WIRE_V1'                 'src/app/api/agent/chat/route.ts' 1
+ck 'VF_DUO_WIRE_V1'                 'src/lib/agent/vf/vf-video.ts' 2
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"

@@ -601,6 +601,12 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
     `   · ★该镜 subtitle 必须【按 4.5 字/秒 写够】（dur 6 秒 → 约 27 字）——最终镜长按配音真实时长算，\n` +
     `     文案长度对了，视频片段才能【完整播完】（否则画面会被放慢或循环）\n` +
     `②【用图片的镜】写成 {"type":"bgimage","pick":2,"text":"画面大字","subtitle":"..."}\n` +
+    // ★VF_DUO_WIRE_V1（2026-10-06 B3）：素材不足时的拼版（2 张一版 / 3~4 张走 2×2）——
+    //   引擎侧 card_duo/card_frame 已就绪；这里只把"什么时候用、字段怎么写"告诉 AI。
+    `②b【素材不够时用拼版（2 副拼一副）】图片比镜头少时，可以把 2 张拼成一版：` +
+    `{"type":"duo","picks":[2,5],"text":"两版对照","subtitle":"...","dur":5}` +
+    `（picks 是【上面图片清单的序号】、两张必须不同）；一版放 3~4 张用 {"type":"frame","picks":[1,3,4]}。` +
+    `只在图片张数明显少于图镜数时才用，能一图一镜就一图一镜\n` +
     `③【所有 subtitle 拼起来必须完整覆盖文案，且顺序一致】；不许扩写、不许重复、不许自己编句子\n` +
     `④相邻两镜不要用同一个视频；同一个视频切多段时，两段之间至少隔 2 镜\n` +
     // ★VF_POOL_V1（2026-09-30 用户实测「AI 选择重复图一张」「连着两镜看着一样」）：
@@ -707,6 +713,23 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
         type: 'video', src: c?.path || '', _ci: i0, src_dur: Math.round(real * 100) / 100,
         vstart: Math.round(start * 100) / 100, dur: Math.round(len * 100) / 100, text: big, subtitle: sub,
       })
+    } else if ((ty === 'duo' || ty === 'frame') && imgPaths.length >= 2) {
+      // ★VF_DUO_WIRE_V1（2026-10-06 用户定案 B3）：拼版取材（与图片成片线同口径）——
+      //   AI 的 `picks`（1 基，指向本线"图片清单"）→ 本地路径；取不够 2 张就按顺序补；
+      //   仍不足 2 张 ⇒ 不接管，让它落到下面 `else if (imgPaths.length)`（变成单图 bgimage，观感不坏）。
+      const _want = ty === 'duo' ? 2 : Math.min(4, imgPaths.length)
+      const _picks: number[] = Array.isArray(s?.picks) ? s.picks.map((x: any) => parseInt(x)) : []
+      const _chosen: string[] = []
+      for (const _w of _picks) {
+        const _i = _w - 1
+        if (_i >= 0 && _i < imgPaths.length && !_chosen.includes(imgPaths[_i])) _chosen.push(imgPaths[_i])
+        if (_chosen.length >= _want) break
+      }
+      for (let _k = 0; _k < imgPaths.length && _chosen.length < 2; _k++) {
+        if (!_chosen.includes(imgPaths[_k])) _chosen.push(imgPaths[_k])
+      }
+      shotsOut.push({ ...pickDesignFields(s), type: ty, srcs: _chosen.slice(0, _want),
+        text: big, subtitle: sub, dur: clampNum(s?.dur, 2, 8, 4) })
     } else if (TEXT_CARDS.has(ty)) {
       // ★VF_TEXTCARD_V1（2026-09-29 用户实测「没单独生成页面 都是图片加打字」）：
       //   老逻辑：只要不是 video 就一律变成 bgimage（硬配一张图）→ AI 排的文字卡全被吃掉，

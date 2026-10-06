@@ -132,7 +132,8 @@ async function genVideoShotsRaw(o: {
   // ★VF_SHOTIMG_V1（2026-10-05 用户实测「5 张图只排 1 张 bgimage、还排了 3 个 end 镜」）：
   //   要求清单加两条硬规矩 —— ⑤ 素材图至少排一半以上（信息卡只是点缀，别用信息卡把图挤掉）
   //   ⑥ end 镜只许 1 个（多余的收尾句并进前一镜 subtitle）。老引擎/新引擎两条出片路都受益。
-  const prompt = `你是短视频编导。把下面这条口播文案排成分镜。\n画幅 ${o.aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${o.dur} 秒，【必须切成 ${o.shotN} 个镜头左右（±3 以内）】，【各镜 dur 相加必须约等于 ${o.dur} 秒】。${o.retryHint ? '\n⚠️上次你没排好：' + o.retryHint : ''}\n【可用的图】共 ${imgs.length} 张（图号 1~${imgs.length}）${o.brief ? '，内容：\n' + o.brief : ''}\n\n只输出严格 JSON 数组（不要 markdown、不要解释），字段示例（注意 pick 是【纯数字】；subtitle 要像下面这么长）：\n[{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案、通宵盯屏幕，今天给你看一套能自动出片的系统。","dur":7},{"type":"title","text":"AI营销系统","subtitle":"它不是你想象里的概念，而是真正能在后台跑起来的营销引擎。","dur":5},{"type":"list","title":"三大能力","items":["写文案","做视频","自动发布"],"subtitle":"先看第一个能力：输入你的产品卖点，一键生成上百条不同风格的文案。","dur":6},{"type":"number","value":10,"suffix":"倍","label":"效率提升","subtitle":"这不是夸张说法，是我们内测团队跑出来的真实数据。","dur":5},{"type":"end","text":"评论区见","cta":"点击咨询","subtitle":"想要这套系统的，评论区留下你的行业，我把内测名额发给你。","dur":5}]\n★【type 只能是这 7 种：bgimage / title / list / number / compare / chart / end】——不要自造 subtitle、text、image、script 等其它 type！subtitle 是【字段名】，不是 type。\n  · 讲到【两个东西对比 / 有这个没这个】时用 compare：{"type":"compare","left":"旧做法","right":"新做法","leftDesc":"一句话说明","rightDesc":"一句话说明","subtitle":"这一镜念的文案","dur":5}\n  · 讲到【多个数据 / 占比 / 排名】时用 chart：{"type":"chart","title":"效果对比","items":[{"label":"人工","value":32},{"label":"AI","value":78}],"subtitle":"这一镜念的文案","dur":6}\n  · 其余情况用 bgimage（配你的素材图）最稳。\n★★【示例里的文字只是“字段长什么样”的演示，你必须全部换成与下面这段文案相关的新内容 —— **绝对不许照抄示例里的任何词句**（用户实测：照抄导致每条成片画面大字都一样）】★★\n要求：\n①【最关键】每个镜头都要给 subtitle，且【所有 subtitle 拼起来必须**完整覆盖**下面那段文案】（文案共 ${charN} 字，按 ${o.shotN} 镜算 → **平均每镜约 ${avgN} 字**；宁可一镜写到 60 字，也不许只写一部分）。★但【绝对不许扩写、不许重复】：所有 subtitle 拼起来的**总字数要≈文案字数**（最多不超过它的 1.15 倍）——实测你写超到 233%，成片会又超时又重复念，用户会直接发现\n② text 只能是 4~8 字的短语（它是画面上的大字，不是字幕）\n③【pick 必须是纯数字】（如 1、2、3），范围 1~${imgs.length}；★不要写“图1”“图 1”“第1张”这种带汉字的写法；每个 bgimage 的 pick 尽量用不同数字\n④ 不要编造素材里没有的东西。
+  const prompt = `你是短视频编导。把下面这条口播文案排成分镜。\n画幅 ${o.aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${o.dur} 秒，【必须切成 ${o.shotN} 个镜头左右（±3 以内）】，【各镜 dur 相加必须约等于 ${o.dur} 秒】。${o.retryHint ? '\n⚠️上次你没排好：' + o.retryHint : ''}\n【可用的图】共 ${imgs.length} 张（图号 1~${imgs.length}）${o.brief ? '，内容：\n' + o.brief : ''}\n\n只输出严格 JSON 数组（不要 markdown、不要解释），字段示例（注意 pick 是【纯数字】；subtitle 要像下面这么长）：\n[{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案、通宵盯屏幕，今天给你看一套能自动出片的系统。","dur":7},{"type":"title","text":"AI营销系统","subtitle":"它不是你想象里的概念，而是真正能在后台跑起来的营销引擎。","dur":5},{"type":"list","title":"三大能力","items":["写文案","做视频","自动发布"],"subtitle":"先看第一个能力：输入你的产品卖点，一键生成上百条不同风格的文案。","dur":6},{"type":"number","value":10,"suffix":"倍","label":"效率提升","subtitle":"这不是夸张说法，是我们内测团队跑出来的真实数据。","dur":5},{"type":"end","text":"评论区见","cta":"点击咨询","subtitle":"想要这套系统的，评论区留下你的行业，我把内测名额发给你。","dur":5}]\n★【type 只能是这 9 种：bgimage / title / list / number / compare / chart / end / duo / frame】——不要自造 subtitle、text、image、script 等其它 type！subtitle 是【字段名】，不是 type。
+  · ★【素材图比镜头少时用拼版】（用户定案："2 副拼一副 / 加相框多副排版"）——把 2 张图拼成一版用 duo：{"type":"duo","picks":[1,3],"text":"两版对照","subtitle":"这一镜念的文案","dur":5}（picks 是【纯数字】的图号，两张必须不同）；一版放 3~4 张就用 frame（picks 最多 4 个）。**只在图片张数明显少于图镜数时才用**（否则一张图一镜更好）；拼版镜一样要写 text 与 subtitle。\n  · 讲到【两个东西对比 / 有这个没这个】时用 compare：{"type":"compare","left":"旧做法","right":"新做法","leftDesc":"一句话说明","rightDesc":"一句话说明","subtitle":"这一镜念的文案","dur":5}\n  · 讲到【多个数据 / 占比 / 排名】时用 chart：{"type":"chart","title":"效果对比","items":[{"label":"人工","value":32},{"label":"AI","value":78}],"subtitle":"这一镜念的文案","dur":6}\n  · 其余情况用 bgimage（配你的素材图）最稳。\n★★【示例里的文字只是“字段长什么样”的演示，你必须全部换成与下面这段文案相关的新内容 —— **绝对不许照抄示例里的任何词句**（用户实测：照抄导致每条成片画面大字都一样）】★★\n要求：\n①【最关键】每个镜头都要给 subtitle，且【所有 subtitle 拼起来必须**完整覆盖**下面那段文案】（文案共 ${charN} 字，按 ${o.shotN} 镜算 → **平均每镜约 ${avgN} 字**；宁可一镜写到 60 字，也不许只写一部分）。★但【绝对不许扩写、不许重复】：所有 subtitle 拼起来的**总字数要≈文案字数**（最多不超过它的 1.15 倍）——实测你写超到 233%，成片会又超时又重复念，用户会直接发现\n② text 只能是 4~8 字的短语（它是画面上的大字，不是字幕）\n③【pick 必须是纯数字】（如 1、2、3），范围 1~${imgs.length}；★不要写“图1”“图 1”“第1张”这种带汉字的写法；每个 bgimage 的 pick 尽量用不同数字\n④ 不要编造素材里没有的东西。
 ⑤【素材图要多用】可用图 ≥2 张时，bgimage 镜至少要排【其中一半以上】（每张图最多用一次、能全用就全用）；信息卡（title/list/number/compare/chart）是点缀（每 3~4 个图镜插 1 张即可），不要反过来用信息卡把素材图挤掉（实测：5 张图只排了 1 张，成片几乎全是文字页，用户不满）。
 ⑥【end 镜只能有 1 个】收尾只排 1 个 end 镜（含 CTA）；多余的收尾句并进前一镜的 subtitle，不要再加 end 镜（实测：排了 3 个 2 秒的 end 镜）。${o.wantPrompt ? `\n★★【本片画面由 AI 逐镜生成】所以每个镜头还必须多给一个 prompt 字段：**英文**的画面生成提示词，含【主体 + 动作 + 场景 + 光影 + 镜头感（如推近/平移/航拍）】，60~80 词；只描述画面，**不要在画面里出现任何文字**（文字由字幕层负责）。prompt 必须与该镜的 subtitle 语义一致 —— 文案说什么，画面就演什么。\n  示例（注意 prompt 是英文）：{"type":"bgimage","pick":1,"text":"效率翻10倍","subtitle":"很多营销人还在熬夜改文案。","prompt":"A young marketer working late at a desk at night, laptop glow on his face, camera slowly pushes in, cinematic warm lighting, shallow depth of field","dur":7}` : ''}\n` +
     // ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：「长镜必须有动效」档位 + 硬规矩（与「视频混剪」线共用
@@ -233,6 +234,29 @@ async function genVideoShotsRaw(o: {
   }
   const shots = arr.map((s: any) => {
     const ty = String(s?.type || '')
+    // ★VF_DUO_WIRE_V1（2026-10-06 用户定案 B3「素材不够：2 副拼一副 / 加相框多副排版」）：
+    //   引擎侧已就绪（render.py 的 card_duo / card_frame），这里只做**取材**：
+    //   AI 给的 `picks`（1 基图号，指向【可用图】清单）→ 本地路径；取不够 2 张就按顺序补；
+    //   仍然不足 2 张 ⇒ **不接管**，让它走下面"未知 type → 归一化成 bgimage/title"那条已验证的兜底路
+    //   （宁可少拼一版，也不许出空素材的镜）。⚠️ 刻意**不**把 duo/frame 加进 KNOWN_TYPES ——
+    //   加了会让"取不到图"的 duo 原样透给渲染层（srcs 空 → 白镜）。
+    if ((ty === 'duo' || ty === 'frame') && imgs.length >= 2) {
+      const _want = ty === 'duo' ? 2 : Math.min(4, imgs.length)
+      const _picks = Array.isArray(s?.picks) ? s.picks.map((x: any) => parseInt(x)) : []
+      const _chosen: string[] = []
+      for (const _w of _picks) {
+        const _i = _w - 1
+        if (_i >= 0 && _i < imgs.length && !_chosen.includes(imgs[_i])) _chosen.push(imgs[_i])
+        if (_chosen.length >= _want) break
+      }
+      for (let _k = 0; _k < imgs.length && _chosen.length < 2; _k++) {
+        if (!_chosen.includes(imgs[_k])) _chosen.push(imgs[_k])
+      }
+      const _sub2 = String(s.subtitle || '').slice(0, 200)
+      return { ...pickDesignFields(s), type: ty, srcs: _chosen.slice(0, _want),
+        text: bigText(s.text, _sub2), subtitle: _sub2,
+        dur: Math.min(8, Math.max(2, parseInt(s.dur) || 4)) }
+    }
     if (ty === 'bgimage' || ty === 'image') {
       const sub = String(s.subtitle || '').slice(0, 200)
       const idx = nextIdx(parseInt(s.pick))
