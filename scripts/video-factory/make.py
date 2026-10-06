@@ -535,8 +535,52 @@ def split_text_by_cap(text, cap):
             if buf:
                 out.append(buf)
                 buf = ''
-            for i in range(0, len(p), c):
-                out.append(p[i:i + c])
+            # ★VF_KINOKU_V1（2026-10-06）：硬切时**不许切在"字母数字串 / 数字+单位"中间**。
+            #   同源问题在成片里眼见为实过（大字被切成「真正价值在6」，原句含「6.1MB」）——
+            #   字幕侧同样会中招：`12400人`/`6.1MB` 被切开 ⇒ TTS 念错、字幕断词。
+            #   做法 = 与 TS 侧 `anti-ai.pickKinsokuCut` 同口径的"禁则回退"（最多往回挪 4 字）；
+            #   挪不动就原样切 —— 本函数契约 `''.join(segs) === 原文` **永不破坏**（一字不少）。
+            i = 0
+            while i < len(p):
+                j = min(len(p), i + c)
+                if j < len(p):
+                    k, back = j, 0
+                    while k > i + 1 and back < 4:
+                        prev, nxt = p[k - 1], p[k]
+                        bad = False
+                        # (a) ASCII 字母数字串不许切开（6|1、A|B、6|.）；⚠️ 必须限定 isascii ——
+                        #     `isalnum()` 对**汉字也为真**，不限定就会把整句中文都当成"一个词"而拒绝切分。
+                        if (prev.isascii() and nxt.isascii()
+                                and (prev.isalnum() or prev in '.%') and (nxt.isalnum() or nxt in '.%')):
+                            bad = True
+                        # (b) 数字 + 中文单位（1|万、2|人）
+                        if prev.isdigit() and nxt in '万亿千百十个条次天元秒%':
+                            bad = True
+                        # (c) 小数点 / 百分号两侧（6|. 与 %|的）
+                        if prev in '.%' or nxt in '.%':
+                            bad = True
+                        # (d) 标点不许落在下一段段首
+                        if nxt in '，。！？；、：,.;:!?）)】」》':
+                            bad = True
+                        if not bad:
+                            break
+                        k -= 1
+                        back += 1
+                    if k > i + 1 and back < 4:
+                        j = k
+                    else:
+                        # ★VF_KINOKU_V1：回退救不回来（整个窗口就是一个超长数字/英文串，如 "96.5%" 占满 cap）
+                        #   ⇒ **宁可让这一段超 cap 一点，也绝不把它切坏**（数字/英文被切 = 配音念错 + 字幕断词，
+                        #   比"字幕多一个字"严重得多）。最多往后多吃 6 字；仍要保证 j > i（有进展，不死循环）。
+                        lim = min(len(p), i + c + 6)
+                        # ⚠️ 必须限定 ASCII：Python 的 `str.isalnum()` 对**汉字也为真** ——
+                        #   首版写成 `ch.isalnum()` 会让"前向补齐"一路把整句汉字都当成同一个词吃掉
+                        #   （实测 cap=6 时第一段变成 10 个字，等于把 cap 废掉）。只认 ASCII 字母数字与 `.` `%`。
+                        _w = lambda ch: (ch.isascii() and ch.isalnum()) or ch in '.%'  # noqa: E731
+                        while j < lim and j > i and _w(p[j - 1]) and _w(p[j]):
+                            j += 1
+                out.append(p[i:j])
+                i = j
             continue
         if len(buf) + len(p) <= c:
             buf += p

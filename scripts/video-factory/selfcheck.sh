@@ -360,6 +360,15 @@ ck 'VF_DUO_V1'                      'scripts/video-factory/render.py' 10
 #   原样透给渲染层（srcs 空 ⇒ 白镜）。渲染侧另有兜底：凑不齐 2 张 = 回落单图（见 ★VF_DUO_V1）。
 ck 'VF_DUO_WIRE_V1'                 'src/app/api/agent/chat/route.ts' 1
 ck 'VF_DUO_WIRE_V1'                 'src/lib/agent/vf/vf-video.ts' 2
+# ★VF_KINOKU_V1（2026-10-06 批 5 / C4）：`make.py::split_text_by_cap` 的"硬切"加**禁则回退** ——
+#   与 TS 侧 `anti-ai.pickKinsokuCut` 同口径：不许切在 ASCII 字母数字串 / 数字+中文单位 / 小数点百分号
+#   两侧 / 标点落到段首。回退救不回来（整个窗口就是一个超长数字串，如 `96.5%` 占满 cap）⇒
+#   **宁可让这段超 cap 一点（最多 +6 字），也绝不把它切坏**（数字被切 = 配音念错 + 字幕断词）。
+#   ⚠️ 两个坑都踩过并已修：① `str.isalnum()` 对**汉字也为真** ⇒ 判据必须 `isascii()` 限定，
+#      否则"前向补齐"会把整句中文当成一个词吃掉（实测 cap=6 第一段变 10 字，等于废掉 cap）；
+#      ② 只护数字不护字母 ⇒ `ABCDEFG` 仍被切开（现整串 ASCII 字母数字都护）。
+#   契约：`''.join(segs) === 原文` **永不破坏**（单测 7 例 join 全等、破坏数 0）。
+ck 'VF_KINOKU_V1'                   'scripts/video-factory/make.py' 2
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"
