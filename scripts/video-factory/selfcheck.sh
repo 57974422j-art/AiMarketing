@@ -287,6 +287,12 @@ ck 'VF_LINETAG_V1'              'src/lib/agent/vf/vf-video.ts' 1
 ck 'VF_LINETAG_V1'              'src/app/api/agent/chat/route.ts' 1
 ck 'VF_NEARDUP_V1'              'src/lib/agent/vf/anti-ai.ts' 2
 ck 'VF_PREVIEWTXT_V1'           'src/app/agent/page.tsx' 1
+# ★VF_VDUP_V1（2026-10-06 用户实拍反馈 20261006_043「同一段画面连放 2~3 格」）：分镜里第 2/3 镜同
+#   vstart=7、第 4/5 镜同 vstart=23 ⇒ 成片观感"画面卡住不动"（一镜 2.6~3s，两镜 = 5~6s 同一画面）。
+#   AI 常给相邻镜写同一个取样点（提示词管不住）⇒ 服务端硬兜底：同一条视频内，本镜起点若落在
+#   【上一镜已用区间】里就顺延到区间之后；顺延不动（已到片尾）则退到该视频还没用过的最前一段；
+#   顺延几次如实写日志（不删镜、不改文案、不硬造画面）。
+ck 'VF_VDUP_V1'                     'src/lib/agent/vf/vf-video.ts' 2
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"

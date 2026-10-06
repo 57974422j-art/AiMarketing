@@ -651,6 +651,12 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   const VF_VIDEO_SHOT_MAX_SEC = 10
   const VF_VIDEO_SHOT_MIN_SEC = 2
   let _capHits = 0
+  // ★VF_VDUP_V1（2026-10-06 用户实测 20261006_043：同一段画面连放 2~3 格 —— 分镜里第 2/3 镜都是
+  //   vstart=7、第 4/5 镜都是 vstart=23，成片观感就是"画面卡住不动"）：AI 常给相邻镜写同一个取样点，
+  //   提示词管不住 ⇒ 服务端硬兜底：同一条视频内，本镜起点若落在【上一镜已用区间】里，就顺延到区间之后
+  //   （顺延不动 = 已到片尾，则退到该视频还没用过的最前一段）；顺延几次如实写日志，不硬造画面。
+  let _lastVid: { ci: number; b: number } | null = null
+  let _dupShift = 0
   const shotsOut: any[] = []
   for (const s of arr) {
     const ty = String(s?.type || '')
@@ -671,10 +677,17 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
       const needLen = Math.min(VF_VIDEO_SHOT_MAX_SEC, Math.max(want, expect))
       // ★VF_SHOTCAP_V1：这一镜的"想要长度"（AI 写的 dur 或文案应付的时长）超上限 → 记一笔
       if (Math.max(Number(s?.dur || 0), expect) > VF_VIDEO_SHOT_MAX_SEC) _capHits++
-      const start = clampNum(s?.vstart, 0, Math.max(0, real - needLen), 0)
+      let start = clampNum(s?.vstart, 0, Math.max(0, real - needLen), 0)
+      // ★VF_VDUP_V1：相邻镜别吃同一段画面（机制见函数头注释；只动"起点"，不删镜、不改文案）
+      if (_lastVid && _lastVid.ci === i0 && start < _lastVid.b - 0.05) {
+        const maxStart = Math.max(0, real - needLen)
+        const cand = _lastVid.b <= maxStart ? _lastVid.b : (start > 0.2 ? 0 : start)
+        if (cand !== start) { _dupShift++; start = Math.round(cand * 100) / 100 }
+      }
       // 片段不够长 → 用"这段能给的"为准（渲染层还有放慢/循环兜底）；太长就按 needLen 截
       const maxLen = real > 1 ? Math.max(1.5, real - start) : needLen
       const len = real > 1 ? Math.min(needLen, maxLen) : needLen
+      if (real > 1) _lastVid = { ci: i0, b: Math.round((start + len) * 100) / 100 }
       // src_dur = 片段自身总长（渲染层用它判断"要不要放慢/循环兜底"）；vstart = 从第几秒开始
       // _ci = 用的是第几个视频（下面按需下载/降级用，写完就删）
       shotsOut.push({
@@ -704,6 +717,7 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
     }
   }
 
+  if (_dupShift) ctx.log(uid, `[VF-V] ★相邻镜画面防重复：顺延了 ${_dupShift} 个镜的取样起点（AI 原稿给了相邻镜同一个 vstart）`)
   // ── 5.45) ★VF_POOL_V1（2026-09-30）：同一素材不重复（归一化阶段的**服务端兜底**）
   //   用户实测：「AI 选择重复图一张」「连着两镜看着一样」。提示词里已写硬规矩（⑩），
   //   但 AI 不一定每次都听 → 这里再兜一层：重复的镜换成【还没用到的】素材；
