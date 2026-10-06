@@ -352,7 +352,7 @@ ck 'VF_SCRIM_V1'                    'scripts/video-factory/render.py' 6
 #   兜底：凑不齐 2 张或拼版失败 ⇒ 老实回落单图（宁可少，不让整镜崩）。
 #   端测：本机真渲 `--storyboard`（duo 2 张 + frame 3 张）⇒ 两镜 OK、成片 8.00s；抽帧核对
 #      上行蓝图/下行橙图、2×2 网格右下留白、大字渐隐底衬与上下渐变遮罩都在。
-ck 'VF_DUO_V1'                      'scripts/video-factory/render.py' 6
+ck 'VF_DUO_V1'                      'scripts/video-factory/render.py' 10
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"
