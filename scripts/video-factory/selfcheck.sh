@@ -337,8 +337,10 @@ ck 'VF_DURAUTO_V1'                  'src/app/agent/page.tsx' 1
 #   （沿用 ★VF_MATGUARD_V1 口径）。实现 = steps 条 drawbox 近似（单输入链内确定性可做，
 #   不引第二输入、不用慢的 geq；alpha 3 位小数、绝不输出 0/科学计数法）。
 #   端测：`python render.py --selftest` 12 镜全过、成片 41.56s（视频镜/AI 片段镜/素材镜都跑到）。
-#   📋 待办：`card_bgimage` 那两条同样改（它另有 _band_box/深色守卫，改前要单独对照一次）。
-ck 'VF_SCRIM_V1'                    'scripts/video-factory/render.py' 3
+#   ★已覆盖全部素材页路径：`card_video` 两处（视频片段 + AI 片段）+ `card_bgimage` 两处（正常素材页 +
+#     "素材不适合当背景→改用质感底板"那条）+ 删掉只服务硬边黑板、已成死变量的 `_bar_y`。
+#     （残留的 `black@0.30` 都是**文字底衬** `_boxc`，属另一功能，不要误删。）
+ck 'VF_SCRIM_V1'                    'scripts/video-factory/render.py' 6
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"

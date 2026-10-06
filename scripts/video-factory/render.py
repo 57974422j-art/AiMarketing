@@ -3395,7 +3395,8 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
     fs = int(shot.get('fontsize', big_fs(W, H, 0.10, 54)))   # ★VF_STYLE_V1（④）：按画幅取向取字号
     txc = th.get('text', 'white')
     _frames = max(1, int(dur * fps))
-    _bar_y = int(H * 0.72)
+    # ★VF_SCRIM_V1（2026-10-06）：原来的 `_bar_y = int(H * 0.72)` 只服务于"0.72H 硬边黑板"，
+    #   现在压暗全交给 scrim_boxes()（带状渐变遮罩），该变量已无引用，删掉免得后人误用。
     # ★VF_MATGUARD_V1（2026-09-29 用户实测「图片加打字…没色彩，就几个白字」）：先体检素材。
     _mat = _probe_material(src)
     _lum = _mat.get('lum', 160)
@@ -3459,9 +3460,9 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
                                              y_off=-int(H * 0.06), x_off=_ov_tx2)
                        ) if overlay_text_on() else []
         _inp, _stage = stage_layer(th, W, H, dur)
-        _vf = _stage + ',' + ','.join([
-            f"drawbox=x=0:y={_bar_y}:w={W}:h={H - _bar_y}:color=black@0.28:t=fill",
-        ] + _reveal
+        # ★VF_SCRIM_V1（2026-10-06）：素材"不适合当背景 → 改用主题质感底板"这条路径**也走渐变遮罩**
+        #   （否则同一片里两种压暗方式并存 → 观感断裂）。
+        _vf = _stage + ',' + ','.join(scrim_boxes(W, H, _mat) + _reveal
             # ★VF_PPT_OVERLAY_V1：素材不可用（改用主题质感底板）这条路径**也要压面板** ——
             #   否则"素材被判不可用"的镜会突然没有版式（同一片里观感断裂）。
             + ppt_overlay_filters(shot, th, W, H, dur, src=src, font=font)
@@ -3545,14 +3546,13 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
         _reveal = (_rev if _rev else
                    center_lines_drawtext(font, _lines, fs, txc, W, H, dur, y_off=_yoff, x_off=_tx)
                    ) if overlay_text_on() else []
-    # ★VF_LESSDARK_V1（2026-09-20 用户实测"整体黑白/发灰"）：黑遮罩 0.42 → 0.15
-    # ★VF_MATGUARD_V1（2026-09-29）：素材本身很暗（深色录屏/黑底图）时再降到 0.05 ——
-    #   深色素材上再压 15% 就是"一片黑"，那正是用户说的"很干、没色彩"。
-    _dim = 0.05 if _dark else 0.15
-    _chain = [
-        f"drawbox=x=0:y=0:w={W}:h={H}:color=black@{_dim}:t=fill",
+    # ★VF_SCRIM_V1（2026-10-06）：素材页同样放弃"整幅均匀压暗 + 0.72H 硬边黑板"，改用**带状渐变遮罩**
+    #   （顶部承托大字/固定标题、中段轻压、底部承托字幕）—— 对"海报截图/文字多"的素材尤其明显：
+    #   不再整体发灰，也没有那条可见的水平分界线。
+    #   （★VF_LESSDARK_V1「0.42→0.15」与 ★VF_MATGUARD_V1「深色素材别再压成一片黑」的口径，
+    #     由 scrim_boxes 内部的 lum<78 ×0.35 继承，不丢。）
+    _chain = scrim_boxes(W, H, _mat) + [
         _band_box,
-        f"drawbox=x=0:y={_bar_y}:w={W}:h={H - _bar_y}:color=black@0.30:t=fill",
     ] + _reveal + [
         f"trim=duration={dur},setpts=PTS-STARTPTS,format=yuv420p"]
     # ★VF_FILTERJOIN_V1（2026-09-30 线上事故防御）：拼滤镜前**统一丢掉空串与纯逗号**。
