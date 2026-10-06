@@ -171,7 +171,9 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 - **标题硬拦**：sanitize 去掉「要点节/图表节/对比节…」标签词，不足 4 字从本节内容派生。
 - **端测**：001 同形态 ⇒ `chart(bar) series=42,78.5,15,8.5 unit=[%]`；全 0 表 ⇒ 不出图；render reconcile 全 0；gen-deck 自测 3/3；tsc 无新增。
 - ⚠️ **待部署**：`cd /root/AiMarketing && git pull origin master && npm run build && pm2 restart aimarketing`；**客户端需重新打包**（新卡 VfPptCard/确认卡 + 素材卡去掉动态 PPT 选项）。
-- 🟢 **已知小瑕（未处理）**：非数值表降级成条目时，用第 2 列拼「标签：值」，若第 2 列是单位符号会出「社媒声量：%」这种条目（不影响出片，记着以后精修）。
+- ✅ **10-06 收尾**：① 非数值表降级条目改取"行内最后一个真值"（`VF_TBLITEM_V1`，不再出「社媒声量：%」）；② `check-examples` 基线按实测重设（`★VF_REBASE_1006`，11 个 bad 样例；真因 = 同一判据被 schema 检查与专用检查各报一次）⇒ **22/22 全绿**。
+- ✅ **本轮不需要打包客户端**：三次提交零 `electron/`/`public/` 改动；`build-local.mjs` 写明"纯壳模式（页面/API 全在服务器）"、`build.files` 只含 `electron/**`+`public/**` ⇒ 客户端加载服务器页面，**只需服务器部署**（更正此前"客户端要重打包"的说法）。
+- 🟡 **可选待办**：要不要在 validate-deck 里对"同一 path + 同一判据"去重（去重后计数回旧基线，须同步把 `check-examples.mjs` 基线改回去）。
 
 ### 2026-10-05 CHARTKIND + ENDFIX：图表页入口恢复（折线/占比环/柱状）+ 尾页硬伤（✅ 代码完成，待部署重出片）
 

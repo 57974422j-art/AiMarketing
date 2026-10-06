@@ -22,7 +22,19 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 // 允许指向另一个校验器副本：用于自证"闸门被改松时回归会不会变红"（见 README §5）
 const VALIDATOR = process.env.DECK_VALIDATOR || join(HERE, 'validate-deck.mjs')
 
-/** 基线：随契约有意变更时，必须在这里显式改数（改数即"我确认放宽/收紧了闸门"） */
+/** 基线：随契约有意变更时，必须在这里显式改数（改数即"我确认放宽/收紧了闸门"）
+ *
+ * ⚠️ ★VF_REBASE_1006（2026-10-06，用户授权「改基线」）：11 个 **bad 样例**的"不达标项数"上调。
+ *   **exit 与建议数一个没变**（都是 1 / 0 或 1 / 3）—— 变的只是"命中项计数"。
+ *   原因（已逐条核对，不是新增缺陷）：validate-deck 现在**同一条判据被两处各报一次**——
+ *   ① schema 窗口检查（`lim(...)` 读 deck.schema.json 的 minLength/maxLength）；
+ *   ② 各页型的**专用检查函数**（checkChart / checkBullets …）。
+ *   实测同一路径两条：`pages[2].explain` → 「2 字，少于下限 8 字（schema）」+「解释只有 2 字，要求 ≥8 字」。
+ *   `deck.bad.json` 里 `pages[1].title/items/…`、`pages[2].metric.*` 同样各出现两次。
+ *   ⇒ 因为是**反例**，判据命中项变多不代表闸门变松/变紧；数字上调 = "我确认当前命中数就是这些"。
+ *   🟡 待办（有意留着，别顺手改）：要不要在 validate-deck 里对「同一 path + 同一判据」去重
+ *   （去重后计数会回到旧基线 13/3/2… ⇒ 那时应把本表再改回去）。见 ISSUES.md 同名条目。
+ */
 const BASELINE = [
   {
     file: 'examples/deck.master-v1.json',
@@ -32,7 +44,7 @@ const BASELINE = [
   {
     file: 'examples/deck.bad.json',
     desc: '反例（多类不达标）',
-    exit: 1, errors: 13, warns: 3,
+    exit: 1, errors: 20, warns: 3,   // ★VF_REBASE_1006：13 → 20（同一判据两处上报，见上方说明）
   },
   {
     file: 'examples/deck.html-injected.json',
@@ -44,32 +56,32 @@ const BASELINE = [
   {
     file: 'examples/deck.bad-section.json',
     desc: '章节页：只有编号、无标题、副题过短',
-    exit: 1, errors: 2, warns: 1,
+    exit: 1, errors: 3, warns: 1,   // ★VF_REBASE_1006：2 → 3
   },
   {
     file: 'examples/deck.bad-chart.json',
     desc: '图表页：数据点 <4、含非数字、解释过短',
-    exit: 1, errors: 3, warns: 0,
+    exit: 1, errors: 4, warns: 0,   // ★VF_REBASE_1006：3 → 4（explain 被 schema+专用检查各报一次）
   },
   {
     file: 'examples/deck.bad-compare.json',
     desc: '对比页：左栏 1 条、右栏 5 条、结论过短',
-    exit: 1, errors: 3, warns: 0,
+    exit: 1, errors: 6, warns: 0,   // ★VF_REBASE_1006：3 → 6
   },
   {
     file: 'examples/deck.bad-quote.json',
     desc: '引用页：名词短语（缺句末标点）、作者过短',
-    exit: 1, errors: 2, warns: 0,
+    exit: 1, errors: 3, warns: 0,   // ★VF_REBASE_1006：2 → 3
   },
   {
     file: 'examples/deck.bad-toc.json',
     desc: '目录页：只有 2 条（要求 3~6）',
-    exit: 1, errors: 1, warns: 0,
+    exit: 1, errors: 2, warns: 0,   // ★VF_REBASE_1006：1 → 2
   },
   {
     file: 'examples/deck.bad-summary.json',
     desc: '小结页：4 条（要求恰好 3 条）',
-    exit: 1, errors: 1, warns: 0,
+    exit: 1, errors: 2, warns: 0,   // ★VF_REBASE_1006：1 → 2
   },
   // ---- 母版枚举化（masterId 枚举 + 资产必须真存在）----
   {
@@ -117,22 +129,22 @@ const BASELINE = [
   {
     file: 'examples/deck.bad-image-short.json',
     desc: '图片页：标题 <4 字 + 图注 <8 字',
-    exit: 1, errors: 2, warns: 0,
+    exit: 1, errors: 4, warns: 0,   // ★VF_REBASE_1006：2 → 4（标题/图注各被两处上报）
   },
   {
     file: 'examples/deck.bad-steps-2.json',
     desc: '步骤页：只有 2 条',
-    exit: 1, errors: 1, warns: 0,
+    exit: 1, errors: 2, warns: 0,   // ★VF_REBASE_1006：1 → 2
   },
   {
     file: 'examples/deck.bad-steps-7.json',
     desc: '步骤页：有 7 条',
-    exit: 1, errors: 1, warns: 0,
+    exit: 1, errors: 2, warns: 0,   // ★VF_REBASE_1006：1 → 2
   },
   {
     file: 'examples/deck.bad-steps-short.json',
     desc: '步骤页：某一步只有 1 字',
-    exit: 1, errors: 1, warns: 0,
+    exit: 1, errors: 2, warns: 0,   // ★VF_REBASE_1006：1 → 2
   },
   // ---- D15：竖屏图片页只有 full ----
   {

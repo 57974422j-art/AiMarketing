@@ -275,9 +275,18 @@ export function sanitizeDeckMd(md: string): string {
       }
       const numeric = rows.map((r) => numOf(r)).filter((n) => Number.isFinite(n))
       if (numeric.length >= 4 && numeric.some((n) => n !== 0)) return ['## ' + secTitle, ...s.table, ...s.paras.slice(0, 2), ...itemLines]
+      /* ★VF_TBLITEM_V1（2026-10-06 用户实测小瑕）：非数值表降级成条目时，值取"行内**最后一个真值**单元格"——
+         旧写法写死取第 2 列：表头若写成 `| 指标 | 单位 | 数值 |` 或第 2 列是单位符号（`%`/`万`）时，
+         会拼出「社媒声量：%」这种没信息的条目。现在：跳过单位样符号（≤3 字且只由符号/量词组成），
+         取剩下的最后一个单元格当值；值与标签相同/没有值 ⇒ 只留标签（条目太短会被下面的长度闸门丢掉）。 */
+      const isUnitish = (x: string): boolean => x.length <= 3 && /^[%％元万亿千百十KkMmBb元人条次\/·.\-+]+$/.test(x)
       const asItems = rows.map((r) => {
-        const c = cellsOf(r)
-        return '- ' + String(c[1] !== undefined && c[1] !== '' ? `${c[0]}：${c[1]}` : c[0]).slice(0, BULLET_MAX)
+        const c = cellsOf(r).filter((x) => x)
+        if (!c.length) return ''
+        const label = c[0]
+        const vals = c.slice(1).filter((x) => x !== label && !isUnitish(x))
+        const val = vals.length ? vals[vals.length - 1] : ''
+        return '- ' + (val ? `${label}：${val}` : label).slice(0, BULLET_MAX)
       }).filter((x) => x.length - 2 >= 6)
       if (asItems.length >= 3) return ['## ' + secTitle, ...s.paras.slice(0, 2), ...asItems, ...itemLines]
       return null
