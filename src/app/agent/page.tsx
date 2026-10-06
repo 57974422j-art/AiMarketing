@@ -585,11 +585,9 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
   const [pin1, setPin1] = useState(vj.pin1 || '')
   const [pin2, setPin2] = useState(vj.pin2 || '')
   const [openAdv, setOpenAdv] = useState(false)
-  // ★VF_ENGINE_UI_V1（2026-10-04 用户定案「新模式加在出片那一步不合理，应在第一轮就选」）：
-  //   「成片方式」= 第一轮就定的**顶层选择**（老引擎·图文成片（默认） / 新引擎·动态 PPT）。
-  //   选新引擎 → 音色/BGM 置灰（新引擎暂无配音）+ 确认卡只出「确认出片 · 新引擎」一个出片按钮
-  //   （第二轮回归"都规划好了、点个头就走"的语义）。
-  const [engine, setEngine] = useState(vj.engine === 'deck' ? 'deck' : 'classic')
+  // ★VF_PPT_SPLIT_V1（2026-10-06 用户定案「彻底拆开」）：本卡（图片成片 / 素材线）**不再有「成片方式」选择** ——
+  //   动态 PPT 独占给独立的「PPT成片」线（`VF_ENGINE_UI_V1` 的 engine state 与两个按钮一并删除）。
+  //   VF_FORM 里仍带 engine:'classic'（服务端也会强制），只为兼容旧客户端。
   // ★VF_UPLOAD_V1（2026-09-20）：「📤 我上传素材」真正可用 —— 选文件 → 传到个人仓库
   //   （POST /api/storage/files，与素材页同一个接口）→ 本次成片只从【最近上传】取画面。
   // ★VF_UPLOAD_FIX_V1（2026-09-20，用户实测“点了点不动/不弹窗，重启客户端也一样”）：
@@ -649,18 +647,15 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
     <div className="mb-2 p-3 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/[0.06]">
       <div className="text-xs text-fuchsia-300 mb-3">🎬 成片设置{typeof vj.hint === 'string' && vj.hint ? ' · ' + vj.hint : ''}</div>
 
-      {/* ★VF_ENGINE_UI_V1 + ★VF_AVIMG_V1：成片方式 —— 第一轮就选（默认老引擎）；新引擎=动态 PPT（HTML 逐帧 · 10 套皮肤 · 配音+BGM+素材图） */}
+      {/* ★VF_PPT_SPLIT_V1（2026-10-06 用户定案「彻底拆开」）：本卡 = 图文成片（老引擎）专用。
+          动态 PPT（HTML 逐帧 deck）自今日起是**独立一线**，入口词「PPT成片」——
+          两条线时序真源不同（本线 = 分镜 dur；deck = 配音句），混在一起会出现"卡片承诺 6s/镜、
+          实际一页 20 秒"这种对不上的现象（2026-10-06 实测 20261006_001）。 */}
       <div className="mb-3">
         <div className="text-[10px] text-gray-400 mb-1">成片方式</div>
-        <div className="flex flex-wrap gap-1.5">
-          {R(engine, 'classic', '🎬 图文成片（配音+字幕）', setEngine)}
-          {R(engine, 'deck', '🆕 动态 PPT（新引擎·配音+BGM）', setEngine)}
+        <div className="text-[10px] text-gray-500">
+          本线 = 图文成片（老引擎）· <b>每镜时长与字幕按下面的分镜清单执行</b>；要做动态 PPT 请用「PPT成片」（独立一条线）
         </div>
-        {engine === 'deck' ? (
-          <div className="text-[10px] text-amber-300/80 mt-1">
-            新引擎成片 = 动态 PPT（HTML 逐帧 · 10 套皮肤在确认卡选）——含逐句配音、BGM，分镜里的素材图会插入成片
-          </div>
-        ) : null}
       </div>
 
       <div className="mb-3">
@@ -901,8 +896,8 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
 
       <button
         onClick={() => onStart('VF_FORM:' + JSON.stringify({
-          // ★VF_ENGINE_UI_V1：成片方式（classic=老引擎图文成片·默认 / deck=新引擎动态 PPT）—— 第一轮就定
-          engine,
+          // ★VF_PPT_SPLIT_V1（2026-10-06）：本线只出老引擎 —— deck 已独占给独立的「PPT成片」线（服务端也会强制）
+          engine: 'classic',
           aspect, dur: parseInt(dur) || 30, voice, source, topic, script, bgm, theme, big,
           // ★VF_DECK_STYLES_V1：🎨 画面模版（'auto' | 6 个 deck 风格）—— 服务端写进 plan 根级 deck_style
           deckStyle,
@@ -1809,6 +1804,99 @@ function VfDeckConfirm({ vj, onSend }: { vj: any; onSend: (m: string) => void })
         className="px-4 py-1.5 rounded-lg text-sm bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100 font-medium">
         🎬 确认出片 · 新引擎（约 {cost} 点）
       </button>
+    </div>
+  )
+}
+
+/** ★VF_PPT_UI_V1（2026-10-06 用户定案「彻底拆开」）：【PPT 成片】设置卡（只吃「文案 + 皮肤」）。
+ *  入口命令「PPT成片」/「动态PPT」/「动态PPT成片」→ 服务端出 step:'ppt_setup'；
+ *  提交发机器协议串 `VF_PPT_FORM:{aspect,dur,voice,bgm,skin,topic,script}`；
+ *  确认卡（step:'ppt_confirm'）复用 VfDeckConfirm 出片（它自己发 VF_DECK_CONFIRM:{skin,ori}）。
+ *  ⚠️ 本线不取素材、不排分镜 —— 页 = PPT 版式页，**时长由配音决定**（配音是唯一时序真源）。 */
+function VfPptCard({ vj, onSend }: { vj: any; onSend: (m: string) => void }) {
+  const [aspect, setAspect] = useState(String(vj?.aspect) === 'landscape' ? 'landscape' : 'portrait')
+  const [dur, setDur] = useState(String(vj?.dur || 60))
+  const [voice, setVoice] = useState(String(vj?.voice || 'longxiaochun'))
+  const [bgm, setBgm] = useState(String(vj?.bgm) === 'none' ? 'none' : 'auto')
+  const [skin, setSkin] = useState(String(vj?.skin || 'v1'))
+  const [topic, setTopic] = useState(String(vj?.topic || ''))
+  const [script, setScript] = useState(String(vj?.script || ''))
+  const [openAdv, setOpenAdv] = useState(false)
+  const voices: any[] = Array.isArray(vj?.voices) && vj.voices.length ? vj.voices : [{ id: voice, name: voice }]
+  // 皮肤中文名复用文件里已有的 DECK_SKINS（**不新造第二份映射**）
+  const skinIds: string[] = Array.isArray(vj?.skins) && vj.skins.length ? vj.skins : DECK_SKINS.map((s) => s.id)
+  const skinLabel = (id: string) => (DECK_SKINS.find((s) => s.id === id)?.label || id)
+  const R = (cur: string, val: string, label: string, set: (v: string) => void) => (
+    <button key={val} onClick={() => set(val)}
+      className={`px-2 py-1 rounded text-[11px] border transition ${cur === val ? 'bg-fuchsia-500/30 border-fuchsia-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>{label}</button>
+  )
+  return (
+    <div className="mb-2 p-3 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/[0.06]">
+      <div className="text-xs text-fuchsia-300 mb-1">🎬 PPT 成片设置（只吃文案 + 皮肤）</div>
+      <div className="text-[10px] text-gray-500 mb-3">{String(vj?.hint || 'PPT 成片：只吃「文案 + 皮肤」——页 = PPT 版式页，时长由配音决定（不掺素材图）')}</div>
+
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">画幅</div>
+        <div className="flex flex-wrap gap-1.5">
+          {R(aspect, 'portrait', '竖屏 9:16', setAspect)}
+          {R(aspect, 'landscape', '横屏 16:9', setAspect)}
+        </div>
+      </div>
+
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">时长 <span className="text-gray-600">（只决定文案字数；实际时长以配音为准）</span></div>
+        <div className="flex flex-wrap gap-1.5">
+          {['30', '60', '90', '180'].map((s) => R(dur, s, s + '秒', setDur))}
+          <span className="text-[10px] text-emerald-300/70 self-center">≈ {Math.round((parseInt(dur) || 60) * 4.5)} 字文案</span>
+        </div>
+      </div>
+
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">配音音色</div>
+        <div className="flex flex-wrap gap-1.5">
+          {voices.map((v: any) => R(voice, String(v.id), '🔊 ' + String(v.name || v.id), setVoice))}
+        </div>
+      </div>
+
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">背景音乐</div>
+        <div className="flex flex-wrap gap-1.5">
+          {R(bgm, 'auto', '🎵 自动配乐', setBgm)}
+          {R(bgm, 'none', '🔇 不要 BGM', setBgm)}
+        </div>
+      </div>
+
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">皮肤 <span className="text-gray-600">（10 套 · 一套 = 配色 + 整页 PPT 版式）</span></div>
+        <div className="flex flex-wrap gap-1.5">
+          {skinIds.map((id) => R(skin, id, skinLabel(id), setSkin))}
+        </div>
+      </div>
+
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">主题 <span className="text-gray-600">（留空则用你贴的文案）</span></div>
+        <input value={topic} onChange={(e: any) => setTopic(e.target.value.slice(0, 200))}
+          placeholder="例如：咖啡店开业，第二杯半价"
+          className="w-full px-2 py-1.5 rounded text-[12px] bg-white/[0.05] border border-white/[0.08] text-gray-200 placeholder-gray-600 outline-none" />
+      </div>
+
+      <button onClick={() => setOpenAdv(!openAdv)} className="text-[10px] text-gray-500 hover:text-gray-300 mb-2">
+        {openAdv ? '▲ 收起「我已有文案」' : '▼ 我已有文案（点这里贴）'}
+      </button>
+      {openAdv ? (
+        <textarea value={script} onChange={(e: any) => setScript(e.target.value.slice(0, 4000))}
+          rows={4} placeholder="把你的文案整段贴这里；贴了就用你的，不再由 AI 写"
+          className="w-full mb-3 px-2 py-1.5 rounded text-[12px] bg-white/[0.05] border border-white/[0.08] text-gray-200 placeholder-gray-600 outline-none" />
+      ) : null}
+
+      {vj?.err ? <div className="text-[10px] text-amber-300/90 mb-2">{String(vj.err)}</div> : null}
+
+      <button
+        onClick={() => onSend('VF_PPT_FORM:' + JSON.stringify({ aspect, dur: parseInt(dur) || 60, voice, bgm, skin, topic, script }))}
+        className="w-full px-4 py-2 rounded-lg bg-fuchsia-500/50 hover:bg-fuchsia-500/80 text-sm text-white font-medium">
+        🚀 开始排版
+      </button>
+      <div className="text-[10px] text-gray-500 mt-1">PPT 成片：页 = PPT 版式页，时长由配音决定；**不掺素材图**（要素材画面请用「图片成片」或「图视混剪」）</div>
     </div>
   )
 }
@@ -3249,7 +3337,8 @@ function AgentPageInner() {
     '图片成片',                      // ① 素材智能成片（只用你仓库的图）
     '图视混剪',                      // ② 视频混剪（视频片段 + 图片混排）
     'AI 制片',                       // ③ AI 制片（画面全部 AI 生成）
-    '素材+AI',                       // ④ 素材+AI 创作（AI 挑该动的镜用 AI，其余用素材）
+    '素材+AI',
+    'PPT成片',                       // ★VF_PPT_SPLIT_V1（2026-10-06）：PPT 成片独立线（只吃文案+皮肤；配音为时序真源，不掺素材图）                       // ④ 素材+AI 创作（AI 挑该动的镜用 AI，其余用素材）
     // ★VF_LEAD_V1（2026-09-29 老板定案）：第 5 条状态机线 ——「智能获客」设置面板。
     //   ⚠️ 与 standard-commands.ts 的 STD_COMMANDS 必须一字不差（后端是"去空白后完全相等"）。
     '智能获客',
@@ -3613,6 +3702,30 @@ function AgentPageInner() {
         if (_vj && _vj.step === 'lead_setup') return <LeadSetupCard vj={_vj} onStart={sendMessage} buAccounts={buAccounts} />
         if (_vj && _vj.step === 'lead_preview') return <LeadPreviewCard vj={_vj} onStart={sendMessage} />
         if (_vj && _vj.step === 'form') return <VideoFormCard vj={_vj} onStart={sendMessage} userId={user?.id} />
+        {/* ★VF_PPT_UI_V1（2026-10-06 用户定案「彻底拆开」）：【PPT 成片】独立线两张卡 */}
+        if (_vj && _vj.step === 'ppt_setup') return <VfPptCard vj={_vj} onSend={sendMessage} />
+        if (_vj && _vj.step === 'ppt_confirm') {
+          const scriptTxt = String(_vj.script || '')
+          return (
+            <div className="mb-2 p-3 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/[0.06]">
+              <div className="text-xs text-fuchsia-300 mb-2">🎬 PPT 成片 · 确认排版</div>
+              {_vj.hint ? <div className="text-[10px] text-gray-400 mb-2">{String(_vj.hint)}</div> : null}
+              {scriptTxt ? (
+                <div className="text-[11px] text-gray-300 leading-relaxed whitespace-pre-wrap max-h-40 overflow-y-auto bg-white/[0.04] rounded-lg p-2 mb-2">{scriptTxt}</div>
+              ) : null}
+              <div className="text-[11px] text-gray-300 mb-2 flex flex-wrap gap-x-3 gap-y-1">
+                <span>📝 {Number(_vj.charN) || 0} 字</span>
+                <span>⏱ 配音预估 ≈{Number(_vj.estSec) || 0} 秒（目标 {Number(_vj.targetSec) || 0} 秒）</span>
+                <span>📄 约 {String(_vj.pagesLo || '')}~{String(_vj.pagesHi || '')} 页</span>
+                <span>🎨 皮肤 {String(DECK_SKINS.find((s) => s.id === String(_vj.skin))?.label || _vj.skin || '')}</span>
+                <span>🔊 {String(_vj.voiceName || _vj.voice || '')}</span>
+                <span>💎 约 {Number(_vj.cost) || 0} 点</span>
+              </div>
+              <div className="text-[10px] text-gray-500 mb-2">页数与实际时长以 AI 分节 / 配音为准；本线**不显示逐镜时长**（没有分镜）。</div>
+              <VfDeckConfirm vj={_vj} onSend={sendMessage} />
+            </div>
+          )
+        }
       } catch {}
     }
     // ★2026-09-19：成片完成卡——内嵌播放（不显示 OSS 链接），并按项目规则自动镜像到本地仓库

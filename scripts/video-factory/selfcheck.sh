@@ -141,7 +141,11 @@ ck 'VF_SCRIPTCHUNK_V1'             'src/lib/agent/vf/vf-deck-render.ts' 2 # 碎�
 #   1 句配音（voice-over：旁白在图帧上继续，总时长 ≈ 音频长度+0.4s×页数不膨胀）；分不到句子的帧
 #   2.5s 纯快闪。schema pages.maxItems 12→40（deck.p40-test 40 页实测渲染 exit 0，measured-limits
 #   renderedMax 同步 40、check-schema-vs-limits 绿）。单测 6 场景：003单 20帧>PPT8·28页·179s ✓。
-ck 'VF_MATDOM_V1'                  'src/lib/agent/vf/vf-deck-render.ts' 3 # 注入段 + 句子分配段 + TTS复用
+ck 'VF_MATDOM_V1'                  'src/lib/agent/vf/vf-deck-render.ts' 1 # 仅剩 TTS 复用注释
+#   ⚠️ **本条已被 ★VF_PPTSOLO_V1（2026-10-06）取代**：用户定案「彻底拆开」——
+#   素材图是「图片成片/图视混剪」两条线的画面主体（那边时序真源 = 分镜 dur），**不再注入 PPT 线**；
+#   实测 001 片正是它导致的（页数被撑到 13~14、旁白只有 11 句 ⇒ 前 7 页吃光旁白、后 7 页静默快闪）。
+#   故"注入段 + 句子分配段"两处标记随代码删除 ⇒ 期望值 3 → 1（改数即确认，历史留在此注释）。
 # ★VF_PAGEMIX_V1（同日实测「PPT 全是 1.2.3 列表、数据/图标排版没用」）：gen-deck 是确定性解析器，
 #   页型由 md 形状决定——sanitizeDeckMd 从「只认 3 条要点」放行 4 种节型（要点/数据/流程/对比），
 #   转写 prompt 给节型菜单让 AI 按文案选型混排。端测：混排 md → cover→bullets→data→steps→compare→end ✓。
@@ -172,7 +176,9 @@ ck 'VF_DECKRESCUE_V1'               'src/lib/agent/vf/vf-deck-render.ts' 7 # san
 #   缺字真会豆腐块）。端测对照：脏文案（含😀/婷/鑫/喆/燚）→ gen-deck → render-deck = exit 8 复现；
 #   同文案净化后 = ok=true 6 页 19.8s 渲染成功、reconcile 全 0；纯表内文案净化零动作（不误伤）。
 #   ⚠️ 后续优化（未做）：字表扩到 GB2312 全量 6763 字（重跑 make-fonts.py 生成 woff2），高频二级字就不删了。
-ck 'VF_FONTFIT_V1'                  'src/lib/agent/vf/vf-deck-render.ts' 8 # 注释块/sanitize行/bulletOf/封面/图片页×2/日志⓪/救援日志
+ck 'VF_FONTFIT_V1'                  'src/lib/agent/vf/vf-deck-render.ts' 6 # 注释块/sanitize行/bulletOf/封面/日志⓪/救援日志
+#   ⚠️ 原写 8：★VF_PPTSOLO_V1（2026-10-06 拆线）删掉了**素材帧注入**（含"图片页 title/caption 净化"
+#   与其字体净化日志 2 处）⇒ 实测 6。改数即确认：PPT 线不再插素材图，图片标题净化随之不再需要。
 # ★VF_CHARTKIND_V1（2026-10-05 晚用户实测 008 片「PPT 从来没有曲线图、图表等」）：两个成因——
 #   ① 转写 prompt 里写着「**不要写成 markdown 表格**（竖线表格会被引擎丢掉）」（修 GEN-TOO-FEW-PAGES 时加的）
 #      ⇒ AI 永不写表格 ⇒ gen-deck 的 chart 入口（唯一入口就是 ≥4 行数据的 markdown 表格）被彻底堵死；
@@ -190,6 +196,46 @@ ck 'VF_CHARTKIND_V1'                'src/app/api/agent/chat/route.ts' 2 # 注释
 #   `下一步：挑一套皮肤，出第一条片` 是**引擎内部术语**（皮肤 = skin id）⇒ 换中性文案并开放 `--cta` / `--en`。
 #   端测：含「- 点击生成，自动生成整体计划」的 md ⇒ end.cta = 「点击生成，自动生成整体计划」· en 不再是内部术语。
 ck 'VF_ENDFIX_V1'                   'scripts/video-factory/html-deck/gen-deck.mjs' 2 # 尾页注释 + 旗标注释
+# ★VF_CHARTDATA_V1（2026-10-06 用户实测 001 片「图表页出来了，但一根柱子都没有、y 轴全是 0」）：
+#   三个坑：① 数值**写死取第 2 列**，而 AI 按示例表头写成三列 `| 社媒声量 | % | 42 |`（数值在第 3 列）
+#      ⇒ 第 2 列只剩 `%` ⇒ 去非数字字符后是空串 ⇒ `Number('') === 0` ⇒ 5 行全成"有效数值 0" ⇒ 空图（还过了 validate）；
+#   ② 表头第 2 列被 AI 照抄成占位词「单位」⇒ 图上单位印成"单位"两个字；③ 全 0 也能出图（没人拦）。
+#   修法：数值**逐行取第一个能解析成数字的单元格**（跳过标签列，空串判 NaN 不判 0）；**全 0 不出图表页**（降级要点页）；
+#   占位词表头 ⇒ 从表体里找"非数字、≤8 字、出现 ≥2 次"的真单位（如 `| 渠道 | % | 42 |` 的 `%`，不编造）。
+#   端测：001 同形态（表头「项目|单位」+ 数值第 3 列）⇒ `chart(bar) series=42,78.5,15,8.5 unit=[%]` ✓；
+#   全 0 空表 ⇒ **不出图表页**、降级为条目 ✓；三图表联测 & render reconcile 全 0 ✓。
+ck 'VF_CHARTDATA_V1'                'scripts/video-factory/html-deck/gen-deck.mjs' 2 # chart 分支注释 + 单位兜底注释
+ck 'VF_CHARTDATA_V1'                'src/lib/agent/vf/vf-deck-render.ts' 1 # sanitize 同口径 numOf（空串判 NaN、全 0 不算可画）
+# ★VF_NARRCHUNK_V1（2026-10-06 拆线时上移）：口播**切块**与字幕切块**共用同一套原子块规则**（chunkSub 提到模块级）——
+#   用户指示「前面调试字幕配音等如果有成熟技术可以用」。口播句 40~70 字（TTS 10~15s）会让"一页一句"、
+#   页时长只能跟着句子走 ⇒ 先按原子块切成 ≤16 字（竖屏）/≤24 字（横屏）的配音单元，页分配才有细粒度。
+ck 'VF_NARRCHUNK_V1'                'src/lib/agent/vf/vf-deck-render.ts' 2 # chunkSub 模块级注释 + ④ 切块注释
+# ★VF_PACEFIX_V1（2026-10-06 用户实测 001 片「前面一张图 15~21 秒，后面一页一秒都没有，像插帧」）：
+#   老分配「累计时长 ≥ 均值才翻页」有三个毛病：封面把开头几段旁白全吃掉（001 封面背 3 段 = 15.5s）；
+#   句子比目标还长时一页只能放一句；后面的页一句都分不到 ⇒ 落回默认时长（2.5s/3.4s）= 静默快闪。
+#   新规则：① 封面/尾页**各最多背 1 个单元**；② 其余按累计时长均分到**中间内容页**；
+#   ③ 确实分不到单元的页 ⇒ 时长 = **平均页时长**（不再 2.5/3.4s 闪页）并在 tail 里点名（不静默）。
+ck 'VF_PACEFIX_V1'                  'src/lib/agent/vf/vf-deck-render.ts' 1 # ⑤ 页分配块头注
+# ★VF_LABELGUARD_V1（2026-10-06 用户实测 001 片：AI 把**提示词里的节型标签**当标题抄）：
+#   实测标题出现「图表节·柱状」「要点节（本节要点）」「对比节（本节要点）」，直接印在成片上。
+#   硬拦：标题里的标签词一律去掉；去完不足 4 字 ⇒ **从本节内容里**派生（第一条目/第一段行，不编造）；
+#   封面标题同规则（去完不足 4 字回退原题，避免过度清洗丢好标题）。prompt 里也补了「禁止出现这些字样」。
+ck 'VF_LABELGUARD_V1'               'src/lib/agent/vf/vf-deck-render.ts' 3 # 规则块 + 封面用法 + okSec 用法
+# ★VF_PPTSOLO_V1（2026-10-06 用户定案「彻底拆开」）：「PPT 成片」= 独立一条线（第 6 条状态机线）。
+#   用户原话：「如果 2 者相互矛盾，你给我彻底拆开，做个 PPT 成片 / HTML 逐帧成片，原设计图视混剪和
+#   图片成片单独保留。不要混在一起。要不这个好了那个又坏了，我们调试起来很麻烦。」
+#   · 时序真源：老四条线 = **分镜 dur**；本线 = **配音**（页 = PPT 版式页）⇒ 不取素材、不排分镜、不插素材图；
+#   · 入口命令 `PPT成片`（别名 动态PPT/动态PPT成片）；提交 `VF_PPT_FORM:{…}`；出片仍走既有 `VF_DECK_CONFIRM:`
+#     → runDeckVideoTask（草稿靠 `deckOnly` 标记被认领：没有分镜也能出片）；
+#   · 封路：图片成片/图视混剪的 VF_FORM 收到 engine='deck' **一律拒绝并提示**（改走老引擎），前端也删掉了那个选项。
+#   ⚠️ 必须登记在 standard-commands.ts（标准模式是命令白名单锁死，漏登记 = 被 STD_UNSUPPORTED_REPLY 拦死；
+#      本项目已因此踩过两次坑：视频混剪线、图生视频）。
+ck 'VF_PPTSOLO_V1'                  'src/lib/agent/vf/vf-ppt.ts' 1
+ck 'VF_PPTSOLO_V1'                  'src/lib/agent/vf/vf-deck-render.ts' 4 # DRAFT_TAGS + findDeckConfirmDraft + 出片端 shots 判定 + 拆线注释
+ck 'VF_PPTSOLO_V1'                  'src/app/api/agent/chat/route.ts' 4 # 分派块 + 素材线让位 + engine 封路 + stdClearAllDrafts
+ck 'VF_PPTSOLO_V1'                  'src/lib/agent/standard-commands.ts' 1
+ck 'VF_PPT_UI_V1'                   'src/app/agent/page.tsx' 2 # VfPptCard 组件 + dispatch 分支
+ck 'VF_PPT_SPLIT_V1'                'src/app/agent/page.tsx' 4 # 成片方式块 + engine state 删除 + payload 写死 classic + FEATURE_TIPS
 # ★VF_DECKROUTE_V1（首版 镜>12/预计>90s 就提示走老引擎；VF_MATDOM_V1 破窗 40 页后放宽到真超容量）：
 #   新引擎且预计 >300s（40 页 × ~6s ≈ 5 分钟）→ 确认卡明示建议拆条或换老引擎（只提示不拦）。
 ck 'VF_DECKROUTE_V1'               'src/app/api/agent/chat/route.ts' 2   # 提示拼接 + 注释
@@ -202,7 +248,9 @@ ck 'VF_AVIMG_V1'                  'src/lib/agent/vf/vf-deck-render.ts' 5  # 文�
 #   ⚠️ 原写 8（"管线分步注释+图片页注入+TTS+SRT+混音 ≥8 处"）——**实际只有 5 处**（HEAD 版本同样是 5），
 #   4 段自检因此长期红。2026-10-05 逐处核对：这 5 处已覆盖该特性的关键落点（其余步骤复用同一条 runCmd/
 #   分步管线注释），故把期望值改成实数（改数即确认），**不再虚报 8**。
-ck 'VF_AVIMG_V1'                  'src/app/agent/page.tsx' 4            # 解除音色/BGM置灰 + 三处文案更新（≥4 处）
+ck 'VF_AVIMG_V1'                  'src/app/agent/page.tsx' 3            # 解除音色/BGM置灰 + 文案更新
+#   ⚠️ 原写 4：★VF_PPT_SPLIT_V1（2026-10-06 拆线）把素材卡上的「成片方式（含动态 PPT）」整块删了，
+#   那块注释里带 1 处 VF_AVIMG_V1 ⇒ 实测 3。改数即确认（拆线是有意为之：deck 已独占给「PPT成片」线）。
 
 line "结论"
 if [ "$FAIL" -eq 0 ]; then

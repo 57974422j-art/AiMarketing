@@ -74,7 +74,9 @@ async function probeDur(f: string): Promise<number> {
 }
 
 /** 四条成片线的草稿 tag（★VF_DRAFT_ISOLATE_V1：一律 equals 精确匹配；素材线含历史旧 tag） */
-const DRAFT_TAGS = ['vf_draft_base', 'vf_draft', 'vf_draft_ai', 'vf_draft_mix', 'vf_draft_video']
+const DRAFT_TAGS = ['vf_draft_base', 'vf_draft', 'vf_draft_ai', 'vf_draft_mix', 'vf_draft_video',
+  // ★VF_PPTSOLO_V1（2026-10-06）：PPT 成片独立线的草稿（它**没有分镜**，靠 deckOnly 标记认领，见 findDeckConfirmDraft）
+  'vf_draft_ppt']
 
 /** 解析 `VF_DECK_CONFIRM:{...}` 协议串（白名单校验；非法值回默认 v1 / 9:16，绝不透传给 spawn） */
 export function deckConfirmArgsOf(m: string): { skin: string; ori: string } {
@@ -122,6 +124,49 @@ const fitFont = (t: string): string => {
   return out
 }
 
+/** ★VF_SUBATOM_V1 → ★VF_NARRCHUNK_V1（2026-10-06 拆线时上移到模块级）：「原子块贪心打包」切块。
+ *  规则（字幕与配音**共用同一套**，用户 10-06 指示「前面调试字幕配音等如果有成熟技术可以用」）：
+ *   ① 数字原子（数字串+千分位+可选 %/K/万/+ +可选中文单位）词内不断；② 英文单词按词不断；
+ *   ③ 标点必粘前块（块永不以句读开头）；④ 句读后块长过半即收（优先断点，宁可短块不硬撑）；
+ *   ⑤ <2 字碎块并回相邻块（消灭单字条）。 */
+const chunkSub = (t: string, max: number): string[] => {
+  const UN = '个只条次倍分秒天点年月日小时张套元万'
+  const atoms: string[] = []
+  let i = 0
+  while (i < t.length) {
+    const mN = t.slice(i).match(new RegExp('^[0-9][0-9,.，]*[%％KkMmBb]?[' + UN + ']{0,2}[+＋]?'))
+    if (mN && mN[0]) { atoms.push(mN[0]); i += mN[0].length; continue }
+    const mE = t.slice(i).match(/^[A-Za-z][A-Za-z'.-]*/)
+    if (mE) { atoms.push(mE[0]); i += mE[0].length; continue }
+    atoms.push(t[i]); i++
+  }
+  const PUNCT = '，。、；：！？…—～,.!?;:)）】」"'
+  const MAJOR = '，。、；！？'
+  const out: string[] = []
+  let cur = ''
+  const emit = () => { const c = cur.trim(); if (c) out.push(c); cur = '' }
+  for (const a of atoms) {
+    if (PUNCT.includes(a)) {                    // 标点永不开头：粘当前块（空块则粘上一块尾）
+      if (cur) {
+        cur += a
+        if (MAJOR.includes(a) && cur.length >= Math.ceil(max * 0.55)) emit()   // 句读=优先断点
+      } else if (out.length) out[out.length - 1] += a
+      continue
+    }
+    if (cur && cur.length + a.length > max) emit()   // 放不下 → 先收前块（长原子允许微超宽）
+    cur += a
+  }
+  emit()
+  const fin: string[] = []                       // 碎块合并：<2 字并给相邻块
+  let pending = ''
+  for (const c of out) {
+    if (c.length < 2) { pending += c; continue }
+    fin.push(pending ? pending + c : c); pending = ''
+  }
+  if (pending) { if (fin.length) fin[fin.length - 1] += pending; else fin.push(pending) }
+  return fin
+}
+
 /**
  * ★VF_DECKCOPY_V1（2026-10-04 用户定案「两套文案：口播给配音字幕、要点给 PPT」）——
  * 校验/清洗 AI 生成的 PPT 版文案（markdown）。**不合格返回 ''**（调用方退回规则映射，不硬塞）：
@@ -154,12 +199,33 @@ export function sanitizeDeckMd(md: string): string {
   const start = lines.findIndex((l) => /^#\s+\S/.test(l))
   if (start < 0) return ''
   const body = lines.slice(start)
+  /* ★VF_LABELGUARD_V1（2026-10-06 用户实测 001 片：AI 把**提示词里的节型标签**当标题抄 ——
+     实测出现「图表节·柱状」「要点节（本节要点）」「对比节（本节要点）」三个标题，直接印在成片上）。
+     口头约束（prompt 里写"标题写你自己的话"）对 LLM 不可靠 ⇒ 这里**硬拦**：
+       ① 标题里的标签词一律去掉；
+       ② 去完不足 4 字 ⇒ **从本节自己的内容里**派生标题（第一条目 / 第一段行 —— 仍是用户文案，不编造）；
+       ③ 仍不足才用「本节要点」兜底（gen-deck 的 fitTitle 会再补窗）。 */
+  const LABEL_RE = /(要点节|图表节|数据节|流程节|对比节|引用节|本节要点|柱状图?|折线图?|占比环|大数字)/g
+  const stripLabels = (x: string): string => String(x || '').replace(LABEL_RE, '')
+    .replace(/^[·、:：,，.。\-—～\/\s（）()【】[\]]+|[·、:：,，.。\-—～\/\s（）()【】[\]]+$/g, '').trim()
+  const cleanTitle = (t: string, from: { items?: string[]; paras?: string[] }): string => {
+    const strip = stripLabels
+    let s = strip(t)
+    if (s.length < 4) {
+      const cand = [...(from.items || []), ...(from.paras || [])].map(strip).find((x) => x.length >= 4)
+      if (cand) s = cand
+    }
+    if (s.length < 4) s = (s + '内容要点')
+    return s.slice(0, 16)
+  }
   // ★VF_WINFIX_V1：封面主标题 ≥4 字（meta.title 硬约束）—— 短了这版 md 直接判不合格
-  const cover = body[0].replace(/^#\s+/, '').slice(0, 16).trim()
+  const coverRaw = body[0].replace(/^#\s+/, '').slice(0, 16).trim()
+  const coverLabelFree = stripLabels(coverRaw)      // ★VF_LABELGUARD_V1：去标签词（去完不足 4 字则回退原标题，不因过度清洗丢好标题）
+  const cover = coverLabelFree.length >= COVER_MIN ? coverLabelFree : coverRaw
   if (cover.length < COVER_MIN) return ''
   let coverSub = ''
   // ★VF_WINFIX_V1：副题 <6 字留着也进不了任何窗口（pageEnd.line2 需 0~30 但观感差）—— 短于 6 字直接不收
-  if (body[1] && !/^(##\s|[-*]\s|#\s|\||\d+[.、)])/.test(body[1]) && body[1].trim().length >= 6) coverSub = body[1].slice(0, 24).trim()
+  if (body[1] && !/^(##\s|[-*]\s|#\s|\||\d+[.、)])/.test(body[1]) && body[1].trim().length >= 6) coverSub = stripLabels(body[1]).slice(0, 24).trim()
   // ★VF_PAGEMIX_V1：按形状收集节（条目/段行/表格分行保管——重建 md 时保留形状，页型交给 gen-deck）
   type Sec = { title: string; items: string[]; paras: string[]; table: string[] }
   const secs: Sec[] = []
@@ -187,28 +253,42 @@ export function sanitizeDeckMd(md: string): string {
   })
   const okSec = (s: Sec): string[] | null => {
     if (!s.title) return null
+    const secTitle = cleanTitle(s.title, s)      // ★VF_LABELGUARD_V1：节型标签词不进标题
     const rows = tableDataRows(s.table)
     const itemLines = s.items.map((x) => '- ' + x)
     if (rows.length >= 4) {
       // 与 gen-deck 同口径（series ≥4 个可读数值）判图表能不能成；**成不了不丢节**：
       // 降成「- 标签：值」条目（还能救成要点/摘要页）
       const cellsOf = (r: string) => r.trim().replace(/^\||\|$/g, '').split('|').map((x) => x.trim())
-      const numeric = rows.filter((r) => Number.isFinite(Number(String(cellsOf(r)[1] ?? '').replace(/[^\d.\-]/g, ''))))
-      if (numeric.length >= 4) return ['## ' + s.title, ...s.table, ...s.paras.slice(0, 2), ...itemLines]
+      // ★VF_CHARTDATA_V1（2026-10-06 用户实测 001 片「图表页一根柱子都没有」）：数值取**该行第一个能解析成
+      //   数字的单元格**（跳过标签列），**空串判 NaN**（`Number('') === 0` 会把空列/单位列当成"有效数值 0"
+      //   ⇒ 放进 series 就是全 0 空图）；且**全 0 不算可画**（宁可不画图，降级要点页）。
+      const numOf = (r: string): number => {
+        const cs = cellsOf(r)
+        for (let i = 1; i < cs.length; i++) {
+          const d = cs[i].replace(/[^\d.\-]/g, '')
+          if (d === '') continue
+          const n = Number(d)
+          if (Number.isFinite(n)) return n
+        }
+        return NaN
+      }
+      const numeric = rows.map((r) => numOf(r)).filter((n) => Number.isFinite(n))
+      if (numeric.length >= 4 && numeric.some((n) => n !== 0)) return ['## ' + secTitle, ...s.table, ...s.paras.slice(0, 2), ...itemLines]
       const asItems = rows.map((r) => {
         const c = cellsOf(r)
         return '- ' + String(c[1] !== undefined && c[1] !== '' ? `${c[0]}：${c[1]}` : c[0]).slice(0, BULLET_MAX)
       }).filter((x) => x.length - 2 >= 6)
-      if (asItems.length >= 3) return ['## ' + s.title, ...s.paras.slice(0, 2), ...asItems, ...itemLines]
+      if (asItems.length >= 3) return ['## ' + secTitle, ...s.paras.slice(0, 2), ...asItems, ...itemLines]
       return null
     }
     const strong = s.items.filter((x) => x.length >= BULLET_MIN && x.length <= BULLET_MAX)
-    if (strong.length >= 3) return ['## ' + s.title, ...s.paras.slice(0, 2), ...itemLines]
+    if (strong.length >= 3) return ['## ' + secTitle, ...s.paras.slice(0, 2), ...itemLines]
     if (/步|阶段|流程/.test(s.title) && s.items.length >= 3 && s.items.every((x) => x.length >= 6)) {
-      return ['## ' + s.title, ...s.paras.slice(0, 2), ...itemLines]
+      return ['## ' + secTitle, ...s.paras.slice(0, 2), ...itemLines]
     }
     const hasNum = s.paras.some((p) => /^[0-9][\d,.，]*\s*(%|分钟|小时|天|条|次|元|万|倍|个|人|秒|K|k)?/.test(p) && p.length <= 28)
-    if (s.paras.length >= 3 && hasNum) return ['## ' + s.title, ...s.paras]
+    if (s.paras.length >= 3 && hasNum) return ['## ' + secTitle, ...s.paras]
     return null
   }
   const good = secs.map(okSec).filter((x): x is string[] => !!x).slice(0, MAX_SECTIONS)
@@ -245,7 +325,10 @@ export async function findDeckConfirmDraft(db: any, uid: number | string): Promi
       })
       if (!row?.content) continue
       const d = parseDraftContent(String(row.content))
-      if (!d || d.step !== 'script' || !Array.isArray(d.shots) || !d.shots.length) continue
+      if (!d || d.step !== 'script') continue
+      // ★VF_PPTSOLO_V1（2026-10-06）：PPT 成片线**没有分镜**（只吃文案+皮肤）⇒ 用它自己的 deckOnly 标记认领；
+      //   其余四条线照旧要求"有分镜"（没有分镜的确认卡点了也没得渲）。
+      if (d.deckOnly !== true && (!Array.isArray(d.shots) || !d.shots.length)) continue
       const ts = row.updatedAt ? new Date(row.updatedAt).getTime() : 0
       if (!best || ts > best.ts) best = { draft: d, tag, ts }
     }
@@ -274,7 +357,8 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, db, log 
   const vflog = (m: string) => { try { (log || (() => {}))(uidS, m) } catch { /* ignore */ } }
   try {
     const shots: any[] = Array.isArray(draft?.shots) ? draft.shots : []
-    if (!shots.length) return { ok: false, msg: '没有可出片的分镜' }
+    // ★VF_PPTSOLO_V1：PPT 成片线（deckOnly）**本来就没有分镜** —— 它只吃文案+皮肤，页由 deck 决定
+    if (!shots.length && draft?.deckOnly !== true) return { ok: false, msg: '没有可出片的分镜' }
 
     // ── 计费（与老链 make_ai_video ★VF_COSTFIX_V1 同公式）：script 优先，无则分镜 subtitle/text 总和 ──
     let chars = String(draft?.script || '').length
@@ -488,67 +572,37 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, db, log 
       }
       if (g.code !== 0) { await finishFail(`gen-deck 退出码 ${g.code}`); return }
 
-      // ── ③ 读 deck + 注入素材图帧（分镜 bgimage 镜 → pageImage；素材拷进派生档同目录 assets/，
-      //      asset 字段用相对路径 —— validate-deck 的素材闸门按【派生档位置】解析）──
+      // ── ③ 读 deck（★VF_PPTSOLO_V1（2026-10-06 用户定案）：「彻底拆开——新引擎只做 PPT 成片，
+      //     图片成片/图视混剪保持原设计（分镜时长+字幕）；不要混在一起，要不这个好了那个又坏了」）──
+      //   ⚠️ 这里**曾经**把分镜里的素材图注入成 `image` 页（★VF_MATDOM_V1），后果实测（2026-10-06 的 20261006_001）：
+      //     · 页数被撑到 13~14（PPT 7 + 素材帧 6~7），而旁白只有 11 句 ⇒ 前 7 页把 11 句吃光、
+      //       后 7 页一句都分不到 ⇒ 落回默认时长（图帧 2.5s / PPT 页 3.4s）⇒ **前面拖 15~21s、后面 2.5s 一闪**；
+      //     · 而且那 17s 是**无配音无字幕的静默快闪**（用户实测：「前面一个图片 17 秒，后面 1 个图片一秒都没有」）。
+      //   ⇒ 素材图是「图片成片 / 图视混剪」两条线的画面主体（那边时序真源是分镜 dur），**不属于 PPT 线**。
+      //     所以本线不再插素材图：页 = PPT 版式页，时序真源 = 配音（两条线各只有一个真源，互不干扰）。
       const batchOut = path.join(workDir, 'batch')
-      const assetsDir = path.join(batchOut, 'decks', 'assets')
       let deck: any = null
       try { deck = JSON.parse(fs.readFileSync(baseP, 'utf8')) } catch { await finishFail('base.json 解析失败'); return }
-      // ★VF_MATDOM_V1（2026-10-05 用户定案「素材图必有、量要大于 PPT；帧是帧、不用每张图背 PPT 页」）：
-      //   素材帧数 = min(可用图镜, max(句子预算, PPT页数+1))：
-      //   · 句子预算 = 口播句数 − PPT 页数 —— 每帧可背 1 句配音（voice-over 快闪：旁白在图帧上继续，
-      //     总时长 ≈ 音频长度 + 0.4s×页数，不再因图帧膨胀）；
-      //   · 下限 = PPT 页数 + 1 —— 口播句再少也保证「素材图必有 + 量 > PPT」（分不到句子的帧 2.5s 纯快闪）。
-      //   页数窗口：schema maxItems 已 12→40（deck.p40-test 40 页实测渲染通过 · exit 0）。
       const narrText = String(draft?.script || '').trim()
         || shots.map((s: any) => String(s?.subtitle || s?.text || '')).filter(Boolean).join('。')
       const narrSents: string[] = narrText.split(/[。！？!?；;\n]+/).map((x: string) => x.trim()).filter((x: string) => x.length >= 2).slice(0, 40)
-      const pptN = Array.isArray(deck?.pages) ? deck.pages.length : 0
-      const imgShotsAll = shots.filter((s: any) =>
-        /^(bgimage|image)$/i.test(String(s?.type || '')) && /\.(jpe?g|png|webp)$/i.test(String(s?.src || '')) && fs.existsSync(String(s?.src))
-      )
-      const imgN = Math.min(imgShotsAll.length, Math.max(narrSents.length - pptN, Math.min(imgShotsAll.length, pptN + 1)))
-      const imgShots = imgShotsAll.slice(0, imgN)
-      if (imgShots.length && Array.isArray(deck?.pages) && deck.pages.length >= 2) {
-        try { fs.mkdirSync(assetsDir, { recursive: true }) } catch { /* ignore */ }
-        const imgPages: any[] = []
-        for (let i = 0; i < imgShots.length; i++) {
-          const src = String(imgShots[i].src)
-          const ext = (src.match(/\.(\w+)$/)?.[1] || 'jpg').toLowerCase()
-          const dst = path.join(assetsDir, 'img_' + i + '.' + ext)
-          try { fs.copyFileSync(src, dst) } catch { continue }
-          // ★VF_FONTFIT_V1：图片页 title/caption 也进 deck ⇒ 同样过字体净化（表外字删，短于窗口如实跳过）
-          const t = fitFont(String(imgShots[i]?.text || '')).trim()
-          const title = t.length >= 4 ? t.slice(0, 24) : '现场画面'      // pageImage.title 硬性 4~24
-          const capRaw = fitFont(String(imgShots[i]?.subtitle || '')).trim()
-          const pg: any = { type: 'image', title, asset: 'assets/img_' + i + '.' + ext, layout: ori === '9:16' ? 'full' : (i % 2 ? 'right' : 'left'), duration: 2.5 }
-          if (capRaw.length >= 8) pg.caption = capRaw.slice(0, 48)        // caption 给了就 ≥8
-          imgPages.push(pg)
-        }
-        // ★VF_FONTFIT_V1：素材帧文字的净化记录落任务 tail（copy.md 的记录已在 ⓪ 打过并清空）
-        if (fontRemoved.length) {
-          push(`[字体净化] 素材图帧文字删 ${fontRemoved.length} 个字体子集外的字符：${[...new Set(fontRemoved)].slice(0, 20).join(' ')}`)
-          fontRemoved = []
-        }
-        // 穿插：素材帧均摊到各内容页后（总页数 ≤40 —— schema maxItems；end 恒最后）
-        const oldPages: any[] = deck.pages
-        const nGap = Math.max(1, oldPages.length - 2)      // 内容页数 = 可插帧的缝隙数
-        const perGap = Math.ceil(imgPages.length / nGap)   // 每缝插几张（均摊，不堆在一个缝里）
-        const np = [oldPages[0]]
-        let ii = 0
-        for (let i = 1; i < oldPages.length - 1; i++) {
-          np.push(oldPages[i])
-          for (let k = 0; k < perGap && ii < imgPages.length; k++) { np.push(imgPages[ii]); ii++ }
-        }
-        np.push(oldPages[oldPages.length - 1])
-        deck.pages = np
-        push(`[素材帧] 注入 ${ii} 张素材图（> PPT ${pptN} 页 · 多数帧背 1 句配音 voice-over · ${ori === '9:16' ? '全幅' : '左/右图'}）`)
-        fs.writeFileSync(baseP, JSON.stringify(deck, null, 2) + '\n', 'utf8')
-      }
+      push(`[PPT 成片] PPT ${Array.isArray(deck?.pages) ? deck.pages.length : 0} 页 · 口播 ${narrSents.length} 句 · 不插素材图（素材画面走「图片成片/图视混剪」两条线）`)
 
-      // ── ④ 逐句 TTS（口播文案 → 配音；复用老链 ttsQwen3：百炼→硅基→火山三级降级）──
+      // ── ④ 口播单元切块 + 逐块 TTS（口播文案 → 配音；复用老链 ttsQwen3：百炼→硅基→火山三级降级）──
+      // ★VF_NARRCHUNK_V1（2026-10-06 用户实测 001 片「前面一张图 15~21 秒、后面一页一闪」）：
+      //   根因之一是**口播句子太长**——AI 写的口播句 40~70 字（TTS 10~15s），一句就撑满一页，
+      //   于是"页时长"只能跟着句子走（有的页 15s、有的页 0s）。这里把口播也按**原子块**切成
+      //   ≤NARR_MAX 字的配音单元（切点都在标点/数字/英文边界 ⇒ 听感自然，与老线"逐镜 TTS"同思路），
+      //   页分配于是有了细粒度（一页 2~4 个单元），节奏终于可控。
       const voice = String(draft?.voice || 'longxiaochun')
-      const sents = narrSents      // ★VF_MATDOM_V1：③ 已按同一口径切好（注入帧数也用它），不重复切
+      const NARR_MAX = ori === '9:16' ? 16 : 24          // 竖屏短一点（字幕一行 12 字，配音单元略长于字幕块）
+      const sents: string[] = []
+      for (const s of narrSents) {
+        if (s.length <= NARR_MAX) { sents.push(s); continue }
+        const cs = chunkSub(s, NARR_MAX)
+        sents.push(...(cs.length ? cs : [s]))
+      }
+      if (sents.length !== narrSents.length) push(`[配音] 长句切块：${narrSents.length} 句 → ${sents.length} 个口播单元（每块 ≤${NARR_MAX} 字，切点在标点/数字/英文边界）`)
       type Sent = { text: string; file: string; dur: number }
       const voiceSents: Sent[] = []
       if (sents.length) {
@@ -561,77 +615,63 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, db, log 
           voiceSents.push({ text: sents[i], file: r.ok ? r.path : '', dur: r.ok ? Math.max(0.8, r.duration || est) : est })
           if (!r.ok) push(`[TTS] 第${i + 1}句合成失败 → 静默 ${est}s 占位（字幕照常）`)
         }
-        push(`[配音] ${voiceSents.length} 句 · 音色 ${voice} · 总时长≈${voiceSents.reduce((a, b) => a + b.dur, 0).toFixed(1)}s`)
+        push(`[配音] ${voiceSents.length} 个口播单元 · 音色 ${voice} · 总时长≈${voiceSents.reduce((a, b) => a + b.dur, 0).toFixed(1)}s`)
       } else push('[配音] 无口播文案 → 静默版（字幕用页面文案）')
 
       // ── ⑤ 页时长按配音分配 + 自产 SRT（字幕=口播内容 ⇒ 与页面大字不再同文重复）──
       const pages: any[] = Array.isArray(deck?.pages) ? deck.pages : []
       let srtP = genSrtP
       if (voiceSents.length && pages.length) {
-        // ★VF_MATDOM_V1（2026-10-05 用户定案「素材图必有、量大于 PPT」）：句子在【全部页】上
-        //   按累计时长均分 —— 素材帧页也背 ~1 句配音（voice-over：旁白在图帧上继续，观感是
-        //   「PPT 讲一句 → 素材图配一句」交替推进）。总时长 ≈ 音频长度 + 0.4s×页数，不因图帧膨胀。
-        //   （B+C 旧版「图帧不背旁白=静默快闪」会让 20 帧 ×2.5s 白加 50s —— 句子本来就是稀缺资源，
-        //    让每帧既出画面又承接旁白，两头都赚。）
+        /* ★VF_PACEFIX_V1（2026-10-06 用户实测 001 片「前面一张图 15~21 秒，后面一页一秒都没有，像插帧」）：
+           老分配 = 「累计时长 ≥ 均值才翻页」（target = 总时长 / 页数）。三个毛病：
+             ① **封面**会把开头几段旁白全吃掉（001 封面背了 3 段 = 15.5s）；
+             ② 句子比目标时长还长时，一页只能放一句 ⇒ 前面几页把旁白吃光；
+             ③ 后面的页**一句都分不到** ⇒ 落回默认时长（2.5s / 3.4s）⇒ 静默快闪。
+           新规则（配合 ④ 的口播单元切块，单元已被切成 ≤16 字）：
+             ① **封面 / 尾页各最多背 1 个单元**（开场一句、收尾一句，其余全部留给内容页）；
+             ② 其余单元按累计时长均分到**中间的内容页**；
+             ③ 确实分不到单元的页 ⇒ 时长 = **平均页时长**（不再落回 2.5/3.4s 的"闪页"），并在日志里点名。 */
         const totalDur = voiceSents.reduce((a, b) => a + b.dur, 0)
-        const target = totalDur / pages.length
+        const nPage = pages.length
+        const lastIdx = nPage - 1
         const groups: Sent[][] = pages.map(() => [])
-        let k = 0, acc = 0
-        for (const s of voiceSents) {
-          groups[Math.min(k, pages.length - 1)].push(s); acc += s.dur
-          if (k < pages.length - 1 && acc >= target) { k++; acc = 0 }
+        let si = 0
+        if (nPage === 1) {
+          groups[0] = voiceSents.slice()
+        } else {
+          groups[0].push(voiceSents[si++])                                     // ① 封面 ≤1 单元
+          if (si < voiceSents.length) groups[lastIdx].push(voiceSents[si++])    // ① 尾页 ≤1 单元
+          const midIdx: number[] = []
+          for (let i = 1; i < lastIdx; i++) midIdx.push(i)
+          if (midIdx.length) {
+            const rest = voiceSents.slice(si)                                  // ② 其余均分到内容页
+            const restDur = rest.reduce((a, b) => a + b.dur, 0)
+            const target = rest.length ? Math.max(1.2, restDur / midIdx.length) : 0
+            let k = 0, acc = 0
+            for (const s of rest) {
+              groups[midIdx[Math.min(k, midIdx.length - 1)]].push(s); acc += s.dur
+              if (k < midIdx.length - 1 && acc >= target) { k++; acc = 0 }
+            }
+          } else if (si < voiceSents.length) {
+            groups[0].push(...voiceSents.slice(si))                            // 只有封面+尾页：余下归封面
+          }
         }
-        // 页时长 = 本页句子 + 0.4s 呼吸；无句页保留原时长；clamp 1~30（schema 硬窗）
+        // 平均页时长（无单元页的兜底值）；页时长 = 本页单元和 + 0.4s 呼吸；clamp 1~30（schema 硬窗）
+        const avgDur = Math.max(1, Math.min(30, Math.round((totalDur / Math.max(1, nPage) + 0.4) * 10) / 10))
+        const noNarr: number[] = []
         const pageDur: number[] = pages.map((p: any, i: number) => {
           const d = groups[i].reduce((a, b) => a + b.dur, 0)
-          if (!d) return Math.max(1, Math.min(30, Number(p?.duration) || 3))
+          if (!d) { noNarr.push(i + 1); return avgDur }                        // ③ 无单元页 = 平均页时长
           return Math.max(1, Math.min(30, Math.round((d + 0.4) * 10) / 10))
         })
+        const durs = pageDur.map((x) => x.toFixed(1) + 's').join(' / ')
+        push(`[节奏] ${nPage} 页 · 时长 ${durs}（平均 ${avgDur}s）`)
+        if (noNarr.length) push(`[节奏] ${noNarr.length} 页没分到旁白（第 ${noNarr.join('/')} 页）⇒ 按平均 ${avgDur}s 计时（口播单元 ${voiceSents.length} 个 < 页数 ${nPage}：文案偏短或分节偏多）`)
         pages.forEach((p: any, i: number) => { p.duration = pageDur[i] })
         fs.writeFileSync(baseP, JSON.stringify(deck, null, 2) + '\n', 'utf8')
-        // SRT：句内按 竖屏≤12/横屏≤22 字切块（video-task-manager 同款节奏）
-        // ★VF_SUBATOM_V1（2026-10-05 用户实测字幕三连伤：「，点击率8.5%」逗号开头条 /「出」单字条 /
-        //   「3分|钟出」数字+单位拦腰切断 —— SUBCHUNK 的定宽盲切+回退在没标点的长句里防不住）：
-        //   改为**原子块贪心打包**——① 数字原子（数字串+千分位+可选 %/K/万/+ +可选中文单位）词内不断；
-        //   ② 英文单词按词不断；③ 标点必粘前块（块永不以句读开头）；④ 句读后块长过半即收
-        //   （优先断点，宁可短块不硬撑）；⑤ <2 字碎块并回相邻块（消灭单字条）。
-        const chunkSub = (t: string, max: number): string[] => {
-          const UN = '个只条次倍分秒天点年月日小时张套元万'
-          const atoms: string[] = []
-          let i = 0
-          while (i < t.length) {
-            const mN = t.slice(i).match(new RegExp('^[0-9][0-9,.，]*[%％KkMmBb]?[' + UN + ']{0,2}[+＋]?'))
-            if (mN && mN[0]) { atoms.push(mN[0]); i += mN[0].length; continue }
-            const mE = t.slice(i).match(/^[A-Za-z][A-Za-z'.-]*/)
-            if (mE) { atoms.push(mE[0]); i += mE[0].length; continue }
-            atoms.push(t[i]); i++
-          }
-          const PUNCT = '，。、；：！？…—～,.!?;:)）】」"'
-          const MAJOR = '，。、；！？'
-          const out: string[] = []
-          let cur = ''
-          const emit = () => { const c = cur.trim(); if (c) out.push(c); cur = '' }
-          for (const a of atoms) {
-            if (PUNCT.includes(a)) {                    // 标点永不开头：粘当前块（空块则粘上一块尾）
-              if (cur) {
-                cur += a
-                if (MAJOR.includes(a) && cur.length >= Math.ceil(max * 0.55)) emit()   // 句读=优先断点
-              } else if (out.length) out[out.length - 1] += a
-              continue
-            }
-            if (cur && cur.length + a.length > max) emit()   // 放不下 → 先收前块（长原子允许微超宽）
-            cur += a
-          }
-          emit()
-          const fin: string[] = []                       // 碎块合并：<2 字并给相邻块
-          let pending = ''
-          for (const c of out) {
-            if (c.length < 2) { pending += c; continue }
-            fin.push(pending ? pending + c : c); pending = ''
-          }
-          if (pending) { if (fin.length) fin[fin.length - 1] += pending; else fin.push(pending) }
-          return fin
-        }
+        // SRT：单元内按 竖屏≤12/横屏≤22 字切块（video-task-manager 同款节奏）
+        // ★VF_SUBATOM_V1：切块函数已上移到**模块级 `chunkSub`**（口播单元切块与字幕切块共用同一套
+        //   原子块规则 —— 用户 10-06 指示「前面调试字幕配音等如果有成熟技术可以用」，不许各写一份）。
         const subMax = ori === '9:16' ? 12 : 22
         const srtLines: string[] = []
         let tCur = 0, idx = 1

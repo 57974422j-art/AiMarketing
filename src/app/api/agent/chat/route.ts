@@ -894,6 +894,8 @@ async function stdClearAllDrafts(userId: number | string): Promise<void> {
   try { await clearVfVideoDraft(prisma, uid) } catch { /* ignore */ }  // 视频混剪线
   // ★VF_LEAD_V1（2026-09-29）：获客线（第 5 条状态机线）—— 不在这里清的话，「命令=重来」对它不成立
   try { await clearLeadDraft(prisma, uid) } catch { /* ignore */ }     // 智能获客线
+  // ★VF_PPTSOLO_V1（2026-10-06）：PPT 成片线（第 6 条状态机线）—— 同上，不在这里清则「命令=重来」对它不成立
+  try { const { clearPptDraft } = await import('@/lib/agent/vf/vf-ppt'); await clearPptDraft(prisma, uid) } catch { /* ignore */ }
 }
 
 /**
@@ -4014,7 +4016,7 @@ PUBLISH_DRAFT.delete(uidW)
               //   chart 页唯一入口就是 ≥4 行数据的 markdown 表格）⇒ 真实成片 chart 恒为 0。此处放开：
               //   数据节拆成「大数字页 + 三种图表节（柱状/折线/占比环）」，并规定表头第 2 列写单位、
               //   数据行 ≥4、说明行 8~39 字（gen-deck 按节标题选图型：占比/构成→donut、趋势/走势→line、其余 bar）。
-              const _p = '下面是一支营销短视频的口播文案。请把它改写成动态 PPT 的页面文案——同一内容的两种文体：口播版是完整句子，PPT 版是短语要点。\n\n严格按以下 markdown 格式输出，不要输出任何解释、前后缀或代码栅栏：\n# 封面标题\n封面副题\n\n## 节标题\n- 要点一\n- 要点二\n- 要点三\n\n内容节支持 7 种写法（按文案内容选型；**同一篇至少混用 2 种，不要全是 1.2.3 列表**）：\n【要点节】## 标题 + 3~4 条「- 要点」（每条 8~22 字短语）；标题下可加一行小结句（会显示为页面底部摘要）\n【数据节·大数字】## 标题 + 第一行必须是短数字行（以数字开头、全行 ≤28 字，如「94% AI内容置信度」）+ 恰好 2 行「标签：说明」（如「效率：3天工作流10分钟完成」）——文案里只有 1~3 个醒目数字时用这型\n【图表节·柱状】## 标题 + 一行 8~39 字的说明（会显示在图下方）+ 一张真 markdown 表格：表头 `| 项目 | 单位 |`（第二列写单位、≤6 字，如 %／万元／条）、分隔行 `|---|---|`、再 **≥4 行** `| 标签 | 数字 |`（第二列必须是纯数字，标签 ≤10 字）——文案里有 4 项以上可相互比较的数字时用\n【图表节·折线】标题里带「趋势／走势／变化／增长」＋同款表格（按时间顺序排）⇒ 会画折线图\n【图表节·占比环】标题里带「占比／构成／结构／比例」＋同款表格（数值是各项权重）⇒ 会画占比环\n表格必须是**真表格**（每行都有竖线、表头下面有 `|---|---|` 分隔行、数据行 ≥4）；数字必须来自文案本身、不得编造\n【流程节】## 标题要含 步/流程/阶段 字样 + 3~6 条「- 步骤」（每条 6~28 字，尽量 8 字以上）——文案里讲操作顺序时用\n【对比节】## 标题要含 对比/vs 字样 + 第一行左标签（2~12字）+ 第二行右标签（2~12字）+ 4~8 条「- 对比点」（左右各半，每条 6~28 字，尽量 8 字以上）——文案里有「传统做法 vs 新做法」时用\n\n要求：## 节共 3~6 个；封面标题 4~12 字、副题 8~18 字；节标题 4~12 字；要点/对比点/步骤/图表说明按各型字数窗口、短语化（不要完整句子、不带句号）；**只用常规简体字与常规标点——禁止 emoji、表情、生僻字、外文字符（PPT 内嵌字体是子集，这些字会被删掉或导致渲染失败）**；数字与事实必须来自文案本身（不得改变、不得编造），其余内容可压缩、可合并、可轻度润色成完整短语；遇到不足 8 字的短句要扩写成完整短语（如「未来已来」→「未来已来，立即预约」）。\n\n口播文案：\n' + _script.slice(0, 2000)   // ★VF_PAGEMIX_V1/★VF_CHARTKIND_V1：7 节型菜单（形状决定页型）
+              const _p = '下面是一支营销短视频的口播文案。请把它改写成动态 PPT 的页面文案——同一内容的两种文体：口播版是完整句子，PPT 版是短语要点。\n\n严格按以下 markdown 格式输出，不要输出任何解释、前后缀或代码栅栏：\n# 封面标题\n封面副题\n\n## 节标题\n- 要点一\n- 要点二\n- 要点三\n\n内容节支持 7 种写法（按文案内容选型；**同一篇至少混用 2 种，不要全是 1.2.3 列表**）：\n【要点节】## 标题 + 3~4 条「- 要点」（每条 8~22 字短语）；标题下可加一行小结句（会显示为页面底部摘要）\n【数据节·大数字】## 标题 + 第一行必须是短数字行（以数字开头、全行 ≤28 字，如「94% AI内容置信度」）+ 恰好 2 行「标签：说明」（如「效率：3天工作流10分钟完成」）——文案里只有 1~3 个醒目数字时用这型\n【图表节·柱状】## 标题 + 一行 8~39 字的说明（会显示在图下方）+ 一张真 markdown 表格：**两列**——表头形如 `| 指标 | % |`（**第 2 列写具体单位**，如 %／万元／条／人；**绝对不要写「单位」「数值」这两个字**），第二行分隔行 `|---|---|`，再 **≥4 行** `| 标签 | 数字 |`（**数字必须在第 2 列**、必须是纯数字不带 % 不带文字；标签 ≤10 字）——文案里有 4 项以上可相互比较的数字时用\n【图表节·折线】标题里带「趋势／走势／变化／增长」＋同款表格（按时间顺序排）⇒ 会画折线图\n【图表节·占比环】标题里带「占比／构成／结构／比例」＋同款表格（数值是各项权重）⇒ 会画占比环\n表格必须是**真表格**（每行都有竖线、表头下面有 `|---|---|` 分隔行、数据行 ≥4）；数字必须来自文案本身、不得编造\n【流程节】## 标题要含 步/流程/阶段 字样 + 3~6 条「- 步骤」（每条 6~28 字，尽量 8 字以上）——文案里讲操作顺序时用\n【对比节】## 标题要含 对比/vs 字样 + 第一行左标签（2~12字）+ 第二行右标签（2~12字）+ 4~8 条「- 对比点」（左右各半，每条 6~28 字，尽量 8 字以上）——文案里有「传统做法 vs 新做法」时用\n\n要求：## 节共 4~8 个（页数 = 节数 + 2，**节太少会让每页停留太久**）；封面标题 4~12 字、副题 8~18 字；**节标题写内容本身（4~12 字），绝对禁止出现「要点节」「图表节」「数据节」「流程节」「对比节」「本节要点」这些字样**（它们是格式标签，不是标题）；要点/对比点/步骤/图表说明按各型字数窗口、短语化（不要完整句子、不带句号）；**只用常规简体字与常规标点——禁止 emoji、表情、生僻字、外文字符（PPT 内嵌字体是子集，这些字会被删掉或导致渲染失败）**；数字与事实必须来自文案本身（不得改变、不得编造），其余内容可压缩、可合并、可轻度润色成完整短语；遇到不足 8 字的短句要扩写成完整短语（如「未来已来」→「未来已来，立即预约」）。\n\n口播文案：\n' + _script.slice(0, 2000)   // ★VF_PAGEMIX_V1/★VF_CHARTKIND_V1：7 节型菜单（形状决定页型）
                 for (let _try = 1; _try <= 2 && !_deckMd; _try++) {   // ★VF_DECKRETRY_V1：转写重试 1 次
                   try {
                     const _out = await genTextW(_try === 1 ? _p : _p + '\n\n（注意：上一次输出未通过格式校验，请逐行严格按上述 markdown 结构输出，封面/节标题/要点条数都别少。）')
@@ -4075,6 +4077,8 @@ PUBLISH_DRAFT.delete(uidW)
         let vfMixHandled = false
         // ★VF_VIDEOLINE_V1（2026-09-24）【视频混剪】独立线
         let vfVideoHandled = false
+        // ★VF_PPTSOLO_V1（2026-10-06）【PPT 成片】独立线（第 6 条；只吃文案+皮肤，配音为时序真源）
+        let vfPptHandled = false
         const _parseVfForm = (msg: string) => {
           const m = String(msg || '').trim().match(/^VF_FORM:(\{[\s\S]*\})/)
           try { return m ? JSON.parse(m[1]) : null } catch { return null }
@@ -4157,8 +4161,32 @@ PUBLISH_DRAFT.delete(uidW)
             try { vfLog(uidVF2, '[VF-A] 分派异常: ' + String(eAI?.message || eAI).slice(0, 200)) } catch { /* ignore */ }
           }
         }
+        // ═══════════════════════════════════════════════════════════════════════════
+        // ★VF_PPTSOLO_V1（2026-10-06 用户定案「彻底拆开」）【PPT 成片】独立线（第 6 条状态机线）
+        //   用户原话：「做个 PPT 成片 / HTML 逐帧成片，原设计图视混剪和图片成片单独保留。不要混在一起。
+        //   要不这个好了那个又坏了，我们调试起来很麻烦。」
+        //   · 入口 = 标准模式命令「PPT成片」（别名 动态PPT / 动态PPT成片）；提交协议 = `VF_PPT_FORM:{...}`
+        //   · 它**独占**「HTML 逐帧 · 动态 PPT」能力 —— 其余四条线的成片方式不再提供 deck 选项（见下面 VF_FORM 封路）
+        //   · 时序真源 = 配音（页 = PPT 版式页）；不取素材、不排分镜、不插素材图 ⇒ 与其它线互不干扰
+        //   · 本块放在四条线之前：命中即置 vfPptHandled，素材线在它下面天然让位；
+        //     其它三条线靠 stdCmdHit 让位（★VF_STDCMD_GUARD_V1 已覆盖）。
+        // ═══════════════════════════════════════════════════════════════════════════
+        try {
+          const { handlePptLine } = await import('@/lib/agent/vf/vf-ppt')
+          const _isPptMsg = (!!stdCmdHit && stdCmdHit.id === 'vf_ppt') || /^VF_PPT_FORM\s*:/.test(String(userMessage || '').trim())
+          if (!leadHandled && _isPptMsg) {
+            const _rP = await handlePptLine({
+              uid: uidVF2, userMessage, prisma, generateText: genTextW,
+              log: (u: any, m: string) => vfLog(u, m), voiceList: VF_VOICE_BASE,
+            })
+            if (_rP) { vfPptHandled = true; wfEarlyReply = _rP; finalResult = _rP }
+          }
+        } catch (ePP: any) {
+          vfPptHandled = false
+          try { vfLog(uidVF2, '[VF-P] 分派异常: ' + String(ePP?.message || ePP).slice(0, 200)) } catch { /* ignore */ }
+        }
         // ★VF_STDCMD_GUARD_V1：命中别条命令时素材线也让位（它自己的命令 = 图片成片 vf_local）
-        if (!leadHandled && !vfVideoHandled && !vfMixHandled && !vfAiHandled && (!stdCmdHit || stdCmdOwned(['vf_local']))
+        if (!leadHandled && !vfVideoHandled && !vfMixHandled && !vfAiHandled && !vfPptHandled && (!stdCmdHit || stdCmdOwned(['vf_local']))
           // ★VF_RENDER_ONESHOT_V1（2026-09-29）：VF_EDIT 协议串也要能进本块 —— 片已出、草稿已作废时，
           //   客户端「🔁 只重渲第 N 镜」发的是 VF_EDIT:{taskId,edits}（没有草稿可改），靠这条进块去走
           //   【只重渲染】；否则会因"没草稿 + 不匹配 vfIntent"落到起稿分支，把只重渲请求变成一张空的设置卡。
@@ -4279,8 +4307,17 @@ PUBLISH_DRAFT.delete(uidW)
               if (_mForm) {
                 try {
                   const f = JSON.parse(_mForm[1]) || {}
-                  // ★VF_ENGINE_UI_V1（2026-10-04 用户定案「成片方式第一轮就选」）：classic=老引擎（默认）/ deck=新引擎动态 PPT
-                  if (f.engine !== undefined) vd.engine = String(f.engine) === 'deck' ? 'deck' : 'classic'
+                  // ★VF_PPTSOLO_V1（2026-10-06 用户定案「彻底拆开」）：**本线（图片成片 / 素材线）只出老引擎**
+                  //   动态 PPT（HTML 逐帧 deck）自今日起独占给「PPT成片」那条独立线 —— 本线收到 deck 一律拒绝并提示。
+                  //   原因（用户实测 2026-10-06 的 20261006_001）：两条线时序真源不同（本线 = 分镜 dur；deck = 配音句），
+                  //   混在一起会出现"卡片承诺 6s/镜、实际一页 20 秒"这类对不上的现象，且改一条坏另一条。
+                  if (f.engine !== undefined) {
+                    if (String(f.engine) === 'deck') {
+                      vfLog(uidVF2, '[成片方式] 拒绝 deck：图片成片/图视混剪已不再支持动态 PPT（自 10-06 起独占给「PPT成片」线）→ 本次按老引擎出片')
+                      vd.engineRejected = 'deck'
+                    }
+                    vd.engine = 'classic'
+                  }
                   if (f.aspect) vd.aspect = String(f.aspect)
                   if (f.dur) vd.dur = Math.max(5, Math.min(900, parseInt(f.dur) || 30))
                   // ★VF_THEME_UI_V1（2026-09-20）：画面风格（dark / tech / light）—— 之前表单没暴露，只能默认 dark

@@ -171,23 +171,57 @@ function sectionToPage(sec, opt, notes) {
        改为**按节标题选图型**：占比/构成/结构/比例/份额/分布 → donut（占比环）；趋势/走势/增长/变化/曲线 → line（折线）；其余 → bar。
        （生成器缺这一跳 ⇒ 即使 deck 手写的 line/donut 也只出现在引擎自测里，真实成片永远只有柱状或干脆没有图。） */
   if (sec.table && sec.table.rows.length >= 4) {
-    /* 数据行**成对取**（标签+数值，同一行一起过滤）——旧写法 labels 取全行、series 只留数值行 ⇒ 两者错位
-       （labels 数 ≠ series 数，validate 报 warn；行里有非数值时标签会串位） */
+    /* ★VF_CHARTDATA_V1（2026-10-06 用户实测 001 片「图表页出来了，但一根柱子都没有、y 轴全是 0」）：
+       三个坑一起修——
+       ① 数值**逐行取"第一个能解析成数字的单元格"**（跳过标签列）。旧写法写死第 2 列：AI 若写成
+          `| 社媒声量 | % | 42 |`（数字在第 3 列）⇒ 第 2 列去非数字字符后是**空串** ⇒ `Number('') === 0`
+          ⇒ 5 行全被当成"有效数值 0" ⇒ 出一张 series=[0,0,0,0,0] 的空图（还通过了 validate，没人拦）。
+          空串必须判 `NaN`（该行不进 series），不是 0。
+       ② **全 0 / 读不到数值 ⇒ 不出图表页**（降级为要点页）：数据没落位宁可不画，绝不画空图。
+       ③ 表头第 2 列是**占位词**（单位/数值/值/项目…）⇒ 视为"没给单位"（旧写法会把「单位」两个字当单位印在图上）。
+       数据行仍**成对取**（标签+数值同行过滤）⇒ labels 数 == series 数（旧写法两者会错位、validate 报 warn）。 */
+    const numOf = (cells) => {
+      for (let ci = 1; ci < cells.length; ci++) {
+        const digits = String(cells[ci] ?? '').trim().replace(/[^\d.\-]/g, '')
+        if (digits === '') continue                    // ★空串 = 没有数值（绝不能变成 0）
+        const n = Number(digits)
+        if (Number.isFinite(n)) return n
+      }
+      return NaN
+    }
     const pairs = sec.table.rows
-      .map((r) => ({ label: cut(String(r.cells[0] ?? '').trim(), { max: 10 }), v: Number(String(r.cells[1] ?? '').replace(/[^\d.\-]/g, '')) }))
+      .map((r) => ({ label: cut(String(r.cells[0] ?? '').trim(), { max: 10 }), v: numOf(r.cells) }))
       .filter((x) => Number.isFinite(x.v))
     const series = pairs.map((x) => x.v)
     const labels = pairs.map((x) => x.label)
     const kind = /占比|构成|结构|比例|份额|分布/.test(title) ? 'donut'
       : (/趋势|走势|增长|变化|曲线/.test(title) ? 'line' : 'bar')
-    const unit = cut(sec.table.header[1] || '', win('pageChart', 'unit'))
-    const expl = fitExplain(W.explChart, `${title}：${sec.table.header.join(' / ')}`)
-    if (series.length >= 4 && unit && expl) {
+    const unitRaw = String(sec.table.header[1] || '').trim()
+    let unit = /^(单位|数值|值|项目|标签|说明|数据)$/.test(unitRaw) ? '' : cut(unitRaw, win('pageChart', 'unit'))
+    /* ★VF_CHARTDATA_V1 补：表头第 2 列写成**占位词**（AI 常照抄示例表头「项目 | 单位」）时，
+       从**表体**里找真单位 —— 取"非数字、≤8 字、且出现 ≥2 次"的短格子（如 `| 渠道 | % | 42 |` 里的 `%`）。
+       仍是**表里已有的内容**（不编造）；找不到就不出图表页（宁可不画）。 */
+    if (!unit) {
+      const tally = new Map()
+      for (const r of sec.table.rows) {
+        const cells = r.cells || []
+        for (let ci = 1; ci < cells.length; ci++) {
+          const c = String(cells[ci] || '').trim()
+          if (!c || /\d/.test(c) || c.length > 8) continue
+          tally.set(c, (tally.get(c) || 0) + 1)
+        }
+      }
+      const top = [...tally.entries()].sort((a, b) => b[1] - a[1])[0]
+      if (top && top[1] >= 2) unit = cut(top[0], win('pageChart', 'unit'))
+    }
+    // explain 兜底改成"标题：前三个标签"（内容仍全部来自本节的表，不编造；旧兜底拼表头会出「…：项目 / 单位」这种废话）
+    const expl = fitExplain(W.explChart, `${title}：${labels.slice(0, 3).join('、')}`)
+    if (series.length >= 4 && series.some((x) => x !== 0) && unit && expl) {
       return { type: 'chart', title: fitTitle(W.tChart), unit, explain: expl,
         source: pick([...paras], { min: 0, max: 40 }) || undefined,
         chart: { type: kind, series: series.slice(0, 12), labels: labels.slice(0, 12).every((x) => x) ? labels.slice(0, 12) : undefined }, duration: N }
     }
-    notes.push(`${tag}：表可读但 explain/unit 无法落窗（8~39） ⇒ 降级为要点页`)
+    notes.push(`${tag}：表可读但落不了窗（可读数值 ${series.length} 个 · 非零 ${series.filter((x) => x !== 0).length} 个 · unit=${JSON.stringify(unit)}） ⇒ 降级为要点页`)
   }
   /* ② 条目 ⇒ 步骤 / 对比 / 要点 */
   if (items.length >= 3) {
