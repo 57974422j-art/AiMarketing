@@ -115,6 +115,11 @@ export interface VfVideoDraft {
   /** ★VF_MATWARN_V1（2026-10-06）：素材取用/丢弃的**用户可见**提示（确认卡上显示；原来只写日志 ⇒
    *  用户"传了视频却没被用"完全不知情）。空 = 没有要说的事。 */
   matWarn?: string
+  /** ★VF_DURAUTO_V1（2026-10-06 用户定案「上传素材不给选时长，以实际素材合成剪辑为准，可以轻微调整」）：
+   *  本次带上传素材 ⇒ 时长**不给选**（客户端置灰），由服务端在起草后按"分镜实际合计"回填 ——
+   *  这样 planRoot.duration 与分镜总和一致，**尾镜不再被裁**（043 实测分镜 32.0s / 目标 30s / 成片 29.6s）。
+   *  false / 缺省 = 老行为（用户在设置卡选 30/60/90/180 或自填）。 */
+  durAuto?: boolean
   script: string
   brief: string             // 图文素材 + 视频理解结论（喂写文案/排分镜）
   shots?: any[]
@@ -919,6 +924,18 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
     shotsOut.length = 0
     shotsOut.push(..._bs.shots)
   }
+  // ★VF_DURAUTO_V1（2026-10-06 用户定案「上传素材不给选时长，以实际素材合成剪辑为准，可以轻微调整」）：
+  //   带上传素材的片子，分镜排完就把 `vd.dur` 回填成"**分镜实际合计**"，让 planRoot.duration 与之一致：
+  //   ① 卡片上显示的秒数 = 实际成片的秒数（承诺与实长一致，用户不用再猜）；
+  //   ② **尾镜不再被"目标秒数"裁掉** —— 043 实测：分镜合计 32.0s、目标 30s、成片 29.6s，收尾卡只剩 1.6s。
+  //   纯仓库模式（durAuto=false）完全不进这里，行为与改前一字不差。
+  if (vd.durAuto) {
+    const _sumDur = Math.round(shotsOut.reduce((a: number, s: any) => a + (Number(s.dur) || 0), 0) * 10) / 10
+    if (_sumDur > 0 && Math.abs(_sumDur - Number(vd.dur || 0)) > 0.05) {
+      ctx.log(uid, `[VF-V] 时长以素材为准：分镜合计 ${_sumDur}s（原目标 ${vd.dur}s）→ 已同步 planRoot.duration（尾镜不会被裁）`)
+      vd.dur = _sumDur
+    }
+  }
   vd.shots = shotsOut
   // ★VF_VIDI2V_V1：把"本地路径 → 仓库 key"的映射存进草稿 —— 出片（确认那一步）时用它现算 i2vShots
   vd.i2vKeys = i2vKeyByPath
@@ -990,7 +1007,8 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
         // ★VF_ENGINE_UI_V1（2026-10-04 用户定案「成片方式第一轮就选」）：classic=老引擎（默认）/ deck=新引擎动态 PPT
         if (f.engine !== undefined) vd.engine = String(f.engine) === 'deck' ? 'deck' : 'classic'
         if (f.aspect) vd.aspect = String(f.aspect)
-        if (f.dur) vd.dur = Math.max(5, Math.min(900, parseInt(f.dur) || 30))
+        // ★VF_DURAUTO_V1：带上传素材时**不接受手填秒数**（时长以素材合成剪辑为准，起草后自动回填 vd.dur）
+        if (f.dur && !vd.durAuto) vd.dur = Math.max(5, Math.min(900, parseInt(f.dur) || 30))
         if (f.voice) vd.voice = String(f.voice)
         if (f.theme) vd.theme = String(f.theme)
         if (f.bgm) vd.bgm = String(f.bgm)
@@ -1014,6 +1032,9 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
         if (f.pin1 !== undefined) vd.pin1 = String(f.pin1 || '').slice(0, 60)
         if (f.pin2 !== undefined) vd.pin2 = String(f.pin2 || '').slice(0, 80)
         if (Array.isArray(f.uploaded)) vd.uploaded = f.uploaded.map((x: any) => String(x))
+        // ★VF_DURAUTO_V1：**有本次上传 ⇒ 时长置灰（durAuto）** —— 用户原话「上传素材不给选时长，
+        //   已实际素材合成剪辑为准，可以轻微调整」。纯仓库模式（没上传）保持可选，行为与改前一致。
+        vd.durAuto = vd.uploaded.length > 0
         if (typeof f.script === 'string' && f.script.trim()) vd.script = cleanText(f.script)
         if (typeof f.topic === 'string' && f.topic.trim()) vd.topic = String(f.topic).trim().slice(0, 300)
         VF_VIDEO_DRAFT.set(uid, vd)

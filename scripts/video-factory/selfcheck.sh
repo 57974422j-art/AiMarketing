@@ -321,6 +321,14 @@ ck 'VF_BIGSUB_V1'                   'src/lib/agent/vf/vf-video.ts' 2
 # ★VF_LINETAG_V1（A2 续）：上传卡的两处文案/accept 也按线分（图片成片只吃图片、图视混剪吃图+视频；
 #   素材+AI 保持只吃图片但**注明**，回显统一成"本次只从这几张取，不掺仓库"）
 ck 'VF_LINETAG_V1'                  'src/app/agent/page.tsx' 4
+# ★VF_DURAUTO_V1（2026-10-06 用户定案「上传素材不给选时长，已实际素材合成剪辑为准，可以轻微调整」）：
+#   本次**带了上传素材**（uploaded 非空）⇒ ① 客户端「时长」整行置灰，改显示"以素材合成剪辑后的实际时长为准"；
+#   ② 服务端 form 解析**不再接受手填秒数**；③ 起草完把 vd.dur 回填成**分镜实际合计**，让 planRoot.duration
+#   与之一致 —— 于是"卡片显示的秒数 = 成片秒数"，且**尾镜不再被目标秒数裁掉**
+#   （043 实测：分镜 32.0s / 目标 30s / 成片 29.6s，收尾卡只剩 1.6s）。
+#   ⚠️ 纯仓库模式（没上传）durAuto=false ⇒ 行为与改前一字不差（零回归）。
+ck 'VF_DURAUTO_V1'                  'src/lib/agent/vf/vf-video.ts' 4
+ck 'VF_DURAUTO_V1'                  'src/app/agent/page.tsx' 1
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"

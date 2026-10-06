@@ -721,14 +721,26 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
       </div>
 
       <div className="mb-3">
-        <div className="text-[10px] text-gray-400 mb-1">时长</div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {['30', '60', '90', '180'].map((s) => R(dur, s, s + '秒', setDur))}
-          <input value={dur} onChange={(e: any) => setDur(String(e.target.value).replace(/[^\d]/g, '').slice(0, 4))}
-            placeholder="自定义秒数"
-            className="w-[86px] px-2 py-0.5 rounded text-[11px] bg-white/[0.05] border border-white/[0.08] text-gray-200 placeholder-gray-600 outline-none" />
-          <span className="text-[10px] text-emerald-300/70">≈ {Math.round((parseInt(dur) || 30) * 4.5)} 字文案</span>
+        <div className="text-[10px] text-gray-400 mb-1">
+          时长 {uploaded.length > 0 ? <span className="text-gray-600">（已按你的素材自动定，不可手选）</span> : null}
         </div>
+        {/* ★VF_DURAUTO_V1（2026-10-06 用户定案「上传素材不给选时长，已实际素材合成剪辑为准，可以轻微调整」）：
+            本次**带了上传素材** ⇒ 时长置灰、改由服务端按素材/分镜实际合计定（起草后回填并显示精确秒数），
+            这样"卡片显示的秒数 = 成片秒数"，尾镜也不会被目标秒数裁掉。没上传（纯仓库）时保持可选 = 零回归。 */}
+        {uploaded.length > 0 ? (
+          <div className="text-[10px] text-emerald-300/80">
+            以你上传的素材合成剪辑后的实际时长为准（可轻微调整）；起草完的确认卡上会给出精确秒数。
+            需要手动指定秒数时，请先不放素材（纯仓库）再出片。
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {['30', '60', '90', '180'].map((s) => R(dur, s, s + '秒', setDur))}
+            <input value={dur} onChange={(e: any) => setDur(String(e.target.value).replace(/[^\d]/g, '').slice(0, 4))}
+              placeholder="自定义秒数"
+              className="w-[86px] px-2 py-0.5 rounded text-[11px] bg-white/[0.05] border border-white/[0.08] text-gray-200 placeholder-gray-600 outline-none" />
+            <span className="text-[10px] text-emerald-300/70">≈ {Math.round((parseInt(dur) || 30) * 4.5)} 字文案</span>
+          </div>
+        )}
       </div>
 
       {/* ★VF_AVIMG_V1（2026-10-05 用户定案「新制片也要配音和BGM」）：新引擎已支持配音+BGM —— 音色恢复可选 */}
