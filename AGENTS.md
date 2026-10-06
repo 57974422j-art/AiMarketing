@@ -77,7 +77,25 @@
   - 新增运行时依赖时：**只改 `electron/env-manifest.js` 那张表**，并在 `scripts/build-local.mjs` 的 `extraResources` 里补一条
     （同时 `package.json` 的 `extraResources` 也要对齐 —— 两处不一致就会出现"打出来少件"）
 - **提交推送**（★ 必须先有用户明文授权，否则禁止）：`git add <白名单路径>` → `git commit -m "…"` → `git push origin master`
-- 服务器部署（唯一命令）：`cd /root/AiMarketing && git fetch origin && git reset --hard origin/master && bash scripts/deploy-server.sh`
+- 服务器部署（**唯一命令；禁止自己拼"三步走"**）：
+  `cd /root/AiMarketing && git fetch origin && git reset --hard origin/master && bash scripts/deploy-server.sh`
+  - ⛔ **禁止** `git pull && npm run build && pm2 restart aimarketing` 这类自创命令。2026-10-06 本 AI 给过一次，后果逐条如下（用户实测）：
+    ① 少了 `cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/public` —— 服务器跑的是
+       `.next/standalone/server.js`，而 standalone 产物**不含** `static/`、`public/` ⇒ **前台 JS/CSS chunk 全 404
+       （白屏 / 无样式 / 交互失灵），但 API 照常 200、pm2 显示 online、日志里没有任何报错**
+       —— 这就是"命令错了、前台却不显示报错"的真身；
+    ② `pm2 restart` 不刷新环境变量（缺 `-r dotenv/config` + `DOTENV_CONFIG_PATH=/root/AiMarketing/.env.local`）、
+       不更新 pm2 列表的 version 列、没有 `pm2 save`（重启/断电可能回到旧进程表）；
+    ③ 少了第 1 步 `sqlite3 prisma/dev.db ".backup '/root/db-backup/dev-<时间>.db'"` ⇒ 出事没有回滚点；
+    ④ 少了"按 `package-lock.json` 判断是否需要 `npm install`" ⇒ 依赖真变时会**用旧 node_modules 构建/运行**；
+    ⑤ 少了 `rm -rf .next` ⇒ 增量缓存可能把旧 chunk / 旧路由打进产物；
+    ⑥ 少了第 7 步的 `curl` 验证 ⇒ 根本没有任何"成没成"的判定。
+  - 命令最前面的 `git fetch origin && git reset --hard origin/master` **不能省**：先把仓库对齐，才能保证
+    "即将执行的 `deploy-server.sh` 本身"是最新版（脚本内部第 2 步再 reset 一次，但那时跑的还是旧脚本）。
+  - **部署验收（4 条全绿才算成）**：`stat -c '%y  %n' .next/BUILD_ID`（构建时间新）·
+    `grep -rl "<本次改动的新标记>" .next/server`（新代码确实进了构建产物）·
+    `pm2 describe aimarketing | grep -E "uptime|version"`（uptime 秒级 + version 对）·
+    `curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/login`（= 200）；**前台再按 Ctrl+Shift+R 强刷一次**。
 - 发版上传 OSS：`node scripts/upload-update-oss.mjs dist-rel`
   - ★ 三件套必须同步，**latest.yml 最后传**（先传 exe + blockmap，否则客户端更新会 404/转圈）
 - 成片自检：`cd /root/AiMarketing && bash scripts/video-factory/selfcheck.sh`（4 段：语法 / 9 种卡型渲染 / 4 个 TTS 引擎 / 17 个改动标记）
