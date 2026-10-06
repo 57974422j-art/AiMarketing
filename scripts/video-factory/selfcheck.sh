@@ -264,6 +264,29 @@ ck 'VF_AVIMG_V1'                  'src/app/agent/page.tsx' 3            # 解除
 #   能力去向：news/data/light/journal/mono 这 5 个主题**就是**5 套风格内部用的那 5 个（未丢）；另 5 个裸主题
 #   （dark/blue/tech/mint/vivid）暂无入口，待「皮肤扩库」（升级成正式皮肤 + 与新引擎 10 母版并列表）时回归。
 ck 'VF_ONELAYER_V1'                 'src/app/agent/page.tsx' 6 # 状态注释/成片方式删除说明/风格块过渡说明×2/高级删除块/提交注释
+# ★VF_UPLOADWHITELIST_V1 / ★VF_MATWARN_V1 / ★VF_LINETAG_V1 / ★VF_NEARDUP_V1 / ★VF_PREVIEWTXT_V1
+#   （2026-10-06 用户实测「图视混剪这里上传的完全不走上传，还是走库」+「几个制片上传素材打开的路径不一致」）：
+#   ① 【真 bug】图视混剪取素材写死 listRepoMaterials(uid,30,'spread')，而 vd.uploaded 只在 :906 初始化 /
+#      :953 赋值、**全文件零消费** ⇒ 刚上传的素材被丢进全仓库 30 条里打散抽样，大概率挑不到
+#      （用户观感"上传了没用 / 它还是走库"）。修：有上传名单 ⇒ 'recent' + 名单精确过滤 + 不打散不降权
+#      （对齐既有范式：素材+AI vf-mix.ts:342-357、图片成片 route.ts:4446-4460、AI 制片 vf-aivideo.ts:370-374）。
+#   ② 【误导文案】设置卡两线共用，而"视频暂时不会被画出来"是**替图片成片写的硬编码** ⇒ 图视混剪也被误告。
+#      修：formCard 下发结构化 line（'video'=图视混剪 / 'local'=图片成片）+ 客户端按线出文案。
+#      ⚠️ 顺带钉死一个事实：上传目标与读取目录**四条线本来就是同一个**（POST /api/storage/files →
+#      OSS storage/<uid>/）；用户感知的"两个路径"= 两张不同的卡 + accept 不同 + 本次上传名单认不认（即①）。
+#   ③ 【静默丢弃】过大/过长（>400MB / >30min）的视频原来只写服务端日志 ⇒ 现在写 vd.matWarn → 确认卡上显示。
+#   ④ 【近重复漏网】dedupeAdjacentSameText 原来只认**完全相等** ⇒ 第3/4页「从封面到方案」近重复漏网。
+#      修：忽略标点后相等，或短句(≥6字)是长句前缀且尾巴 ≤6 字（上限防误并"真不相同的页"）。
+#   ⑤ 【预览误判】老引擎逐镜预览把每页文字 .slice(0,8) ⇒ 出现「AIConfid」「标题直接写着：A」被当成片子坏了。
+#      修：放宽到 14 字 + 悬停看全文（title）。
+#   端测：去重例（近似页被改 /「智能营销方案落地三个月见效果」不动 / 完全相等照改）✓；tsc 0 新增。
+ck 'VF_UPLOADWHITELIST_V1'      'src/lib/agent/vf/vf-video.ts' 3
+ck 'VF_MATWARN_V1'              'src/lib/agent/vf/vf-video.ts' 2
+ck 'VF_MATWARN_V1'              'src/app/api/agent/chat/route.ts' 1
+ck 'VF_LINETAG_V1'              'src/lib/agent/vf/vf-video.ts' 1
+ck 'VF_LINETAG_V1'              'src/app/api/agent/chat/route.ts' 1
+ck 'VF_NEARDUP_V1'              'src/lib/agent/vf/anti-ai.ts' 2
+ck 'VF_PREVIEWTXT_V1'           'src/app/agent/page.tsx' 1
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"

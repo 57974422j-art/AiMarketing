@@ -784,6 +784,9 @@ function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect
       items: Array.isArray(s.items) ? s.items : [],
     })),
     usedImages: imgN, brief: String(brief || '').slice(0, 400),
+    // ★VF_MATWARN_V1（2026-10-06）：素材取用/丢弃的**用户可见**提示（图视混剪写，确认卡上显示）——
+    //   之前这类事只写服务端日志 ⇒ 用户"传了视频没被用"完全不知情（他实测就是这么被误导的）。
+    matWarn: String(vd.matWarn || '').slice(0, 300),
     voice: vd.voice, voiceName, theme: vd.theme, cost,
     // ★VF_PRICE_CLARITY_V1（2026-09-30）：不含动图的部分（=只算文案费）+ 主题中文名 ——
     //   前端拿它写「约 Y 点 = 动图 A + 文案 B」，两个数各自有名字。
@@ -4296,6 +4299,10 @@ PUBLISH_DRAFT.delete(uidW)
               wfEarlyReply = 'VF_JSON:' + JSON.stringify({
                 step: 'form', topic: _vfTopic0Clean, aspect: 'auto', dur: 30, voice: 'longxiaochun',
                 voices: _vList,
+                // ★VF_LINETAG_V1（2026-10-06）：结构化线标识 —— 本卡与「图视混剪」共用同一组件
+                //   （VideoFormCard），客户端靠这个字段决定"视频会不会被画出来"那类文案（见 page.tsx）。
+                //   'local' = 图片成片（画面只从【图片】取）；'video' = 图视混剪（吃视频，见 vf-video.ts formCard）。
+                line: 'local',
                 hint: '选好点「🚀 开始出片」（都有默认值，不改也能直接开始）',
               })
               finalResult = wfEarlyReply

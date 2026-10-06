@@ -105,7 +105,12 @@ export interface VfVideoDraft {
   /** ★OVERLAY_TEXT_SWITCH_V1（2026-09-29 用户定案）：画面大字开关 'on'|'off'
    *  只关【压在素材/视频上的大字】；独立文字卡（标题/结尾/列表…）与字幕不受影响。 */
   big?: string
-  uploaded: string[]        // 本次上传的文件名（可选；仓库里的素材也会用）
+  /** ★VF_UPLOADWHITELIST_V1（2026-10-06）：有它 ⇒ **只认这一批**（不掺仓库旧素材、不打散）；
+   *  空 ⇒ 老行为（全仓库打散抽样）。与素材+AI / 图片成片 / AI 制片同语义。 */
+  uploaded: string[]
+  /** ★VF_MATWARN_V1（2026-10-06）：素材取用/丢弃的**用户可见**提示（确认卡上显示；原来只写日志 ⇒
+   *  用户"传了视频却没被用"完全不知情）。空 = 没有要说的事。 */
+  matWarn?: string
   script: string
   brief: string             // 图文素材 + 视频理解结论（喂写文案/排分镜）
   shots?: any[]
@@ -375,6 +380,11 @@ function logI2vNotes(ctx: VfVideoCtx, notes: string[]): void {
 function formCard(vd: VfVideoDraft): string {
   return 'VF_JSON:' + JSON.stringify({
     step: 'form',
+    // ★VF_LINETAG_V1（2026-10-06）：**结构化线标识** —— 两线共用同一张设置卡（VideoFormCard），
+    //   客户端原来只能靠 hint 文案猜是哪条线，于是"视频不会被画出来"那句**替图片成片写的**提示
+    //   也被打到本线头上（用户实测："图视混剪还是提示不认识视频"）。有了 line 就能按线出文案。
+    //   'video'=图视混剪（吃视频） | 'local'=图片成片（只吃图片，见 route.ts 的同名字段）。
+    line: 'video',
     hint: '视频混剪：用你仓库里的**视频片段 + 图片**混排（AI 决定哪几镜用视频）；原声默认静音、配音统一铺',
     topic: vd.topic || '',
     voice: vd.voice,
@@ -435,7 +445,29 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   const _matPolicy = await loadVideoMatPolicy(ctx.prisma, uid)
   // ★VF_MATUI_V1：把「🎞 打勾」名单同步进草稿（i2vBuildOf 是纯函数，'picked' 档只能从这里拿到勾选名单）
   vd.i2vPicked = _matPolicy.i2v || []
-  const matsRaw = await ctx.listRepoMaterials(uid, 30, 'spread', { allow: _matPolicy.allow, deny: _matPolicy.deny })
+  // ★VF_UPLOADWHITELIST_V1（2026-10-06 用户实测「图视混剪这里上传的完全不走上传，还是走库」）：
+  //   本线原来写死 `spread`（全仓库打散抽样），而 `vd.uploaded` 只在 :906 初始化 / :953 赋值，
+  //   **全文件零消费** ⇒ 用户刚上传的素材被丢进全仓库 30 条里一起打散，大概率挑不到，
+  //   观感就是"上传了没用 / 它还是走库"（素材+AI 与图片成片早就是"只看这批"，本线漏接）。
+  //   修法 = 对齐既有范式（`vf-mix.ts:342-357` / `route.ts:4446-4460` / `vf-aivideo.ts:370-374`）：
+  //     有上传名单 ⇒ `recent` 取够数量 + 名单**精确过滤**（绝不掺仓库旧素材）；没上传才回到打散。
+  const _wantedUp: string[] = Array.isArray(vd.uploaded) ? vd.uploaded.map((x: any) => String(x)) : []
+  const matsRawAll = await ctx.listRepoMaterials(uid, Math.max(30, _wantedUp.length + 10), _wantedUp.length ? 'recent' : 'spread', { allow: _matPolicy.allow, deny: _matPolicy.deny })
+  let matsRaw: any[] = (matsRawAll || []) as any[]
+  if (_wantedUp.length) {
+    const _byNameUp = new Map((matsRawAll || []).map((m: any) => [String(m.name), m]))
+    const _pickedUp = _wantedUp.map((n: string) => _byNameUp.get(n)).filter(Boolean) as any[]
+    const _missUp = _wantedUp.filter((n: string) => !_byNameUp.has(n))
+    if (_pickedUp.length) {
+      matsRaw = _pickedUp
+      ctx.log(uid, `[VF-V] ★上传优先：只看本次上传的 ${_pickedUp.length}/${_wantedUp.length} 个（不掺仓库旧素材）` +
+        (_missUp.length ? `；仓库里没找到：${_missUp.slice(0, 5).join('、')}` : ''))
+      if (_missUp.length) vd.matWarn = `本次上传里有 ${_missUp.length} 个在仓库里没找到，已忽略：${_missUp.slice(0, 5).join('、')}（可在设置卡重发一次表单）`
+    } else {
+      ctx.log(uid, `[VF-V] ⚠️ 上传名单 ${_wantedUp.length} 个在仓库里都没找到 → 回退用仓库（若确实传过，请在设置卡重发一次表单）`)
+      vd.matWarn = `本次上传的 ${_wantedUp.length} 个素材在仓库里都没找到 → 本次改用仓库现有素材（若确实传过，请在设置卡重发一次表单）`
+    }
+  }
   // ★VF_MEMORY_V1：卡片上"素材识别结果"那一段的逐条清单（全仓库 + 状态），随草稿存起来
   // ★VF_MATUI_V1：清单改版（可用在前 / 已排除在后 / 上限 40 / 图片带缩略图 / 🎞 勾选）+ 两个总数
   if (ctx.matUI) {
@@ -451,8 +483,10 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   //   ⚠️ 必须在这里打乱：后面 summarizeMaterials 的「图1..图N」与 downloadMaterials 的 imgPaths
   //      都从同一份 mats 顺序派生 —— 先打乱才能保证"摘要编号"与"pick 编号"严格对齐。
   const recentRuns = await loadRecentUsedRuns(ctx.prisma, uid)
-  const _shuf = shuffleDeterministic((matsRaw || []) as any[], Date.now())
-  const _dem = demoteRecent(_shuf, recentNamesOf(recentRuns))
+  // ★VF_UPLOADWHITELIST_V1：**上传优先时不打散、不降权** —— 用户明明点名"就用我刚传的这几个"，
+  //   再打乱会把"上传顺序"这个唯一可预期的东西也弄没（名单本身就 ≤30 条，不存在"每次都挑最前几张"的老问题）。
+  const _shuf = _wantedUp.length ? (matsRaw as any[]) : shuffleDeterministic((matsRaw || []) as any[], Date.now())
+  const _dem = _wantedUp.length ? { items: _shuf, demoted: 0 } : demoteRecent(_shuf, recentNamesOf(recentRuns))
   if (_dem.demoted) ctx.log(uid, `[VF-V][素材池] 最近用过 ${_dem.demoted} 条已排到后面（不是排除，素材不够时仍可用）`)
   const mats = _dem.items
   const imgs = (mats || []).filter((m: any) => m.kind === 'image')
@@ -465,6 +499,11 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   if (skipped.length) {
     ctx.log(uid, '[VF-V] 本次不用这些视频（过大/过长）：' +
       skipped.map((c: any) => `${c.name}(${c.sizeMB}MB/${c.dur}s)`).join('、'))
+    // ★VF_MATWARN_V1（2026-10-06）：同一件事**必须让用户在确认卡上看到** ——
+    //   原来只写服务端日志，用户"传了视频却没被用"完全不知情（他实测就是这么被误导的）。
+    vd.matWarn = [vd.matWarn, `有 ${skipped.length} 个视频没被采用（单文件 >400MB 或单条 >30 分钟）：` +
+      skipped.slice(0, 3).map((c: any) => `${c.name}（${c.sizeMB}MB/${Math.round(Number(c.dur) || 0)}s）`).join('、') +
+      (skipped.length > 3 ? ` 等 ${skipped.length} 个` : '')].filter(Boolean).join(' · ')
   }
   // ★VF_MULTIFRAME_V1：每个视频抽 2~5 帧、一次多图识别 → 得到"时间轴"（哪一段有内容）
   // ★三件事【并行】做（视频时间轴 / 图片识别 / 图片下载）—— 串行会让起草多等十几秒，

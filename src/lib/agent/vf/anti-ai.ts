@@ -879,6 +879,19 @@ export function dedupeAdjacentSameText(shots: any[]): { shots: any[]; notes: str
     const k = bigKeyOf(s)
     return k ? String(s[k]).trim() : ''
   }
+  // ★VF_NEARDUP_V1（2026-10-06 用户实测：第 3 页「从封面到方案」与第 4 页「从封面到方案，从…」
+  //   几乎一模一样却没被去重）：原判据是**完全相等**（`curBig === prevBig`）⇒ 前缀/后缀近重复必漏。
+  //   现在补"近似重复"：忽略标点后相等，或短的那句是长的前缀（短句 ≥6 字，且多出来的尾巴 ≤6 字 ——
+  //   这条上限是为了不把「智能营销」和「智能营销方案落地三个月」这种**真·不同页**误并）。
+  const _normBig = (x: string) => String(x || '').replace(/[\s，。！？；：、,.!?;:'"（）()【】\[\]—-]/g, '')
+  const isNearBig = (x: string, y: string): boolean => {
+    const a = _normBig(x), b = _normBig(y)
+    if (!a || !b) return false
+    if (a === b) return true
+    const s = a.length <= b.length ? a : b
+    const l = a.length <= b.length ? b : a
+    return s.length >= 6 && l.startsWith(s) && (l.length - s.length) <= 6
+  }
   const out: any[] = []
   for (let i = 0; i < src.length; i++) {
     let cur: any = src[i] || {}
@@ -887,7 +900,7 @@ export function dedupeAdjacentSameText(shots: any[]): { shots: any[]; notes: str
       const k = bigKeyOf(cur)
       const curBig = bigValOf(cur)
       const prevBig = bigValOf(src[i - 1])
-      if (k && curBig && prevBig && curBig === prevBig) {
+      if (k && curBig && prevBig && isNearBig(curBig, prevBig)) {
         const cands: string[] = []
         const kick = String(cur.kicker == null ? '' : cur.kicker).trim()
           || String(cur.label == null ? '' : cur.label).trim()
@@ -898,7 +911,8 @@ export function dedupeAdjacentSameText(shots: any[]): { shots: any[]; notes: str
           if (first) cands.push(first.slice(0, 10))
           cands.push(sub.slice(0, 10))
         }
-        const nv = cands.map((x) => x.trim()).find((x) => x && x !== prevBig)
+        // ★VF_NEARDUP_V1：替换值也必须"不再近似重复"（否则等于用另一个近重复顶上来）
+        const nv = cands.map((x) => x.trim()).find((x) => x && !isNearBig(x, prevBig))
         if (nv) {
           cur = { ...cur, [k]: nv.slice(0, 16) }
           notes.push(`第 ${i}/${i + 1} 镜大字重复（${prevBig}）→ 第 ${i + 1} 镜改为「${nv.slice(0, 16)}」`)

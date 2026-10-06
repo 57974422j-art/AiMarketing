@@ -593,6 +593,10 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
   const [uploading, setUploading] = useState(false)
   const [uploaded, setUploaded] = useState<string[]>([])
   const fileRef = useRef<HTMLInputElement>(null)
+  // ★VF_LINETAG_V1（2026-10-06）：本卡被两条线共用（图片成片 `line='local'` / 图视混剪 `line='video'`，
+  //   由服务端 formCard 下发）—— **只有图视混剪吃视频**，所以"视频会不会被画出来"这类话必须按线出。
+  //   旧版是一句替图片成片写的硬编码文案、两线共用 ⇒ 图视混剪被误告"视频不会被画出来"（用户实测）。
+  const isVideoLine = String(vj.line || '') === 'video'
 
   // ★VF_VIDHINT_V1（2026-09-24 用户实测）：上传框的 accept 里带着 `video/*`（视频**能传**），
   //   但成片画面只从【图片】里取（分镜的 pick 只索引图片），视频只会出现在"素材识别结果"里。
@@ -674,13 +678,23 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
           <div className="text-[10px] mt-1">
             <span className="text-emerald-300/80">✅ 已上传 {uploaded.length} 个到个人仓库</span>
             {vidN > 0 ? (
-              <div className="text-amber-300/90 mt-0.5">
-                ⚠️ 其中 <b>{vidN} 个是视频</b>：成片画面**目前只用图片**，视频暂时不会被画出来（只会出现在"素材识别结果"里）。
-                {uploaded.length === vidN
-                  ? '你这次只传了视频 → 成片会是【纯文字卡】版（没有素材画面），建议再传几张图片。'
-                  : '建议主要用图片，或把视频里的关键画面截图一并上传。'}
-                <div className="text-gray-500 mt-0.5">（视频的正式支持在计划里：先做"用视频首帧当画面"，再支持整段插入。）</div>
-              </div>
+              // ★VF_LINETAG_V1（2026-10-06 用户实测「图视混剪这里还是提示不认识视频」）：按线分流 ——
+              //   图视混剪（line='video'）的视频**真会被画进片子**（每镜 ≤10s、原声静音、配音统一铺）；
+              //   图片成片（line='local'）才只说图片，并顺手指路「图视混剪」。
+              isVideoLine ? (
+                <div className="text-emerald-300/90 mt-0.5">
+                  ✅ 其中 <b>{vidN} 个是视频</b>：<b>会被画进片子里</b>（每个视频镜头最多取 10 秒、原声默认静音，
+                  配音与字幕统一铺满）。本次成片**只用你刚传的这批**，不掺仓库旧素材。
+                </div>
+              ) : (
+                <div className="text-amber-300/90 mt-0.5">
+                  ⚠️ 其中 <b>{vidN} 个是视频</b>：本线（图片成片）的画面**只用图片**，视频不会被画出来
+                  （只会出现在"素材识别结果"里）。要视频混剪请用入口词「<b>图视混剪</b>」。
+                  {uploaded.length === vidN
+                    ? '你这次只传了视频 → 成片会是【纯文字卡】版（没有素材画面），建议再传几张图片。'
+                    : '建议主要用图片，或把视频里的关键画面截图一并上传。'}
+                </div>
+              )
             ) : (
               <span className="text-emerald-300/80"> —— 本次成片的画面只从这批里取</span>
             )}
@@ -1636,8 +1650,12 @@ function VfPptPreview({ plan }: { plan: any }) {
               <button key={it.i} onClick={() => setZoom(String(it.url || ''))}
                 className="rounded overflow-hidden border border-white/[0.08] hover:border-sky-400/60 transition text-left">
                 <img src={it.url} alt={'第' + it.i + '页'} className="w-full h-20 object-cover bg-black" />
-                <span className="block text-[8px] text-gray-400 px-1 py-0.5 truncate">
-                  {it.i}. {String(it.type || '')}{it.variant ? '·' + String(it.variant) : ''} {String(it.text || '').slice(0, 8)}
+                {/* ★VF_PREVIEWTXT_V1（2026-10-06 用户实测：预览里出现「AIConfid」「标题直接写着：A」以为是片子坏了）：
+                    这里原来把每页文字 `.slice(0, 8)` 硬切 8 个字 —— 是**显示截断**，片子里其实是完整的。
+                    现在放宽到 14 字 + 悬停看全文（title），避免"看预览以为成片有 bug"。 */}
+                <span className="block text-[8px] text-gray-400 px-1 py-0.5 truncate"
+                  title={`${String(it.type || '')}${it.variant ? '·' + String(it.variant) : ''} ${String(it.text || '')}`}>
+                  {it.i}. {String(it.type || '')}{it.variant ? '·' + String(it.variant) : ''} {String(it.text || '').slice(0, 14)}
                 </span>
               </button>
             ))}
@@ -3881,7 +3899,14 @@ function AgentPageInner() {
               )}
               {/* ★VF_BRIEF_EDIT_V1（P0②）：从只读 <pre> 升级成【可编辑】——识别错了直接改，
                   改完点「保存并重写文案」就会用这份结论重写文案+重排分镜（见 VfBriefEdit） */}
-              {vj.brief ? <VfBriefEdit brief={String(vj.brief)} onSend={sendMessage} /> : null}
+              {/* ★VF_MATWARN_V1（2026-10-06）：素材"没被采用"的提示必须让用户看到 —— 原来只写服务端日志，
+              用户传了视频/超限文件却没被用完全不知情（观感就是"它不认我的素材"）。 */}
+          {vj.matWarn ? (
+            <div className="mb-2 px-3 py-2 rounded-xl border border-amber-400/40 bg-amber-400/[0.08] text-[11px] text-amber-200">
+              ⚠️ {String(vj.matWarn)}
+            </div>
+          ) : null}
+          {vj.brief ? <VfBriefEdit brief={String(vj.brief)} onSend={sendMessage} /> : null}
               {/* ★VF_MEMORY_V1（2026-09-30）：素材「✅ 当素材用 / 🚫 别用」（只新增，挂在识别结果下面）
                   ★VF_MATUI_V1：可用在前、已排除折叠；缩略图 + 🎞 勾选 + 🔄 换一张；
                   标题显示"共 N 条可用 / M 条已排除"（N/M 是服务端给的总数，不是裁剪后条数） */}
