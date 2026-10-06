@@ -369,6 +369,13 @@ ck 'VF_DUO_WIRE_V1'                 'src/lib/agent/vf/vf-video.ts' 2
 #      ② 只护数字不护字母 ⇒ `ABCDEFG` 仍被切开（现整串 ASCII 字母数字都护）。
 #   契约：`''.join(segs) === 原文` **永不破坏**（单测 7 例 join 全等、破坏数 0）。
 ck 'VF_KINOKU_V1'                   'scripts/video-factory/make.py' 2
+# ★VF_MINSTOP_V1（2026-10-06 用户实测 043「收尾卡一闪而过」）：镜长 = 配音 + 0.35 尾隙 ⇒
+#   **旁白很短的纯文字卡**（尤其 end / title）会短到看不清（043 收尾卡只剩 1.6s）。
+#   给纯文字卡抬【最短停留】：end 3.0 / title·quote 2.8 / compare·chart·list 2.6 / number 2.4；
+#   素材镜（bgimage/video/duo/frame）一律不抬（画面本身就是内容）。
+#   ✅ 不破坏既有对齐：音频侧合并时**按镜长 apad 补静音**（VF_AUDIOALIGN_V1）⇒ A/V 仍严格对齐；
+#      字幕窗口用的是 `voice`（不是 dur）⇒ **字幕一个字都不会因此多停**（不会带回"配音比字幕快"）。
+ck 'VF_MINSTOP_V1'                  'scripts/video-factory/tts.py' 1
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"
