@@ -17,6 +17,28 @@ echo "[2/7] 拉取代码…"
 git fetch origin && git reset --hard origin/master
 echo "[3/7] 判断是否需要 npm install（lock 变才是依赖真变——版本号改动不触发）…"
 if git diff HEAD^ HEAD --name-only | grep -q "package-lock.json"; then npm install; else echo "依赖没变，跳过 install（版本号改动不触发）"; fi
+echo "[3b/7] 视频工厂·新引擎（html-deck）依赖…"
+# ★VF_ENGINEDEP_V1（2026-10-07 用户实测「PPT+图视 换页 0/7 · note=render-failed」的**根因**）：
+#   `scripts/video-factory/html-deck/` 有**自己的 package.json**（依赖 hyperframes + fontkit、
+#   自带 node_modules），而本脚本此前**完全没管它** ⇒ 服务器上没装引擎 ⇒ 一走到渲染就失败，
+#   用户侧只看到「换页未生效：render-failed」，完全看不出"引擎没装"（P0 从未真正生效过也是这个原因）。
+#   这里按"目录缺失 / 引擎 lock 变"判断是否安装，并把引擎口径打出来备查（缺了会明确警告）。
+if [ -f scripts/video-factory/html-deck/package.json ]; then
+  if [ ! -d scripts/video-factory/html-deck/node_modules ] || git diff HEAD^ HEAD --name-only | grep -q "video-factory/html-deck/package-lock.json"; then
+    (cd scripts/video-factory/html-deck && (npm ci --omit=dev || npm install --omit=dev))
+  else
+    echo "  引擎依赖没变，跳过 install"
+  fi
+  HF_BIN="${ENGINE_HF_BIN:-scripts/video-factory/html-deck/node_modules/.bin/hyperframes}"
+  if [ -x "$HF_BIN" ] || command -v hyperframes >/dev/null 2>&1; then
+    echo "  引擎 OK：${HF_BIN}"
+  else
+    echo "  ⚠️ 找不到 hyperframes —— 新引擎（PPT+图视）渲染会失败！"
+    echo "     请手动执行：cd /root/AiMarketing/scripts/video-factory/html-deck && npm ci --omit=dev"
+    echo "     若装在别处，请把 ENGINE_HF_BIN=<...>/node_modules/.bin/hyperframes 写进 .env.local"
+  fi
+  echo "  Chrome：${HYPERFRAMES_CHROME_PATH:-${CHROME_PATH:-（未设置 ⇒ 由渲染器自行解析）}} · Node：$(node -v)"
+fi
 echo "[4/7] 构建…"
 rm -rf .next && npm run build
 echo "[5/7] 复制静态资源…"

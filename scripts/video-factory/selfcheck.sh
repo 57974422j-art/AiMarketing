@@ -534,6 +534,20 @@ ck 'VF_METAWIN_V1'                  'scripts/video-factory/ppt-pages.mjs' 1
 ck 'VF_DECKRESIL_V1'                'scripts/video-factory/ppt-pages.mjs' 8
 ck 'VF_SKIPWHY_V1'                  'scripts/video-factory/ppt-pages.mjs' 1
 ck 'VF_SKIPWHY_V1'                  'src/app/api/agent/vf/ppt-preview/route.ts' 1
+# ★2026-10-07 夜 新线「PPT+图视」换页 0/7 的第二层根因：**服务器上根本没装渲染引擎**
+#   ★VF_ENGINEDEP_V1（deploy-server.sh）：`scripts/video-factory/html-deck/` 有**自己的 package.json**
+#     （依赖 `hyperframes` + `fontkit`、自带 node_modules），而部署脚本此前**完全没管它** ⇒ 服务器上没装
+#     引擎 ⇒ 一走到渲染就失败 ⇒ 用户侧只看到「换页未生效：render-failed」（**这也解释了 P0 从未在线上生效**）。
+#     现在部署脚本新增 [3b/7]：按"目录缺失 / 引擎 lock 变"自动 `npm ci --omit=dev`，并打印
+#     「引擎 OK/⚠️找不到 + Chrome 路径 + Node 版本」三行口径（缺了会给出手动修复命令）。
+#   ★VF_ENGINECHK_V1（ppt-pages.mjs）：渲染前**先探引擎**（ENGINE_HF_BIN → 引擎根 node_modules/.bin →
+#     PATH）。不在 ⇒ 立刻 `note:engine-missing` + 修复命令，**省掉一次白等 20s+ 的渲染**（本机实测：
+#     把 ENGINE_HF_BIN 指向不存在的路径 ⇒ 立刻打出原因，不再只留"渲染失败"四个字）。
+#   ★VF_RENDERWHY_V1（ppt-pages.mjs）：渲染失败时**带出引擎原始报错尾**（改前只留过滤后的几行，
+#     真正的错因——找不到 chrome / 引擎缺失 / 字体——常被滤掉）。
+ck 'VF_ENGINEDEP_V1'                'scripts/deploy-server.sh' 1
+ck 'VF_ENGINECHK_V1'                'scripts/video-factory/ppt-pages.mjs' 2
+ck 'VF_RENDERWHY_V1'                'scripts/video-factory/ppt-pages.mjs' 1
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"

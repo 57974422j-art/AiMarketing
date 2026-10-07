@@ -107,10 +107,17 @@ export async function POST(request: NextRequest) {
                 //   这里整条捞出来回给卡片 —— 用户要能分辨"哪几页没换、为什么"，命令行日志他看不到。
                 try {
                   const _so = String(so || '')
+                  // ★VF_DECKRESIL_V1 配套：整批失败会自动**降级重试一次**（摘掉素材 image 页）⇒
+                  //   stdout 里会有**两轮**逐镜日志，直接全捞会把同一镜的两条原因混在一起（用户已实测到）。
+                  //   这里只取**最后一轮**（= 真正决定了本次预览的那一轮），并标记"已重试"。
+                  const _mark = '★VF_DECKRESIL_V1'
+                  const _mix = _so.lastIndexOf(_mark)
+                  if (_mix >= 0) swapInfo.retried = true
+                  const _scope = _mix >= 0 ? _so.slice(_mix) : _so
                   const _re = /\[PPT-PAGE\]\s*第\s*(\d+)\s*镜(?:（([^）]*)）)?\s*不换页：([^\n\r]*)/g
                   const _sk: any[] = []
                   let _m: RegExpExecArray | null
-                  while ((_m = _re.exec(_so)) !== null && _sk.length < 12) {
+                  while ((_m = _re.exec(_scope)) !== null && _sk.length < 12) {
                     _sk.push({ i: Number(_m[1]), type: String(_m[2] || ''), why: String(_m[3] || '').trim().slice(0, 90) })
                   }
                   swapInfo.skips = _sk

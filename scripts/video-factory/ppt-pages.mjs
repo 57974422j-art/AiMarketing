@@ -495,10 +495,32 @@ function degradRetry(stage) {
   return false
 }
 
+// ★VF_ENGINECHK_V1（2026-10-07 用户实测「换页 0/7 · note=render-failed」的根因）：
+//   `html-deck/` 有**自己的 package.json**（依赖 `hyperframes` + `fontkit`、自带 node_modules），
+//   而服务器上此前**没装过它**（`deploy-server.sh` 只跑根目录 npm install）⇒ 一走到渲染就失败，
+//   用户侧只看到 `render-failed` 四个字，完全看不出"引擎没装"。
+//   现在渲染前先探一次：引擎不在就**立刻说清**并给出修复命令（省掉一次白等 20s+ 的渲染和一堆误导日志）。
+function engineBinOk() {
+  try {
+    if (process.env.ENGINE_HF_BIN) return fs.existsSync(process.env.ENGINE_HF_BIN)
+    const local = path.join(DECK_DIR, 'node_modules', '.bin', 'hyperframes' + (process.platform === 'win32' ? '.cmd' : ''))
+    if (fs.existsSync(local)) return true
+    const r = spawnSync('hyperframes', ['--version'], { encoding: 'utf8', timeout: 8000, shell: process.platform === 'win32' })
+    return !r.error && r.status === 0
+  } catch { return false }
+}
+
 if (DRY) { say(`dry-run：不渲染，deck 有 ${pages.length} 页（可换 ${picked.length} 镜）→ ${deckPath}`); done({ ok: true, pages: pages.length, swapped: 0, note: 'dry' }) }
 
 let rendered = picked.every((_, k) => fs.existsSync(pngOf(k)))
 if (!rendered) {
+  // ★VF_ENGINECHK_V1：引擎不在 ⇒ 直说（别让用户对着 `render-failed` 猜）
+  if (!engineBinOk()) {
+    say('✗ 找不到渲染引擎 hyperframes（服务器上多半没装 html-deck 依赖）→ 本次不换页')
+    say('  修复：cd scripts/video-factory/html-deck && npm ci --omit=dev（或重跑 bash scripts/deploy-server.sh）')
+    say('  若已装在别处：设 ENGINE_HF_BIN=<...>/node_modules/.bin/hyperframes（写进 .env.local 后 pm2 重启生效）')
+    done({ ok: false, note: 'engine-missing' })
+  }
   try {
     fs.mkdirSync(OUTDIR, { recursive: true })
     fs.writeFileSync(deckPath, JSON.stringify(deck, null, 2), 'utf8')
@@ -521,9 +543,13 @@ if (!rendered) {
     const r = spawnSync(process.execPath, [RENDER_DECK, deckPath, '--outdir', OUT_ROOT], { encoding: 'utf8', timeout: 15 * 60 * 1000 })
     const tail = String(r.stdout || '').split('\n').filter((x) => /RESULT|✗|校验|RENDER total/.test(x)).slice(-3).join(' | ')
     if (r.status !== 0) {
-      say(`渲染失败（exit ${r.status}）：${(tail || String(r.stderr || '')).slice(0, 240)}`)
+      // ★VF_RENDERWHY_V1：把**引擎自己的原始报错**带出来（改前只留过滤后的几行，
+      //   真正的错因（找不到 chrome / 引擎缺失 / 字体）常常被滤掉 ⇒ 只剩"渲染失败"四个字）。
+      const rawTail = (String(r.stdout || '') + '\n' + String(r.stderr || ''))
+        .split('\n').map((x) => x.trim()).filter(Boolean).slice(-3).join(' | ')
+      say(`渲染失败（exit ${r.status}）：${(rawTail || String(r.stderr || '')).slice(0, 320)}`)
       degradRetry('渲染')        // ★VF_DECKRESIL_V1（成功则本进程直接结束）
-      done({ ok: false, note: 'render-failed' })
+      done({ ok: false, note: 'render-failed', why: rawTail.slice(0, 200) })
     }
     say(`渲染完成 ${((Date.now() - t0) / 1000).toFixed(1)}s · ${tail.slice(0, 160)}`)
   } catch (e) { say('渲染异常：' + String(e.message).slice(0, 160)); done({ ok: false, note: 'render-throw' }) }

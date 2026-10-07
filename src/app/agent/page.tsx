@@ -1764,6 +1764,7 @@ function VfPptPreview({ plan }: { plan: any }) {
               <div className="text-sky-300">
                 本线 <b>PPT+图视</b> · 皮肤 {String(swap.master || '—')}/{String(swap.palette || '—')} · 换页
                 <b className="text-emerald-300/90"> {Number(swap.swapped) || 0}/{Number(swap.total) || 0} </b>镜
+                {swap.retried ? <span className="text-amber-300/80">（已自动降级重试：只换纯文字镜）</span> : null}
               </div>
               {swap.note ? (
                 <div className="text-amber-300/90">⚠️ 换页未生效：{String(swap.note).slice(0, 180)}</div>

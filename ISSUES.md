@@ -131,6 +131,21 @@
 
 ---
 
+## ✅ 已解决（2026-10-07 · 新线「PPT+图视」换页 0/7 · render-failed → 服务器没装渲染引擎）
+
+- 🔴 **症状**：卡片诊断显示 `换页 0/7 镜` + `⚠️ 换页未生效：note:"render-failed"`（meta 那关已过）。
+- 🔍 **根因**：`scripts/video-factory/html-deck/` 有**自己的 package.json**（`hyperframes@^0.8.111` + `fontkit`、
+  自带 `node_modules`），而 `deploy-server.sh` **只管根目录 npm install** ⇒ **服务器上没装渲染引擎**
+  ⇒ 一走到渲染就失败。**这也解释了 P0 从未在线上真正生效**（之前被 meta 失败掩埋）。
+- ✅ **修**：`deploy-server.sh` 新增 `[3b/7]`（自动 `npm ci --omit=dev` + 打印引擎/Chrome/Node 口径）；
+  `ppt-pages.mjs` 渲染前**预检引擎**（缺 → `engine-missing` + 修复命令，不再白等一次渲染）；
+  渲染失败**带引擎原始报错尾**；卡片未换清单只取"最后一轮"（降级重试两轮日志会混）。
+- ✅ **服务器立刻解锁**：`cd /root/AiMarketing/scripts/video-factory/html-deck && npm ci --omit=dev`
+  （或直接重跑 `bash scripts/deploy-server.sh`，它会自动装）。
+- ⚠️ **仍待用户定**：`end` 卡是否换（需我给兜底英文）；3 字短条目清单是否允许补成完整短语。
+
+---
+
 ## ✅ 已解决（2026-10-07 · 新线「PPT+图视」7 页全是老引擎 → VF_METAWIN_V1）
 
 - 🔴 **症状**：PPT+图视 出片，预览「共 7 页（其中 **0 页** = 新引擎整页…）」，用户质问"你都还是分不清吗"。

@@ -289,6 +289,21 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 - **④ `VF_PPTSKIN_V1`**：plan 根级 `pptpage{master,palette,mix}` → `make.py` 透传（**老线不写 ⇒ 零回归**）；`mix:false` 可退回机械映射排障。
 - 📋 **下一步（未做）**：新线入口词（`PPT+图视` 主词 + `HTML+图视` 等别名）登记 `standard-commands` → `route.ts` 分派 → 卡片 **10 母版卡 + 每套 4 个配色点**（色值读 `masters/*/master.json`，**不必生成 40 张样张**）。
 
+### 2026-10-07 新线「PPT+图视」换页 0/7 第二层根因：服务器没装渲染引擎（✅ 已修，待部署）
+
+- **用户侧证据（我上一轮加的"把依据打出来"生效了）**：卡片显示 `换页 0/7`、`⚠️ 换页未生效：note:"render-failed"`
+  + 未换清单 ⇒ **`render-failed` 说明 meta 那关已过**，失败点移到了渲染。
+- **根因**：`scripts/video-factory/html-deck/` 有**自己的 package.json**（`hyperframes` + `fontkit`、自带
+  `node_modules`），而 `deploy-server.sh` **完全没管它** ⇒ 服务器上**没有渲染引擎** ⇒ 一渲就失败。
+  **这也解释了 P0 为何从未在线上真正生效。**
+- **修复**：① `deploy-server.sh` 新增 `[3b/7]` 自动装引擎依赖 + 打印「引擎/Chrome/Node」口径；
+  ② `ppt-pages.mjs` 渲染前**预检引擎**（缺 → `note:engine-missing` + 修复命令，省掉白等的一次渲染）；
+  ③ 渲染失败**带引擎原始报错尾**；④ 卡片未换清单只取"最后一轮"（降级重试会有两轮日志）。
+- **服务器上立刻解锁**：`cd /root/AiMarketing/scripts/video-factory/html-deck && npm ci --omit=dev`
+  （然后 `node ../../html-deck/check-engine-lint.mjs --deploy` 看引擎/Chrome 口径；或直接重跑 deploy-server.sh）。
+- **你那条 7 镜的预期**：5 个素材镜中「第4镜 AI赋能」命中字表外字符 → 不换；其余 4 个 → `image` 版式页
+  ⇒ **换页 4/7**；2 个 `end` 仍老画法（待你定是否给兜底英文）。
+
 ### 2026-10-07 新线「PPT+图视」换页整批作废的真根因（✅ 本机端到端修好，待部署）
 
 - **症状**：用户用 PPT+图视 出片，预览显示「共 7 页（其中 0 页 = 新引擎整页，其余 7 页 = 老引擎画法）」。
