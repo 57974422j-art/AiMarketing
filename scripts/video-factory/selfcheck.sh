@@ -560,6 +560,20 @@ ck 'VF_RENDERWHY_V1'                'scripts/video-factory/ppt-pages.mjs' 1
 #     **不会进 pm2 日志** ⇒ 服务器上排障"什么也看不到"，只能看到一句"渲染失败"。现在一条 cat 看全。
 ck 'VF_ENGINEPATH_V1'               'scripts/video-factory/ppt-pages.mjs' 1
 ck 'VF_RENDERLOG_V1'                'scripts/video-factory/ppt-pages.mjs' 1
+# ★VF_DECKFONT_V1（2026-10-07 用户实测「PPT+图视 换页 0/7 · render-failed」的**真因**，服务器已复现）：
+#   引擎渲染前有**字体覆盖闸门**（内嵌字体 = GB2312 一级 3755 字 + ASCII + 中英标点）。用户片子里
+#   顶部标题第二行是 `ROI飙升 12.4K Reach`，`飙`(U+98D9) **两套内嵌字体都没有** ⇒ 闸门 `exit 8`
+#   ⇒ 因为本脚本是"一条片合成一个 deck 渲一次"，**一个字作废整批**（卡片上只剩一句 render-failed）。
+#   而 `meta.title/subtitle` 与 `cover.kicker` 来自分镜顶部标题、**不经过逐镜字表预筛** ⇒ 漏的就是这一处
+#   （与"预览接口漏 pptpage 字段"同族：**白名单/覆盖面漏一处**）。本机 100% 复现（同数据换页 0 镜）。
+#   修法（保守、可预测，按"改了就变意思 vs 少一行辅助说明"分主次）：
+#     · meta/cover.kicker = schema 强制的**占位首页、从不贴回任何镜** ⇒ 直接去掉表外字（不足窗口换中性兜底）；
+#     · 页内**次要小字** caption/summary/subtitle/context/explain ⇒ **去掉那一行小字**（页面其余内容照排）；
+#     · 页内**主要文字** title/line1/quote/items/steps/metric.label/cta/en ⇒ **这一镜不换**（保持老画法）；
+#     · 组装完成后**整份 deck 兜底断言**：宁可本次不换页，也不让引擎在渲染期才 exit 8（那样谁也看不出原因）。
+#   本机实测：同数据改前 `render-failed`（降级重试也救不了）→ 改后**校验 PASS、渲 21s、换页 2 镜**；
+#   两条分支各验一次（meta 去字 / 小字去一行）。
+ck 'VF_DECKFONT_V1'                 'scripts/video-factory/ppt-pages.mjs' 5
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"

@@ -328,6 +328,9 @@ if (!sb || !Array.isArray(sb.shots) || !sb.shots.length) { say('storyboard 没�
 //   结构性隔离 —— 老线根本不会调到这儿）。所以"页型编排"默认开是本线的**自有默认**，不是全局默认；
 //   `--no-mix` 仍可退回 1:1 机械映射做对照/排障。
 const MIX = !process.argv.includes('--no-mix')
+// ★VF_DECKFONT_V1：**次要小字**的字段清单（含表外字时可整段去掉；主要文字不行，只能整镜不换）。
+//   定义放在选页循环**之前** —— 候选页在被选中时就可能命中表外字，那时就得决定"去小字还是丢这一镜"。
+const FONT_SECONDARY = ['caption', 'summary', 'subtitle', 'context', 'explain']
 const MAXRUN = 2
 const picked = []
 const kindUse = []
@@ -352,6 +355,14 @@ for (let i = 0; i < sb.shots.length; i++) {
   let chosen = cands.find((c) => !violates(c.kind))
   let forced = false
   if (!chosen) { chosen = cands[0]; forced = true }
+  // ★VF_DECKFONT_V1（2026-10-07 用户实测「换页 0/7」真因的**最后一块**）：命中表外字时**先去掉次要小字**
+  //   再判；仍不合才整镜不换。改前是直接整镜作废 ⇒ 一个字（实测「飙」）就让一整个素材页丢掉。
+  for (const f of FONT_SECONDARY) {
+    if (typeof chosen.page[f] === 'string' && chosen.page[f] && !fontOk(chosen.page[f])) {
+      say(`第 ${i + 1} 镜的「${f}」含字表外字符 → 去掉这一行小字（页面其余内容照排）`)
+      delete chosen.page[f]
+    }
+  }
   if (!fontOk(JSON.stringify(chosen.page))) { say(`第 ${i + 1} 镜不换页：命中字表外字符`); continue }
   // ★VF_PPTIMG_IMAGE_V1：image 页的素材**必须先落盘**（契约：asset 相对 deck 文件、存在性不满足就抛错），
   //   命名用**内容 sha1 前 10 位** ⇒ 天然去重、且 asset 在算 deck hash 之前就已知（缓存才不会错）。
@@ -385,11 +396,23 @@ if (picked.length) {
 if (!picked.length) { say('没有任何一镜可换 → 原样输出'); done({ ok: false, skipped: sb.shots.length, note: 'none-mappable' }) }
 if (picked.length > MAX_PAGES) { say(`可换镜数 ${picked.length} > 上限 ${MAX_PAGES} → 只换前 ${MAX_PAGES} 镜（其余留老画法）`); picked.length = MAX_PAGES }
 
-// 4.2 字表预筛（命中表外字 → 那一镜不换）
+// 4.2 字表预筛（命中表外字 → **先去小字，仍不合才**那一镜不换）
+//   ★VF_DECKFONT_V1（2026-10-07 用户实测「PPT+图视 换页 0/7 · render-failed」的**真因**）：
+//   deck 里**任何一处**出现字体子集外的字，引擎渲染前的**字体覆盖闸门**就 `exit 8`
+//   ⇒ 因为本脚本是"一条片合成一个 deck 渲一次"，**一个字就作废整批**（卡片只剩一句 render-failed）。
+//   用户实测缺字：`飙`（U+98D9，GB2312 一级表外）。规矩（主次之分 = "改了就变意思" vs "少一行辅助说明"）：
+//     · 次要小字 caption/summary/subtitle/context/explain ⇒ **去掉那一行小字**（页面其余内容照排）；
+//     · 主要文字 title/line1/quote/items/steps/metric.label/cta/en ⇒ **这一镜不换**（保持老画法）。
 const fontBad = []
 for (let k = picked.length - 1; k >= 0; k--) {
-  const txt = JSON.stringify(picked[k].page)
-  if (!fontOk(txt)) { fontBad.push(picked[k].idx + 1); picked.splice(k, 1) }
+  const pg = picked[k].page
+  for (const f of FONT_SECONDARY) {
+    if (typeof pg[f] === 'string' && pg[f] && !fontOk(pg[f])) {
+      say(`第 ${picked[k].idx + 1} 镜的「${f}」含字表外字符 → 去掉这一行小字（页面其余内容照排）`)
+      delete pg[f]
+    }
+  }
+  if (!fontOk(JSON.stringify(pg))) { fontBad.push(picked[k].idx + 1); picked.splice(k, 1) }
 }
 if (fontBad.length) say('这些镜命中字表外字符 → 不换页：' + fontBad.join('、'))
 if (!picked.length) { say('字表预筛后无可换镜 → 原样输出'); done({ ok: false, note: 'font-filtered' }) }
@@ -434,8 +457,19 @@ const metaSub = fitMeta([banner.line2, sb.topic, _pAny.summary, _pAny.subtitle, 
 if (String(banner.line1 || '').trim() !== metaTitle || String(banner.line2 || sb.topic || '').trim() !== metaSub) {
   say('meta 按 schema 窗口自适应：title=' + metaTitle + ' / subtitle=' + metaSub)
 }
+// ★VF_DECKFONT_V1（同一真因的另一半，也是最隐蔽的一处）：`meta.title/subtitle` 与 `cover.kicker`
+//   来自**分镜顶部标题**（用户实测就是 `ROI飙升 12.4K Reach` 里的 `飙`），它们**不经过逐镜预筛**
+//   ⇒ 位置在"整批入口"，一个字就让整批 exit 8。cover 是 schema 强制的**占位首页、从不贴回任何镜**
+//   ⇒ 这里**直接去掉表外字**即可（不去改用户任何镜头画面）；去掉后不足窗口就换中性兜底。
+const stripBad = (s) => [...String(s == null ? '' : s)].filter((c) => fontOk(c)).join('')
+const metaTitleF = (() => { const x = stripBad(metaTitle); return x.length >= MT_MIN ? x : 'AI 营销系统演示' })()
+const metaSubF = (() => { const x = stripBad(metaSub); return x.length >= MS_MIN ? x : '一页看懂关键要点 · 三秒生成投放方案' })()
+const coverKickerF = stripBad(coverKicker) || 'AI 营销'
+if (metaTitleF !== metaTitle || metaSubF !== metaSub || coverKickerF !== coverKicker) {
+  say('meta/kicker 去掉字表外字符：title=' + metaTitleF + ' / subtitle=' + metaSubF + ' / kicker=' + coverKickerF)
+}
 const padPage = JSON.parse(JSON.stringify(picked[picked.length - 1].page))
-const pages = [{ type: 'cover', kicker: coverKicker }, ...picked.map((p) => p.page)]
+const pages = [{ type: 'cover', kicker: coverKickerF }, ...picked.map((p) => p.page)]
 const PAD = 4 // schema minItems
 let padN = 0
 while (pages.length < PAD) { pages.push(JSON.parse(JSON.stringify(padPage))); padN++ }
@@ -443,9 +477,15 @@ if (padN) say(`页数不足 ${PAD}（schema 下限）→ 补 ${padN} 页占位�
 
 const deck = {
   version: '1.0',
-  meta: { title: metaTitle, subtitle: metaSub, lang: 'zh-CN' },
+  meta: { title: metaTitleF, subtitle: metaSubF, lang: 'zh-CN' },
   style: { masterId, palette, density: 'normal', tempo: 'normal', orientation },
   pages,
+}
+// ★VF_DECKFONT_V1 兜底断言：整份 deck（含 meta / 封面 / 补位页）必须**全在字表内**。
+//   宁可本次不换页，也不让引擎在渲染期才 exit 8 —— 那样卡片上只剩一句"render-failed"，谁也看不出原因。
+if (!fontOk(JSON.stringify(deck))) {
+  say('兜底：整份 deck 仍有字表外字符（meta/封面/页内主要文字）→ 本次不换页（逐条原因见上面日志）')
+  done({ ok: false, note: 'font-late' })
 }
 
 // 4.4 缓存：内容 hash（页 + 皮肤 + 画幅）→ 同一个 deck 只渲一次
