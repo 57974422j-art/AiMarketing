@@ -61,8 +61,56 @@ export async function POST(request: NextRequest) {
     // 即将出片的那份 plan —— **原样**落盘（不裁剪、不另拼字段）
     fs.writeFileSync(sbP, JSON.stringify(plan), 'utf8')
 
+    // ★VF_PPTPAGE_PREVIEW_V1（2026-10-07 用户实测「**不还是老样子吗？**」）：
+    //   **新线的预览也必须走新引擎换页**，否则"看到的"和"出片后的"永远不一致。
+    //   为什么之前不一致：这个「👀 先看 PPT 页」是老引擎**逐镜静帧**（卡型名 bgimage / title·deck / duo / end
+    //   都是老引擎的），而新线的换页发生在**出片那一刻**（make.py 里）⇒ 预览永远显示老画法，
+    //   用户拿预览判断"换没换"，必然得出"还是老样子"。
+    //   实现与本线出片**同一把尺子**：先调 `ppt-pages.mjs` 把纯文字镜换成新引擎整页，再拿结果去逐镜渲。
+    //   ⚠️ **只对带 plan 根级 `pptpage` 的线生效**（= 新线「PPT+图视」自己写的键）；老线没有该键 ⇒ 预览照旧。
+    //   ⚠️ 换页 deck 走的是与出片**同一个缓存目录**（按内容 hash）⇒ 出过片的那条，预览是秒级；没出过则要等一次渲染。
+    let sbForRender = sbP
+    const _ppRoot = (plan as any)?.pptpage
+    if (_ppRoot && typeof _ppRoot === 'object') {
+      try {
+        const scriptP = path.join(vfRootDir() || '', 'scripts', 'video-factory', 'ppt-pages.mjs')
+        if (fs.existsSync(scriptP)) {
+          const outP = path.join(dir, 'plan.pptpage.json')
+          const argsP = [scriptP, '--storyboard', sbP, '--out', outP,
+            '--outdir', path.join(vfRootDir() || '', 'scripts', 'video-factory', 'html-deck', 'out', 'pptpage')]
+          if (String((_ppRoot as any).master || '').trim()) argsP.push('--master', String((_ppRoot as any).master).trim())
+          if (String((_ppRoot as any).palette || '').trim()) argsP.push('--palette', String((_ppRoot as any).palette).trim())
+          if ((_ppRoot as any).mix === false) argsP.push('--no-mix')
+          const nodeB = process.env.BU_NODE || 'node'
+          await new Promise<void>((resolve) => {
+            try {
+              const ch = spawn(nodeB, argsP, { windowsHide: true })
+              let so = ''
+              ch.stdout.on('data', (d: any) => { so = (so + String(d)).slice(-4000) })
+              ch.stderr.on('data', (d: any) => { so = (so + String(d)).slice(-4000) })
+              const t = setTimeout(() => { try { ch.kill() } catch { /* ignore */ } resolve() }, 15 * 60 * 1000)
+              ch.on('close', () => {
+                clearTimeout(t)
+                if (fs.existsSync(outP)) {
+                  sbForRender = outP
+                  vfLog(uid, '[PPT预览] 新线换页成功 → 预览改用 storyboard.pptpage.json（与出片同一把尺子）')
+                } else {
+                  vfLog(uid, '[PPT预览] 换页未生效 → 预览回落老画法：'
+                    + String(so).split('\n').filter(Boolean).slice(-1)[0])
+                }
+                resolve()
+              })
+              ch.on('error', () => { clearTimeout(t); resolve() })
+            } catch { resolve() }
+          })
+        }
+      } catch (e: any) {
+        vfLog(uid, '[PPT预览] 换页异常（忽略，预览回落老画法）：' + String(e?.message || e).slice(0, 140))
+      }
+    }
+
     const py = process.env.BU_PYTHON || (process.platform === 'win32' ? 'python' : 'python3')
-    const args = [renderP, '--storyboard', sbP, '--ppt-preview', '--outdir', od]
+    const args = [renderP, '--storyboard', sbForRender, '--ppt-preview', '--outdir', od]
     let logTail = ''
     const code: number | null = await new Promise((resolve) => {
       try {

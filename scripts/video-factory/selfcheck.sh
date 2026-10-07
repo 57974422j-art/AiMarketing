@@ -480,6 +480,12 @@ ck 'VF_PPTIMG_SKINS'                'src/lib/agent/vf/anti-ai.ts' 1
 #   → `皮肤=master-editorial/vermilion · 页型编排=开` + `9 镜换成新引擎整页版式图`。
 ck 'VF_PPTPAGE_SOLO_V1'             'scripts/video-factory/make.py' 2
 ck 'VF_PPTPAGE_SOLO_V1'             'scripts/video-factory/ppt-pages.mjs' 1
+# ★VF_PPTPAGE_PREVIEW_V1（2026-10-07 用户实测「不还是老样子吗？」）：确认卡那张「👀 先看 PPT 页」是
+#   **老引擎逐镜静帧**（卡型名 bgimage/title·deck/duo/end 都是老引擎的），而新线的换页发生在**出片那一刻**
+#   ⇒ 预览永远显示老画法、与成片不一致，用户拿它判断必然得出"还是老样子"。
+#   修法：预览也调 `ppt-pages.mjs` 先换页再逐镜渲（与本线出片**同一把尺子**），
+#   且**只对带 plan 根级 `pptpage` 的线生效**（老线没有该键 ⇒ 预览照旧；deck 缓存与出片共用，出过片则秒级）。
+ck 'VF_PPTPAGE_PREVIEW_V1'          'src/app/api/agent/vf/ppt-preview/route.ts' 1
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"
