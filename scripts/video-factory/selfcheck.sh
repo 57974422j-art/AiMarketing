@@ -486,6 +486,13 @@ ck 'VF_PPTPAGE_SOLO_V1'             'scripts/video-factory/ppt-pages.mjs' 1
 #   修法：预览也调 `ppt-pages.mjs` 先换页再逐镜渲（与本线出片**同一把尺子**），
 #   且**只对带 plan 根级 `pptpage` 的线生效**（老线没有该键 ⇒ 预览照旧；deck 缓存与出片共用，出过片则秒级）。
 ck 'VF_PPTPAGE_PREVIEW_V1'          'src/app/api/agent/vf/ppt-preview/route.ts' 1
+# ★VF_PPTBADGE_V1（2026-10-07 用户实测「你是分不清哪个是老引擎使用的PPT和新引擎是哪个吗？」）：
+#   根因**不是分不清**，而是**画面上没有可判定的标记** —— 换页后 `type` 也变成 `bgimage`、卡型名看不出差别。
+#   修法：`render.py --ppt-preview` 的 index.json 每条多写 `pptpage: bool(shot._pptpage)`；
+#   客户端预览格子**直接标**「🆕 新引擎整页 / 老引擎画法」，并在顶部统计「N 页 = 新引擎整页 / 其余 = 老引擎画法」。
+#   本机 A/B 对照（同分镜同时刻，上=老引擎 / 下=新引擎 editorial/vermilion）：`temp/v9/AB.jpg`。
+ck 'VF_PPTBADGE_V1'                 'scripts/video-factory/render.py' 1
+ck 'VF_PPTBADGE_V1'                 'src/app/agent/page.tsx' 2
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"

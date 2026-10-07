@@ -6491,6 +6491,11 @@ def main():
                 't': _t,
                 'text': _preview_text(shot, _typ),
                 'subtitle': str(shot.get('subtitle') or ''),
+                # ★VF_PPTBADGE_V1（2026-10-07 用户实测「你是分不清哪个是老引擎使用的PPT和新引擎是哪个吗？」）：
+                #   把"这张页面**是新引擎整页版式图**（`_pptpage`）还是老引擎画法"**写进索引**，
+                #   客户端在预览格子上直接打标签。根因：换页后 `type` 也变成 `bgimage`、卡型名看不出区别，
+                #   画面上也没标记 ⇒ 用户只能靠"像不像"猜，当然分不清。
+                'pptpage': bool(shot.get('_pptpage')),
             })
             print('[VF] PPT 抽帧 %d/%d  %-8s t=%.2fs  ->  %s'
                   % (i + 1, len(_shots), _typ, _t, os.path.basename(_png)))
