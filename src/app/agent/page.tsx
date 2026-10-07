@@ -1679,6 +1679,11 @@ function VfPptPreview({ plan }: { plan: any }) {
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState('')
   const [imgs, setImgs] = useState<any[]>([])
+  // ★VF_PPTBADGE_V1 补丁（2026-10-07 用户实测「共 7 页（其中 0 页 = 新引擎整页）」）：
+  //   **只有新线「PPT+图视」的 plan 才带根级 `pptpage`**（老线一个键都不写，见 banner.ts buildVideoPlan）。
+  //   所以老线上显示"0 页 = 新引擎整页"是**必然且正确**的，但那句话会被误读成"坏了"。
+  //   现在按线分流：老线不显示引擎标签（照旧那句），新线才显示统计与逐格标签。
+  const _ppOn = !!(plan && (plan as any).pptpage)
   const [zoom, setZoom] = useState('')
   const hasPlan = !!(plan && Array.isArray(plan.shots) && plan.shots.length)
   const run = async () => {
@@ -1712,10 +1717,17 @@ function VfPptPreview({ plan }: { plan: any }) {
       {imgs.length > 0 ? (
         <div className="mt-1.5">
           <div className="text-[10px] text-sky-300 mb-1">
-            共 {imgs.length} 页（其中 <b className="text-emerald-300/90">{imgs.filter((x: any) => x.pptpage).length} 页 = 新引擎整页</b>
-            ，其余 {imgs.length - imgs.filter((x: any) => x.pptpage).length} 页 = 老引擎画法）。
-            {/* ★VF_PPTBADGE_V1：一句话告诉用户"这条片换了几页" —— 素材为主的片子本来就只换少数几页
-                （目前只有纯文字镜会换：title/list/number/quote/chart；`bgimage` 素材镜与 `end` 仍是老引擎）。 */}
+            {_ppOn ? (
+              <>
+                共 {imgs.length} 页（其中 <b className="text-emerald-300/90">{imgs.filter((x: any) => x.pptpage).length} 页 = 新引擎整页</b>
+                ，其余 {imgs.length - imgs.filter((x: any) => x.pptpage).length} 页 = 老引擎画法）。
+                {/* ★VF_PPTBADGE_V1：一句话告诉用户"这条片换了几页" —— 素材为主的片子本来就只换少数几页
+                    （纯文字镜 title/list/number/quote/chart 一律会换；`bgimage` 素材镜会换成新引擎的
+                     `image` 版式页；`end` 卡仍是老引擎）。 */}
+              </>
+            ) : (
+              <span>共 {imgs.length} 页（每页 = 一镜的「内容全就位」画面，不含字幕/顶部标题）。</span>
+            )}
             确认满意再点「确认出片」。
           </div>
           <div className="grid grid-cols-3 gap-1.5">
@@ -1734,9 +1746,11 @@ function VfPptPreview({ plan }: { plan: any }) {
                     在每个格子上**直接标明这一页是哪套引擎画的**。为什么必须标：换页后 `type` 也变成 `bgimage`，
                     卡型名看不出差别、画面也没有标记 ⇒ 只能靠"像不像"猜，当然分不清。
                     `it.pptpage` 由 render.py 的 `--ppt-preview` 索引写入（= 该镜被换成了新引擎整页版式图）。 */}
-                <span className={`block text-[8px] px-1 pb-0.5 truncate ${it.pptpage ? 'text-emerald-300/90' : 'text-gray-500'}`}>
-                  {it.pptpage ? '🆕 新引擎整页' : '老引擎画法'}
-                </span>
+                {_ppOn ? (
+                  <span className={`block text-[8px] px-1 pb-0.5 truncate ${it.pptpage ? 'text-emerald-300/90' : 'text-gray-500'}`}>
+                    {it.pptpage ? '🆕 新引擎整页' : '老引擎画法'}
+                  </span>
+                ) : null}
               </button>
             ))}
           </div>

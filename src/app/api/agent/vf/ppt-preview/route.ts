@@ -156,8 +156,14 @@ export async function POST(request: NextRequest) {
         const { name } = await saveToPersonalRepo({ userId: uid, buffer: buf, ext: 'png', mime: 'image/png', quotaCheck: false })
         const url = await signedUrl(`storage/${uid}/${name}`, 86400)
         images.push({
-          i: it.i, file: it.file, type: it.type, variant: it.variant, t: it.t,
-          text: it.text, subtitle: it.subtitle, url,
+          // ★VF_PPTBADGE_V1 补丁（2026-10-07 用户实测「共 7 页（其中 0 页 = 新引擎整页）」）：
+          //   改前这里是**白名单式重建**（逐字段列举）—— 我在 render.py 的 index.json 里写了 `pptpage`，
+          //   却忘了在这个对象里带出去 ⇒ 前端永远读到 undefined ⇒ 标签与统计**永远显示 0 页**（用户当场撞上）。
+          //   现在改成**展开索引项 + 覆盖 url**：以后 render.py 往索引里加任何字段都自动透传，
+          //   不会再因为"忘了在这里加一行"而静默丢字段。
+          ...it,
+          url,
+          pptpage: it.pptpage === true,
         })
       } catch (e: any) {
         vfLog(uid, '[PPT预览] 某张入库失败：' + String(e?.message || e).slice(0, 120))
