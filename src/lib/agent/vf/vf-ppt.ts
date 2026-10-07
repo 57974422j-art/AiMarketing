@@ -126,7 +126,9 @@ function setupCard(vd: PptDraft | null): string {
     skin: vd?.skin || 'v1',
     voices: (vd as any)?.voiceList || [],
     skins: DECK_SKINS.slice(),
-    hint: 'PPT 成片：只吃「文案 + 皮肤」——页 = PPT 版式页，时长由配音决定（不掺素材图）',
+    // ★VF_PPTDUR_V1（2026-10-07 用户实测「2 个矛盾」）：口径统一 —— 选的是**文案长度**，
+    //   秒数**永远是配音的结果**（配音 = 唯一时序真源），页数由文案自动分节。别再出现"时长决定文案"这种说法。
+    hint: 'PPT 成片：只吃「文案 + 皮肤」——你贴多少字就念多久（**秒数由配音决定**）；页 = PPT 版式页（不掺素材图）',
   })
 }
 
@@ -154,7 +156,8 @@ function confirmCard(vd: PptDraft): string {
     voiceName,
     bgm: vd.bgm,
     topic: vd.topic,
-    hint: `文案 ${est.charN} 字 · 最终以配音为准约 ${est.estSec} 秒· 约 ${est.pagesLo}~${est.pagesHi} 页 —— 页数与实际时长以 AI 分节/配音为准（不掺素材图）`,
+    // ★VF_PPTDUR_V1：去掉「约 5~14 页」和"以 AI 分节为准"这种两义说法，只留唯一口径。
+    hint: `文案 ${est.charN} 字 ⇒ 配音约 ${est.estSec} 秒（最终以配音为准）；页数由文案自动分节（出片后见实际页数）；不掺素材图`,
   })
 }
 

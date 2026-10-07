@@ -1933,10 +1933,18 @@ function VfPptCard({ vj, onSend }: { vj: any; onSend: (m: string) => void }) {
       </div>
 
       <div className="mb-3">
-        <div className="text-[10px] text-gray-400 mb-1">时长 <span className="text-gray-600">（只决定文案字数；实际时长以配音为准）</span></div>
+        {/* ★VF_PPTDUR_V1（2026-10-07 用户实测「2 个矛盾：时长由文案决定 / AI 自己去配」）：
+            口径统一成**唯一一条**：这里选的只是【文案长度】（你贴了文案 ⇒ 以你贴的为准，这个选择被忽略；
+            没贴 ⇒ AI 按这个字数帮你写）。**秒数永远是配音的结果**（配音是唯一时序真源）。
+            ⚠️ 字数改用 VF_SUB_CPS（4.3 字/秒，唯一真源）—— 改前写死 4.5，卡片与成片会给出两个字数。 */}
+        <div className="text-[10px] text-gray-400 mb-1">
+          文案长度 <span className="text-gray-600">（只影响「你没贴文案、让 AI 帮你写」时的字数；你贴了文案就以你贴的为准。**秒数由配音决定**）</span>
+        </div>
         <div className="flex flex-wrap gap-1.5">
-          {['30', '60', '90', '180'].map((s) => R(dur, s, s + '秒', setDur))}
-          <span className="text-[10px] text-emerald-300/70 self-center">≈ {Math.round((parseInt(dur) || 60) * 4.5)} 字文案</span>
+          {['30', '60', '90', '180'].map((s) => R(dur, s, s + '秒 ≈' + Math.round((parseInt(s) || 60) * VF_SUB_CPS) + '字', setDur))}
+          <span className="text-[10px] text-emerald-300/70 self-center">
+            当前 ≈ {Math.round((parseInt(dur) || 60) * VF_SUB_CPS)} 字文案
+          </span>
         </div>
       </div>
 
@@ -3805,12 +3813,17 @@ function AgentPageInner() {
               <div className="text-[11px] text-gray-300 mb-2 flex flex-wrap gap-x-3 gap-y-1">
                 <span>📝 {Number(_vj.charN) || 0} 字</span>
                 <span>⏱ 最终以配音为准（约 {Number(_vj.estSec) || 0} 秒）</span>
-                <span>📄 约 {String(_vj.pagesLo || '')}~{String(_vj.pagesHi || '')} 页</span>
+                {/* ★VF_PPTDUR_V1：去掉「约 5~14 页」这种区间 —— 页数由文案自动分节决定，
+                    给区间只会让人误以为有承诺（用户实测直接指出"2 个矛盾"）。 */}
+                <span>📄 页数由文案自动分节（出片后见实际页数）</span>
                 <span>🎨 皮肤 {String(DECK_SKINS.find((s) => s.id === String(_vj.skin))?.label || _vj.skin || '')}</span>
                 <span>🔊 {String(_vj.voiceName || _vj.voice || '')}</span>
                 <span>💎 约 {Number(_vj.cost) || 0} 点</span>
               </div>
-              <div className="text-[10px] text-gray-500 mb-2">页数与实际时长以 AI 分节 / 配音为准；本线**不显示逐镜时长**（没有分镜）。</div>
+              {/* ★VF_PPTDUR_V1：一句话说清唯一口径（改前两句互相打架：既说"时长决定文案"，又说"以配音为准"）。 */}
+              <div className="text-[10px] text-gray-500 mb-2">
+                口径：**你贴多少字就念多久，秒数以配音为准**；页数由文案自动分节。本线没有分镜，所以不显示逐镜时长。
+              </div>
               <VfDeckConfirm vj={_vj} onSend={sendMessage} />
             </div>
           )
