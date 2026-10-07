@@ -574,6 +574,13 @@ ck 'VF_RENDERLOG_V1'                'scripts/video-factory/ppt-pages.mjs' 1
 #   本机实测：同数据改前 `render-failed`（降级重试也救不了）→ 改后**校验 PASS、渲 21s、换页 2 镜**；
 #   两条分支各验一次（meta 去字 / 小字去一行）。
 ck 'VF_DECKFONT_V1'                 'scripts/video-factory/ppt-pages.mjs' 5
+# ★VF_SKIPWHY2_V1（2026-10-07 用户实测「新模块新引擎 分不清楚吗」）：**每一句"没换页"都要说实话**。
+#   改前所有映射不上的卡型都落到同一句「本批不映射的卡型（ty）」⇒ 用户看到的"素材镜没换"，
+#   真实原因其实是**大字只有 2 字（版式页标题硬性 ≥4 字）**，却写成"卡型不映射"，等于把原因藏起来。
+#   现在按卡型分别给可执行原因：素材镜字数 / 对比卡只有左右各 1 条（版式页要各 2~4 条）/
+#   图表卡数值条数 / 拼版镜（放不下一张以外）/ 视频镜 / end 缺英文。
+#   本机实测（用户 6 镜同款卡型）：7 镜逐条原因全部可读，不再出现"卡型不映射"这种糊涂话。
+ck 'VF_SKIPWHY2_V1'                 'scripts/video-factory/ppt-pages.mjs' 1
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"

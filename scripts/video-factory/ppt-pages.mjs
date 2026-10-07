@@ -276,7 +276,7 @@ function mapShot(shot) {
   const title = String(shot?.title == null ? '' : shot.title).trim()
   const sub = String(shot?.subtitle == null ? '' : shot.subtitle).trim()
   if (ty === 'title') {
-    if (!W.t4_50(text)) return { page: null, why: 'title 大字长度不在 4~24/4~50 窗口（' + text.length + ' 字）' }
+    if (!W.t4_50(text)) return { page: null, why: `标题卡大字「${text || '(空)'}」${text.length} 字 —— 版式页章节页**硬性 4~24 字**（长了可截，短于 4 字不行）⇒ 保持老画法` }
     const p = { type: 'section', title: clip(text, 24) }
     if (W.s6_40(sub)) p.subtitle = clip(sub, 40)
     return { page: p, why: '' }
@@ -312,6 +312,23 @@ function mapShot(shot) {
     }
     return { page: { type: 'end', line1: clip(line1, 135), cta: clip(cta, 351), en: clip(en, 356) }, why: '' }
   }
+  // ★VF_SKIPWHY2_V1（2026-10-07 用户实测「新模块新引擎 分不清楚吗」）：**每一句"没换页"都必须说实话**。
+  //   改前所有映射不上的卡型都落到同一句「本批不映射的卡型（ty）」——于是用户看到的"素材镜没换"
+  //   其实真正原因是**大字只有 2 字（版式页标题硬性 ≥4 字）**，却被写成"卡型不映射"，等于把原因藏起来。
+  //   这里按卡型各自给**可执行的原因**（字数窗 / 素材条数 / 字段缺失…）。
+  if (ty === 'bgimage') {
+    const t = String(shot?.text || shot?.title || '').trim()
+    const sp = String(shot?.src || '')
+    const ext = (sp.match(/\.(jpe?g|png|webp)$/i) || [])[0]
+    if (!IMGPAGES) return { page: null, why: '本批未开素材页（--no-imgpages）' }
+    if (!sp || !ext || /^https?:/i.test(sp)) return { page: null, why: '素材不是本地图片文件（src 为空 / 是网址 / 不是 jpg·png·webp）' }
+    if (!lenOk(t, 4, 24)) return { page: null, why: `素材镜大字「${t || '(空)'}」只有 ${t.length} 字 —— 版式页标题**硬性 4~24 字**，不够就保持老画法` }
+    return { page: null, why: '素材底部偏亮（母版遮罩压不住版式页小字）⇒ 保持老画法' }
+  }
+  if (ty === 'compare') return { page: null, why: '对比卡只有左右各 1 条，版式页要左右各 2~4 条 + 一句结论（不替你编内容 ⇒ 保持老画法）' }
+  if (ty === 'chart') return { page: null, why: '图表卡数值条数/说明窗口不合版式页（要 4~12 条数值 + 8~39 字说明）' }
+  if (ty === 'duo' || ty === 'frame') return { page: null, why: '拼版镜（两张素材拼一版）本批不映射 —— 版式页只能放一张图，硬换会丢图' }
+  if (ty === 'video' || ty === 'aivideo') return { page: null, why: '视频镜不映射（版式页只吃静态图）' }
   return { page: null, why: '本批不映射的卡型（' + ty + '）' }
 }
 
