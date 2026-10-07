@@ -509,6 +509,21 @@ function engineBinOk() {
     return !r.error && r.status === 0
   } catch { return false }
 }
+// ★VF_ENGINEPATH_V1（2026-10-07 用户实测「服务器明明能跑新引擎，你却说没装」）：**把引擎解析到哪、为什么，
+//   写清楚**。改前只判断"在不在"，一旦渲染失败，既看不出用的是哪个引擎、也看不出是自己装的还是服务器上另装的
+//   （引擎解析顺序：① ENGINE_HF_BIN ② PATH ③ 引擎根 node_modules/.bin —— 三种来源行为可能不同，
+//   尤其是"服务器上另有一份旧引擎"时，版本差异会让某些页型渲不出来）。
+function engineBinWhy() {
+  try {
+    if (process.env.ENGINE_HF_BIN) {
+      return 'ENGINE_HF_BIN=' + process.env.ENGINE_HF_BIN + (fs.existsSync(process.env.ENGINE_HF_BIN) ? '' : '（**该路径不存在**）')
+    }
+    const local = path.join(DECK_DIR, 'node_modules', '.bin', 'hyperframes' + (process.platform === 'win32' ? '.cmd' : ''))
+    if (fs.existsSync(local)) return local + '（引擎根 node_modules/.bin）'
+    const r = spawnSync('hyperframes', ['--version'], { encoding: 'utf8', timeout: 8000, shell: process.platform === 'win32' })
+    return (r.status === 0) ? ('PATH 上的 hyperframes ' + String(r.stdout || '').trim().slice(0, 40)) : '（未解析到引擎）'
+  } catch (e) { return '(探测异常：' + String(e.message).slice(0, 60) + ')' }
+}
 
 if (DRY) { say(`dry-run：不渲染，deck 有 ${pages.length} 页（可换 ${picked.length} 镜）→ ${deckPath}`); done({ ok: true, pages: pages.length, swapped: 0, note: 'dry' }) }
 
@@ -540,7 +555,21 @@ if (!rendered) {
     say(`deck 校验通过：${vtail.slice(0, 140)}`)
     const t0 = Date.now()
     say(`渲染 ${name}（${pages.length} 页 → ${picked.length} 镜可用，master=${masterId}/${palette}，${orientation}）…`)
+    // ★VF_RENDERLOG_V1（2026-10-07）：把**引擎的完整输出**落盘（`<outdir>/<deck>.render.log`）。
+    //   为什么：引擎的报错只走子进程 stdout/stderr，**不会进 pm2 日志** ⇒ 服务器上排障时"什么也看不到"，
+    //   只能看到一句"渲染失败"。落盘后一条 `cat` 就能把原因（找不到 chrome / 版本不匹配 / 某页校验不过）看全。
+    const rlogPath = path.join(OUTDIR, name + '.render.log')
+    say('引擎=' + engineBinWhy())
     const r = spawnSync(process.execPath, [RENDER_DECK, deckPath, '--outdir', OUT_ROOT], { encoding: 'utf8', timeout: 15 * 60 * 1000 })
+    try {
+      fs.writeFileSync(rlogPath, [
+        '[cmd] ' + process.execPath + ' ' + RENDER_DECK + ' ' + deckPath + ' --outdir ' + OUT_ROOT,
+        '[cwd] ' + process.cwd() + ' · node ' + process.version + ' · ' + process.platform,
+        '[引擎] ' + engineBinWhy(),
+        '[exit] ' + String(r.status) + (r.error ? (' error=' + String(r.error.message)) : ''),
+        '[stdout]', String(r.stdout || ''), '[stderr]', String(r.stderr || ''),
+      ].join('\n'), 'utf8')
+    } catch { /* 日志写不下去也不能影响主流程 */ }
     const tail = String(r.stdout || '').split('\n').filter((x) => /RESULT|✗|校验|RENDER total/.test(x)).slice(-3).join(' | ')
     if (r.status !== 0) {
       // ★VF_RENDERWHY_V1：把**引擎自己的原始报错**带出来（改前只留过滤后的几行，
@@ -548,6 +577,7 @@ if (!rendered) {
       const rawTail = (String(r.stdout || '') + '\n' + String(r.stderr || ''))
         .split('\n').map((x) => x.trim()).filter(Boolean).slice(-3).join(' | ')
       say(`渲染失败（exit ${r.status}）：${(rawTail || String(r.stderr || '')).slice(0, 320)}`)
+      say('引擎完整日志已落盘：' + rlogPath + '（排障请 cat 这个文件）')
       degradRetry('渲染')        // ★VF_DECKRESIL_V1（成功则本进程直接结束）
       done({ ok: false, note: 'render-failed', why: rawTail.slice(0, 200) })
     }

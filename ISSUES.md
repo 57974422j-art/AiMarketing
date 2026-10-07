@@ -131,6 +131,21 @@
 
 ---
 
+## ⚠️ 更正（2026-10-07 · 「服务器没装引擎」是误判）→ 已加"看得见"的能力
+
+- ❌ **我上一轮的归因错了**：从"`deploy-server.sh` 没装 html-deck 依赖"直接推出"服务器没引擎"。
+- ✅ **用户举证 + 硬证据**：`出品：` 字样在**新引擎 html-deck 里 93 处**、**老引擎 `render.py` 里 0 处**；
+  用户 3 条片子（10-05/06）里有「出品：AiMarketing 视频工厂 · 2026-10」封面、「要点节 01/02/03」编号页、
+  「78.5%，转化漏斗流失」大数字页 ⇒ **新引擎在服务器上跑得起来**（多半走「新引擎成片预览」那条路）。
+- ✅ **因此 `render-failed` 必须看引擎原始报错**，不能靠推断。本轮加：`VF_ENGINEPATH_V1`（打印引擎解析来源）
+  + `VF_RENDERLOG_V1`（引擎完整输出落盘 `<outdir>/<deck>.render.log` —— 引擎报错不进 pm2 日志，这是关键盲区）。
+- 🔍 **下一步线索**：他的 `0 换页` 片走**我的换页链**（`ppt-pages.mjs` → `render-deck.mjs`），而能跑的新引擎片走
+  **`gen-deck`+`batch-video`（cwd=引擎目录）** ⇒ 两条路径的差异（命令/cwd/env/引擎来源）很可能就是真因。
+- 🧰 **给用户的验证命令**：`check-env.mjs`（应打印 `✓ 渲染器 hyperframes 已安装 —— v0.8.111`）、
+  `check-engine-lint.mjs --deploy | head -4`、`cat $(ls -t …/out/pptpage/*.render.log | head -1)`。
+
+---
+
 ## ✅ 已解决（2026-10-07 · 新线「PPT+图视」换页 0/7 · render-failed → 服务器没装渲染引擎）
 
 - 🔴 **症状**：卡片诊断显示 `换页 0/7 镜` + `⚠️ 换页未生效：note:"render-failed"`（meta 那关已过）。

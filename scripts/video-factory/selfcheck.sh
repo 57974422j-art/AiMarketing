@@ -548,6 +548,18 @@ ck 'VF_SKIPWHY_V1'                  'src/app/api/agent/vf/ppt-preview/route.ts' 
 ck 'VF_ENGINEDEP_V1'                'scripts/deploy-server.sh' 1
 ck 'VF_ENGINECHK_V1'                'scripts/video-factory/ppt-pages.mjs' 2
 ck 'VF_RENDERWHY_V1'                'scripts/video-factory/ppt-pages.mjs' 1
+# ★2026-10-07 夜（更正）：**服务器是装了引擎的** —— 用户举证三条 10-05/06 的片子含新引擎页；
+#   硬证据：`出品：` 字样在新引擎（html-deck）里出现 93 次、在老引擎 `render.py` 里 **0 次**，
+#   而 001 那条第 1 帧正是「出品：AiMarketing 视频工厂 · 2026-10」⇒ **新引擎在服务器上跑得起来**。
+#   所以 `render-failed` **不能**归因于"引擎没装"（那是我的误判）⇒ 必须拿到引擎原始报错。
+#   ★VF_ENGINEPATH_V1（ppt-pages.mjs）：把**引擎解析到哪、为什么**打出来（① ENGINE_HF_BIN
+#     ② PATH ③ 引擎根 node_modules/.bin —— 三种来源可能版本不同，"服务器上另有一份旧引擎"时
+#     某些页型渲不出来）。改前只判断"在不在"，失败时看不出用的是哪个引擎。
+#   ★VF_RENDERLOG_V1（ppt-pages.mjs）：把**引擎完整输出落盘** `<outdir>/<deck>.render.log`
+#     （含 cmd/cwd/node/引擎解析/exit/stdout/stderr）。为什么必须：引擎报错只走子进程 stdout/stderr，
+#     **不会进 pm2 日志** ⇒ 服务器上排障"什么也看不到"，只能看到一句"渲染失败"。现在一条 cat 看全。
+ck 'VF_ENGINEPATH_V1'               'scripts/video-factory/ppt-pages.mjs' 1
+ck 'VF_RENDERLOG_V1'                'scripts/video-factory/ppt-pages.mjs' 1
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"

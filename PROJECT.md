@@ -289,7 +289,19 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 - **④ `VF_PPTSKIN_V1`**：plan 根级 `pptpage{master,palette,mix}` → `make.py` 透传（**老线不写 ⇒ 零回归**）；`mix:false` 可退回机械映射排障。
 - 📋 **下一步（未做）**：新线入口词（`PPT+图视` 主词 + `HTML+图视` 等别名）登记 `standard-commands` → `route.ts` 分派 → 卡片 **10 母版卡 + 每套 4 个配色点**（色值读 `masters/*/master.json`，**不必生成 40 张样张**）。
 
-### 2026-10-07 新线「PPT+图视」换页 0/7 第二层根因：服务器没装渲染引擎（✅ 已修，待部署）
+### 2026-10-07 ⚠️ 更正：服务器**装了**引擎（"没装引擎"是我的误判）
+
+- 用户举证 3 条 10-05/06 的片子含新引擎页 ⇒ 核实：`出品：` 在**新引擎 93 处**、**老引擎 0 处**，
+  `001` 首帧正是「出品：AiMarketing 视频工厂 · 2026-10」⇒ **新引擎在服务器上跑得起来**。
+- ⇒ `render-failed` **不能**归因于"引擎缺失"；真因必须看**引擎原始报错**。
+- 本轮加"看得见"的能力：`VF_ENGINEPATH_V1`（打印引擎解析来源：ENGINE_HF_BIN / PATH / 引擎根 .bin）
+  + `VF_RENDERLOG_V1`（引擎完整输出落盘 `<outdir>/<deck>.render.log` —— **引擎报错不进 pm2 日志**是最大盲区）。
+- 🔍 下一步：他的 `0 换页` 走**我的换页链**（`render-deck.mjs`，cwd=应用目录），而能跑的新引擎片走
+  **`gen-deck`+`batch-video`（cwd=引擎目录）** ⇒ 两条路径差异（命令/cwd/env/引擎来源）是真因所在。
+- 🧰 验证命令：`node scripts/video-factory/html-deck/check-env.mjs`（应见 `✓ 渲染器 hyperframes 已安装 —— v0.8.111`）、
+  `check-engine-lint.mjs --deploy | head -4`、`cat $(ls -t scripts/video-factory/html-deck/out/pptpage/*.render.log | head -1)`。
+
+### 2026-10-07 新线「PPT+图视」换页 0/7 第二层根因：服务器没装渲染引擎（⚠️ 该结论已被上面更正）
 
 - **用户侧证据（我上一轮加的"把依据打出来"生效了）**：卡片显示 `换页 0/7`、`⚠️ 换页未生效：note:"render-failed"`
   + 未换清单 ⇒ **`render-failed` 说明 meta 那关已过**，失败点移到了渲染。
