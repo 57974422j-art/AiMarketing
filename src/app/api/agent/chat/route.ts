@@ -4212,12 +4212,18 @@ PUBLISH_DRAFT.delete(uidW)
         try {
           const { handlePptLine } = await import('@/lib/agent/vf/vf-ppt')
           const _isPptMsg = (!!stdCmdHit && stdCmdHit.id === 'vf_ppt') || /^VF_PPT_FORM\s*:/.test(String(userMessage || '').trim())
+          // ★VF_PPTDIAG_V1（2026-10-07 用户实测「点『开始排版』后只回了 AI 瞎编的确认」）：
+          //   日志里**既没有** handler 的「确认卡」行、**也没有**锁死行、**也没有**分派异常行 ⇒ 三种可能
+          //   （块没被执行到 / _isPptMsg 为 false / handler 返回 null）**无法区分**，只能靠猜 ⇒ 加这一行。
+          //   每次请求留痕：消息头 / 是否命中 PPT 线 / 获客线是否已接管。
+          try { vfLog(uidVF2, `[PPT-DIAG] msgHead=${String(userMessage || '').slice(0, 20)} _isPptMsg=${_isPptMsg} leadHandled=${leadHandled}`) } catch { /* ignore */ }
           if (!leadHandled && _isPptMsg) {
             const _rP = await handlePptLine({
               uid: uidVF2, userMessage, prisma, generateText: genTextW,
               log: (u: any, m: string) => vfLog(u, m), voiceList: VF_VOICE_BASE,
             })
             if (_rP) { vfPptHandled = true; wfEarlyReply = _rP; finalResult = _rP }
+            else { try { vfLog(uidVF2, '[PPT-DIAG] handler 返回 null（本线没接管，消息会落到 AI）') } catch { /* ignore */ } }
           }
         } catch (ePP: any) {
           vfPptHandled = false
