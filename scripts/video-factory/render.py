@@ -3475,6 +3475,7 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
                 #   并让**同色系渐变两端一起压暗/提亮**（否则会出现"亮字压在亮卡片上"的二次问题）。
                 _ph2 = th
                 _chg = False
+                _matd = {}   # ★VF_DECKSCRIM_V1（2026-10-07 P1③）：先占位，下面接遮罩要用（探测失败也不许 NameError）
                 try:
                     _matd = _probe_material(src)
                     _tc2, _bx2, _chg = _mat_text_colors(th, _matd, str(th.get('text') or 'white'),
@@ -3498,8 +3499,14 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
                 if _dk:
                     print('[VF] ★VF_DECK_V1 素材页：layout=%s → 内容区 %dx%d@%d,%d'
                           % (_dlay, _drw, _drh, _drx, _dry))
+                    # ★VF_DECKSCRIM_V1（2026-10-07 P1③ 用户清单「素材页版式层：card_bgimage 同款遮罩」）：
+                    #   本分支（deck 卡片版式素材页）**改前没有遮罩** —— 它在这之前就 return 了，
+                    #   于是全库唯一一处"无渐变压暗"的素材画面就是它（视频镜 1845/1911、素材镜主链 3673 都已有）。
+                    #   现在补上 scrim_boxes：顶部/底部带状渐变（给固定标题与字幕留干净的落点），
+                    #   并且和别处一样**深色素材自动 ×0.35**（素材本身够暗就不再多压一层）。
                     _dvf = _dpre + '[smooth]null,' + ','.join(
-                        _dk + [f"trim=duration={dur},setpts=PTS-STARTPTS,format=yuv420p"])
+                        scrim_boxes(W, H, _matd) + _dk
+                        + [f"trim=duration={dur},setpts=PTS-STARTPTS,format=yuv420p"])
                     return (f"-loop 1 -t {dur} -i \"{src}\"", _dvf, dur)
         print('[VF] ★VF_DECK_V1 素材页条件不足（卡片版式=%s / 素材可用=%s）→ 回落老链路'
               % ('有' if _dpo else '无', '是' if _dsrc_ok else '否'))
@@ -5740,9 +5747,28 @@ def banner_layer(banner, th, W, H, dur, font):
     _pad = max(10, int(fs2 * 0.32))
     _en = ''
     _rng = banner.get('_range')
+    # ★VF_BANNERSKIP_V1（2026-10-07 P1④）：**逐镜**跳过顶部固定标题（调用方把"要跳过的镜"换算成
+    #   **绝对秒区间**塞进 banner['_skip']，与既有 banner['_range'] 同一种约定）。
+    #   场景：图片成片/图视混剪里被 VF_PPTPAGE_V1 换成"整页版式图"的镜 —— 横幅固定在顶部 16% 以内，
+    #   正好压住页面自己的 kicker/标题（"字压字"）。写 `A*not(B)` 是 ffmpeg enable 的标准减法写法。
+    _sk = banner.get('_skip')
+    _skExpr = ''
     try:
+        if isinstance(_sk, (list, tuple)):
+            _skExpr = '+'.join('between(t,%.2f,%.2f)' % (float(a), float(b))
+                               for a, b in _sk if float(b) > float(a))
+    except Exception:
+        _skExpr = ''
+    try:
+        _base = ''
         if isinstance(_rng, (list, tuple)) and len(_rng) == 2 and float(_rng[1]) > float(_rng[0]):
-            _en = ":enable='between(t,%.2f,%.2f)'" % (float(_rng[0]), float(_rng[1]))
+            _base = 'between(t,%.2f,%.2f)' % (float(_rng[0]), float(_rng[1]))
+        if _skExpr:
+            _en = ":enable='%s*not(%s)'" % (_base or '1', _skExpr)
+        elif _base:
+            _en = ":enable='%s'" % _base
+        else:
+            _en = ''
     except Exception:
         _en = ''
     parts = []
@@ -6557,9 +6583,31 @@ def main():
                 _rng = (_st, _en2)
         except Exception:
             _rng = None
-        if isinstance(_bn, dict) and _rng:
+        # ★VF_BANNERSKIP_V1（2026-10-07 P1④）：**逐镜**跳过顶部固定标题。
+        #   分镜根级 `banner.skip` = 1-based 镜号数组（由 scripts/video-factory/ppt-pages.mjs 贴回
+        #   新引擎整页图时写入），这里按每镜 dur 累加换算成绝对秒区间，交给 banner_layer 做 enable 减法。
+        _skip = []
+        try:
+            _sl = (_bn or {}).get('skip')
+            if isinstance(_sl, (list, tuple)):
+                _idx = set(int(x) for x in _sl if str(x).strip().isdigit())
+                if _idx:
+                    _acc = 0.0
+                    for _i, _d in enumerate([float(x.get('dur', 0) or 0)
+                                             for x in (sb.get('shots') or [])], start=1):
+                        if _i in _idx:
+                            _skip.append((_acc, _acc + _d))
+                        _acc += _d
+                    print('[VF] ★VF_BANNERSKIP_V1 顶部固定标题在这些镜不画：%s'
+                          % ('、'.join('第%d镜' % x for x in sorted(_idx))))
+        except Exception:
+            _skip = []
+        if isinstance(_bn, dict) and (_rng or _skip):
             _bn = dict(_bn)
-            _bn['_range'] = _rng
+            if _rng:
+                _bn['_range'] = _rng
+            if _skip:
+                _bn['_skip'] = _skip
         video_for_audio = burn_banner(video_for_audio, os.path.join(wd, 'banner.mp4'),
                                       _bn, th, W, H, _total_dur, ffmpeg)
     # ★VF_MUX_FIX_V1：把【分镜总时长】交给混音 —— 成片时长以它为准（不再被音频头/长度带偏）

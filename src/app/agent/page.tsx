@@ -24,7 +24,7 @@ import {
 // ★VF_STYLES_WIRE_V1（2026-10-01 用户定案「目前模版有2套我是不是有点乱。能统一一下吗？」）：
 //   「🎨 画面风格」的 5 套成品风格（唯一真相源 = 渲染层 scripts/video-factory/themes.py 的 STYLES；
 //   TS 侧在 anti-ai.ts 的 VF_STYLES，纯数据零副作用 → 客户端可直接引，界面不会与归一化规则漂移）。
-import { VF_STYLES } from '@/lib/agent/vf/anti-ai'
+import { VF_STYLES, VF_SUB_CPS } from '@/lib/agent/vf/anti-ai'
 import TourGuide from '@/components/TourGuide'
 import { Solar } from 'lunar-javascript'
 import { createPortal } from 'react-dom'
@@ -1014,7 +1014,7 @@ function VfAiOptsCard({ vj, onStart }: { vj: any; onStart: (msg: string) => void
         <div className="text-[10px] text-gray-400 mb-1">文案（可直接改）</div>
         <textarea value={script} onChange={(e: any) => setScript(e.target.value)} rows={4}
           className="w-full px-2 py-1 rounded text-[12px] leading-relaxed bg-white/[0.05] border border-white/[0.08] text-gray-200 outline-none resize-y" />
-        <div className="text-[10px] text-gray-500 mt-0.5">{script.length} 字 ≈ {Math.round(script.length / 4.5)} 秒</div>
+        <div className="text-[10px] text-gray-500 mt-0.5">{script.length} 字 ≈ {Math.round(script.length / VF_SUB_CPS)} 秒</div>
       </div>
 
       <div className="mb-2">
@@ -3704,7 +3704,7 @@ function AgentPageInner() {
               ) : null}
               <div className="text-[11px] text-gray-300 mb-2 flex flex-wrap gap-x-3 gap-y-1">
                 <span>📝 {Number(_vj.charN) || 0} 字</span>
-                <span>⏱ 配音预估 ≈{Number(_vj.estSec) || 0} 秒（目标 {Number(_vj.targetSec) || 0} 秒）</span>
+                <span>⏱ 最终以配音为准（约 {Number(_vj.estSec) || 0} 秒）</span>
                 <span>📄 约 {String(_vj.pagesLo || '')}~{String(_vj.pagesHi || '')} 页</span>
                 <span>🎨 皮肤 {String(DECK_SKINS.find((s) => s.id === String(_vj.skin))?.label || _vj.skin || '')}</span>
                 <span>🔊 {String(_vj.voiceName || _vj.voice || '')}</span>
@@ -3865,7 +3865,7 @@ function AgentPageInner() {
               {vj.shotsFailed ? (
                 <div className="text-[10px] text-amber-300/90 mb-1">
                   ⚠️ 分镜没排好{vj.coverage != null && vj.coverage < 0.8
-                    ? `：只覆盖文案 ${Math.round(vj.coverage * 100)}%（预计 ${vj.estSec || 0} 秒 / 目标 ${vj.targetSec || 0} 秒）`
+                    ? `：只覆盖文案 ${Math.round(vj.coverage * 100)}%（最终以配音为准，约 ${vj.estSec || 0} 秒）`
                     : '（文案已就绪，已自动重试一次）'}
                 </div>
               ) : (vj.usedImages > 0 || (vj.shots && vj.shots.length)) ? (

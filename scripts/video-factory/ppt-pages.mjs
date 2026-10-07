@@ -250,7 +250,16 @@ picked.forEach((p, k) => {
   s._pptpage = true
   swapped++
 })
-out.pptpage = { version: 1, masterId, palette, orientation, pages: pages.length, swapped, skipped: sb.shots.length - swapped, deck: deckPath, at: new Date().toISOString() }
+// ★VF_BANNERSKIP_V1（2026-10-07 P1④）：换页的镜**逐镜关掉顶部固定标题**。
+//   为什么：整页版式图自己就有 kicker/标题，而横幅固定在顶部 16% 以内 —— 实测正好压住页面的标题区
+//   （就是"字压字"，P0 效果会被横幅吃掉）。写成分镜根级 `banner.skip`（**1-based 镜号数组**），
+//   由 render.py 按每镜 dur 换算成绝对秒区间，再用 ffmpeg `enable='base*not(...)'` 做减法。
+if (out.banner && typeof out.banner === 'object') {
+  const _sk = new Set((Array.isArray(out.banner.skip) ? out.banner.skip : []).map(Number).filter((x) => x > 0))
+  picked.forEach((p) => _sk.add(p.idx + 1))
+  out.banner.skip = [..._sk].sort((a, b) => a - b)
+}
+out.pptpage = { version: 1, masterId, palette, orientation, pages: pages.length, swapped, skipped: sb.shots.length - swapped, deck: deckPath, bannerSkip: (out.banner || {}).skip || [], at: new Date().toISOString() }
 try {
   fs.mkdirSync(path.dirname(OUT_SB || '.'), { recursive: true })   // 调用方给的 wd 可能还没建（本机单测就踩到）
   fs.writeFileSync(OUT_SB, JSON.stringify(out, null, 2), 'utf8')

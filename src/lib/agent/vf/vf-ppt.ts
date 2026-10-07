@@ -21,6 +21,7 @@
  *
  * 零连累约束（与 vf-aivideo.ts / vf-mix.ts 同规矩）：**不 import 其它成片线**，依赖全部由 ctx 注入。
  */
+import { VF_SUB_CPS } from './anti-ai'   // ★VF_CPSONE_V1：口播语速唯一真源（anti-ai.ts，实测 4.3 字/秒）
 import { DECK_SKINS } from '@/lib/agent/vf/vf-deck-render'
 
 export const PPT_TAG = 'vf_draft_ppt'
@@ -88,7 +89,7 @@ const ORIS = ['portrait', 'landscape']
 const DUR_OK = [30, 60, 90, 180]
 
 /** 口播语速（字/秒）——与 vf-deck-render.ts 的 TTS 估时口径一致（4.2~4.5） */
-const CPS = 4.5
+const CPS = VF_SUB_CPS
 /** 报价公式**与 runDeckVideoTask 逐字一致**（★VF_COSTFIX_V1：报价 = 实扣，不许各写一份） */
 export const pptCostOf = (charN: number): number => Math.max(1, Math.ceil(charN / 20))
 
@@ -153,7 +154,7 @@ function confirmCard(vd: PptDraft): string {
     voiceName,
     bgm: vd.bgm,
     topic: vd.topic,
-    hint: `文案 ${est.charN} 字 · 配音预估 ≈${est.estSec} 秒（目标 ${est.targetSec} 秒）· 约 ${est.pagesLo}~${est.pagesHi} 页 —— 页数与实际时长以 AI 分节/配音为准（不掺素材图）`,
+    hint: `文案 ${est.charN} 字 · 最终以配音为准约 ${est.estSec} 秒· 约 ${est.pagesLo}~${est.pagesHi} 页 —— 页数与实际时长以 AI 分节/配音为准（不掺素材图）`,
   })
 }
 

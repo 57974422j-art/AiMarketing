@@ -44,7 +44,7 @@ import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, s
   // ★VF_BIGCUT_V1（2026-10-06）：画面大字"避词边界"截断（与 route.ts / render.py 同口径）
   bigTextCut,
   // ★VF_BIGSUB_V1（2026-10-06）：同一镜"大字=字幕"的治理（本线 video/bgimage 镜的叠加大字尤其容易照抄字幕）
-  quietBigSameAsSubtitle } from './anti-ai'
+  quietBigSameAsSubtitle, VF_SUB_CPS } from './anti-ai'
 // ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：`VF_MOTION_PROMPT` = 「长镜必须有动效」的档位说明
 //   （与 ANTI_AI_PROMPT 同样**两个分镜 prompt 共用**一份，免得两条线走偏）；
 //   `ensurePersistentMotion` = 服务端兜底（AI 忘写时给 title/end 长镜自动补 `motion='grow'`）。
@@ -908,7 +908,7 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
       for (const _n of _lf.notes) ctx.log(uid, _n)
     }
   }
-  const estSec = Math.round(subLen / 4.5)
+  const estSec = Math.round(subLen / VF_SUB_CPS)
 
   // ── 7) 存草稿 + 出确认卡（复用素材线的分镜卡，客户端零改动）──
   vd.script = script

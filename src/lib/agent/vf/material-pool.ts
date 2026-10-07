@@ -793,14 +793,21 @@ export function mergeAdjacentSameShots(shots: any[]): { shots: any[]; notes: str
   const src = Array.isArray(shots) ? shots : []
   const out: any[] = []
   const notes: string[] = []
+  let _srcNo = 0
   for (const s of src) {
+    _srcNo++
     const prev: any = out[out.length - 1]
     const k1 = prev ? shotContentKey(prev) : ''
     const k2 = shotContentKey(s)
     if (prev && k1 && k1 === k2) {
       prev.dur = round1((Number(prev.dur) || 0) + (Number(s.dur) || 0))
       prev.subtitle = (String(prev.subtitle || '') + String(s.subtitle || '')).slice(0, 600)
-      notes.push(`[分镜] 第 ${out.length} 与 ${out.length + 1} 镜同卡型同内容 → 已合并（时长相加、字幕接续）`)
+      // ★VF_MERGELOG_V1（2026-10-07 P1① 用户实测「日志里第 20 与 21 镜连出两次」）：
+      //   改前报的是 `第 ${out.length} 与 ${out.length+1} 镜`，而合并分支**不 push**（out.length 不前进）
+      //   ⇒ 连续 3 张以上同卡型同内容时，第 3 张又并进同一个 `prev`，把**同一对镜号**再打一遍（看起来像合并了两遍）。
+      //   现在两边口径都用真实值：`并入原始第 N 镜 → 合并进第 M 镜`（N=源序号，M=输出序号），每张被并的镜只报一次。
+      //   ⚠️ 数据层无恙：被并的镜一律 `continue` 丢弃，`prev` 始终只有一条（不存在重复合并）。
+      notes.push(`[分镜] 并入原始第 ${_srcNo} 镜 → 合并进第 ${out.length} 镜（同卡型同内容：时长相加、字幕接续）`)
       continue
     }
     out.push({ ...(s || {}) })

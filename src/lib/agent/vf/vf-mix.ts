@@ -26,6 +26,7 @@
 
 /* ==================== 类型（本线自己定义） ==================== */
 
+import { VF_SUB_CPS } from './anti-ai'   // ★VF_CPSONE_V1：口播语速唯一真源（anti-ai.ts，实测 4.3 字/秒）
 export interface VfMixDraft {
   step: 'form' | 'script' | 'running'
   topic: string
@@ -432,7 +433,7 @@ async function draftAndCard(ctx: VfMixCtx, vd: VfMixDraft, isRetry = false): Pro
     ctx.log(uid, `[VF-X] ⚠️ AI 标注的镜数过多 → 收敛为前 ${aiShots.length} 镜（控制成本）`)
   }
 
-  const estSec = Math.round(subLen / 4.5)
+  const estSec = Math.round(subLen / VF_SUB_CPS)
   vd.shots = shots
   vd.cover = cover
   vd.subLen = subLen

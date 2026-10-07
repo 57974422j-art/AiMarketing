@@ -398,6 +398,30 @@ ck 'VF_PPTPAGE_V1'                  'scripts/video-factory/render.py' 2
 #   改前任何非 zoomin/zoomout 的值都落到 else 的"轻微放大 1.10" ⇒ 没有静止档；
 #   而"整页设计图"（PPT 版式页/已排版的整页图）不该再被推近（推近=逐帧裁切，切掉标题/页码/进度线）。
 ck 'VF_KBSTATIC_V1'                 'scripts/video-factory/render.py' 1
+# ★2026-10-07 四件小事（用户定案顺序：①日志重复 ②卡片时长口径 ③render.py:3501 补遮罩 ④版式页逐镜关顶部标题）
+#   ★VF_MERGELOG_V1：合并日志的镜号口径修正。改前用 `out.length` 报号，而合并分支**不 push**（长度不前进）
+#     ⇒ 连续 3 张以上同卡型同内容时，第 3 张又并进同一镜、把**同一对镜号**再打一遍（用户实测
+#     「第 20 与 21 镜连出两次」误以为合并了两遍）。改成「并入原始第 N 镜 → 合并进第 M 镜」；
+#     ⚠️ 数据层**本来就没有**重复合并（被并镜一律 continue 丢弃）。
+#   ★VF_CPSONE_V1：口播语速**唯一真源** = anti-ai.ts 的 VF_SUB_CPS(4.3 字/秒)。改前四处不一致
+#     （卡片预估 4.5 / anti-ai 4.3 / make.py 4.3 / vf-deck-render 占位 4.2）⇒ 同一段文案在"卡片上"
+#     与"成片里"给出两个秒数（"承诺 30 / 成片 29.6"那类对不上的根源）。本轮把 12 处 `chars / 4.5`
+#     统一成 `chars / VF_SUB_CPS`，卡片三个数字（预估/目标/概要）收成一句
+#     「最终以配音为准（约 N 秒）」；`targetSec` 只留给成本公式。真时长仍只有 tts.py 跑完才有。
+#   ★VF_DECKSCRIM_V1：`card_bgimage` 的 **deck 卡片版式分支**补 `scrim_boxes` —— 改前它在这之前就
+#     return，是全库**唯一一处没有渐变压暗**的素材画面（视频镜 1845/1911、素材镜主链 3673 都已有）。
+#   ★VF_BANNERSKIP_V1：顶部固定标题支持**逐镜跳过**（分镜根级 `banner.skip` = 1-based 镜号数组，
+#     render.py 按每镜 dur 累加换算成绝对秒区间，enable 写 `base*not(...)` 做减法）。
+#     `ppt-pages.mjs` 换页时**自动写入** ⇒ 整页版式图不再被横幅压住（横幅在顶部 16% 以内，
+#     正好压住页面的 kicker/标题 = 字压字）。本机实测：素材镜/老画法镜**有**横幅、换页镜**无**横幅。
+ck 'VF_MERGELOG_V1'                 'src/lib/agent/vf/material-pool.ts' 1
+ck 'VF_CPSONE_V1'                   'src/lib/agent/vf/anti-ai.ts' 1
+ck 'VF_CPSONE_V1'                   'src/lib/agent/vf/vf-aivideo.ts' 1
+ck 'VF_CPSONE_V1'                   'src/lib/agent/vf/vf-mix.ts' 1
+ck 'VF_CPSONE_V1'                   'src/lib/agent/vf/vf-ppt.ts' 1
+ck 'VF_DECKSCRIM_V1'                'scripts/video-factory/render.py' 2
+ck 'VF_BANNERSKIP_V1'               'scripts/video-factory/ppt-pages.mjs' 1
+ck 'VF_BANNERSKIP_V1'               'scripts/video-factory/render.py' 3
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"

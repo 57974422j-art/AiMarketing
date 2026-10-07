@@ -50,7 +50,7 @@ import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, s
   // ★VF_BIGCUT_V1（2026-10-06）：画面大字"避词边界"截断（治成片里「真正价值在6」这种被切坏的数字/英文）
   bigTextCut,
   // ★VF_BIGSUB_V1（2026-10-06）：同一镜"大字=字幕"的治理（清掉重复的那层，字幕不动）
-  quietBigSameAsSubtitle } from '@/lib/agent/vf/anti-ai'
+  quietBigSameAsSubtitle, VF_SUB_CPS } from '@/lib/agent/vf/anti-ai'
 // ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：把「长镜必须有动效」的档位接进【图片成片线】的分镜提示词
 //   （与「视频混剪」线共用 anti-ai.ts 里同一份常量，两条线的字段说明与硬规矩逐字一致），
 //   并在 genVideoShots 出口跑服务端兜底 ensurePersistentMotion（AI 忘写时给 title/end 长镜补 grow）。
@@ -764,7 +764,7 @@ function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect
   if (!shots || shots.length < 2 || cover < 0.8) {
     const why = (!shots || shots.length < 2)
       ? '**分镜没生成成功**（已自动重试一次）'
-      : `分镜只覆盖了文案的 **${Math.round(cover * 100)}%**（预计 ${estSec} 秒 / 目标 ${targetSec} 秒）——直接出片只会念一部分`
+      : `分镜只覆盖了文案的 **${Math.round(cover * 100)}%**（最终以配音为准，约 ${estSec} 秒）——直接出片只会念一部分`
     return 'VF_JSON:' + JSON.stringify({
       step: 'script', topic: vd.topic, script: vd.script, shotsFailed: true,
       usedImages: imgN, brief: String(brief || '').slice(0, 400),
@@ -842,7 +842,7 @@ function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect
     coverage: cover, estSec, targetSec,
     // ★VF_AIVIDEO_V1：AI 模式下措辞要变 —— 画幅不是"按素材定"（画面是 AI 生成的），
     //   并明确写出"画面由 AI 逐镜生成"，避免用户以为用的是自己的图。
-    hint: `看完了你仓库里 ${imgN} 张图，排了 ${shots.length} 个镜头（覆盖文案 ${Math.round(cover * 100)}%·预计 ${estSec} 秒·${_isAI ? `${aspectName}·**画面由 AI 逐镜生成**` : (aspect === 'landscape' ? '按素材定为横屏' : '按素材定为竖屏')}·风格 ${themeName}·配音 ${voiceName}）` +
+    hint: `看完了你仓库里 ${imgN} 张图，排了 ${shots.length} 个镜头（覆盖文案 ${Math.round(cover * 100)}%·最终以配音为准约 ${estSec} 秒·${_isAI ? `${aspectName}·**画面由 AI 逐镜生成**` : (aspect === 'landscape' ? '按素材定为横屏' : '按素材定为竖屏')}·风格 ${themeName}·配音 ${voiceName}）` +
       // ★VF_VIDI2V_V1：让图动起来的钱**明写在卡片上**（不藏着）；同一张图只生成一次
       // ★VF_MATUI_V1（2026-09-30 用户定案）：不动的时候也要**明说 0 点动图**（默认已改成不动，
       //   用户要一眼看出"这次不花 AI 的钱"；动了则写清"让 N 张动起来 ≈ M 点"）。
@@ -4691,7 +4691,7 @@ PUBLISH_DRAFT.delete(uidW)
                   }
                   vfSubLen = sum
                   vfCover = vfScript2 ? vfSubLen / vfScript2.length : 0
-                  vfLog(uidVF2, `[字幕兜底] AI 只覆盖 ${before}% → 按顺序切成 ${vfShots.length} 段填入 → 覆盖 ${Math.round(vfCover * 100)}%（预计 ${Math.round(vfSubLen / 4.5)} 秒）`)
+                  vfLog(uidVF2, `[字幕兜底] AI 只覆盖 ${before}% → 按顺序切成 ${vfShots.length} 段填入 → 覆盖 ${Math.round(vfCover * 100)}%（预计 ${Math.round(vfSubLen / VF_SUB_CPS)} 秒）`)
                 }
                 // ═══ ★VF_COVER_MAX_V1（2026-09-24 用户实测「覆盖文案 233%·预计 97 秒」）═══
                 //   上面那套只治"覆盖不足"（<80%），**完全没有上限** —— AI 把 subtitle 扩写 2 倍多
@@ -4709,7 +4709,7 @@ PUBLISH_DRAFT.delete(uidW)
                   }
                   vfSubLen = _sum2
                   vfCover = vfScript2 ? vfSubLen / vfScript2.length : vfCover
-                  vfLog(uidVF2, `[字幕超写] AI 写了 ${_covB4}%（会超时+重复念）→ 已按文案重切 ${vfShots.length} 段 → 覆盖 ${Math.round(vfCover * 100)}%（预计 ${Math.round(vfSubLen / 4.5)} 秒）`)
+                  vfLog(uidVF2, `[字幕超写] AI 写了 ${_covB4}%（会超时+重复念）→ 已按文案重切 ${vfShots.length} 段 → 覆盖 ${Math.round(vfCover * 100)}%（预计 ${Math.round(vfSubLen / VF_SUB_CPS)} 秒）`)
                 } else if (vfCover > 1.15) {
                   vfLog(uidVF2, `[字幕超写] 覆盖 ${Math.round(vfCover * 100)}%（>115%）：成片会比目标长一些、内容有重复，若不接受可回「重试」重排`)
                 }
@@ -4820,7 +4820,7 @@ PUBLISH_DRAFT.delete(uidW)
                     vfLog(uidVF2, `[时长] 分镜预估合计 ${Math.round(_dfSum)} 秒 / 目标 ${_dfTarget} 秒（仅供参考：最终时长由逐镜配音决定，不再按目标缩放）`)
                   }
                 }
-                const vfEstSec = Math.round(vfSubLen / 4.5)
+                const vfEstSec = Math.round(vfSubLen / VF_SUB_CPS)
                 const vfHasPlan = vfShots.length >= 2 && !!vfScript2 && vfCover >= 0.8
                 vd.script = vfScript2 || vd.topic || '看这条视频'
                 vd.shots = vfHasPlan ? vfShots : undefined
@@ -4851,7 +4851,7 @@ PUBLISH_DRAFT.delete(uidW)
                   vfShots, vfImgs.length, String(vfBrief || ''), vfAspect, vfCover, vfEstSec)
                 // ★VF_SUMMARY_V1（2026-09-20）：一条日志看全本次成片参数（省得每次再跑 Python 脚本查分镜）
                 // ★VF_SUMMARY_V1（2026-09-20）：一条日志看全本次成片参数（省得每次再跑 Python 脚本查分镜）
-                vfLog(uidVF2, `[概要] 图${vfImgs.length}张 镜${vfShots.length}个 风格=${vd.theme || 'dark'} 画幅=${vfAspect}(${vfSize[0]}x${vfSize[1]}) 配音=${vd.voice || '-'} 时长≈${Math.round(vfSubLen / 4.5)}秒${vfAI ? ' 画面来源=全部AI生成' : ''}`)
+                vfLog(uidVF2, `[概要] 图${vfImgs.length}张 镜${vfShots.length}个 风格=${vd.theme || 'dark'} 画幅=${vfAspect}(${vfSize[0]}x${vfSize[1]}) 配音=${vd.voice || '-'} 时长≈${Math.round(vfSubLen / VF_SUB_CPS)}秒${vfAI ? ' 画面来源=全部AI生成' : ''}`)
                 finalResult = wfEarlyReply
                 vfLog(uidVF2, `[起草] 图${vfImgs.length}张 镜头${vfShots.length}个 主题="${String(vd.topic).slice(0, 20)}" 素材摘要=${String(vfBrief).replace(/\n/g, ' ').slice(0, 150)}`)
                 vfLog(uidVF2, `[分镜构成] ${vfShots.map((x: any) => x.type).join(',')}`)
@@ -4967,7 +4967,7 @@ PUBLISH_DRAFT.delete(uidW)
                 i2vSkipped: _after.plan.unfitSamples, i2vSkippedN: _after.plan.skippedUnfit,
                 i2vNotPicked: _after.plan.notPickedNames, i2vNotPickedN: _after.plan.skippedNotPicked },
                 vd.shots || [], (vd.imgs || []).length, String(vd.brief || ''), vd.aspectResolved || 'portrait',
-                Number(vd.cover) || 1, Math.round((Number(vd.subLen) || 0) / 4.5))
+                Number(vd.cover) || 1, Math.round((Number(vd.subLen) || 0) / VF_SUB_CPS))
               finalResult = wfEarlyReply
             } else if (vd.step === 'script' && !!parseMatSetMessage(userMessage)) {
               // ═══ ★VF_MEMORY_V1（2026-09-30 用户定案「个人仓库怎么分配 AI 仓库主要看哪里的」）═══
@@ -4988,7 +4988,7 @@ PUBLISH_DRAFT.delete(uidW)
                 i2vSkipped: _mkMat.plan.unfitSamples, i2vSkippedN: _mkMat.plan.skippedUnfit,
                 i2vNotPicked: _mkMat.plan.notPickedNames, i2vNotPickedN: _mkMat.plan.skippedNotPicked },
                 vd.shots || [], (vd.imgs || []).length, String(vd.brief || ''), vd.aspectResolved || 'portrait',
-                Number(vd.cover) || 1, Math.round((Number(vd.subLen) || 0) / 4.5))
+                Number(vd.cover) || 1, Math.round((Number(vd.subLen) || 0) / VF_SUB_CPS))
               finalResult = wfEarlyReply
             } else if (vd.step === 'script' && !!parseMatSwapMessage(userMessage)) {
               // ═══ ★VF_MATUI_V1（2026-09-30 用户定案「选中的图片是否可以做个小预览，点击可以替换一个」）═══
@@ -5013,7 +5013,7 @@ PUBLISH_DRAFT.delete(uidW)
                   i2vSkipped: _mkSw.plan.unfitSamples, i2vSkippedN: _mkSw.plan.skippedUnfit,
                   i2vNotPicked: _mkSw.plan.notPickedNames, i2vNotPickedN: _mkSw.plan.skippedNotPicked },
                   vd.shots || [], (vd.imgs || []).length, String(vd.brief || ''), vd.aspectResolved || 'portrait',
-                  Number(vd.cover) || 1, Math.round((Number(vd.subLen) || 0) / 4.5))
+                  Number(vd.cover) || 1, Math.round((Number(vd.subLen) || 0) / VF_SUB_CPS))
                 finalResult = wfEarlyReply
               }
             } else if (vd.step === 'script' && /确认|可以|开始|生成吧|出片|就这个|^行$|^好$|^OK$|先出字幕版|强制出片/i.test(userMessage.trim())) {
@@ -5115,7 +5115,7 @@ PUBLISH_DRAFT.delete(uidW)
               }
               const vfAgainSub = vfAgain.reduce((a: number, s: any) => a + String(s.subtitle || '').length, 0)
               const vfAgainCover = vd.script ? vfAgainSub / String(vd.script).length : 0
-              const vfAgainEst = Math.round(vfAgainSub / 4.5)
+              const vfAgainEst = Math.round(vfAgainSub / VF_SUB_CPS)
               vd.shots = (vfAgain.length >= 2 && vfAgainCover >= 0.8) ? vfAgain : undefined
               vd.cover = vfAgainCover; vd.subLen = vfAgainSub
               // ★VF_I2V_BASELINE_V1：重排分镜后重新算"让哪几张图动起来"（与首次起草同口径，报价同源）
