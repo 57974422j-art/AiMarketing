@@ -1679,6 +1679,8 @@ function VfPptPreview({ plan }: { plan: any }) {
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState('')
   const [imgs, setImgs] = useState<any[]>([])
+  // ★VF_PPTBADGE_V1 补丁②：服务端回传的"换页结论"（本线/皮肤/换了几镜/没换的为什么）
+  const [swap, setSwap] = useState<any>(null)
   // ★VF_PPTBADGE_V1 补丁（2026-10-07 用户实测「共 7 页（其中 0 页 = 新引擎整页）」）：
   //   **只有新线「PPT+图视」的 plan 才带根级 `pptpage`**（老线一个键都不写，见 banner.ts buildVideoPlan）。
   //   所以老线上显示"0 页 = 新引擎整页"是**必然且正确**的，但那句话会被误读成"坏了"。
@@ -1688,7 +1690,7 @@ function VfPptPreview({ plan }: { plan: any }) {
   const hasPlan = !!(plan && Array.isArray(plan.shots) && plan.shots.length)
   const run = async () => {
     if (loading || !hasPlan) return
-    setLoading(true); setErr(''); setImgs([])
+    setLoading(true); setErr(''); setImgs([]); setSwap(null)
     try {
       const r = await fetch('/api/agent/vf/ppt-preview', {
         method: 'POST', credentials: 'include',
@@ -1696,7 +1698,7 @@ function VfPptPreview({ plan }: { plan: any }) {
         body: JSON.stringify({ plan }),
       })
       const j = await r.json().catch(() => null)
-      if (j && j.success && Array.isArray(j.images) && j.images.length) setImgs(j.images)
+      if (j && j.success && Array.isArray(j.images) && j.images.length) { setImgs(j.images); setSwap(j.swap || null) }
       else setErr(String((j && j.error) || '预览生成失败：服务端没有返回结果'))
     } catch (e: any) {
       setErr('预览生成失败：' + String(e?.message || e).slice(0, 120))
@@ -1754,6 +1756,26 @@ function VfPptPreview({ plan }: { plan: any }) {
               </button>
             ))}
           </div>
+          {/* ★VF_PPTBADGE_V1 补丁②（2026-10-07 用户质问「这里写的怎么明显，你都还是分不清吗？」）：
+              结论 + **依据**一起给 —— 本线/皮肤/换了几镜/没换的具体原因。改前只有"0 页新引擎"这种结论，
+              既看不出"新线本该换却没换"，也看不出"这条线本来就不换"，只能靠翻服务器日志。 */}
+          {swap && swap.on ? (
+            <div className="mt-1.5 text-[10px] leading-relaxed text-gray-400">
+              <div className="text-sky-300">
+                本线 <b>PPT+图视</b> · 皮肤 {String(swap.master || '—')}/{String(swap.palette || '—')} · 换页
+                <b className="text-emerald-300/90"> {Number(swap.swapped) || 0}/{Number(swap.total) || 0} </b>镜
+              </div>
+              {swap.note ? (
+                <div className="text-amber-300/90">⚠️ 换页未生效：{String(swap.note).slice(0, 180)}</div>
+              ) : null}
+              {Array.isArray(swap.skips) && swap.skips.length ? (
+                <div className="text-gray-500">
+                  未换：
+                  {swap.skips.map((s: any) => `第${s.i}镜${s.type ? '（' + s.type + '）' : ''}：${s.why}`).join('；').slice(0, 300)}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
       {zoom ? (

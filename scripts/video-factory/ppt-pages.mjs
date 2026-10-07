@@ -29,6 +29,8 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+// ★VF_DECKRESIL_V1：ESM 里没有 `__filename` ⇒ 降级重试要以"脚本自己"为子进程再跑一遍，用这个常量。
+const SELF = fileURLToPath(import.meta.url)
 const DECK_DIR = path.join(__dirname, 'html-deck')
 const RENDER_DECK = path.join(DECK_DIR, 'render-deck.mjs')
 const FONT_TABLE = path.join(DECK_DIR, 'fonts', 'chars-cmn.txt')
@@ -340,7 +342,13 @@ function violates(kind) {
 }
 for (let i = 0; i < sb.shots.length; i++) {
   const cands = MIX ? candidatesOf(sb.shots[i]) : [mapShot(sb.shots[i])].filter((r) => r.page).map((r) => ({ page: r.page, kind: r.page.type, why: r.why }))
-  if (!cands.length) { say(`第 ${i + 1} 镜（${sb.shots[i].type}）不换页：无可映射页型`); continue }
+  if (!cands.length) {
+    // ★VF_SKIPWHY_V1（2026-10-07）：把**具体原因**打出来（改前只有一句"无可映射页型"，
+    //   看不出是"卡型不映射"还是"内容不合窗口"）。用户要能分辨，日志先得说人话。
+    const _w = String((mapShot(sb.shots[i]) || {}).why || '无可映射页型')
+    say(`第 ${i + 1} 镜（${sb.shots[i].type}）不换页：${_w}`)
+    continue
+  }
   let chosen = cands.find((c) => !violates(c.kind))
   let forced = false
   if (!chosen) { chosen = cands[0]; forced = true }
@@ -393,6 +401,39 @@ const size = Array.isArray(sb.size) ? sb.size : [720, 1280]
 const orientation = size[0] >= size[1] ? '16:9' : '9:16'
 const banner = sb.banner || {}
 const coverKicker = clip(banner.line2 || sb.topic || 'AI 营销', 32)
+// ★VF_METAWIN_V1（2026-10-07 用户实测「PPT+图视 7 页全是老引擎」的**真正根因**）：
+//   `meta` 是 schema **硬性必填**（title 4~33 / subtitle 6~203，见 deck.schema.json $defs.meta），
+//   而本脚本是"**一条片合成一个 deck 渲一次**" ⇒ **meta 一旦不合窗口，整批换页全部作废**
+//   （线上表现 = 预览/成片 全是老引擎，日志只有一行 `deck 校验没过 → 不换页`）。
+//   改前：`title: clip(banner.line1 || sb.topic || 'AI 营销系统演示', 50)` 两个毛病叠在一起：
+//     ① **没做窗口校验** —— banner 只有一行、或主题本身不足 4 字（「测试」/「用AI」这类）⇒ title <4 字 ⇒ FAIL；
+//        line2 缺省时从 `sb.topic` 兜底，若也拿不到 ≥6 字 ⇒ subtitle FAIL；
+//     ② **截断长度 50 > schema 上限 33** ⇒ 长标题同样 FAIL。
+//   修法：**先在窗口内挑第一个天然合规的候选**，全不合就用"这条片子自己的信息"补齐到合法长度。
+//   ⚠️ 补齐**不会污染任何镜头画面**：cover 是 schema 强制的**占位首页**，本脚本从不把它贴回任何镜。
+const MT_MIN = 4, MT_MAX = 33, MS_MIN = 6, MS_MAX = 203
+function fitMeta(cands, min, max, fallback) {
+  for (const c of cands) {
+    const s = String(c == null ? '' : c).replace(/\s+/g, ' ').trim()
+    if (s.length >= min && s.length <= max) return s
+  }
+  let s = ''
+  for (const c of cands) {
+    const x = String(c == null ? '' : c).replace(/\s+/g, ' ').trim()
+    if (x.length > s.length) s = x
+  }
+  s = s.slice(0, max)
+  if (s.length < min) s = (s + fallback).slice(0, max)
+  while (s.length < min) s += fallback
+  return s.slice(0, max)
+}
+const _p0 = (picked[0] || {}).page || {}
+const _pAny = picked.map((p) => p.page || {}).find((p) => p.title || p.line1) || _p0
+const metaTitle = fitMeta([banner.line1, sb.topic, _p0.title, _pAny.title, _pAny.line1], MT_MIN, MT_MAX, 'AI 营销系统演示')
+const metaSub = fitMeta([banner.line2, sb.topic, _pAny.summary, _pAny.subtitle, _pAny.context], MS_MIN, MS_MAX, '一页看懂关键要点 · 三秒生成投放方案')
+if (String(banner.line1 || '').trim() !== metaTitle || String(banner.line2 || sb.topic || '').trim() !== metaSub) {
+  say('meta 按 schema 窗口自适应：title=' + metaTitle + ' / subtitle=' + metaSub)
+}
 const padPage = JSON.parse(JSON.stringify(picked[picked.length - 1].page))
 const pages = [{ type: 'cover', kicker: coverKicker }, ...picked.map((p) => p.page)]
 const PAD = 4 // schema minItems
@@ -402,7 +443,7 @@ if (padN) say(`页数不足 ${PAD}（schema 下限）→ 补 ${padN} 页占位�
 
 const deck = {
   version: '1.0',
-  meta: { title: clip(banner.line1 || sb.topic || 'AI 营销系统演示', 50), subtitle: clip(banner.line2 || coverKicker, 60), lang: 'zh-CN' },
+  meta: { title: metaTitle, subtitle: metaSub, lang: 'zh-CN' },
   style: { masterId, palette, density: 'normal', tempo: 'normal', orientation },
   pages,
 }
@@ -430,6 +471,30 @@ const framesDir = path.join(OUT_ROOT, name, 'frames')
 //    第 k 个"可换镜"（k 从 0 数）对应 deck 的第 k+1 页 ⇒ 帧名 `p{k+1}-full.png`。
 const pngOf = (k) => path.join(framesDir, `p${k + 1}-full.png`)
 
+// ★VF_DECKRESIL_V1（2026-10-07 用户实测「PPT+图视 7 页全是老引擎」暴露的结构性弱点）：
+//   本脚本是"**一条片合成一个 deck 渲一次**"（受引擎"下限 4 页 + 无单页渲染开关"约束，必须如此），
+//   代价是：**任何一页出事（校验/渲染失败）⇒ 整批换页作废**。用户看不到"哪一页坏了"，
+//   只看到"这条线又是老画法" ⇒ 必然得出"你这东西没生效"。
+//   本函数 = 一次**降级重试**：去掉最容易出事的 `image`（素材）页，只换纯文字镜再来一遍。
+//   为什么先去 image：它要落盘素材、要过引擎的像素级校验（对比度 ≥4.5:1），是唯一"依赖外部文件"的页型。
+//   成功 ⇒ 本进程直接以"降级结果"结束（exits 0）；失败 ⇒ 返回 false，走原兜底（回落老画法）。
+function degradRetry(stage) {
+  try {
+    if (!IMGPAGES || process.argv.includes('--no-imgpages')) return false
+    say(`★VF_DECKRESIL_V1 ${stage} 阶段整批失败 → 自动降级重试（去掉素材 image 页，只换纯文字镜）`)
+    const r2 = spawnSync(process.execPath, [SELF, ...process.argv.slice(2), '--no-imgpages'],
+      { encoding: 'utf8', timeout: 30 * 60 * 1000 })
+    const t2 = String(r2.stdout || '').split('\n').filter((x) => /PPT-PAGE|RESULT/.test(x)).slice(-6).join('\n')
+    if (t2) say(t2)
+    if (r2.status === 0 && OUT_SB && fs.existsSync(OUT_SB)) {
+      say('★VF_DECKRESIL_V1 降级重试成功 → 本次只换纯文字镜（素材镜保持老画法）')
+      process.exit(0)
+    }
+    say('★VF_DECKRESIL_V1 降级重试仍失败 → 回落老画法')
+  } catch (e) { say('★VF_DECKRESIL_V1 降级重试异常：' + String(e.message).slice(0, 140)) }
+  return false
+}
+
 if (DRY) { say(`dry-run：不渲染，deck 有 ${pages.length} 页（可换 ${picked.length} 镜）→ ${deckPath}`); done({ ok: true, pages: pages.length, swapped: 0, note: 'dry' }) }
 
 let rendered = picked.every((_, k) => fs.existsSync(pngOf(k)))
@@ -447,6 +512,7 @@ if (!rendered) {
     const vtail = vout.split('\n').filter((x) => /✗|不达标|结论|FAIL/.test(x)).slice(0, 4).join(' | ')
     if (vchk.status !== 0 || /FAIL/.test(vout)) {
       say(`deck 校验没过 → 不换页（回落老画法）：${vtail.slice(0, 260)}`)
+      degradRetry('校验')          // ★VF_DECKRESIL_V1（成功则本进程直接结束）
       done({ ok: false, note: 'validate-failed' })
     }
     say(`deck 校验通过：${vtail.slice(0, 140)}`)
@@ -454,7 +520,11 @@ if (!rendered) {
     say(`渲染 ${name}（${pages.length} 页 → ${picked.length} 镜可用，master=${masterId}/${palette}，${orientation}）…`)
     const r = spawnSync(process.execPath, [RENDER_DECK, deckPath, '--outdir', OUT_ROOT], { encoding: 'utf8', timeout: 15 * 60 * 1000 })
     const tail = String(r.stdout || '').split('\n').filter((x) => /RESULT|✗|校验|RENDER total/.test(x)).slice(-3).join(' | ')
-    if (r.status !== 0) { say(`渲染失败（exit ${r.status}）：${(tail || String(r.stderr || '')).slice(0, 240)}`); done({ ok: false, note: 'render-failed' }) }
+    if (r.status !== 0) {
+      say(`渲染失败（exit ${r.status}）：${(tail || String(r.stderr || '')).slice(0, 240)}`)
+      degradRetry('渲染')        // ★VF_DECKRESIL_V1（成功则本进程直接结束）
+      done({ ok: false, note: 'render-failed' })
+    }
     say(`渲染完成 ${((Date.now() - t0) / 1000).toFixed(1)}s · ${tail.slice(0, 160)}`)
   } catch (e) { say('渲染异常：' + String(e.message).slice(0, 160)); done({ ok: false, note: 'render-throw' }) }
 }

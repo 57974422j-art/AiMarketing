@@ -510,7 +510,30 @@ ck 'VF_PPTIMG_CACHEKEY_V1'          'scripts/video-factory/ppt-pages.mjs' 1
 #   客户端预览格子**直接标**「🆕 新引擎整页 / 老引擎画法」，并在顶部统计「N 页 = 新引擎整页 / 其余 = 老引擎画法」。
 #   本机 A/B 对照（同分镜同时刻，上=老引擎 / 下=新引擎 editorial/vermilion）：`temp/v9/AB.jpg`。
 ck 'VF_PPTBADGE_V1'                 'scripts/video-factory/render.py' 1
-ck 'VF_PPTBADGE_V1'                 'src/app/agent/page.tsx' 2
+ck 'VF_PPTBADGE_V1'                 'src/app/agent/page.tsx' 5
+ck 'VF_PPTBADGE_V1'                 'src/app/api/agent/vf/ppt-preview/route.ts' 2
+# ★2026-10-07 晚 新线「PPT+图视」换页**整批作废**的真根因 + 可分辨化
+#   ★VF_METAWIN_V1（ppt-pages.mjs）：**用户实测「PPT+图视 7 页全是老引擎」的真根因**。
+#     deck 的 `meta` 是 schema 硬性必填（title 4~33 / subtitle 6~203），而本脚本是"一条片一个 deck 渲一次"
+#     ⇒ **meta 一旦不合窗口 ⇒ 整批换页作废**（日志只有一行 `deck 校验没过 → 不换页`）。
+#     改前 `title: clip(banner.line1 || sb.topic || …, 50)`：既没窗口校验（banner 只有一行 / 主题 <4 字
+#     ⇒ title 不合），截断长度 50 还**超过** schema 上限 33。现在改成"窗口内挑候选 + 用本片信息补到合法长度"。
+#     本机实测（主题故意给 2 字「测试」）：改前 FAIL（meta.title/meta.subtitle 两项），改后 PASS，
+#     5 页 deck 渲 25.8s、**4 镜换成新引擎页**。
+#   ★VF_DECKRESIL_V1（ppt-pages.mjs）：整批失败时**自动降级重试一次**（去掉素材 `image` 页，只换纯文字镜）。
+#     为什么：一个 deck 的代价就是"一页出事、整批作废"；image 页是唯一依赖外部文件 + 要过引擎像素级
+#     校验（对比度 ≥4.5:1）的页型 ⇒ 先摘它重试。成功即以降级结果结束，仍失败才回落老画法。
+#   ★VF_SKIPWHY_V1（ppt-pages.mjs + ppt-preview/route.ts）：跳过原因说人话并**回传到卡片**。
+#     改前只有「无可映射页型」；现在逐镜给具体原因（如「end 需要 line1+cta+en，老引擎 end 卡通常没有 en」
+#     「list 条目数/长度不合 bullets 也不合 toc」），并由预览接口原样返回 → 卡片显示
+#     「本线 PPT+图视 · 皮肤 master-x/palette · 换页 4/7 镜」+ 未换清单 ⇒ 用户与我都不必再靠日志猜。
+#   ★VF_PPTBADGE_V1 补丁②（route.ts + page.tsx）：预览接口原先**白名单式重建**返回对象，把 render.py
+#     写进索引的 `pptpage` 漏掉了 ⇒ 逐格标签与统计**恒为 0 页**（用户当场撞上并截图质问）。
+#     现在 `...it` 展开透传（以后加字段不会再漏）+ 老线不再显示"0 页新引擎"（它本来就不换页）。
+ck 'VF_METAWIN_V1'                  'scripts/video-factory/ppt-pages.mjs' 1
+ck 'VF_DECKRESIL_V1'                'scripts/video-factory/ppt-pages.mjs' 8
+ck 'VF_SKIPWHY_V1'                  'scripts/video-factory/ppt-pages.mjs' 1
+ck 'VF_SKIPWHY_V1'                  'src/app/api/agent/vf/ppt-preview/route.ts' 1
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"

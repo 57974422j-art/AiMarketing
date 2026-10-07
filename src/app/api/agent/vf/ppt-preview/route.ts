@@ -70,8 +70,20 @@ export async function POST(request: NextRequest) {
     //   ⚠️ **只对带 plan 根级 `pptpage` 的线生效**（= 新线「PPT+图视」自己写的键）；老线没有该键 ⇒ 预览照旧。
     //   ⚠️ 换页 deck 走的是与出片**同一个缓存目录**（按内容 hash）⇒ 出过片的那条，预览是秒级；没出过则要等一次渲染。
     let sbForRender = sbP
+    // ★VF_PPTBADGE_V1 补丁②（2026-10-07 用户质问「这里写的怎么明显，你都还是分不清吗？」）：
+    //   把"本线换了几页 / 没换的为什么"**带回给卡片**。改前界面只给结论（"0 页新引擎"）不给依据，
+    //   用户看不出"是新线本该换却没换"还是"这条线本来就不换" —— 我也只能靠日志猜。现在原样回传。
+    let swapInfo: any = {
+      on: false,
+      swapped: 0,
+      total: Array.isArray(plan?.shots) ? plan.shots.length : 0,
+      skips: [] as any[],
+    }
     const _ppRoot = (plan as any)?.pptpage
     if (_ppRoot && typeof _ppRoot === 'object') {
+      swapInfo.on = true
+      swapInfo.master = String((_ppRoot as any).master || '')
+      swapInfo.palette = String((_ppRoot as any).palette || '')
       try {
         const scriptP = path.join(vfRootDir() || '', 'scripts', 'video-factory', 'ppt-pages.mjs')
         if (fs.existsSync(scriptP)) {
@@ -91,12 +103,29 @@ export async function POST(request: NextRequest) {
               const t = setTimeout(() => { try { ch.kill() } catch { /* ignore */ } resolve() }, 15 * 60 * 1000)
               ch.on('close', () => {
                 clearTimeout(t)
+                // ★VF_SKIPWHY_V1（2026-10-07）：脚本每镜都会打印 `第 N 镜（卡型）不换页：<具体原因>`，
+                //   这里整条捞出来回给卡片 —— 用户要能分辨"哪几页没换、为什么"，命令行日志他看不到。
+                try {
+                  const _so = String(so || '')
+                  const _re = /\[PPT-PAGE\]\s*第\s*(\d+)\s*镜(?:（([^）]*)）)?\s*不换页：([^\n\r]*)/g
+                  const _sk: any[] = []
+                  let _m: RegExpExecArray | null
+                  while ((_m = _re.exec(_so)) !== null && _sk.length < 12) {
+                    _sk.push({ i: Number(_m[1]), type: String(_m[2] || ''), why: String(_m[3] || '').trim().slice(0, 90) })
+                  }
+                  swapInfo.skips = _sk
+                } catch { /* ignore */ }
                 if (fs.existsSync(outP)) {
                   sbForRender = outP
-                  vfLog(uid, '[PPT预览] 新线换页成功 → 预览改用 storyboard.pptpage.json（与出片同一把尺子）')
+                  try {
+                    const _j = JSON.parse(fs.readFileSync(outP, 'utf8'))
+                    swapInfo.swapped = Number(_j?.pptpage?.swapped || 0)
+                    swapInfo.pages = Number(_j?.pptpage?.pages || 0)
+                  } catch { /* ignore */ }
+                  vfLog(uid, `[PPT预览] 新线换页成功 → 预览改用 storyboard.pptpage.json（换 ${swapInfo.swapped}/${swapInfo.total} 镜）`)
                 } else {
-                  vfLog(uid, '[PPT预览] 换页未生效 → 预览回落老画法：'
-                    + String(so).split('\n').filter(Boolean).slice(-1)[0])
+                  swapInfo.note = String(so).split('\n').filter(Boolean).slice(-1)[0] || ''
+                  vfLog(uid, '[PPT预览] 换页未生效 → 预览回落老画法：' + swapInfo.note)
                 }
                 resolve()
               })
@@ -173,7 +202,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: '预览生成失败：没有产出可用的图片' })
     }
     vfLog(uid, `[PPT预览] 成功：${images.length} 张（plan 根级 style=${String(plan.style || '（未指定）')} / deck_style=${String(plan.deck_style || '')}）`)
-    return NextResponse.json({ success: true, count: images.length, images })
+    return NextResponse.json({ success: true, count: images.length, images, swap: swapInfo })
   } catch (e: any) {
     vfLog(uid, '[PPT预览] 异常：' + String(e?.message || e).slice(0, 200))
     return NextResponse.json({ success: false, error: '预览生成失败：' + String(e?.message || e).slice(0, 160) })
