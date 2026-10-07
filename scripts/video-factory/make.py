@@ -650,6 +650,59 @@ def enforce_shot_limits(sb):
     return False, [], soft
 
 
+def _pptpage_swap(sb_in, wd, sb_root, a):
+    """★VF_PPTPAGE_V1（2026-10-07 用户定案「先做 P0」）——把【纯文字镜】换成新引擎（html-deck）
+    渲出的**整页版式图**，再当素材贴回原镜；返回"该用哪个 storyboard"。
+
+    为什么这样做（别绕过这三条）：
+      · 新引擎 deck **下限 4 页 + 首屏必须 cover**，且 render-deck 没有"只渲某页"的开关
+        ⇒ "一镜一个 deck"走不通（校验先 exit 3）⇒ 把一条片的文字镜**合成一个 deck 渲一次**，按序贴回。
+      · 老引擎 render.py 只认**本地绝对路径**的 `src` ⇒ 渲出的 PNG 落到本地，再把该镜改成
+        `type:'bgimage'` + `src:<png>` —— 这样 Ken Burns/渐变遮罩/字幕全自动继承，不新增第二条渲染链。
+      · **逐镜兜底**：映射不上 / 不合页型窗口 / 命中字表外字符 / 渲染失败 ⇒ 那一镜（或整批）保持老画法。
+        本函数**绝不上抛、绝不改变失败行为** —— 最差就是"没换页"，出片照旧成功。
+
+    ⚠️ 只对【图片成片 / 图视混剪】生效（= 不是 AI 制片、不是素材+AI）：用户定案「PPT 成片单独放着，
+       只优化图片成片和图视混剪」。AI 制片（--source ai）与混合线（--mix）**按原样跳过**。
+    关闭开关：环境变量 `VF_PPTPAGE=0`（一键回到全老画法，不用改代码）。
+    """
+    try:
+        if a is not None and (a.source == 'ai' or str(a.mix or '').strip()):
+            return sb_in
+        if str(os.environ.get('VF_PPTPAGE', '')).strip().lower() in ('0', 'off', 'false', 'no'):
+            print('[MAKE] ★VF_PPTPAGE_V1 已关闭（VF_PPTPAGE=0）→ 纯文字镜继续用老引擎画法')
+            return sb_in
+        script = os.path.join(HERE, 'ppt-pages.mjs')
+        if not os.path.exists(script):
+            print('[MAKE] ★VF_PPTPAGE_V1 找不到 ppt-pages.mjs → 继续用老画法')
+            return sb_in
+        out = os.path.join(wd, 'storyboard.pptpage.json')
+        cmd = [os.environ.get('BU_NODE') or 'node', script,
+               '--storyboard', sb_in, '--out', out,
+               '--outdir', os.path.join(HERE, 'html-deck', 'out', 'pptpage')]
+        _st = str((sb_root or {}).get('style') or '').strip()
+        if _st:
+            cmd += ['--style', _st]
+        r = subprocess.run(cmd, capture_output=True, timeout=1800)
+        tail = [x.strip() for x in (r.stdout or b'').decode('utf-8', 'ignore').split('\n') if x.strip()]
+        last = (tail[-1] if tail else '')[:200]
+        if r.returncode != 0 or not os.path.exists(out):
+            print('[MAKE] ★VF_PPTPAGE_V1 换页未生效（exit %s）→ 继续用老画法：%s' % (r.returncode, last))
+            return sb_in
+        try:
+            _n = int((json.load(open(out, encoding='utf-8')).get('pptpage') or {}).get('swapped') or 0)
+        except Exception:
+            _n = 0
+        if _n <= 0:
+            print('[MAKE] ★VF_PPTPAGE_V1 没有可换的镜 → 继续用老画法：%s' % last)
+            return sb_in
+        print('[MAKE] ★VF_PPTPAGE_V1 %d 镜换成新引擎整页版式图 → 用 storyboard.pptpage.json 渲染' % _n)
+        return out
+    except Exception as e:
+        print('[MAKE] ★VF_PPTPAGE_V1 异常（忽略，继续老画法）: %s' % str(e)[:160])
+        return sb_in
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--script', default='', help='一段文案（自动切句成卡）')
@@ -853,6 +906,11 @@ def main():
             sys.exit(5)
     elif a.source == 'mix' and not str(a.mix or '').strip():
         print('[MAKE] ⚠️ --source mix 需配 --mix 镜号（如 --mix 1,5）才有意义；本次按【素材合成】出片')
+
+    # ②.7 ★VF_PPTPAGE_V1（2026-10-07 P0）：图片成片/图视混剪的【纯文字镜】→ 换成新引擎渲出的
+    #   整页版式图。刻意放在**配音之后**（此时每镜 dur 已是真实配音时长；静帧版虽不看时长，
+    #   但 P2 的动效版要按真实镜长渲）**渲染之前**；失败/跳过一律回落原 storyboard（绝不影响出片）。
+    use_sb = _pptpage_swap(use_sb, wd, sb, a)
 
     # ③ 渲染成片
     ok2 = run('"%s" "%s" --storyboard "%s" --workdir "%s" --audio "%s" --bgm "%s" --out "%s"'

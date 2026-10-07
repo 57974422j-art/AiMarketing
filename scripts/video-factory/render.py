@@ -1725,7 +1725,13 @@ def card_image(shot, th, W, H, fps):
             return (f"-loop 1 -t {dur} -i \"{src}\"", vf, dur)
     kb = shot.get('kb', 'zoomin')
     frames = max(1, int(dur * fps))
-    if kb == 'zoomin':
+    if kb in ('none', 'off', 'static'):
+        # ★VF_KBSTATIC_V1（2026-10-07 P0）：**逐镜关掉推拉**（静止镜）。为什么需要：
+        #   "整页设计图"（新引擎渲出的 PPT 版式页 / 任何已排好版的整页图）**不该再被推近**——
+        #   推近 = 逐帧裁切，会把页面四周的安全边（标题、页码、进度线）切掉。
+        #   改前：任何非 zoomin/zoomout 的值都落到 else 的「轻微放大 1.10」⇒ **没有真正的静止档**。
+        z = '1.0'
+    elif kb == 'zoomin':
         z = f"zoom='min(1+0.15*on/{frames},1.15)'"
     elif kb == 'zoomout':
         z = f"zoom='max(1.15-0.15*on/{frames},1.0)'"
@@ -3540,10 +3546,12 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
         if _land:
             print('[VF] ★VF_TPL_LAND_V1 横屏 + 竖/方素材 → 左图右字：%s'
                   % os.path.basename(str(src))[:24])
-    if _screen and shot.get('_collage'):
+    if _screen and (shot.get('_collage') or shot.get('_pptpage')):
         # ★VF_DUO_V1：拼版（duo/frame）**例外** —— 那几张图是用户点名要拼的，换成空底板等于弄丢画面。
-        #   只按"满字素材"路径处理（大字缩到 0.72 + 落"下三分之一 + 渐隐底衬带"，见下面的 _busy 分支）。
-        print('[VF] ★VF_DUO_V1 拼版镜命中"素材不适合当背景"判据 → 仍保留拼版（只按满字素材让位）')
+        # ★VF_PPTPAGE_V1（2026-10-07 P0）：**新引擎渲出的整页版式图**同理例外 —— 它本来就是"设计好的整页"，
+        #   深色母版（如 master-tech）天然"暗 + 大片纯色底"，正好会命中 `_screen` 判据被换成空质感底板
+        #   ⇒ 等于把辛苦渲出来的一页丢掉、退回老画法还更难看。这里只按"满字素材"让位，画面照留。
+        print('[VF] ★VF_PPTPAGE_V1 整页版式图/拼版镜命中"素材不适合当背景"判据 → 仍保留该页（只按满字素材让位）')
         _screen = False
     if _screen:
         # 又深又满字 = 典型"深色界面截图" → 【不硬塞这张图】，改用主题质感底板 + 大字

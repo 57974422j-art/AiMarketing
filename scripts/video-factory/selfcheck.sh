@@ -376,6 +376,28 @@ ck 'VF_KINOKU_V1'                   'scripts/video-factory/make.py' 2
 #   ✅ 不破坏既有对齐：音频侧合并时**按镜长 apad 补静音**（VF_AUDIOALIGN_V1）⇒ A/V 仍严格对齐；
 #      字幕窗口用的是 `voice`（不是 dur）⇒ **字幕一个字都不会因此多停**（不会带回"配音比字幕快"）。
 ck 'VF_MINSTOP_V1'                  'scripts/video-factory/tts.py' 1
+# ★VF_PPTPAGE_V1（2026-10-07 用户定案「先做 P0」）——图片成片/图视混剪的【纯文字镜】换成
+#   **新引擎（html-deck）渲出的整页版式图**，再当素材贴回原镜（先做静帧版）。
+#   为什么不是"一镜一个 deck"：新引擎 deck **下限 4 页**（deck.schema.json:27）+ 首屏必须 cover，
+#   且 render-deck **没有"只渲某页"的开关**（CLI 仅 <deck.json>/--outdir/--no-render）⇒ 校验先 exit 3。
+#   所以：**把一条片的文字镜合成一个 deck 渲一次**（cover 占位 + 逐镜映射 + 不足 4 页补占位），
+#   再把 `frames/pN-full.png`（**0 基**：p0=封面）按序贴回 ⇒ 顺带白拿 schema 校验/字体闸门/对账。
+#   落点：`scripts/video-factory/ppt-pages.mjs`（映射 + 窗口硬校验 + 字表预筛 + 内容 hash 缓存 + 兜底日志），
+#   由 `make.py::_pptpage_swap` 在**配音之后、渲染之前**调用（失败/跳过 ⇒ 回落原 storyboard，绝不影响出片）；
+#   只对 **图片成片/图视混剪**生效（`--source ai` 与 `--mix` 一律跳过 = 用户「PPT 成片单独放着」）；
+#   `VF_PPTPAGE=0` 可一键回全老画法。
+#   贴回时四个"必要姿态"（本机实测缺一就不对）：`frame:'none'`（否则编辑风把它缩成圆角卡片 + 背景虚化）、
+#   `kb:'none'`（否则每镜推近=逐帧裁切，切掉页面安全边）、`_pptpage`（否则深色母版页面被 `_screen` 判废换空底板）、
+#   删 `text`（页面已有标题层级，再叠老引擎大字=字压字）。
+#   本机端到端实测：映射窗口判定正确（bgimage 不换 / 短条目与 3 字标题明确拒绝并给原因 / 3 镜可换 ⇒ deck 4 页）；
+#   真渲 4 页 ~20s；换页后交老引擎渲染 **7 镜全 OK、成片 31.00s**，抽帧确认**整屏满幅**。
+ck 'VF_PPTPAGE_V1'                  'scripts/video-factory/ppt-pages.mjs' 1
+ck 'VF_PPTPAGE_V1'                  'scripts/video-factory/make.py' 8
+ck 'VF_PPTPAGE_V1'                  'scripts/video-factory/render.py' 2
+# ★VF_KBSTATIC_V1（2026-10-07 P0 配套）：`kb` 增加**真正的静止档**（none/off/static → zoom 1.0）。
+#   改前任何非 zoomin/zoomout 的值都落到 else 的"轻微放大 1.10" ⇒ 没有静止档；
+#   而"整页设计图"（PPT 版式页/已排版的整页图）不该再被推近（推近=逐帧裁切，切掉标题/页码/进度线）。
+ck 'VF_KBSTATIC_V1'                 'scripts/video-factory/render.py' 1
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"
