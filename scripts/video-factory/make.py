@@ -669,6 +669,20 @@ def _pptpage_swap(sb_in, wd, sb_root, a):
     try:
         if a is not None and (a.source == 'ai' or str(a.mix or '').strip()):
             return sb_in
+        # ★VF_PPTPAGE_SOLO_V1（2026-10-07 用户定案「**逻辑不能混就不混在一起**」「你先在新模式下试通新引擎」
+        #   「不要老是修了这个那个坏了」）——**结构性隔离**：
+        #   只有 plan 根级写了 `pptpage` 的线才换页，而**这个键只有新线「PPT+图视」写**
+        #   （banner.ts buildVideoPlan 里按 vd.line==='pptimg' 才挂）。
+        #   ⇒ 老线（图片成片 / 图视混剪 / 素材+AI / AI 制片）**一行都不会进这里**，彻底回到 P0 之前的样子：
+        #      文字页仍用老引擎画法（deck 版式页），卡上那 5 套「画面风格」**字面生效**，
+        #      也不再受 style→master 粗映射（那套映射只在新线缺 master 时兜底）影响。
+        #   ⇒ 为什么必须这么做（用户原话的教训）：两条线共用一条换页逻辑时，
+        #      "老线的风格词汇"与"新引擎的皮肤词汇"必然互相解释 —— 卡片写"深色渐变"、画面渲"master-tech"，
+        #      用户当然"分不清哪个是最新模版"。宁可口径各是各的，也不做"少写代码"的合流。
+        _ppRoot = (sb_root or {}).get('pptpage')
+        if not isinstance(_ppRoot, dict):
+            print('[MAKE] ★VF_PPTPAGE_SOLO_V1 本单无 pptpage 键（老线）→ 不换页，文字页用老引擎画法')
+            return sb_in
         if str(os.environ.get('VF_PPTPAGE', '')).strip().lower() in ('0', 'off', 'false', 'no'):
             print('[MAKE] ★VF_PPTPAGE_V1 已关闭（VF_PPTPAGE=0）→ 纯文字镜继续用老引擎画法')
             return sb_in

@@ -468,6 +468,18 @@ ck 'VF_PPTIMG_V1'                   'src/lib/agent/vf/banner.ts' 2
 ck 'VF_PPTIMG_SKINS'                'src/app/agent/page.tsx' 4
 ck 'VF_PPTIMG_SKINS'                'src/app/api/agent/chat/route.ts' 4
 ck 'VF_PPTIMG_SKINS'                'src/lib/agent/vf/anti-ai.ts' 1
+# ★VF_PPTPAGE_SOLO_V1（2026-10-07 用户定案「**逻辑不能混就不混在一起**」「你先在新模式下试通新引擎」
+#   「不要老是修了这个那个坏了」「这就是我为什么不让你在图片成片上直接改的原因」）——**结构性隔离**：
+#   新引擎换页**只属于新线**：make.py 的换页入口要求 plan 根级有 `pptpage` 键，而**只有新线**（vd.line==='pptimg'，
+#   见 banner.ts buildVideoPlan）才写这个键 ⇒ **老线（图片成片/图视混剪/素材+AI/AI 制片）一行都不会进那段代码**，
+#   彻底回到 P0 之前：文字页仍用老引擎画法（deck 版式页）、卡上那 5 套「画面风格」**字面生效**、
+#   也不再受 style→master 粗映射影响。这不是"关开关"，是**按数据键隔离**（无该键 = 不可能执行）。
+#   为什么必须这样（用户原话的教训）：两条线共用一条换页逻辑时，"老线的风格词汇"与"新引擎的皮肤词汇"
+#   必然互相解释 —— 卡片写"深色渐变"、画面渲"master-tech" ⇒ 用户"分不清哪个是最新模版"。
+#   本机验证：老线 plan（无 pptpage）→ `不换页，文字页用老引擎画法`；新线 plan（有 pptpage）
+#   → `皮肤=master-editorial/vermilion · 页型编排=开` + `9 镜换成新引擎整页版式图`。
+ck 'VF_PPTPAGE_SOLO_V1'             'scripts/video-factory/make.py' 2
+ck 'VF_PPTPAGE_SOLO_V1'             'scripts/video-factory/ppt-pages.mjs' 1
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"

@@ -279,6 +279,9 @@ if (!sb || !Array.isArray(sb.shots) || !sb.shots.length) { say('storyboard 没�
 //   一页三排字去画重点」）。默认开；`--no-mix` 退回改前的 1:1 机械映射（list 一律 bullets）。
 //   闸门三条：① 同一页型**连续上限 2 页**；② `bullets`/`toc`（"三排字"家族）各自**配额 ≤ 已定页数的 40%**；
 //   ③ 违反了就换下一个候选（候选按"内容信号"排过序，换的仍是合适的页型）；**无候选可换时才让位**并记日志。
+// ★VF_PPTPAGE_SOLO_V1（2026-10-07）：本脚本**只服务新线「PPT+图视」**（make.py 已按 plan 根级 `pptpage`
+//   结构性隔离 —— 老线根本不会调到这儿）。所以"页型编排"默认开是本线的**自有默认**，不是全局默认；
+//   `--no-mix` 仍可退回 1:1 机械映射做对照/排障。
 const MIX = !process.argv.includes('--no-mix')
 const MAXRUN = 2
 const picked = []
