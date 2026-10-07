@@ -4251,7 +4251,19 @@ PUBLISH_DRAFT.delete(uidW)
             //   ★仍然只清"孤儿"：step=form/source 时的表单提交是「改选项」，绝不能清。
             const _vfOrphan = _vfIsForm && !!vd && vd.step !== 'form' && vd.step !== 'source'
             if (_vfOrphan) vfLog(uidVF2, `[草稿认领] 本次是表单提交，旧草稿 step=${vd?.step} → 作废，用本次表单重新起草`)
-            if (vd && (vfIntent || _vfStale || _vfOrphan)) { VIDEO_DRAFT.delete(uidVF2); clearVfDraft(uidVF2); vd = undefined }
+            // ★VF_PPTIMG_V1（2026-10-07 用户实测「它还是用的原来的皮肤」的**根因**）：**换线命令必须作废旧草稿**。
+            //   改前这里只看 `vfIntent`（= 旧的素材线正则），而新线入口词「PPT+图视 / HTML+图视 / 版式混剪 …」
+            //   **不在那个正则里** ⇒ 已有草稿（step='form'/'script'）时 `vd` 被保留、`vd.line` 仍是 'local'
+            //   ⇒ ① 卡片还是老那 5 套皮肤（新线的 10 母版选择器根本不出现）；
+            //      ② 出片不写 plan 根级 `pptpage` ⇒ 页面落到 style 粗映射的默认皮肤（master-tech/cyan）。
+            //   两者都表现为"皮肤没换"。现在：**命令命中本线一律当"新一单"**（作废旧草稿、按新线重新起草）。
+            const _vfNewLineCmd = stdCmdOwned(['vf_pptimg'])
+            if (vd && (vfIntent || _vfNewLineCmd || _vfStale || _vfOrphan)) {
+              if (_vfNewLineCmd) vfLog(uidVF2, '[换线] 命中「PPT+图视」→ 作废旧草稿，按新线重新起草（line=pptimg）')
+              VIDEO_DRAFT.delete(uidVF2)
+              clearVfDraft(uidVF2)
+              vd = undefined
+            }
 
             /** ★VF_BANNER_RECOMPUTE_V1（2026-09-29 team-lead 要求）：文案被改后按新文案重算标题。
              *  手填两行 / 开关关 / 新文案空 → 不重算（shouldRebuildBanner 拦），手填的**永不覆盖**。
@@ -4398,6 +4410,13 @@ PUBLISH_DRAFT.delete(uidW)
                   //   白名单来自 anti-ai.ts 的 `VF_PPTIMG_SKINS`（真源是 masters/*/master.json）。
                   //   非法 skin → 回落 'tech'；palette 不在该母版的配色里 → 用该母版的**第一个配色**
                   //   （绝不把脏值写进 plan 根级 `pptpage`，否则引擎会渲出意料之外的皮肤）。
+                  // ★VF_PPTIMG_V1：**卡片上真正看到的线标识才作数** —— 防"命令没匹配上 / 草稿串线"
+                  //   导致"卡片显示一条线、出片按另一条线走"（用户实测「还是原来的皮肤」就是这一类）。
+                  //   客户端从 `vj.line` 原样回传，这里只做白名单。
+                  if (f.line !== undefined) {
+                    const _lnRaw = String(f.line)
+                    if (['local', 'video', 'pptimg'].includes(_lnRaw)) vd.line = _lnRaw
+                  }
                   if (f.skin !== undefined) {
                     const _skRaw = String(f.skin || '').replace(/^master-/, '').toLowerCase()
                     const _hitSk = VF_PPTIMG_SKINS.find((s) => s.id === _skRaw)

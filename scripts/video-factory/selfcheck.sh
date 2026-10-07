@@ -454,8 +454,14 @@ ck 'VF_PPTSKIN_V1'                  'scripts/video-factory/make.py' 2
 #   本机验证：`matchStdCommand` 对上述 5 种写法**全部命中 vf_pptimg**，且「图片成片」「图视混剪」「PPT成片」
 #   三条老命令不受影响；`tsc --noEmit` 无新增报错（93 = 改前基线）。
 #   ⚠️ 第一版只吃**图片**素材（视频那半"图视"下一步接；卡片 accept 也仍是 image/*，不误导）。
-ck 'VF_PPTIMG_V1'                   'src/app/agent/page.tsx' 3
-ck 'VF_PPTIMG_V1'                   'src/app/api/agent/chat/route.ts' 5
+#   ★2026-10-07 追加（用户实测「004 它还是用的原来的皮肤」→ 抓到**换线不生效**的根因）：
+#     改前 4254 的"作废旧草稿"只看 `vfIntent`（旧的素材线正则），而新线入口词不在那个正则里
+#     ⇒ 已有草稿（step=form/script）时 vd 被保留、`vd.line` 仍是 'local' ⇒ 卡片还是老 5 套皮肤、
+#     出片也不写 plan 根级 `pptpage` ⇒ 页面落到 style 粗映射的默认皮肤（master-tech/cyan）=「皮肤没换」。
+#     修法：① **命令命中本线一律当"新一单"**（作废旧草稿，按 line=pptimg 重新起草）；
+#           ② 客户端把**卡片上看到的 `line`** 原样回传，服务端白名单后以它为准（防草稿串线）。
+ck 'VF_PPTIMG_V1'                   'src/app/agent/page.tsx' 4
+ck 'VF_PPTIMG_V1'                   'src/app/api/agent/chat/route.ts' 7
 ck 'VF_PPTIMG_V1'                   'src/lib/agent/standard-commands.ts' 1
 ck 'VF_PPTIMG_V1'                   'src/lib/agent/vf/anti-ai.ts' 1
 ck 'VF_PPTIMG_V1'                   'src/lib/agent/vf/banner.ts' 2

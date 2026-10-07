@@ -926,6 +926,9 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
           // ★VF_STYLES_WIRE_V1：🎨 画面风格（'' = 跟随 AI / 不指定 | 5 套成品风格）——
           //   服务端 normalizeStyle 归一后，出片时写进 plan 根级 `style`（渲染层 apply_style 读它）。
           style,
+          // ★VF_PPTIMG_V1：把**卡片上的线标识**原样回传（'local'/'video'/'pptimg'）——
+          //   服务端以它为准（白名单），避免"命令没匹配上/草稿串线"导致卡片与出片走的不是同一条线。
+          line: String(vj.line || 'local'),
           // ★VF_PPTIMG_V1：新线「PPT+图视」的新引擎皮肤（母版 + 配色）—— 老两条线不带这两个键。
           //   palette 取"当前母版确实拥有的那个配色"（换母版后旧配色不合法 → 自动用该母版第一个）。
           ...(isPptimgLine ? { skin, palette: _effPalette } : {}),
