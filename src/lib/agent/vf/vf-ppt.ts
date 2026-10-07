@@ -193,6 +193,12 @@ export async function handlePptLine(ctx: PptCtx): Promise<string | null> {
       voice: 'longxiaochun', bgm: 'auto', skin: 'v1', deckOnly: true,
     }
     ;(vd as any).voiceList = ctx.voiceList
+    // ★VF_PPTGATE_V1（2026-10-07 用户实测「点了『开始排版』回我『你这句话不在命令表里』」的**根因之一**）：
+    //   改前这里**只出卡、不落草稿** ⇒ 标准模式闸门 `stdHasAnyDraft()` 认为"没有进行中的流程"
+    //   ⇒ 第二步的协议串 `VF_PPT_FORM:{…}`（不是命令表里的词）被**锁死回复**拦住，流程永远走不完。
+    //   这与 2026-09-28「视频混剪」、09-29「获客线」踩的是**同一个坑**（第三次）：
+    //   **凡是有第二步协议串的线，第一步就必须把草稿落下来**（草稿 = 闸门眼里的"进行中流程"）。
+    await savePptDraft(ctx.prisma, ctx.uid, vd)
     return setupCard(vd)
   }
 

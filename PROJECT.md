@@ -289,6 +289,19 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 - **④ `VF_PPTSKIN_V1`**：plan 根级 `pptpage{master,palette,mix}` → `make.py` 透传（**老线不写 ⇒ 零回归**）；`mix:false` 可退回机械映射排障。
 - 📋 **下一步（未做）**：新线入口词（`PPT+图视` 主词 + `HTML+图视` 等别名）登记 `standard-commands` → `route.ts` 分派 → 卡片 **10 母版卡 + 每套 4 个配色点**（色值读 `masters/*/master.json`，**不必生成 40 张样张**）。
 
+### 2026-10-07 `PPT成片` 从上线起走不完流程：标准模式闸门死锁（`VF_PPTGATE_V1`）
+
+- **用户实测**：进「PPT成片」→ 贴文案 → 「🚀 开始排版」→ 回「**你这句话不在命令表里**」。
+- **根因**：前后台都接了（卡/协议/handler 都在），断在**标准模式闸门**：`stdHasAnyDraft()` 的 6 条线名单里
+  **没有 PPT 成片**，且 `vf-ppt.ts` **第一步只出卡、不落草稿** ⇒ 第二步协议串必然被锁死；确认卡同理。
+  **与 09-28 视频混剪、09-29 获客线第三次同一个坑**。
+- **修三处**：① 入线即落草稿（`step:'form'`）；② `stdHasAnyDraft` 补 `hasPptDraft`（动态 import）；
+  ③ 放行我们自己的协议串 `VF_PPT_FORM:` / `VF_DECK_CONFIRM:`（兜底）。
+- ⚠️ **此线从未跑到第三步** ⇒ 出片（`runDeckVideoTask` + `deckOnly`）是**第一次真跑**，异常请把原话发我。
+- **同期实测记录**：「PPT+图视」那条片 deck `37 页 = 1 封面 + 36 镜`，`image×31 + section×3 + end×2`
+  ⇒ **31 素材页 vs 5 独立页**（印证 `route.ts:137` 的"素材优先"规则）；要独立页多必须改**新线配比/分镜提示词**（待用户看 PPT成片 效果后定）。
+- `vfLog` 真实落盘：pm2 跑 standalone（cwd=`.next/standalone`）⇒ **`.next/standalone/storage/<uid>/video-factory/vf_debug.log`**。
+
 ### 2026-10-07 「36 页里只有 24 页是新引擎」的真因 = 页数上限写死 24（`VF_PPTPAGE_CAP_V1`）
 
 - **实证链**：用户已部署 `0ce980be` → 看片子（`20261007_107.mp4`）抽 36 帧 ⇒ **老画法页整齐在后半段且带横幅**

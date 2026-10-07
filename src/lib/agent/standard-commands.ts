@@ -175,6 +175,15 @@ export function isStdNoDraftAllowed(msg: string): boolean {
   if (STD_QUERY_RE.test(m)) return true
   // ★VF_RENDER_ONESHOT_V1：片已出、草稿作废后，「只重渲第 N 镜」发的 VF_EDIT 协议串仍要能进（不烧 AI）
   if (/^VF_EDIT\s*[:{]/.test(m)) return true
+  // ★VF_PPTGATE_V1（2026-10-07 用户实测「PPT成片 → 点『🚀 开始排版』回我『你这句话不在命令表里』」）：
+  //   PPT 成片的**卡片协议串**不是命令表里的词：
+  //     · `VF_PPT_FORM:{aspect,dur,voice,bgm,skin,topic,script}` = 设置卡「开始排版」发的；
+  //     · `VF_DECK_CONFIRM:{skin,ori}` = 确认卡「确认出片 · 新引擎」发的（本线复用）。
+  //   它们只由**我们自己的卡片按钮**产生（用户不会手打），进线后仍要过各线自己的 intent/状态校验
+  //   ⇒ 放行是安全的（与 `VF_EDIT` 只重渲同一规矩）。这条是"兜底"：即便草稿因任何原因没读到，
+  //   第二步也不会被锁死（主修在 vf-ppt.ts 第一步落草稿 + route.ts 的 stdHasAnyDraft 补登记）。
+  if (/^VF_PPT_FORM\s*:/.test(m)) return true
+  if (/^VF_DECK_CONFIRM\s*[:{]/.test(m)) return true
   return false
 }
 

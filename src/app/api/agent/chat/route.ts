@@ -954,6 +954,12 @@ async function stdHasAnyDraft(userId: number | string): Promise<boolean> {
   // ★VF_LEAD_V1（2026-09-29）：获客线草稿也算"进行中的流程"——否则它的面板提交（LEAD_CFG:{…}，
   //   不是标准命令）会被锁死回复拦住，面板上的「保存/预演」永远点不动（与 09-28 视频混剪同一个坑）。
   try { if (await hasLeadDraft(prisma, uid)) return true } catch { /* ignore */ }
+  // ★VF_PPTGATE_V1（2026-10-07 用户实测「PPT成片 点『开始排版』被锁死」）：**PPT 成片线补登记**。
+  //   本线草稿（tag `vf_draft_ppt`）与其它线**分开存**，而这张名单一直没查它 ⇒ 该线从上线起
+  //   第二步（`VF_PPT_FORM:{…}`）与第三步（`VF_DECK_CONFIRM:{…}`）都会被标准模式闸门拦住
+  //   —— 与 09-28 视频混剪、09-29 获客线**同一个坑**（第三次）。这里补上（函数 vf-ppt.ts 早就导出了）。
+  //   （动态 import：本文件对 vf-ppt 一直是动态引入，静态引会把 vf-deck-render 拖进启动路径）
+  try { const { hasPptDraft } = await import('@/lib/agent/vf/vf-ppt'); if (await hasPptDraft(prisma, uid)) return true } catch { /* ignore */ }
   return false
 }
 

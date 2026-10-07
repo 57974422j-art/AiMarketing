@@ -612,6 +612,20 @@ ck 'VF_PPTIMG_FULL_V1'              'scripts/video-factory/ppt-pages.mjs' 9
 #   `--max 4` 时 `pptpage.capped=[5..36]`、`cap=4` 正确落盘。
 ck 'VF_PPTPAGE_CAP_V1'              'scripts/video-factory/ppt-pages.mjs' 1
 ck 'VF_PPTPAGE_CAP_V1'              'src/app/api/agent/vf/ppt-preview/route.ts' 1
+# ★VF_PPTGATE_V1（2026-10-07 用户实测「PPT成片 → 点『🚀 开始排版』回我『你这句话不在命令表里』」）：
+#   **PPT 成片线从上线起就走不完流程**（不是"只接了前台"）。完整死锁环：
+#     ① 入线 `PPT成片` → `clearPptDraft()` → 出设置卡，**但不落草稿**；
+#     ② 点「开始排版」发 `VF_PPT_FORM:{…}`（不是命令表里的词）→ 闸门 `stdGatePass(msg, stdHasAnyDraft())`
+#        判定"没有进行中的流程"（`stdHasAnyDraft` 名单里**没有 PPT 线**）⇒ 回 STD_UNSUPPORTED_REPLY；
+#     ③ 确认卡 `VF_DECK_CONFIRM:{…}` 同理（那时草稿已存，但名单仍不认）。
+#   这与 2026-09-28「视频混剪」、09-29「获客线」踩的是**同一个坑（第三次）**：
+#   **凡是有第二步协议串的线，第一步就必须把草稿落下来**（草稿 = 闸门眼里的"进行中流程"）。
+#   修三处：① `vf-ppt.ts` 第一步 `savePptDraft`（落 `step:'form'`）；② `route.ts::stdHasAnyDraft`
+#   补 `hasPptDraft`（动态 import，避免把 vf-deck-render 拖进启动路径）；③ `standard-commands.ts::isStdNoDraftAllowed`
+#   放行 `VF_PPT_FORM:` / `VF_DECK_CONFIRM:`（我们自己的卡片协议串，用户不会手打；兜底用）。
+ck 'VF_PPTGATE_V1'                  'src/lib/agent/vf/vf-ppt.ts' 1
+ck 'VF_PPTGATE_V1'                  'src/app/api/agent/chat/route.ts' 1
+ck 'VF_PPTGATE_V1'                  'src/lib/agent/standard-commands.ts' 1
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"
