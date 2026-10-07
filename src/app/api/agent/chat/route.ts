@@ -3311,7 +3311,14 @@ export async function POST(request: NextRequest) {
     // ★VF_MATUI_V1（2026-09-30）：再把 `VF_MAT_SWAP` 加进来（清单「🔄 换一张」的协议串同理）
     // ★VF_DECKCONFIRM_V1（2026-10-04 用户定案「双轨并存」）：再把 `VF_DECK_CONFIRM` 加进来 ——
     //   确认卡「🎬 确认出片 · 新引擎」发的机器串（HTML 逐帧引擎正式出片），同理必须强制进状态机。
-    const vfProtoWord = /^(VF_FORM|VF_EDIT|VF_I2V_OFF|VF_BRIEF|VF_JSON|VF_MAT_SET|VF_MAT_SWAP|VF_DECK_CONFIRM|FRAMES_OK|MAKE_VIDEO_TASK|MAKE_VIDEO_COST|MAKE_VIDEO_FAIL|BROWSER_TASK|TOOL_REJECT|VIDEO_RESULT|LEAD_CFG)\s*[:{]/.test(userMessage.trim())
+    // ★VF_PPTFORM_PROTO_V1（2026-10-07 用户实测「**没进状态机 AI 直接接手了再这边编**」）：
+    //   PPT 成片的设置卡提交串 `VF_PPT_FORM:{…}` **漏在这个白名单外** ⇒ `skipModelStep1` 为 false
+    //   ⇒ **AI 那一步照样跑**：状态机回了我们的确认卡，AI 又同时生成一段"乐乐给你核一下参数…"
+    //   ⇒ 用户看到「卡片 + AI 编的一段」两条（他原话："没进状态机 AI 直接接手了再这边编"）。
+    //   ⚠️ 这已是同一族的**第 4 处漏点**（前 3 处：`stdHasAnyDraft` 漏 PPT 线、`isStdNoDraftAllowed`
+    //   不放行本线协议串、分派块被排在四条线之后）—— 规律：**凡是"协议串白名单/名单式校验"，
+    //   新线一上线就要在四处同步登记**（闸门放行 / 草稿名单 / 分派顺序 / 跳过 AI 的协议串白名单）。
+    const vfProtoWord = /^(VF_FORM|VF_PPT_FORM|VF_EDIT|VF_I2V_OFF|VF_BRIEF|VF_JSON|VF_MAT_SET|VF_MAT_SWAP|VF_DECK_CONFIRM|FRAMES_OK|MAKE_VIDEO_TASK|MAKE_VIDEO_COST|MAKE_VIDEO_FAIL|BROWSER_TASK|TOOL_REJECT|VIDEO_RESULT|LEAD_CFG)\s*[:{]/.test(userMessage.trim())
     // ★STD_MODE_V1：命中 machine 命令（发布 / 三条成片线）→ 强制进状态机（跳过 AI 那一步）
     // ★VF_I2VDFLT_V1：再加 `stdSettingWord`（改设置的说法 / VF_I2V_OFF 协议串）→ 同样强制进状态机，
     //   由两条成片线在 step='script' 里改 i2v 并重出确认卡（不再落进 AI 自由发挥/锁死）。
