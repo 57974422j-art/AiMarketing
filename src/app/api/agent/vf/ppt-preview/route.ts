@@ -121,6 +121,13 @@ export async function POST(request: NextRequest) {
                     _sk.push({ i: Number(_m[1]), type: String(_m[2] || ''), why: String(_m[3] || '').trim().slice(0, 90) })
                   }
                   swapInfo.skips = _sk
+                  // ★VF_PPTPAGE_CAP_V1：把"因**页数上限**被砍的镜"单独回传（改前它一声不吭 ⇒
+                  //   用户看到"24/36"完全不知道为什么，会以为还是内容不合窗口）。
+                  const _m2 = _scope.match(/★VF_PPTPAGE_CAP[^\n]*上限\s*(\d+)[^\n]*?第\s*([\d、,，\s]+)镜/)
+                  if (_m2) {
+                    swapInfo.capLimit = Number(_m2[1]) || 0
+                    swapInfo.capped = String(_m2[2]).split(/[、,，\s]+/).map((x) => Number(x)).filter((x) => x > 0)
+                  }
                 } catch { /* ignore */ }
                 if (fs.existsSync(outP)) {
                   sbForRender = outP

@@ -598,6 +598,20 @@ ck 'VF_SKIPWHY2_V1'                 'scripts/video-factory/ppt-pages.mjs' 1
 #   本机实测（用户 6 镜同款卡型 + 拼版 + 收尾，共 7 镜）：`image×4 + compare×1 + section×1 + end×1`
 #   ⇒ **换页 7/7、skipped 0**；校验 PASS、8 页渲 41.0s、抽帧 16 张逐张点名校验通过。
 ck 'VF_PPTIMG_FULL_V1'              'scripts/video-factory/ppt-pages.mjs' 9
+# ★VF_PPTPAGE_CAP_V1（2026-10-07 用户实测「共 36 页（其中 24 页 = 新引擎整页）」的**真因**）：
+#   改前页数上限**写死 24**，超了就 `picked.length = MAX_PAGES` —— 被砍的镜**一声不吭**变老画法
+#   ⇒ 用户看到"我不是让你都删了吗，怎么还有 12 页"。**服务器实证**：那份 deck `页数 25`
+#   （1 封面占位 + 24 镜，页型 image×23 + section×1）⇒ 36−24=12 正好对得上，且片子对照图上
+#   老画法页**整齐集中在后半段**（截断的指纹；若是"内容不合窗口"拒绝会**零散**分布）。
+#   改法：① 上限默认 **39**（引擎 schema `pages.maxItems=40` ⇒ 最多 1 封面 + 39 镜）；
+#         ② `VF_PPTPAGE_MAX=N` / `--max N` 可覆盖；
+#         ③ 被砍的镜**记进元数据**（`pptpage.cap` / `pptpage.capped`）+ 日志 `★VF_PPTPAGE_CAP ...` +
+#            预览卡片单独一行「另有 N 镜因**页数上限**未换」⇒ 与"内容不合窗口"分开说
+#            （这两类在用户眼里以前长得一样，都只是"没换"）。
+#   本机实测：36 镜 ⇒ 37 页，**36/36 全换、skipped 0**，校验 PASS、渲 **152.7s**、抽帧 74 张逐张点名通过；
+#   `--max 4` 时 `pptpage.capped=[5..36]`、`cap=4` 正确落盘。
+ck 'VF_PPTPAGE_CAP_V1'              'scripts/video-factory/ppt-pages.mjs' 1
+ck 'VF_PPTPAGE_CAP_V1'              'src/app/api/agent/vf/ppt-preview/route.ts' 1
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"

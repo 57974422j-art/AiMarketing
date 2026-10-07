@@ -48,7 +48,16 @@ const OUTDIR = arg('outdir', path.join(OUT_ROOT, 'pptpage'))
 const STYLE = arg('style', '')
 const MASTER_ARG = arg('master', '')
 const PALETTE_ARG = arg('palette', '')
-const MAX_PAGES = parseInt(arg('max', '24')) || 24
+// ★VF_PPTPAGE_CAP_V1（2026-10-07 用户实测「36 页里只有 24 页是新引擎」的**真因**）：
+//   改前上限写死 **24**，超了就直接 `picked.length = MAX_PAGES` —— 被砍的镜**一声不吭**变老画法
+//   ⇒ 用户看到"我不是让你都删了吗，怎么还有 12 页"（实测证据：那份 deck 页数正好 25 = 1 封面 + 24 镜）。
+//   现在：① 上限默认 **39**（引擎 schema `pages.maxItems = 40` ⇒ 最多 1 封面 + 39 镜；
+//            实测 8 页 41s ⇒ 39 页约 2~3 分钟）；
+//         ② 可用 `VF_PPTPAGE_MAX=N` 或 `--max N` 覆盖（排障/控时长）；
+//         ③ 被砍的镜**记进元数据 + 日志 + 卡片**，并明确写"因**页数上限**未换"，
+//            与"内容不合窗口"分开说（这两类在用户眼里以前长得一样，都只是"没换"）。
+const MAX_PAGES = Math.max(4, Math.min(39, parseInt(arg('max', String(process.env.VF_PPTPAGE_MAX || '39')), 10) || 39))
+let cappedShots = []
 const DRY = process.argv.includes('--dry')
 // ★VF_PPTIMG_IMAGE_V1（2026-10-07 用户定案「就更新」）——**素材镜也交给新引擎的 `image` 页型**。
 //   这一步才叫"整片真·新引擎"：素材以**母版版式**呈现（图在框里 + 页面自带 title/caption/kicker/页码），
@@ -553,7 +562,14 @@ if (picked.length) {
   say(`页型分布：${dist.map(([k, v]) => k + '×' + v).join('、')}（种类 ${new Set(kindUse).size}，共换 ${picked.length} 镜）`)
 }
 if (!picked.length) { say('没有任何一镜可换 → 原样输出'); done({ ok: false, skipped: sb.shots.length, note: 'none-mappable' }) }
-if (picked.length > MAX_PAGES) { say(`可换镜数 ${picked.length} > 上限 ${MAX_PAGES} → 只换前 ${MAX_PAGES} 镜（其余留老画法）`); picked.length = MAX_PAGES }
+if (picked.length > MAX_PAGES) {
+  const _capIdx = picked.slice(MAX_PAGES).map((p) => p.idx + 1)
+  say(`★VF_PPTPAGE_CAP 可换镜数 ${picked.length} > 上限 ${MAX_PAGES} → 只换前 ${MAX_PAGES} 镜；`
+    + `其余 ${_capIdx.length} 镜**因页数上限**保持老画法：第 ${_capIdx.join('、')} 镜`
+    + `（要全换就把上限调高：VF_PPTPAGE_MAX=${Math.min(39, picked.length)}）`)
+  cappedShots = _capIdx
+  picked.length = MAX_PAGES
+}
 
 // 4.2 字表预筛（命中表外字 → **先去小字，仍不合才**那一镜不换）
 //   ★VF_DECKFONT_V1（2026-10-07 用户实测「PPT+图视 换页 0/7 · render-failed」的**真因**）：
@@ -816,7 +832,7 @@ if (out.banner && typeof out.banner === 'object') {
   picked.forEach((p) => _sk.add(p.idx + 1))
   out.banner.skip = [..._sk].sort((a, b) => a - b)
 }
-out.pptpage = { version: 1, masterId, palette, orientation, pages: pages.length, swapped, skipped: sb.shots.length - swapped, deck: deckPath, bannerSkip: (out.banner || {}).skip || [], at: new Date().toISOString() }
+out.pptpage = { version: 1, cap: MAX_PAGES, capped: cappedShots, masterId, palette, orientation, pages: pages.length, swapped, skipped: sb.shots.length - swapped, deck: deckPath, bannerSkip: (out.banner || {}).skip || [], at: new Date().toISOString() }
 try {
   fs.mkdirSync(path.dirname(OUT_SB || '.'), { recursive: true })   // 调用方给的 wd 可能还没建（本机单测就踩到）
   fs.writeFileSync(OUT_SB, JSON.stringify(out, null, 2), 'utf8')

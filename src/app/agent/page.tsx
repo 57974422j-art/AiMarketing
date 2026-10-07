@@ -1769,6 +1769,11 @@ function VfPptPreview({ plan }: { plan: any }) {
               {swap.note ? (
                 <div className="text-amber-300/90">⚠️ 换页未生效：{String(swap.note).slice(0, 180)}</div>
               ) : null}
+              {Array.isArray(swap.capped) && swap.capped.length ? (
+                <div className="text-amber-300/90">
+                  ⚠️ 另有 {swap.capped.length} 镜**因页数上限**（{Number(swap.capLimit) || 0} 页）未换 —— 不是内容不合，调高上限即可全换（第 {swap.capped.slice(0, 12).join('、')} 镜）
+                </div>
+              ) : null}
               {Array.isArray(swap.skips) && swap.skips.length ? (
                 <div className="text-gray-500">
                   未换：
