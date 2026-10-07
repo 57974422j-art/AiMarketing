@@ -287,6 +287,16 @@ export function buildVideoPlan(shots: any[], vd: any, opts?: { sizeDefault?: num
   // ★VF_STYLES_WIRE_V1（2026-10-01）：「🎨 画面风格」= 5 套成品风格之一；未选 / 非法 → normalizeStyle 返回 ''
   //   → 下面**不写 style 键**（render.py 的 apply_style 不触发）→ 老链路（theme + deck_style）逐字不变。
   const _style = normalizeStyle(vd?.style)
+  // ★VF_PPTIMG_V1（2026-10-07）：新线「PPT+图视」—— plan 根级带 `pptpage{master,palette,mix}`，
+  //   交给 make.py 透传给 ppt-pages.mjs（皮肤 = 新引擎 10 母版 × 4 配色；mix=true 开页型编排）。
+  //   ⚠️ **只有本线写这个键**：老线（图片成片/图视混剪/素材+AI/AI 制片）不写 ⇒ 行为与今天逐字一致（零回归）。
+  const _pp = (String(vd?.line || '') === 'pptimg')
+    ? {
+      master: 'master-' + String(vd?.skin || 'tech').replace(/^master-/, '').toLowerCase(),
+      palette: String(vd?.palette || 'cyan').trim() || 'cyan',
+      mix: true,
+    }
+    : null
   return planWithBanner({
     size,
     fps: VF_PLAN_FPS,
@@ -294,5 +304,6 @@ export function buildVideoPlan(shots: any[], vd: any, opts?: { sizeDefault?: num
     overlay_text: vd?.big !== 'off',                 // 'off' 才关；缺省 = 开（与 render.py 缺省一致）
     deck_style: normalizeDeckStyle(vd?.deckStyle),   // ★VF_DECK_STYLES_V1：画面模版（非法/缺省 = 'auto'）
     ...(_style ? { style: _style } : {}),            // ★VF_STYLES_WIRE_V1：成品风格（选了才写；不选 = 不写）
+    ...(_pp ? { pptpage: _pp } : {}),                // ★VF_PPTIMG_V1：新引擎皮肤（只有 PPT+图视 线写）
   }, bannerFieldOf(vd))
 }

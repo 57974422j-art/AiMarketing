@@ -995,3 +995,25 @@ export function dedupeAdjacentSameText(shots: any[]): { shots: any[]; notes: str
   }
   return { shots: out, notes }
 }
+
+/* ★VF_PPTIMG_V1（2026-10-07 用户定案「加一个 PPT+图视 入口词」+「皮肤 master×palette 全开我看看效果」）：
+ *   **新线「PPT+图视」专用的皮肤表** = 新引擎（html-deck）的 **10 套母版 × 每套 4 个配色**（共 40 组）。
+ *   ⚠️ 与老线的 `VF_STYLES`（5 套成品风格 = themes.py 的 STYLES）**不是一个东西、也不共用**：
+ *     老线的 style 最终变成 ffmpeg 的 theme + deck_style；这里的 skin 变成新引擎页面的 masterId + palette。
+ *     这就是"两条线真隔离"落在参数层的具体样子（谁都不许偷对方的皮肤表）。
+ *   ⚠️ **真源** = `scripts/video-factory/html-deck/masters/<母版>/master.json`（下面色值即抄自那里；
+ *     母版/配色合法性由 deck.schema.json + validate-deck.mjs 兜底）—— 本表只是给前端出选择器。
+ *   ⚠️ 本机实测：40 组均可过校验（含 ecom/formal 的**中文配色 id** —— schema 未拦）。
+ */
+export const VF_PPTIMG_SKINS: { id: string; name: string; palettes: { id: string; color: string }[] }[] = [
+  { id: 'tech', name: '深青科技', palettes: [{ id: 'cyan', color: '#29d3c9' }, { id: 'lime', color: '#9fd356' }, { id: 'amber', color: '#f0a83c' }, { id: 'coral', color: '#f0655f' }] },
+  { id: 'v1', name: '暗色暖金', palettes: [{ id: 'warm-gold', color: '#c8a06a' }, { id: 'olive', color: '#4f5334' }, { id: 'clay', color: '#8f4a2e' }, { id: 'mist-blue', color: '#6b8fae' }] },
+  { id: 'v2', name: '浅色商务', palettes: [{ id: 'azure', color: '#2f5fa8' }, { id: 'steel', color: '#6b8fb5' }, { id: 'indigo', color: '#1c2f5a' }, { id: 'violet', color: '#7a4fa8' }] },
+  { id: 'editorial', name: '纸感编辑风', palettes: [{ id: 'vermilion', color: '#b3372a' }, { id: 'inkblue', color: '#20486b' }, { id: 'moss', color: '#5c6b46' }, { id: 'plum', color: '#6d3450' }] },
+  { id: 'mono', name: '极简黑白杂志', palettes: [{ id: 'black', color: '#111111' }, { id: 'graphite', color: '#5f5f5f' }, { id: 'oxblood', color: '#7a1f1f' }, { id: 'inkblue', color: '#1c3d5a' }] },
+  { id: 'ecom', name: '电商高饱和', palettes: [{ id: '橙红', color: '#ff4d2e' }, { id: '品红', color: '#e8268a' }, { id: '电蓝', color: '#1f6bff' }, { id: '蜜绿', color: '#12b76a' }] },
+  { id: 'festive', name: '红金庆典风', palettes: [{ id: 'gold', color: '#e0b64a' }, { id: 'cinnabar', color: '#e2503f' }, { id: 'jade', color: '#4aa88a' }, { id: 'copper', color: '#c9793a' }] },
+  { id: 'formal', name: '正式庄重', palettes: [{ id: '松绿', color: '#1f4d3a' }, { id: '墨蓝', color: '#1c3352' }, { id: '绛红', color: '#8a2a32' }, { id: '焦棕', color: '#7a5a2f' }] },
+  { id: 'health', name: '医疗健康', palettes: [{ id: 'teal', color: '#0e8f8a' }, { id: 'indigo', color: '#2b3f8f' }, { id: 'coral', color: '#cf5f3f' }, { id: 'forest', color: '#2f6b3a' }] },
+  { id: 'edu', name: '教育培训', palettes: [{ id: 'blue', color: '#2f6fed' }, { id: 'sun', color: '#e59a12' }, { id: 'leaf', color: '#2f9e6b' }, { id: 'plum', color: '#8a3f9e' }] },
+]

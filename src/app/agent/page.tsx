@@ -24,7 +24,7 @@ import {
 // ★VF_STYLES_WIRE_V1（2026-10-01 用户定案「目前模版有2套我是不是有点乱。能统一一下吗？」）：
 //   「🎨 画面风格」的 5 套成品风格（唯一真相源 = 渲染层 scripts/video-factory/themes.py 的 STYLES；
 //   TS 侧在 anti-ai.ts 的 VF_STYLES，纯数据零副作用 → 客户端可直接引，界面不会与归一化规则漂移）。
-import { VF_STYLES, VF_SUB_CPS } from '@/lib/agent/vf/anti-ai'
+import { VF_STYLES, VF_SUB_CPS, VF_PPTIMG_SKINS } from '@/lib/agent/vf/anti-ai'
 import TourGuide from '@/components/TourGuide'
 import { Solar } from 'lunar-javascript'
 import { createPortal } from 'react-dom'
@@ -597,6 +597,15 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
   //   由服务端 formCard 下发）—— **只有图视混剪吃视频**，所以"视频会不会被画出来"这类话必须按线出。
   //   旧版是一句替图片成片写的硬编码文案、两线共用 ⇒ 图视混剪被误告"视频不会被画出来"（用户实测）。
   const isVideoLine = String(vj.line || '') === 'video'
+  // ★VF_PPTIMG_V1（2026-10-07 用户定案「加一个 PPT+图视 入口词」+「皮肤 master×palette 全开我看看效果」）：
+  //   本卡由此变成**三条线共用**：`local` 图片成片 / `video` 图视混剪 / `pptimg` 新线「PPT+图视」
+  //   （素材图片 + 新引擎整页版式页混排）。新线的「🎨 画面风格」**不是**老的 5 套（themes.py），
+  //   而是新引擎的 **10 套母版 × 4 个配色 = 40 组**（VF_PPTIMG_SKINS，真源 masters/*/master.json）。
+  const isPptimgLine = String(vj.line || '') === 'pptimg'
+  const [skin, setSkin] = useState(String(vj.skin || 'tech'))
+  const [palette, setPalette] = useState(String(vj.palette || 'cyan'))
+  const _curSkin = VF_PPTIMG_SKINS.find((s) => s.id === skin) || VF_PPTIMG_SKINS[0]
+  const _effPalette = _curSkin.palettes.some((p) => p.id === palette) ? palette : _curSkin.palettes[0].id
 
   // ★VF_VIDHINT_V1（2026-09-24 用户实测）：上传框的 accept 里带着 `video/*`（视频**能传**），
   //   但成片画面只从【图片】里取（分镜的 pick 只索引图片），视频只会出现在"素材识别结果"里。
@@ -775,21 +784,53 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
              （theme / deck_style 与风格同维度，见下面 ★VF_ONELAYER_V1 注释），本卡**只剩这一层视觉选择**。 */}
       <div className="mb-3">
         <div className="text-[10px] text-gray-400 mb-1">
-          🎨 画面风格 <span className="text-gray-600">（一套搞定配色 + 整页 PPT 版式；只选一个）</span>
+          🎨 画面风格 <span className="text-gray-600">{isPptimgLine
+            ? '（新引擎母版；只选一个母版，配色可换 —— 共 10 母版 × 4 配色）'
+            : '（一套搞定配色 + 整页 PPT 版式；只选一个）'}</span>
         </div>
-        <div className="flex flex-wrap gap-1.5">
-          {R(style, '', '🤖 跟随 AI / 不指定', setStyle)}
-          {VF_STYLES.map((s) => R(style, s.id, '🎨 ' + s.name, setStyle))}
-        </div>
-        {/* ★VF_STYLEPREVIEW_WIRE_V1（2026-10-02 用户原话「当前5个风格最好能加个模版样式。点了能看到…
-            这看不到效果盲猜」）：每套风格下方嵌渲染层样张缩略图（/style-preview/<key>-thumb.png），
-            点开看大图（<key>.png 要点页 + <key>-data.png 数据页）。缺图时隐藏并显示"样张生成中"，绝不显示破图。 */}
-        <VfStyleSamples onPick={setStyle} cur={style} />
-        <div className="text-[10px] text-gray-500 mt-1">
-          选一套 → 纯文字页会自动排成该风格的整页 PPT（标签条/要点/数据卡/页码）；不选则由 AI 按题材决定。
-          <br />本线 = 图文成片（素材画面 + 整页 PPT 版式页混排）。要做**不含素材、整片都是 PPT 版式页**的
-          「动态 PPT 成片」请用独立入口词「PPT成片」。
-        </div>
+        {/* ★VF_PPTIMG_V1：新线走**新引擎 10 母版 × 4 配色**（和老的 5 套画面风格是两套东西、互不共用）；
+            老两条线（图片成片/图视混剪）**一个字都不动**，仍是下面那 5 套 + 样张。 */}
+        {isPptimgLine ? (
+          <>
+            <div className="flex flex-wrap gap-1.5">
+              {VF_PPTIMG_SKINS.map((s) => R(skin, s.id, '🎨 ' + s.name, setSkin))}
+            </div>
+            <div className="text-[10px] text-gray-400 mb-1 mt-2">
+              配色 <span className="text-gray-600">（{_curSkin.name} 的 4 个配色，点色点切换）</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5 items-center">
+              {_curSkin.palettes.map((p) => (
+                <button key={p.id} onClick={() => setPalette(p.id)}
+                  title={p.color}
+                  className={`flex items-center gap-1.5 px-2 py-1 rounded text-[11px] border transition ${palette === p.id ? 'bg-fuchsia-500/30 border-fuchsia-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>
+                  <span className="inline-block w-3 h-3 rounded-full border border-white/30" style={{ background: p.color }} />
+                  {p.id}
+                </button>
+              ))}
+            </div>
+            <div className="text-[10px] text-gray-500 mt-1">
+              本线 = 素材（图片）+ 新引擎整页版式页混排：纯文字镜会按所选母版排成**整页版式**
+              （标签条/要点/步骤/目录/金句/大数字/数据卡/页码），**页型由内容决定**，不会通篇"一页三排字"。
+              <br />要不含素材、整片都是 PPT 版式页的，请用独立入口词「<b>PPT成片</b>」。
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex flex-wrap gap-1.5">
+              {R(style, '', '🤖 跟随 AI / 不指定', setStyle)}
+              {VF_STYLES.map((s) => R(style, s.id, '🎨 ' + s.name, setStyle))}
+            </div>
+            {/* ★VF_STYLEPREVIEW_WIRE_V1（2026-10-02 用户原话「当前5个风格最好能加个模版样式。点了能看到…
+                这看不到效果盲猜」）：每套风格下方嵌渲染层样张缩略图（/style-preview/<key>-thumb.png），
+                点开看大图（<key>.png 要点页 + <key>-data.png 数据页）。缺图时隐藏并显示"样张生成中"，绝不显示破图。 */}
+            <VfStyleSamples onPick={setStyle} cur={style} />
+            <div className="text-[10px] text-gray-500 mt-1">
+              选一套 → 纯文字页会自动排成该风格的整页 PPT（标签条/要点/数据卡/页码）；不选则由 AI 按题材决定。
+              <br />本线 = 图文成片（素材画面 + 整页 PPT 版式页混排）。要做**不含素材、整片都是 PPT 版式页**的
+              「动态 PPT 成片」请用独立入口词「PPT成片」。
+            </div>
+          </>
+        )}
       </div>
 
       {/* ★VF_ONELAYER_V1（2026-10-06 用户定案「目的只有一套 PPT 选择 … 确定重复内容冗余 删除」）：
@@ -885,6 +926,9 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
           // ★VF_STYLES_WIRE_V1：🎨 画面风格（'' = 跟随 AI / 不指定 | 5 套成品风格）——
           //   服务端 normalizeStyle 归一后，出片时写进 plan 根级 `style`（渲染层 apply_style 读它）。
           style,
+          // ★VF_PPTIMG_V1：新线「PPT+图视」的新引擎皮肤（母版 + 配色）—— 老两条线不带这两个键。
+          //   palette 取"当前母版确实拥有的那个配色"（换母版后旧配色不合法 → 自动用该母版第一个）。
+          ...(isPptimgLine ? { skin, palette: _effPalette } : {}),
           // ★VF_VIDI2V_V1：让图动起来（'on'|'off'）—— 服务端 vf-video.ts 解析 f.i2v，关掉就完全不注入首帧
           i2v,
           // ★VF_BANNER_V1：顶部固定标题（'on' 默认自动拟两行 | 'off' 不要）—— 服务端解析后决定 plan 是否带 banner

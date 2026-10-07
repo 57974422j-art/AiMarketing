@@ -50,7 +50,7 @@ import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, s
   // ★VF_BIGCUT_V1（2026-10-06）：画面大字"避词边界"截断（治成片里「真正价值在6」这种被切坏的数字/英文）
   bigTextCut,
   // ★VF_BIGSUB_V1（2026-10-06）：同一镜"大字=字幕"的治理（清掉重复的那层，字幕不动）
-  quietBigSameAsSubtitle, VF_SUB_CPS } from '@/lib/agent/vf/anti-ai'
+  quietBigSameAsSubtitle, VF_SUB_CPS, VF_PPTIMG_SKINS } from '@/lib/agent/vf/anti-ai'
 // ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：把「长镜必须有动效」的档位接进【图片成片线】的分镜提示词
 //   （与「视频混剪」线共用 anti-ai.ts 里同一份常量，两条线的字段说明与硬规矩逐字一致），
 //   并在 genVideoShots 出口跑服务端兜底 ensurePersistentMotion（AI 忘写时给 title/end 长镜补 grow）。
@@ -4218,11 +4218,16 @@ PUBLISH_DRAFT.delete(uidW)
           try { vfLog(uidVF2, '[VF-P] 分派异常: ' + String(ePP?.message || ePP).slice(0, 200)) } catch { /* ignore */ }
         }
         // ★VF_STDCMD_GUARD_V1：命中别条命令时素材线也让位（它自己的命令 = 图片成片 vf_local）
-        if (!leadHandled && !vfVideoHandled && !vfMixHandled && !vfAiHandled && !vfPptHandled && (!stdCmdHit || stdCmdOwned(['vf_local']))
+        // ★VF_PPTIMG_V1（2026-10-07）：本块**同时服务**「图片成片」（vf_local）与新的「PPT+图视」（vf_pptimg）——
+        //   两条线共用同一套状态机（起稿 → 设置卡 → 分镜确认 → 出片），差别只在 `vd.line`
+        //   与出片时的 plan 根级（`pptpage{master,palette,mix}`）。参数/皮肤全隔离，内核一份。
+        if (!leadHandled && !vfVideoHandled && !vfMixHandled && !vfAiHandled && !vfPptHandled && (!stdCmdHit || stdCmdOwned(['vf_local', 'vf_pptimg']))
           // ★VF_RENDER_ONESHOT_V1（2026-09-29）：VF_EDIT 协议串也要能进本块 —— 片已出、草稿已作废时，
           //   客户端「🔁 只重渲第 N 镜」发的是 VF_EDIT:{taskId,edits}（没有草稿可改），靠这条进块去走
           //   【只重渲染】；否则会因"没草稿 + 不匹配 vfIntent"落到起稿分支，把只重渲请求变成一张空的设置卡。
-          && (vfIntent || VIDEO_DRAFT.has(uidVF2) || /^VF_EDIT\s*[:{]/.test(String(userMessage || '').trim()))) {
+          // ★VF_PPTIMG_V1（2026-10-07）：新线入口词（PPT+图视 / HTML+图视 …）**不在**旧的素材线 vfIntent
+          //   正则里 ⇒ 把"命令命中本线"也算成意图，否则说「PPT+图视」落不到本块，会掉进 AI 自由发挥。
+          && (vfIntent || stdCmdOwned(['vf_pptimg']) || VIDEO_DRAFT.has(uidVF2) || /^VF_EDIT\s*[:{]/.test(String(userMessage || '').trim()))) {
           try {
             let vd = VIDEO_DRAFT.get(uidVF2)
             // 内存没有 → 从 AgentMemory 恢复（仿发布：服务器重启/刷新不丢）
@@ -4302,7 +4307,7 @@ PUBLISH_DRAFT.delete(uidW)
               //   只发指令不带主题时会把“用”当成主题（文案变成“用，才是最强的生产力！”）
               // ── 第 0 步 素材来源（★一键出发：不问文字，只给两个按钮；用户顺手写了主题就带过来）──
               const vfTopic0 = String(userMessage)
-                .replace(/本地成片|图片成片|模板成片|帮我做.{0,3}(一条|个|条)?视频|帮我成片|帮我做视频|做一条视频|做个视频|做成片|做个宣传片|做视频/g, '')
+                .replace(/本地成片|图片成片|模板成片|PPT\+图视|HTML\+图视|PPT图视|PPT\+图片|版式混剪|帮我做.{0,3}(一条|个|条)?视频|帮我成片|帮我做视频|做一条视频|做个视频|做成片|做个宣传片|做视频/g, '')
                 .replace(/^(用|请用|请|来|帮我|帮忙|给我|麻烦)\s*/, '')
                 .replace(/^(用|请|来)\s*/, '')
                 .replace(/^[\s:：,，,。、]+/, '').trim()
@@ -4310,7 +4315,15 @@ PUBLISH_DRAFT.delete(uidW)
               //   "主题被写成 VF_FORM:{...} 原文" 是同一类事故）—— 起稿这条路也要挡。
               const _vfTopic0Clean = (/^(VF_FORM|VF_JSON|MAKE_VIDEO|BROWSER_TASK|FRAMES_OK|TOOL_REJECT|VIDEO_RESULT)/i.test(vfTopic0)
                 || vfTopic0.startsWith('{') || vfTopic0.startsWith('[')) ? '' : vfTopic0
-              vd = { step: 'form', topic: _vfTopic0Clean, voice: 'longxiaochun', theme: 'dark', aspect: 'auto', dur: 30 }
+              // ★VF_PPTIMG_V1（2026-10-07）：按"命中的是哪条命令"决定本单属于哪条线 ——
+              //   'local'（老素材线，图片成片）/ 'pptimg'（新线 PPT+图视）。线标识存进草稿，
+              //   一路带到出片时的 plan 根级（见 banner.ts buildVideoPlan）。
+              const _vfLineNew = stdCmdOwned(['vf_pptimg']) ? 'pptimg' : 'local'
+              vd = {
+                step: 'form', topic: _vfTopic0Clean, voice: 'longxiaochun', theme: 'dark', aspect: 'auto', dur: 30,
+                line: _vfLineNew,
+                ...(_vfLineNew === 'pptimg' ? { skin: 'tech', palette: 'cyan' } : {}),
+              }
               VIDEO_DRAFT.set(uidVF2, vd)
               await saveVfDraft(uidVF2, vd)
               // ★VF_FORM_V1（2026-09-20，用户要求）：改成【一张表单、一次提交】——
@@ -4331,8 +4344,12 @@ PUBLISH_DRAFT.delete(uidW)
                 // ★VF_LINETAG_V1（2026-10-06）：结构化线标识 —— 本卡与「图视混剪」共用同一组件
                 //   （VideoFormCard），客户端靠这个字段决定"视频会不会被画出来"那类文案（见 page.tsx）。
                 //   'local' = 图片成片（画面只从【图片】取）；'video' = 图视混剪（吃视频，见 vf-video.ts formCard）。
-                line: 'local',
-                hint: '选好点「🚀 开始出片」（都有默认值，不改也能直接开始）',
+                line: _vfLineNew,
+                // ★VF_PPTIMG_V1：新线把当前皮肤一起下发（默认 tech/cyan = 深青科技，卡片里可改）
+                ...(_vfLineNew === 'pptimg' ? { skin: String(vd.skin || 'tech'), palette: String(vd.palette || 'cyan') } : {}),
+                hint: _vfLineNew === 'pptimg'
+                  ? '本线 = 素材（图片）+ 新引擎整页版式页混排；「🎨 画面风格」= 新引擎 10 母版 × 4 配色。选好点「🚀 开始出片」'
+                  : '选好点「🚀 开始出片」（都有默认值，不改也能直接开始）',
               })
               finalResult = wfEarlyReply
               console.log('[成片状态机] 素材来源——topic=', _vfTopic0Clean.slice(0, 20))
@@ -4377,6 +4394,18 @@ PUBLISH_DRAFT.delete(uidW)
                   //   设置卡「🎨 画面风格」（5 套成品风格）—— 走 normalizeStyle 白名单归一
                   //   （非法 / 未选 → '' = 不指定）；出片时由 buildVideoPlan 决定是否写 plan 根级 `style`。
                   if (f.style !== undefined) vd.style = normalizeStyle(f.style)
+                  // ★VF_PPTIMG_V1（2026-10-07）：新线「PPT+图视」的新引擎皮肤（master + palette）——
+                  //   白名单来自 anti-ai.ts 的 `VF_PPTIMG_SKINS`（真源是 masters/*/master.json）。
+                  //   非法 skin → 回落 'tech'；palette 不在该母版的配色里 → 用该母版的**第一个配色**
+                  //   （绝不把脏值写进 plan 根级 `pptpage`，否则引擎会渲出意料之外的皮肤）。
+                  if (f.skin !== undefined) {
+                    const _skRaw = String(f.skin || '').replace(/^master-/, '').toLowerCase()
+                    const _hitSk = VF_PPTIMG_SKINS.find((s) => s.id === _skRaw)
+                    vd.skin = _hitSk ? _hitSk.id : 'tech'
+                    const _plRaw = String(f.palette || '')
+                    const _defPl = (_hitSk || VF_PPTIMG_SKINS[0]).palettes[0].id
+                    vd.palette = (_hitSk && _hitSk.palettes.some((p) => p.id === _plRaw)) ? _plRaw : _defPl
+                  }
                   // ★VF_I2V_BASELINE_V1（2026-09-29 team-lead 要求）：「图片成片」线也复用设置卡的
                   //   「🎞 让图动起来」开关（'on' 默认 / 'off' 不注入、不额外计费）。原来本线没解析这个字段。
                   // ★VF_I2VSUIT_V1（2026-09-30）：额外支持 'all' = 手动全开（不按素材类型筛选，全部图都做）。

@@ -443,6 +443,25 @@ ck 'VF_PAGEMIX_V1'                  'scripts/video-factory/ppt-pages.mjs' 3
 ck 'VF_BULLETSUM_V1'                'scripts/video-factory/ppt-pages.mjs' 2
 ck 'VF_DECKGATE_V1'                 'scripts/video-factory/ppt-pages.mjs' 1
 ck 'VF_PPTSKIN_V1'                  'scripts/video-factory/make.py' 2
+# ★VF_PPTIMG_V1（2026-10-07 用户定案「加一个 PPT+图视 入口词」「先把入口做了 我测试」）：
+#   第 7 条状态机线：**素材（图片）+ 新引擎整页版式页混排**。「真隔离」落在**参数层**：
+#     · 入口 / 卡片 / 皮肤表都独立 —— `vf_pptimg`；皮肤 = `VF_PPTIMG_SKINS`（新引擎 10 母版 × 4 配色 = 40 组，
+#       真源 masters/<母版>/master.json），与老线的 5 套 `VF_STYLES`（themes.py）**互不共用**；
+#     · 出片时 plan 根级多一个 `pptpage{master,palette,mix}`（banner.ts）—— **只有本线写**，老线不写 ⇒ 零回归；
+#     · 状态机与渲染内核**共用一份**（复用素材线那套：起稿→设置卡→分镜确认→出片；渲染内核一份，
+#       改一处两边都好 —— **不许复制渲染器**，否则"改一处漏一处"必然出问题）。
+#   别名：HTML+图视 / PPT图视 / PPT+图片 / 版式混剪（用户看主词，我们内部说 HTML 也能进）。
+#   本机验证：`matchStdCommand` 对上述 5 种写法**全部命中 vf_pptimg**，且「图片成片」「图视混剪」「PPT成片」
+#   三条老命令不受影响；`tsc --noEmit` 无新增报错（93 = 改前基线）。
+#   ⚠️ 第一版只吃**图片**素材（视频那半"图视"下一步接；卡片 accept 也仍是 image/*，不误导）。
+ck 'VF_PPTIMG_V1'                   'src/app/agent/page.tsx' 3
+ck 'VF_PPTIMG_V1'                   'src/app/api/agent/chat/route.ts' 5
+ck 'VF_PPTIMG_V1'                   'src/lib/agent/standard-commands.ts' 1
+ck 'VF_PPTIMG_V1'                   'src/lib/agent/vf/anti-ai.ts' 1
+ck 'VF_PPTIMG_V1'                   'src/lib/agent/vf/banner.ts' 2
+ck 'VF_PPTIMG_SKINS'                'src/app/agent/page.tsx' 4
+ck 'VF_PPTIMG_SKINS'                'src/app/api/agent/chat/route.ts' 4
+ck 'VF_PPTIMG_SKINS'                'src/lib/agent/vf/anti-ai.ts' 1
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"
