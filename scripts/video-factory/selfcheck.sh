@@ -581,6 +581,23 @@ ck 'VF_DECKFONT_V1'                 'scripts/video-factory/ppt-pages.mjs' 5
 #   图表卡数值条数 / 拼版镜（放不下一张以外）/ 视频镜 / end 缺英文。
 #   本机实测（用户 6 镜同款卡型）：7 镜逐条原因全部可读，不再出现"卡型不映射"这种糊涂话。
 ck 'VF_SKIPWHY2_V1'                 'scripts/video-factory/ppt-pages.mjs' 1
+# ★VF_PPTIMG_FULL_V1（2026-10-07 用户定案「**PPT+图视下 删除所有老引擎相关**」）：
+#   用户原话就是这一句 ⇒ 落地含义：**新线整片都必须是新引擎版式页**，不再出现"这一镜保持老画法"。
+#   于是每个卡型都要能进版式页 —— 但**只用他自己的字/图，绝不自编内容**：
+#     · 大字太短（<4 字，引擎标题硬性 4~24）⇒ 从**本镜字幕**取 4~24 字短句当页标题，
+#       原来那 2~3 个大字降为**眉标**（image 页）——他的字一个不丢；
+#     · 收尾卡 end ⇒ 主文案读 **line1**（老引擎 end 卡放在 line1，不是 text）；
+#       `en` 用与母版一致的一行英文（默认 `AI MARKETING`，可用 VF_PPTIMG_END_EN 改）；
+#       line1/cta 不足时用**本镜字幕**补（字幕也没有就只能这一镜不换，日志写明）；
+#     · 对比卡 compare ⇒ 左右 label(2~12) + points(2~4 条 × 6~28) + 结论：条目=本卡 leftDesc/rightDesc
+#       按标点拆句，不足 2 条用**本镜字幕**的短句补（同源，不编内容）；
+#     · 拼版 duo/frame ⇒ **先用 ffmpeg 把 2~4 张图拼成一张 PNG**（竖排/2×2 + 补边到画幅），再走 image 页
+#       （**不丢图**）；贴回时**删掉 srcs**，免得老引擎还按"拼版"处理；
+#     · 视频镜 ⇒ ffmpeg 抽一帧当素材走 image 页（⚠️ 失去运动，日志写明）。
+#   关闭开关：`VF_PPTIMG_FULL=0`（回到"映射不上就保持老画法"）。
+#   本机实测（用户 6 镜同款卡型 + 拼版 + 收尾，共 7 镜）：`image×4 + compare×1 + section×1 + end×1`
+#   ⇒ **换页 7/7、skipped 0**；校验 PASS、8 页渲 41.0s、抽帧 16 张逐张点名校验通过。
+ck 'VF_PPTIMG_FULL_V1'              'scripts/video-factory/ppt-pages.mjs' 9
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"

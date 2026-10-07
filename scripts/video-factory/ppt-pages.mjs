@@ -144,6 +144,71 @@ function clip(s, b) { return String(s == null ? '' : s).trim().slice(0, b) }
 const STEPS_RE = /^[0-9一二三四五六七八九十]+[、.．)）]|第[一二三四五六七八九十]+步|首先|然后|接着|最后|步骤|流程/
 function mk(page, kind, why) { return { page, kind, why } }
 
+/* ============ ★VF_PPTIMG_FULL_V1（2026-10-07 用户定案「PPT+图视下 删除所有老引擎相关」）============
+ * 用户原话就是这一句。落地含义：**新线整片都必须是新引擎版式页**，不再出现"这一镜保持老画法"。
+ * 于是每个卡型都要能映射 —— 但**只用他自己的字/图**，绝不自编内容：
+ *   · 大字太短（<4 字，引擎标题硬性 4~24）⇒ 从**本镜字幕**里取一个 4~24 字的短句当页标题，
+ *     原来那 2~3 个大字降为**眉标**（image 页）——他的字一个不丢；
+ *   · 收尾卡 end ⇒ `en` 用与母版一致的一行英文（默认 `AI MARKETING`，可用 VF_PPTIMG_END_EN 改），
+ *     line1/cta 不足时从**本镜字幕**补；
+ *   · 对比卡 compare ⇒ 左右 label(2~12) + points(2~4 条 × 6~28)：条目 = 本卡 leftDesc/rightDesc 按标点拆句；
+ *     不足 2 条时用**本镜字幕**的短句补（仍是他自己的话）；
+ *   · 拼版 duo/frame ⇒ 先用 ffmpeg 把两张（或 3~4 张）图**拼成一张 PNG**，再走 image 页（**不丢图**）；
+ *   · 视频镜 ⇒ 用 ffmpeg 抽一帧当素材走 image 页（⚠️ 会失去运动，日志会写明）。
+ * 关闭开关：`VF_PPTIMG_FULL=0`（回到"映射不上就保持老画法"）。
+ */
+const FULL = String(process.env.VF_PPTIMG_FULL || '') !== '0'
+const END_EN_FALLBACK = String(process.env.VF_PPTIMG_END_EN || 'AI MARKETING').trim()
+const TMPDIR = process.env.TMPDIR || process.env.TEMP || '/tmp'
+/** 从字幕里取第 nth 个"长度落在窗口内"的短句（按中英标点切句；**只用他原话**） */
+function subClause(sub, min, max, nth = 0) {
+  const s = String(sub == null ? '' : sub).replace(/\s+/g, ' ').trim()
+  if (!s) return ''
+  const parts = s.split(/[，。！？；、,.!?;:：\n]+/).map((x) => x.trim()).filter((x) => lenOk(x, min, max))
+  const hit = parts[nth] || ''
+  return hit ? clip(hit, max) : ''
+}
+/** 对比侧条目：先按标点拆本卡 desc；不足 2 条再用本镜字幕补（同源、不编内容） */
+function cmpPoints(desc, sub) {
+  const s = String(desc == null ? '' : desc).replace(/\s+/g, ' ').trim()
+  const out = s.split(/[，。！？；、,.!?;:：\n]+/).map((x) => x.trim()).filter((x) => lenOk(x, 6, 28)).slice(0, 4)
+  for (const c of [subClause(sub, 6, 28, 0), subClause(sub, 6, 28, 1)]) {
+    if (out.length >= 4) break
+    if (c && !out.includes(c)) out.push(c)
+  }
+  return out
+}
+function ffmpegRun(args, timeout = 90000) {
+  try { const r = spawnSync('ffmpeg', args, { encoding: 'utf8', timeout }); return !!(r && r.status === 0) } catch { return false }
+}
+/** 两张（或 3~4 张）素材拼成一版：各自缩到格宽 → 竖排 / 2×2 → 补边到画幅（与老引擎拼版观感一致） */
+function composeCollage(srcs, outPng, W, H) {
+  const n = srcs.length
+  const rows = n >= 3 ? 2 : 1
+  const perRow = rows === 2 ? Math.ceil(n / 2) : n
+  const cellW = Math.floor(W / perRow)
+  const inputs = []
+  srcs.forEach((p) => { inputs.push('-i', p) })
+  const parts = []
+  srcs.forEach((_, i) => parts.push(`[${i}:v]scale=${cellW}:-2,setsar=1[c${i}]`))
+  let layout = ''
+  if (rows === 1) {
+    layout = srcs.map((_, i) => `[c${i}]`).join('') + `hstack=inputs=${n}`
+  } else {
+    const top = srcs.slice(0, perRow).map((_, i) => `[c${i}]`).join('')
+    const bot = srcs.slice(perRow).map((_, i) => `[c${i + perRow}]`).join('')
+    parts.push(`${top}hstack=inputs=${srcs.slice(0, perRow).length}[t]`)
+    parts.push(`${bot}hstack=inputs=${srcs.slice(perRow).length}[b]`)
+    layout = '[t][b]vstack=inputs=2'
+  }
+  const fc = parts.join(';') + ';' + layout
+    + `,scale=${W}:${H}:force_original_aspect_ratio=decrease,pad=${W}:${H}:(ow-iw)/2:(oh-ih)/2:color=0x0d1015,setsar=1[o]`
+  return ffmpegRun(['-nostdin', '-y', '-v', 'error', ...inputs, '-filter_complex', fc, '-map', '[o]', '-frames:v', '1', outPng])
+}
+function videoFrame(v, outPng) {
+  return ffmpegRun(['-nostdin', '-y', '-v', 'error', '-ss', '1', '-i', v, '-frames:v', '1', '-q:v', '2', outPng])
+}
+
 function candidatesOf(shot) {
   const ty = String(shot?.type || '')
   const text = String(shot?.text == null ? '' : shot.text).trim()
@@ -164,6 +229,15 @@ function candidatesOf(shot) {
       out.push(mk(p, 'section', '标题 4~24 字 → 章节页'))
     } else if (text.length > 24 && W.t4_50(text)) {
       out.push(mk({ type: 'section', title: clip(text, 24) }, 'section', '标题偏长 → 截到 24 字'))
+    }
+    // ★VF_PPTIMG_FULL_V1：大字太短（如「转化率」3 字）⇒ 用**本镜字幕**里的短句当章节页标题
+    if (FULL && !out.length) {
+      const d = subClause(sub, 4, 24, 0)
+      if (d) {
+        const p = { type: 'section', title: d }
+        if (W.s6_40(sub)) p.subtitle = clip(sub, 40)
+        out.push(mk(p, 'section', `大字太短（「${text}」${text.length} 字）→ 用字幕短句当标题`))
+      }
     }
     return out
   }
@@ -236,9 +310,16 @@ function candidatesOf(shot) {
   }
 
   if (ty === 'end') {
-    const line1 = text || title
-    const cta = String(shot?.cta == null ? '' : shot.cta).trim()
-    const en = String(shot?.en == null ? '' : shot.en).trim()
+    // ⚠️ 老引擎的 end 卡把主文案放在 **line1**（不是 text）—— 用户实测的卡就是 `{"type":"end","line1":"未来已来"}`
+    let line1 = text || title || String(shot?.line1 == null ? '' : shot.line1).trim()
+    let cta = String(shot?.cta == null ? '' : shot.cta).trim()
+    let en = String(shot?.en == null ? '' : shot.en).trim()
+    // ★VF_PPTIMG_FULL_V1：收尾卡也要能进新引擎 —— 缺的字段从**他自己的字幕**补，英文用母版一致的一行
+    if (FULL) {
+      if (!W.t4_50(line1)) line1 = subClause(sub, 4, 24, 0) || line1
+      if (!lenOk(cta, 6, 351)) cta = lenOk(sub, 6, 351) ? clip(sub, 351) : cta
+      if (!lenOk(en, 6, 356)) en = END_EN_FALLBACK
+    }
     if (W.t4_50(line1) && lenOk(cta, 6, 351) && lenOk(en, 6, 356)) {
       out.push(mk({ type: 'end', line1: clip(line1, 135), cta: clip(cta, 351), en: clip(en, 356) }, 'end', '收尾页'))
     }
@@ -255,17 +336,62 @@ function candidatesOf(shot) {
   if (ty === 'bgimage' && IMGPAGES) {
     const sp = String(shot?.src || '')
     const ext = (sp.match(/\.(jpe?g|png|webp)$/i) || [])[0]
-    const t = String(shot?.text || shot?.title || '').trim()
+    let t = String(shot?.text || shot?.title || '').trim()
+    let kk = String(shot?.kicker == null ? '' : shot.kicker).trim()
+    // ★VF_PPTIMG_FULL_V1：大字太短（如「地球」2 字）⇒ 用**本镜字幕**的短句当标题，原大字降为**眉标**
+    if (FULL && !lenOk(t, 4, 24)) {
+      const d = subClause(sub, 4, 24, 0)
+      if (d) { if (!kk) kk = t; t = d }
+    }
     if (ext && sp && !/^https?:/i.test(sp) && lenOk(t, 4, 24)) {
       const p = { type: 'image', title: clip(t, 24), layout: 'full', __src: sp }
       if (lenOk(sub, 8, 48)) p.caption = clip(sub, 48)
-      const kk = String(shot?.kicker == null ? '' : shot.kicker).trim()
       if (kk && kk.length <= 32) p.kicker = kk
-      out.push(mk(p, 'image', '素材镜 → 版式页（图在母版框里）'))
+      out.push(mk(p, 'image', kk ? '素材镜 → 版式页（原大字「' + kk + '」降为眉标）' : '素材镜 → 版式页（图在母版框里）'))
     }
-    return out   // 素材镜只可能映射成 image 页；不合格（没图/没可用标题/底部太亮）就保持老画法
+    return out   // 素材镜只可能映射成 image 页；连字幕都取不到合规标题 ⇒ 才保持老画法
   }
-  return out   // video / aivideo 等其它镜型：不换
+  // ★VF_PPTIMG_FULL_V1：对比卡 → 引擎对比页（左右 label 2~12 + 各 2~4 条 × 6~28 + 一句结论）
+  if (ty === 'compare' && FULL) {
+    const t = String(shot?.title || shot?.text || '').trim()
+    const L = String(shot?.left || '').trim(), R = String(shot?.right || '').trim()
+    const title = W.t4_24(t) ? t : ((L && R) ? clip(L + ' vs ' + R, 24) : '')
+    const lp = cmpPoints(shot?.leftDesc, sub), rp = cmpPoints(shot?.rightDesc, sub)
+    if (W.t4_24(title) && lenOk(L, 2, 12) && lenOk(R, 2, 12) && lp.length >= 2 && rp.length >= 2 && lenOk(sub, 8, 40)) {
+      out.push(mk({
+        type: 'compare', title: clip(title, 24),
+        left: { label: clip(L, 12), points: lp }, right: { label: clip(R, 12), points: rp },
+        conclusion: clip(sub, 40),
+      }, 'compare', '对比卡 → 对比页'))
+    }
+    return out
+  }
+  // ★VF_PPTIMG_FULL_V1：拼版 duo/frame → 先拼成一张图，再走 image 页（不丢图；真正拼图在落盘那步做）
+  if ((ty === 'duo' || ty === 'frame') && FULL) {
+    const srcs = (Array.isArray(shot?.srcs) ? shot.srcs : []).map((x) => String(x || ''))
+      .filter((x) => x && /\.(jpe?g|png|webp)$/i.test(x)).slice(0, 4)
+    let t = String(shot?.text || shot?.title || '').trim()
+    if (!lenOk(t, 4, 24)) { const d = subClause(sub, 4, 24, 0); if (d) t = d }
+    if (srcs.length >= 2 && lenOk(t, 4, 24)) {
+      const p = { type: 'image', title: clip(t, 24), layout: 'full', __src: '__duo:' + srcs.join('|') }
+      if (lenOk(sub, 8, 48)) p.caption = clip(sub, 48)
+      out.push(mk(p, 'image', `拼版 → 版式页（${srcs.length} 张先拼成一张）`))
+    }
+    return out
+  }
+  // ★VF_PPTIMG_FULL_V1：视频镜 → 抽一帧当素材走 image 页（⚠️ 失去运动，日志写明）
+  if ((ty === 'video' || ty === 'aivideo') && FULL) {
+    const sp = String(shot?.src || '')
+    let t = String(shot?.text || shot?.title || '').trim()
+    if (!lenOk(t, 4, 24)) { const d = subClause(sub, 4, 24, 0); if (d) t = d }
+    if (sp && !/^https?:/i.test(sp) && lenOk(t, 4, 24)) {
+      const p = { type: 'image', title: clip(t, 24), layout: 'full', __src: '__vid:' + sp }
+      if (lenOk(sub, 8, 48)) p.caption = clip(sub, 48)
+      out.push(mk(p, 'image', '视频镜 → 抽一帧当素材（会失去运动）'))
+    }
+    return out
+  }
+  return out   // 其余镜型：不换
 }
 
 // ★兜底：**改前那套 1:1 机械映射**（`--no-mix` 专用）—— 保留它是为了能一键回到"老行为"做对照，
@@ -385,8 +511,24 @@ for (let i = 0; i < sb.shots.length; i++) {
   //   命名用**内容 sha1 前 10 位** ⇒ 天然去重、且 asset 在算 deck hash 之前就已知（缓存才不会错）。
   //   任何一步失败（读不到/写不进）⇒ **这一镜保持老画法**，绝不产出一张没图的页。
   if (chosen.page.type === 'image') {
-    const sp = String(chosen.page.__src || '')
+    let sp = String(chosen.page.__src || '')
     try {
+      // ★VF_PPTIMG_FULL_V1：拼版/视频镜的素材要先"造出来"（拼一张 / 抽一帧），再走同一条入库路
+      if (sp.startsWith('__duo:')) {
+        const _srcs = sp.slice(6).split('|').filter(Boolean)
+        const _W = Array.isArray(sb.size) ? sb.size[0] : 720
+        const _H = Array.isArray(sb.size) ? sb.size[1] : 1280
+        const tmp = path.join(TMPDIR, 'vf-duo-' + crypto.createHash('sha1').update(sp).digest('hex').slice(0, 8) + '.png')
+        if (!fs.existsSync(tmp) && !composeCollage(_srcs, tmp, _W, _H)) throw new Error('ffmpeg 拼版失败')
+        sp = tmp
+        say(`第 ${i + 1} 镜拼版 ${_srcs.length} 张 → ${path.basename(tmp)}（拼成一张再进版式页）`)
+      } else if (sp.startsWith('__vid:')) {
+        const _v = sp.slice(6)
+        const tmp = path.join(TMPDIR, 'vf-vid-' + crypto.createHash('sha1').update(_v).digest('hex').slice(0, 8) + '.jpg')
+        if (!fs.existsSync(tmp) && !videoFrame(_v, tmp)) throw new Error('ffmpeg 抽帧失败')
+        sp = tmp
+        say(`第 ${i + 1} 镜视频镜 → 抽一帧当素材（会失去运动）`)
+      }
       const buf = fs.readFileSync(sp)
       const ext = ((sp.match(/\.(jpe?g|png|webp)$/i) || ['.jpg'])[0]).toLowerCase().replace('jpeg', 'jpg')
       const fn = crypto.createHash('sha1').update(buf).digest('hex').slice(0, 10) + ext
@@ -662,6 +804,7 @@ picked.forEach((p, k) => {
   s.frame = 'none'
   s.kb = 'none'
   s._pptpage = true
+  delete s.srcs          // ★VF_PPTIMG_FULL_V1：拼版镜换页后**必须删 srcs**，否则老引擎仍可能按"拼版"处理
   swapped++
 })
 // ★VF_BANNERSKIP_V1（2026-10-07 P1④）：换页的镜**逐镜关掉顶部固定标题**。
