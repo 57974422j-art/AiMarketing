@@ -486,6 +486,24 @@ ck 'VF_PPTPAGE_SOLO_V1'             'scripts/video-factory/ppt-pages.mjs' 1
 #   修法：预览也调 `ppt-pages.mjs` 先换页再逐镜渲（与本线出片**同一把尺子**），
 #   且**只对带 plan 根级 `pptpage` 的线生效**（老线没有该键 ⇒ 预览照旧；deck 缓存与出片共用，出过片则秒级）。
 ck 'VF_PPTPAGE_PREVIEW_V1'          'src/app/api/agent/vf/ppt-preview/route.ts' 1
+# ★VF_PPTIMG_IMAGE_V1（2026-10-07 用户定案「就更新」）：**素材镜 → 新引擎 `image` 页型**（这一步才叫"整片真·新引擎"）。
+#   契约（`deck.schema.json` pageImage + `render-deck.mjs` 源码）：必填 `title(4~24)/asset(相对 deck 文件、不许 : 与 ..)/layout`；
+#   **9:16 只允许 `layout:'full'`**；asset 生成期缺文件直接抛错、按 basename 拷进产物 assets（同 deck 内必须唯一）；
+#   扩展名只认 jpg/jpeg/png/webp。⇒ 本脚本把素材按**内容 sha1** 命名落到 `<OUTDIR>/pptimg-assets/`，deck 里写相对路径。
+#   取不到 4~24 字 title ⇒ 该镜保持老画法（绝不编内容）。`--no-imgpages` = 关掉（回到只换纯文字镜）。
+#   本机实测：真渲 6 页 29.6s、引擎校验 PASS、**`verify-image.mjs` ① 素材真上屏 12/12 与 14/14 全达标**
+#   （证明素材原样上屏、没被滤镜污染）。
+#   ★母版侧同步加固：10 个 `masters/*/assets/master.css` 的 `.p9-full-scrim` 由 `.80/.55/.20/0` 改为
+#   `.97/.90/.62/.10/0`（原值压不住亮底素材）。⚠️ 高度仍 64%，**不得越过 `--full-top 0.34`**
+#   （那是引擎"素材真上屏"的比色区，遮罩盖进去会把 ① 判据弄红）。
+#   ⚠️ **已知遗留（不是遮罩能修的）**：`verify-image.mjs` 对**亮底素材**仍报 1 处
+#   「最坏背景 0.378 → 2.29:1 < 4.5:1」；两次加固遮罩该数值**一动不动** ⇒ 那个瓦片不在遮罩覆盖内，
+#   属**引擎侧元素与其自身校验口径**的问题（DOM 层序已核对：`p9-media`→`p9-full-scrim`→`p9-copy` 是对的）。
+#   ★并记一条教训：**不要用"筛素材"治对比度** —— 均值闸门放过真实失败样本、YMAX 闸门几乎把所有海报都拦掉。
+ck 'VF_PPTIMG_IMAGE_V1'             'scripts/video-factory/ppt-pages.mjs' 3
+# ★VF_PPTIMG_CACHEKEY_V1：缓存键**必须含母版资产指纹**（`masters/<id>/assets/` 的 name:size:mtime）。
+#   不然改了母版 CSS（如上面那次加固）会**命中旧帧**、拿旧样式出片 —— 现象就是"改完像没生效"（本机实测踩到）。
+ck 'VF_PPTIMG_CACHEKEY_V1'          'scripts/video-factory/ppt-pages.mjs' 1
 # ★VF_PPTBADGE_V1（2026-10-07 用户实测「你是分不清哪个是老引擎使用的PPT和新引擎是哪个吗？」）：
 #   根因**不是分不清**，而是**画面上没有可判定的标记** —— 换页后 `type` 也变成 `bgimage`、卡型名看不出差别。
 #   修法：`render.py --ppt-preview` 的 index.json 每条多写 `pptpage: bool(shot._pptpage)`；

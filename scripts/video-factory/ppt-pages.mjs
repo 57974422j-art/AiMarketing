@@ -48,6 +48,20 @@ const MASTER_ARG = arg('master', '')
 const PALETTE_ARG = arg('palette', '')
 const MAX_PAGES = parseInt(arg('max', '24')) || 24
 const DRY = process.argv.includes('--dry')
+// ★VF_PPTIMG_IMAGE_V1（2026-10-07 用户定案「就更新」）——**素材镜也交给新引擎的 `image` 页型**。
+//   这一步才叫"整片真·新引擎"：素材以**母版版式**呈现（图在框里 + 页面自带 title/caption/kicker/页码），
+//   而不是老引擎那种"满屏素材 + 大字压上去"。
+//   ── 契约（`deck.schema.json` 的 `pageImage` + `render-deck.mjs` 实测源码，缺一条就白干）──
+//   · 必填：`type:'image'` / `title`（**4~24 字**）/ `asset`（**相对 deck 文件**的路径，不许冒号、不许 `..`）/ `layout`；
+//     可选：`caption`（8~48）、`kicker`（≤32）。**9:16 只允许 `layout:'full'`**（竖屏 left/right 直接报错）。
+//   · `asset` 由 render-deck 按 **deck 文件所在目录** 解析，**文件不存在就在生成期抛错**（绝不渲成黑屏），
+//     然后按 **basename** 拷进产物 `assets/` ⇒ 同一 deck 内**文件名必须唯一**。
+//   · 扩展名只认 jpg/jpeg/png/webp（gif 等一律不接 ⇒ 那些镜保持老画法）。
+//   ⇒ 本脚本的做法：把用户素材按**内容 sha1 前 10 位**命名，落到 `<OUTDIR>/pptimg-assets/<hash>.<ext>`，
+//     deck 里写 `pptimg-assets/<hash>.<ext>`（内容寻址 ⇒ 天然去重、且 asset 在算 deck hash 之前就已知）。
+//   ⚠️ 取不到 4~24 字的 `title`（素材镜既没大字也没可用文案）⇒ **这一镜不换页**（保持老画法），绝不编内容。
+//   `--no-imgpages` = 关掉这一步（只换纯文字镜，即 P0 行为）。
+const IMGPAGES = !process.argv.includes('--no-imgpages')
 
 const notes = []
 const say = (s) => { notes.push(s); console.log('[PPT-PAGE] ' + s) }
@@ -89,6 +103,14 @@ function fontOk(text) {
   }
   return true
 }
+
+/* ★（2026-10-07 记一笔，免得以后又走回头路）**不要用"筛素材"来治图片页的对比度**：
+ *   我本机试过"底部太亮就不给 image 页"的闸门 —— 均值闸门放过了真实失败样本（失败形态是
+ *   "均值很暗、底部某块很亮"，verify 按**最坏瓦片**判），换成 YMAX 闸门又**几乎把所有海报/截图都拦掉**
+ *   （哪张图的底部没有近白像素？）⇒ 等于把这个能力永久关掉。
+ *   正解在**母版侧**：把 `.p9-full-scrim` 底部那一段加重（10 个母版 `assets/master.css` 同步改），
+ *   让**任何素材**都能压住字；并且**不能越过 `--full-top 0.34` 那条线**（那是引擎"素材真上屏"比色区，
+ *   遮罩盖进去会把 `verify-image.mjs` 的 ① 判据弄红）。改完用引擎自带的 `verify-image.mjs` 复验。 */
 
 /* ============ 3) 卡型映射：老引擎纯文字镜 → 新引擎页型（**窗口取自 deck.schema.json，逐条硬校验**）============
  * 只映射"内容天然够格"的卡型；差一个字段就**不映射**（宁可这一镜留在老画法，也不许凭空造内容）。
@@ -220,7 +242,28 @@ function candidatesOf(shot) {
     }
     return out
   }
-  return out   // bgimage / video / aivideo 等素材镜：不换（页面替换只针对纯文字镜）
+  // ★VF_PPTIMG_IMAGE_V1：素材镜 → 新引擎 `image` 页型（母版版式里放图；图**不被滤镜/压暗打过**，
+  //   这是引擎的 `verify-image.mjs` 会用像素证据验的：素材真上屏、无滤镜、文字对比度 ≥4.5:1）。
+  //   ★VF_PPTIMG_LUMGATE_V1（2026-10-07 本机实测踩到）：**亮素材不能走 image 页** ——
+  //   9:16 只允许 `layout:'full'`，而母版自带的那层底部遮罩在**亮底**上压不住字：
+  //   实测 `verify-image.mjs` 报「页4 image/full 底部 18px 小字 最坏背景 0.379 → **2.30:1 < 4.5:1**」。
+  //   这是"母版侧"的事，不该我去改引擎（改了会同时影响 PPT成片线）⇒ **在我这层先筛素材**：
+  //   取**底部 20% 带**的平均亮度，太亮（>150/255）就不用 image 页 ⇒ 那一镜保持老画法
+  //   （老画法有 scrim + 大字，本来就是亮素材更合适的那条路）。
+  if (ty === 'bgimage' && IMGPAGES) {
+    const sp = String(shot?.src || '')
+    const ext = (sp.match(/\.(jpe?g|png|webp)$/i) || [])[0]
+    const t = String(shot?.text || shot?.title || '').trim()
+    if (ext && sp && !/^https?:/i.test(sp) && lenOk(t, 4, 24)) {
+      const p = { type: 'image', title: clip(t, 24), layout: 'full', __src: sp }
+      if (lenOk(sub, 8, 48)) p.caption = clip(sub, 48)
+      const kk = String(shot?.kicker == null ? '' : shot.kicker).trim()
+      if (kk && kk.length <= 32) p.kicker = kk
+      out.push(mk(p, 'image', '素材镜 → 版式页（图在母版框里）'))
+    }
+    return out   // 素材镜只可能映射成 image 页；不合格（没图/没可用标题/底部太亮）就保持老画法
+  }
+  return out   // video / aivideo 等其它镜型：不换
 }
 
 // ★兜底：**改前那套 1:1 机械映射**（`--no-mix` 专用）—— 保留它是为了能一键回到"老行为"做对照，
@@ -302,6 +345,27 @@ for (let i = 0; i < sb.shots.length; i++) {
   let forced = false
   if (!chosen) { chosen = cands[0]; forced = true }
   if (!fontOk(JSON.stringify(chosen.page))) { say(`第 ${i + 1} 镜不换页：命中字表外字符`); continue }
+  // ★VF_PPTIMG_IMAGE_V1：image 页的素材**必须先落盘**（契约：asset 相对 deck 文件、存在性不满足就抛错），
+  //   命名用**内容 sha1 前 10 位** ⇒ 天然去重、且 asset 在算 deck hash 之前就已知（缓存才不会错）。
+  //   任何一步失败（读不到/写不进）⇒ **这一镜保持老画法**，绝不产出一张没图的页。
+  if (chosen.page.type === 'image') {
+    const sp = String(chosen.page.__src || '')
+    try {
+      const buf = fs.readFileSync(sp)
+      const ext = ((sp.match(/\.(jpe?g|png|webp)$/i) || ['.jpg'])[0]).toLowerCase().replace('jpeg', 'jpg')
+      const fn = crypto.createHash('sha1').update(buf).digest('hex').slice(0, 10) + ext
+      const relDir = 'pptimg-assets'
+      const absDir = path.join(OUTDIR, relDir)
+      fs.mkdirSync(absDir, { recursive: true })
+      const abs = path.join(absDir, fn)
+      if (!fs.existsSync(abs)) fs.writeFileSync(abs, buf)
+      chosen.page.asset = relDir + '/' + fn
+      delete chosen.page.__src
+    } catch (e) {
+      say(`第 ${i + 1} 镜素材拷不动（${String(e && e.message || e).slice(0, 60)}）→ 该镜保持老画法`)
+      continue
+    }
+  }
   picked.push({ idx: i, page: chosen.page, kind: chosen.kind })
   kindUse.push(chosen.kind)
   say(`第 ${i + 1} 镜 ${sb.shots[i].type} → ${chosen.kind}${forced ? '（单调闸门无替代候选，仍用它）' : ''}：${chosen.why || ''}`)
@@ -344,7 +408,21 @@ const deck = {
 }
 
 // 4.4 缓存：内容 hash（页 + 皮肤 + 画幅）→ 同一个 deck 只渲一次
-const hash = crypto.createHash('sha1').update(JSON.stringify({ pages, masterId, palette, orientation })).digest('hex').slice(0, 12)
+// ★VF_PPTIMG_CACHEKEY_V1（2026-10-07 本机实测踩到）：缓存键必须**含母版资产指纹** ——
+//   否则改了母版（例如把 `.p9-full-scrim` 加固）会**命中旧帧**、拿旧样式出片，
+//   现象就是"改完像没生效"（我这次就是这么被坑的：加固遮罩后重跑，直接命中缓存没重渲）。
+//   指纹 = 母版 `assets/` 下每个文件的 `name:size:mtime`（够便宜，也够准）。
+function masterFingerprint(id) {
+  try {
+    const dir = path.join(DECK_DIR, 'masters', 'master-' + String(id).replace(/^master-/, ''), 'assets')
+    const list = fs.readdirSync(dir).sort()
+      .map((f) => { const st = fs.statSync(path.join(dir, f)); return f + ':' + st.size + ':' + Math.round(st.mtimeMs) })
+    return crypto.createHash('sha1').update(list.join('|')).digest('hex').slice(0, 8)
+  } catch { return 'na' }
+}
+const hash = crypto.createHash('sha1')
+  .update(JSON.stringify({ pages, masterId, palette, orientation, master: masterFingerprint(masterId) }))
+  .digest('hex').slice(0, 12)
 const name = 'pf' + hash
 const deckPath = path.join(OUTDIR, name + '.json')
 const framesDir = path.join(OUT_ROOT, name, 'frames')

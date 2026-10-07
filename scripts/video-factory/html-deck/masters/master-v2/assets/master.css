@@ -1,3 +1,4 @@
+/* ★VF_PPTIMG_IMAGE_V1（2026-10-07）：全幅图片页(.p9-full-scrim)底部遮罩**加固** —— 原 .80/.55/.20/0 压不住亮底素材（引擎自带 verify-image.mjs 实测底部小字 2.29:1 < 4.5:1）。现在 .97/.90/.62/.10/0。⚠️ 高度仍 64%（不得越过 --full-top 0.34 那条「素材真上屏」比色区）。 */
 /* ============================================================
    master-v2 · 动态 PPT 母版（浅色商务风）样式与设计令牌
    两套画布共用本文件：16:9 (1280x720) / 9:16 (720x1280, body.p)
@@ -344,7 +345,7 @@ body.p .p6-plot { top: calc(var(--pad) + 168px); height: 372px; }
 /* full：满幅压字 + **渐隐底衬**（我们的规矩：不用实心黑框） */
 .p9--full .p9-media { left: 0; top: 0; width: 100%; height: 100%; }
 .p9-full-scrim { position: absolute; left: 0; right: 0; bottom: 0; height: 64%; pointer-events: none;
-  background: linear-gradient(to top, rgba(0,0,0,.80) 0%, rgba(0,0,0,.55) 32%, rgba(0,0,0,.20) 66%, rgba(0,0,0,0) 100%); }
+  background: linear-gradient(to top, rgba(0,0,0,.97) 0%, rgba(0,0,0,.90) 40%, rgba(0,0,0,.62) 70%, rgba(0,0,0,.10) 92%, rgba(0,0,0,0) 100%); }
 .p9--full .p9-copy { left: var(--pad); right: var(--pad); top: auto; bottom: calc(var(--pad) + 30px); }
 /* ★ 强制浅色文字 + 强制浅色强调条：v2 的深墨蓝字压在图上会读不出 */
 .p9--full .p9-title, .p9--full .p9-caption { color: #f4f2ef; }
