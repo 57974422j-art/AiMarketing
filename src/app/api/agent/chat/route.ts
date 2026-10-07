@@ -4097,6 +4097,34 @@ PUBLISH_DRAFT.delete(uidW)
         //   · 本轮范围 = 只配置 + 预演，**不自动执行**（老板原话「暂时不做自动获客」）。
         //   · 内部绝不 throw（异常转人话），所以不会连累成片线。
         // ═══════════════════════════════════════════════════════════════════════
+        // ═══════════════════════════════════════════════════════════════════════════
+        // ★VF_PPTFIRST_V1（2026-10-07 用户实测「点『开始排版』后只回了 AI 瞎编的确认，什么都没改」）：
+        //   【PPT 成片】必须**最先分派**。原注释写着"本块放在四条线之前"，但代码实际把它放在
+        //   **获客 / 视频混剪 / 素材+AI / AI制片 四条线之后** ⇒ 只要前面任一条把消息"接管"掉
+        //   （典型：获客线的 `shouldTakeOverLeadLine` 对有旧草稿的**非命令**消息会接管，
+        //     即使它的 handler 返回 null），`leadHandled` 就变成 true ⇒ **PPT 线永远轮不到**
+        //   ⇒ 消息落到 AI ⇒ 模型自己编一个"长得像我们的卡"的协议串（实测 `step:"ppt_plan"`，全仓无此值）。
+        //   本线判定**精确到自己的命令（stdCmdHit.id === 'vf_ppt'）与自己的协议串（^VF_PPT_FORM:）**，
+        //   且**不再看 leadHandled**（否则又被获客线挡住）⇒ 放最前面零风险。
+        // ═══════════════════════════════════════════════════════════════════════════
+        let vfPptHandled = false
+        try {
+          const { handlePptLine } = await import('@/lib/agent/vf/vf-ppt')
+          const _isPptMsg = (!!stdCmdHit && stdCmdHit.id === 'vf_ppt') || /^VF_PPT_FORM\s*:/.test(String(userMessage || '').trim())
+          // ★VF_PPTDIAG_V1：留痕（消息头 / 是否命中本线）—— 一次点击就能定案，不靠猜。
+          try { vfLog(uidVF2, `[PPT-DIAG] msgHead=${String(userMessage || '').slice(0, 20)} _isPptMsg=${_isPptMsg}（最先分派）`) } catch { /* ignore */ }
+          if (_isPptMsg) {
+            const _rP = await handlePptLine({
+              uid: uidVF2, userMessage, prisma, generateText: genTextW,
+              log: (u: any, m: string) => vfLog(u, m), voiceList: VF_VOICE_BASE,
+            })
+            if (_rP) { vfPptHandled = true; wfEarlyReply = _rP; finalResult = _rP }
+            else { try { vfLog(uidVF2, '[PPT-DIAG] handler 返回 null（本线没接管，消息会落到 AI）') } catch { /* ignore */ } }
+          }
+        } catch (ePP: any) {
+          vfPptHandled = false
+          try { vfLog(uidVF2, '[VF-P] 分派异常: ' + String(ePP?.message || ePP).slice(0, 200)) } catch { /* ignore */ }
+        }
         let leadHandled = false
         try {
           if ((!stdCmdHit || stdCmdOwned(['lead'])) && await shouldTakeOverLeadLine(prisma, uidVF2, userMessage)) {
@@ -4116,7 +4144,7 @@ PUBLISH_DRAFT.delete(uidW)
         // ★VF_VIDEOLINE_V1（2026-09-24）【视频混剪】独立线
         let vfVideoHandled = false
         // ★VF_PPTSOLO_V1（2026-10-06）【PPT 成片】独立线（第 6 条；只吃文案+皮肤，配音为时序真源）
-        let vfPptHandled = false
+        //   ⚠️★VF_PPTFIRST_V1（2026-10-07）：`vfPptHandled` 的声明与分派**已上移到获客线之前**，此处不再重复声明。
         const _parseVfForm = (msg: string) => {
           const m = String(msg || '').trim().match(/^VF_FORM:(\{[\s\S]*\})/)
           try { return m ? JSON.parse(m[1]) : null } catch { return null }
@@ -4199,36 +4227,15 @@ PUBLISH_DRAFT.delete(uidW)
             try { vfLog(uidVF2, '[VF-A] 分派异常: ' + String(eAI?.message || eAI).slice(0, 200)) } catch { /* ignore */ }
           }
         }
-        // ═══════════════════════════════════════════════════════════════════════════
         // ★VF_PPTSOLO_V1（2026-10-06 用户定案「彻底拆开」）【PPT 成片】独立线（第 6 条状态机线）
         //   用户原话：「做个 PPT 成片 / HTML 逐帧成片，原设计图视混剪和图片成片单独保留。不要混在一起。
         //   要不这个好了那个又坏了，我们调试起来很麻烦。」
         //   · 入口 = 标准模式命令「PPT成片」（别名 动态PPT / 动态PPT成片）；提交协议 = `VF_PPT_FORM:{...}`
         //   · 它**独占**「HTML 逐帧 · 动态 PPT」能力 —— 其余四条线的成片方式不再提供 deck 选项（见下面 VF_FORM 封路）
         //   · 时序真源 = 配音（页 = PPT 版式页）；不取素材、不排分镜、不插素材图 ⇒ 与其它线互不干扰
-        //   · 本块放在四条线之前：命中即置 vfPptHandled，素材线在它下面天然让位；
-        //     其它三条线靠 stdCmdHit 让位（★VF_STDCMD_GUARD_V1 已覆盖）。
-        // ═══════════════════════════════════════════════════════════════════════════
-        try {
-          const { handlePptLine } = await import('@/lib/agent/vf/vf-ppt')
-          const _isPptMsg = (!!stdCmdHit && stdCmdHit.id === 'vf_ppt') || /^VF_PPT_FORM\s*:/.test(String(userMessage || '').trim())
-          // ★VF_PPTDIAG_V1（2026-10-07 用户实测「点『开始排版』后只回了 AI 瞎编的确认」）：
-          //   日志里**既没有** handler 的「确认卡」行、**也没有**锁死行、**也没有**分派异常行 ⇒ 三种可能
-          //   （块没被执行到 / _isPptMsg 为 false / handler 返回 null）**无法区分**，只能靠猜 ⇒ 加这一行。
-          //   每次请求留痕：消息头 / 是否命中 PPT 线 / 获客线是否已接管。
-          try { vfLog(uidVF2, `[PPT-DIAG] msgHead=${String(userMessage || '').slice(0, 20)} _isPptMsg=${_isPptMsg} leadHandled=${leadHandled}`) } catch { /* ignore */ }
-          if (!leadHandled && _isPptMsg) {
-            const _rP = await handlePptLine({
-              uid: uidVF2, userMessage, prisma, generateText: genTextW,
-              log: (u: any, m: string) => vfLog(u, m), voiceList: VF_VOICE_BASE,
-            })
-            if (_rP) { vfPptHandled = true; wfEarlyReply = _rP; finalResult = _rP }
-            else { try { vfLog(uidVF2, '[PPT-DIAG] handler 返回 null（本线没接管，消息会落到 AI）') } catch { /* ignore */ } }
-          }
-        } catch (ePP: any) {
-          vfPptHandled = false
-          try { vfLog(uidVF2, '[VF-P] 分派异常: ' + String(ePP?.message || ePP).slice(0, 200)) } catch { /* ignore */ }
-        }
+        //   ⚠️★VF_PPTFIRST_V1（2026-10-07）：本线的**分派块已上移到「获客线之前」**（本文件上方
+        //      `let vfPptHandled = false` 那一段）—— 原注释写"放在四条线之前"，代码实际在四条线之后，
+        //      导致被前面的线接管而永远轮不到（用户实测"点开始排版只回了 AI 瞎编的确认"）。此处只留说明。
         // ★VF_STDCMD_GUARD_V1：命中别条命令时素材线也让位（它自己的命令 = 图片成片 vf_local）
         // ★VF_PPTIMG_V1（2026-10-07）：本块**同时服务**「图片成片」（vf_local）与新的「PPT+图视」（vf_pptimg）——
         //   两条线共用同一套状态机（起稿 → 设置卡 → 分镜确认 → 出片），差别只在 `vd.line`
