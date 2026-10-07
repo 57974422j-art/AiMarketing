@@ -111,6 +111,120 @@ function lenOk(s, a, b) {
 }
 function clip(s, b) { return String(s == null ? '' : s).trim().slice(0, b) }
 
+/* ★VF_PAGEMIX_V1（2026-10-07 用户定案：「**不要让 AI 总是只用最简单的『一页三排字』去画重点**」）：
+ *   每个镜返回的是**候选页型列表（最佳在前）**，而不是唯一页型 —— 由下面的编排器按
+ *   "内容信号 + 去单调闸门"挑一个。改前是 1:1 机械映射（list→bullets）⇒ 一条片的文字页全长一个样，
+ *   用户看到的就是"一页三排字"。
+ *   一律照 deck.schema.json 的窗口**硬校验**；候选全不合窗口 ⇒ 这一镜保持老画法（不换，不是错）。
+ */
+const STEPS_RE = /^[0-9一二三四五六七八九十]+[、.．)）]|第[一二三四五六七八九十]+步|首先|然后|接着|最后|步骤|流程/
+function mk(page, kind, why) { return { page, kind, why } }
+
+function candidatesOf(shot) {
+  const ty = String(shot?.type || '')
+  const text = String(shot?.text == null ? '' : shot.text).trim()
+  const title = String(shot?.title == null ? '' : shot.title).trim()
+  const sub = String(shot?.subtitle == null ? '' : shot.subtitle).trim()
+  const out = []
+
+  if (ty === 'title') {
+    // 整句金句（12~80 且句末有标点）→ quote 比"一个大字"更有设计感；否则 section（章节页）
+    if (lenOk(text, 12, 80) && /[。！？；!?…]$/.test(text)) {
+      const p = { type: 'quote', quote: clip(text, 80) }
+      if (lenOk(sub, 6, 40)) p.context = clip(sub, 40)
+      out.push(mk(p, 'quote', '整句 → 金句页'))
+    }
+    if (W.t4_24(text)) {
+      const p = { type: 'section', title: clip(text, 24) }
+      if (W.s6_40(sub)) p.subtitle = clip(sub, 40)
+      out.push(mk(p, 'section', '标题 4~24 字 → 章节页'))
+    } else if (text.length > 24 && W.t4_50(text)) {
+      out.push(mk({ type: 'section', title: clip(text, 24) }, 'section', '标题偏长 → 截到 24 字'))
+    }
+    return out
+  }
+
+  if (ty === 'list') {
+    const items = (Array.isArray(shot?.items) ? shot.items : []).map((x) => String(x == null ? '' : x).trim()).filter(Boolean).slice(0, 5)
+    const t = title || text
+    if (!W.t4_24(t)) return out
+    const looksSteps = items.filter((x) => STEPS_RE.test(x)).length >= 2 || /步骤|流程/.test(t)
+    const avgLen = items.length ? items.reduce((a, x) => a + x.length, 0) / items.length : 0
+    // ① steps（步骤页：3~6 条、每条 6~28）—— 只有**内容真像步骤**时才抢（≥2 条有序号词，或标题里写"步骤/流程"）
+    if (looksSteps && items.length >= 3 && items.length <= 6 && items.every((x) => lenOk(x, 6, 28))) {
+      out.push(mk({ type: 'steps', title: clip(t, 24), steps: items, index: 'number' }, 'steps', '像步骤 → 步骤页'))
+    }
+    // ② bullets（要点页：3~5 条、每条 8~147）
+    //   ⚠️★VF_BULLETSUM_V1（2026-10-07 本机实测抓到的真 bug）：`summary` 是 bullets 页的 **schema 必填**，
+    //   改前只在"副标刚好 6~334 字"时才补 ⇒ 副标太短（如「这就是差距」5 字）时产出**非法 deck**
+    //   → 校验 FAIL → 渲染失败 → 换页白做（线上表现就是日志里的"换页未生效"）。现在**拿不到合规
+    //   summary 就不提供 bullets 候选**（让它落到 steps/toc，或这一镜保持老画法），绝不产出非法页。
+    const okSum = lenOk(sub, 6, 334)
+    if (items.length >= 3 && items.length <= 5 && items.every((x) => lenOk(x, 8, 147)) && avgLen >= 15 && okSum) {
+      out.push(mk({ type: 'bullets', title: clip(t, 24), items, summary: clip(sub, 334) }, 'bullets', '条目偏长 → 要点页'))
+    }
+    // ③ toc（目录页：3~6 条、每条 4~24）—— 条目短时最合适
+    if (items.length >= 3 && items.length <= 6 && items.every((x) => lenOk(x, 4, 24))) {
+      out.push(mk({ type: 'toc', title: clip(t, 24), items }, 'toc', '条目短 → 目录页'))
+    }
+    // ④ bullets 兜底（条目在窗口内、副标也够长时才算数）
+    if (items.length >= 3 && items.length <= 5 && items.every((x) => lenOk(x, 8, 147)) && okSum) {
+      out.push(mk({ type: 'bullets', title: clip(t, 24), items, summary: clip(sub, 334) }, 'bullets', '条目够长 → 要点页'))
+    }
+    return out
+  }
+
+  if (ty === 'number') {
+    const label = String(shot?.label == null ? '' : shot.label).trim() || title || text
+    const num = String(shot?.value == null ? '' : shot.value).trim() + String(shot?.suffix == null ? '' : shot.suffix).trim()
+    if (W.t4_24(label) && num && String(num).length <= 12) {
+      const p = { type: 'section', title: clip(label, 24), number: String(num).slice(0, 12) }
+      if (W.s6_40(sub)) p.subtitle = clip(sub, 40)
+      out.push(mk(p, 'section', '大数字 → 章节页带数字'))
+    }
+    // 若这一镜是"数字 + 一整句话"（能拆成 说明8~171 + 两条副卡），可以做 data 页；老引擎偶尔带 items
+    const items = (Array.isArray(shot?.items) ? shot.items : []).filter((x) => x && String(x.label || '').trim() && String(x.note || '').trim())
+    if (W.t4_24(label) && num && lenOk(sub, 8, 171) && items.length >= 2) {
+      out.push(mk({ type: 'data', title: clip(label, 24), metric: { number: Number(String(shot.value).replace(/[^\d.]/g, '')) || 0, unit: clip(shot.suffix || '', 8) || '项', explain: clip(sub, 171) }, secondary: items.slice(0, 2).map((x) => ({ label: clip(x.label, 20), note: clip(x.note, 30) })) }, 'data', '数字+两条副卡 → 数据页'))
+    }
+    return out
+  }
+
+  if (ty === 'chart') {
+    const items = (Array.isArray(shot?.items) ? shot.items : []).filter((x) => x && /-?\d/.test(String(x.value)))
+    if (W.t4_24(title || text) && items.length >= 4 && items.length <= 12 && lenOk(sub, 8, 39)) {
+      const labels = items.map((x) => clip(x.label || '', 10))
+      if (labels.every((x) => x.length >= 1)) {
+        out.push(mk({ type: 'chart', title: clip(title || text, 24), chart: { type: 'bar', series: items.map((x) => Number(String(x.value).replace(/[^\d.\-]/g, '')) || 0), labels }, unit: clip(shot.suffix || '', 8) || '项', explain: clip(sub, 39) }, 'chart', '多条数值 → 图表页'))
+      }
+    }
+    return out
+  }
+
+  if (ty === 'quote') {
+    const q = text || title
+    if (lenOk(q, 12, 80) && /[。！？；!?…]$/.test(q)) {
+      const p = { type: 'quote', quote: clip(q, 80) }
+      if (lenOk(sub, 6, 40)) p.context = clip(sub, 40)
+      out.push(mk(p, 'quote', '引言 → 金句页'))
+    }
+    return out
+  }
+
+  if (ty === 'end') {
+    const line1 = text || title
+    const cta = String(shot?.cta == null ? '' : shot.cta).trim()
+    const en = String(shot?.en == null ? '' : shot.en).trim()
+    if (W.t4_50(line1) && lenOk(cta, 6, 351) && lenOk(en, 6, 356)) {
+      out.push(mk({ type: 'end', line1: clip(line1, 135), cta: clip(cta, 351), en: clip(en, 356) }, 'end', '收尾页'))
+    }
+    return out
+  }
+  return out   // bgimage / video / aivideo 等素材镜：不换（页面替换只针对纯文字镜）
+}
+
+// ★兜底：**改前那套 1:1 机械映射**（`--no-mix` 专用）—— 保留它是为了能一键回到"老行为"做对照，
+//   不是死代码：`--no-mix` 时编排器直接用它，页型分布应与 VF_PAGEMIX_V1 之前逐字一致。
 function mapShot(shot) {
   const ty = String(shot?.type || '')
   const text = String(shot?.text == null ? '' : shot.text).trim()
@@ -126,16 +240,14 @@ function mapShot(shot) {
     const items = (Array.isArray(shot?.items) ? shot.items : []).map((x) => String(x == null ? '' : x).trim()).filter(Boolean).slice(0, 5)
     const t = title || text
     if (!W.t4_24(t)) return { page: null, why: 'list 标题长度不在 4~24 窗口（' + t.length + ' 字）' }
-    if (items.length >= 3 && items.every((x) => lenOk(x, 8, 147))) {
-      const p = { type: 'bullets', title: clip(t, 24), items }
-      if (lenOk(sub, 6, 334)) p.summary = clip(sub, 334)
-      return { page: p, why: '' }
+    if (items.length >= 3 && items.every((x) => lenOk(x, 8, 147)) && lenOk(sub, 6, 334)) {
+      // ★VF_BULLETSUM_V1：summary 必填 ⇒ 副标不在 6~334 窗口时不给 bullets（走下面的 toc）
+      return { page: { type: 'bullets', title: clip(t, 24), items, summary: clip(sub, 334) }, why: '' }
     }
     if (items.length >= 3 && items.every((x) => lenOk(x, 4, 24))) {
-      const p = { type: 'toc', title: clip(t, 24), items: items.slice(0, 6) }
-      return { page: p, why: '条目偏短 → 走 toc 页型' }
+      return { page: { type: 'toc', title: clip(t, 24), items: items.slice(0, 6) }, why: '条目偏短 → 走 toc 页型' }
     }
-    return { page: null, why: 'list 条目数/长度不合 bullets(3~5 条,8~147) 也不合 toc(3~6 条,4~24)' }
+    return { page: null, why: 'list 条目数/长度不合 bullets 也不合 toc' }
   }
   if (ty === 'number') {
     const label = String(shot?.label == null ? '' : shot.label).trim() || title || text
@@ -163,12 +275,37 @@ let sb
 try { sb = JSON.parse(fs.readFileSync(SB, 'utf8')) } catch (e) { say('读 storyboard 失败：' + String(e.message).slice(0, 120)); done({ ok: false, note: 'read-storyboard' }) }
 if (!sb || !Array.isArray(sb.shots) || !sb.shots.length) { say('storyboard 没有 shots'); done({ ok: false, note: 'no-shots' }) }
 
-// 4.1 挑出可映射的镜（**顺序即页序**）
+// 4.1 ★VF_PAGEMIX_V1 页型编排：**候选页型 + 去单调闸门**（用户定案「不要让 AI 总是只用最简单的
+//   一页三排字去画重点」）。默认开；`--no-mix` 退回改前的 1:1 机械映射（list 一律 bullets）。
+//   闸门三条：① 同一页型**连续上限 2 页**；② `bullets`/`toc`（"三排字"家族）各自**配额 ≤ 已定页数的 40%**；
+//   ③ 违反了就换下一个候选（候选按"内容信号"排过序，换的仍是合适的页型）；**无候选可换时才让位**并记日志。
+const MIX = !process.argv.includes('--no-mix')
+const MAXRUN = 2
 const picked = []
+const kindUse = []
+function violates(kind) {
+  if (!MIX) return false
+  const n = kindUse.length
+  if (n >= MAXRUN && kindUse.slice(-MAXRUN).every((k) => k === kind)) return true
+  const cap = Math.max(1, Math.ceil((n + 1) * 0.4))
+  if (kind === 'bullets' && kindUse.filter((k) => k === 'bullets').length >= cap) return true
+  if (kind === 'toc' && kindUse.filter((k) => k === 'toc').length >= cap) return true
+  return false
+}
 for (let i = 0; i < sb.shots.length; i++) {
-  const r = mapShot(sb.shots[i])
-  if (r.page) picked.push({ idx: i, page: r.page })
-  else say(`第 ${i + 1} 镜（${sb.shots[i].type}）不换页：${r.why}`)
+  const cands = MIX ? candidatesOf(sb.shots[i]) : [mapShot(sb.shots[i])].filter((r) => r.page).map((r) => ({ page: r.page, kind: r.page.type, why: r.why }))
+  if (!cands.length) { say(`第 ${i + 1} 镜（${sb.shots[i].type}）不换页：无可映射页型`); continue }
+  let chosen = cands.find((c) => !violates(c.kind))
+  let forced = false
+  if (!chosen) { chosen = cands[0]; forced = true }
+  if (!fontOk(JSON.stringify(chosen.page))) { say(`第 ${i + 1} 镜不换页：命中字表外字符`); continue }
+  picked.push({ idx: i, page: chosen.page, kind: chosen.kind })
+  kindUse.push(chosen.kind)
+  say(`第 ${i + 1} 镜 ${sb.shots[i].type} → ${chosen.kind}${forced ? '（单调闸门无替代候选，仍用它）' : ''}：${chosen.why || ''}`)
+}
+if (picked.length) {
+  const dist = Object.entries(kindUse.reduce((a, k) => { a[k] = (a[k] || 0) + 1; return a }, {}))
+  say(`页型分布：${dist.map(([k, v]) => k + '×' + v).join('、')}（种类 ${new Set(kindUse).size}，共换 ${picked.length} 镜）`)
 }
 if (!picked.length) { say('没有任何一镜可换 → 原样输出'); done({ ok: false, skipped: sb.shots.length, note: 'none-mappable' }) }
 if (picked.length > MAX_PAGES) { say(`可换镜数 ${picked.length} > 上限 ${MAX_PAGES} → 只换前 ${MAX_PAGES} 镜（其余留老画法）`); picked.length = MAX_PAGES }
@@ -219,6 +356,19 @@ if (!rendered) {
   try {
     fs.mkdirSync(OUTDIR, { recursive: true })
     fs.writeFileSync(deckPath, JSON.stringify(deck, null, 2), 'utf8')
+    // ★VF_DECKGATE_V1（2026-10-07）：**渲染前先过引擎自己的校验闸门**。
+    //   为什么要多这一道：deck 只要有一页不合 schema（本机实测踩到过：`bullets` 页缺必填 `summary`），
+    //   `render-deck` 会直接拒绝渲染 —— 于是白等一次渲染、日志还只写「渲染失败」，真正原因
+    //   （哪一页、哪个字段）埋在引擎输出里。这里先校验：不过就**不换页**（回落老画法），并把原因原样打出来。
+    const vchk = spawnSync(process.execPath, [path.join(DECK_DIR, 'validate-deck.mjs'), deckPath],
+      { encoding: 'utf8', timeout: 120000 })
+    const vout = String(vchk.stdout || '')
+    const vtail = vout.split('\n').filter((x) => /✗|不达标|结论|FAIL/.test(x)).slice(0, 4).join(' | ')
+    if (vchk.status !== 0 || /FAIL/.test(vout)) {
+      say(`deck 校验没过 → 不换页（回落老画法）：${vtail.slice(0, 260)}`)
+      done({ ok: false, note: 'validate-failed' })
+    }
+    say(`deck 校验通过：${vtail.slice(0, 140)}`)
     const t0 = Date.now()
     say(`渲染 ${name}（${pages.length} 页 → ${picked.length} 镜可用，master=${masterId}/${palette}，${orientation}）…`)
     const r = spawnSync(process.execPath, [RENDER_DECK, deckPath, '--outdir', OUT_ROOT], { encoding: 'utf8', timeout: 15 * 60 * 1000 })

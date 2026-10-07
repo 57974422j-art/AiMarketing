@@ -683,6 +683,21 @@ def _pptpage_swap(sb_in, wd, sb_root, a):
         _st = str((sb_root or {}).get('style') or '').strip()
         if _st:
             cmd += ['--style', _st]
+        # ★VF_PPTSKIN_V1（2026-10-07，为新线「PPT+图视」准备）：plan 根级 `pptpage{master,palette,mix}` ——
+        #   · master/palette = 新引擎皮肤（10 母版 × 4 配色）。老线不写这两个键 ⇒ 行为与今天逐字一致
+        #     （ppt-pages.mjs 里 `--style` 的粗映射兜底仍在）⇒ **零回归**。
+        #   · mix:false = 关掉页型编排（退回 1:1 机械映射，用于对照/排障）。
+        _pp = (sb_root or {}).get('pptpage')
+        if isinstance(_pp, dict):
+            if _pp.get('mix') is False:
+                cmd += ['--no-mix']
+            if str(_pp.get('master') or '').strip():
+                cmd += ['--master', str(_pp['master']).strip()]
+            if str(_pp.get('palette') or '').strip():
+                cmd += ['--palette', str(_pp['palette']).strip()]
+            print('[MAKE] ★VF_PPTSKIN_V1 皮肤=%s/%s · 页型编排=%s'
+                  % (str(_pp.get('master') or '(style 粗映射)'), str(_pp.get('palette') or '-'),
+                     '关' if _pp.get('mix') is False else '开'))
         r = subprocess.run(cmd, capture_output=True, timeout=1800)
         tail = [x.strip() for x in (r.stdout or b'').decode('utf-8', 'ignore').split('\n') if x.strip()]
         last = (tail[-1] if tail else '')[:200]

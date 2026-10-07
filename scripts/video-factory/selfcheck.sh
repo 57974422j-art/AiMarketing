@@ -422,6 +422,27 @@ ck 'VF_CPSONE_V1'                   'src/lib/agent/vf/vf-ppt.ts' 1
 ck 'VF_DECKSCRIM_V1'                'scripts/video-factory/render.py' 2
 ck 'VF_BANNERSKIP_V1'               'scripts/video-factory/ppt-pages.mjs' 1
 ck 'VF_BANNERSKIP_V1'               'scripts/video-factory/render.py' 3
+# ★2026-10-07 新线「PPT+图视」第一步（引擎侧）：页型编排 + 皮肤贯通 + 两道闸门
+#   ★VF_PAGEMIX_V1（用户定案：「**不要让 AI 总是只用最简单的『一页三排字』去画重点**」）：
+#     每个镜改为返回**候选页型列表**，由编排器按"内容信号 + 去单调闸门"挑一个。改前是 1:1 机械映射
+#     （list→bullets）⇒ 一条片的文字页全长一个样。闸门三条：① 同页型**连续上限 2 页**；
+#     ② `bullets`/`toc`（"三排字"家族）各自**配额 ≤ 已定页数的 40%**；③ 违反就换下一个候选，
+#     无候选可换时才让位并写日志。选型信号：整句→quote／有序号词或标题含"步骤/流程"→steps／
+#     条目均长≥15→bullets／条目短→toc／大数字→section(number)／多条数值→chart／两条副卡→data。
+#     `--no-mix` = 退回改前那套 1:1 机械映射（对照/排障用）。
+#     本机实测（11 镜样例）：编排版 **种类 5（section×4 bullets×1 steps×1 toc×2 quote×1）**；
+#     对照组 --no-mix 种类 3（section×5 bullets×1 toc×3）⇒ "一页三排字"显著减少。
+#   ★VF_BULLETSUM_V1（本机实测抓到的真 bug）：`summary` 是 bullets 页的 **schema 必填**，改前只在
+#     副标刚好 6~334 字时才补 ⇒ 副标太短（如「这就是差距」5 字）时产出**非法 deck** → 校验 FAIL →
+#     渲染失败 → 换页白做（线上只看到"换页未生效"）。现在拿不到合规 summary 就不提供 bullets 候选。
+#   ★VF_DECKGATE_V1：**渲染前先过 validate-deck.mjs**，不过就直接不换页（回落老画法）并原样打出原因
+#     —— 避免"白渲一遍 + 日志只写渲染失败"。
+#   ★VF_PPTSKIN_V1：plan 根级 `pptpage{master,palette,mix}` → make.py 传给 ppt-pages.mjs
+#     （新线用新引擎 10 母版 × 4 配色；**老线不写这两个键 ⇒ 行为与今天逐字一致，零回归**）。
+ck 'VF_PAGEMIX_V1'                  'scripts/video-factory/ppt-pages.mjs' 3
+ck 'VF_BULLETSUM_V1'                'scripts/video-factory/ppt-pages.mjs' 2
+ck 'VF_DECKGATE_V1'                 'scripts/video-factory/ppt-pages.mjs' 1
+ck 'VF_PPTSKIN_V1'                  'scripts/video-factory/make.py' 2
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"
