@@ -3939,29 +3939,43 @@ function AgentPageInner() {
     //   而且如果没有视频播放入口，等于"出片了却拿不到片"。这里补一张完成卡：
     //     · url    = 成片（已入个人仓库的 24h 签名地址，前端可直接播）
     //     · poster = 审片图（抽帧拼图）
-    if (content.startsWith('VF_FILM_DONE:')) {
+    if (content.indexOf('VF_FILM_DONE:') >= 0) {
       try {
-        const fd = JSON.parse(content.slice('VF_FILM_DONE:'.length))
+        // ★VF_FILM_CARD_V1（2026-10-08 用户实测「为什么不是和其他一样给我卡片」）：
+        //   协议串**不一定在开头** —— 服务端为保证"出片了就有卡"，会把它**附在模型人话之后**
+        //   （模型正文 + '\n\n' + VF_FILM_DONE:{…}）。原来用 startsWith 判定 ⇒ 不匹配 ⇒ 掉回通用回落
+        //   ⇒ 用户看到的是一行**裸 JSON**（正是用户实测现象）。现在：**在正文里找标记**，
+        //   人话照常渲染（递归），后面跟真正的卡片。
+        const _idx = content.indexOf('VF_FILM_DONE:')
+        const _head = content.slice(0, _idx).trim()
+        const _tail = content.slice(_idx).replace(/\s+$/, '')
+        const _mm = _tail.match(/^VF_FILM_DONE:(\{[\s\S]*\})/)
+        if (!_mm) throw new Error('no json')
+        const fd = JSON.parse(_mm[1])
         const src = fd.url || fd.mp4 || ''
         const isRealUrl = /^https?:\/\//.test(src)
         return (
-          <div className="mb-2 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06]">
-            <div className="text-xs text-emerald-300 mb-2">
-              🎬 素材片已出片{fd.pack ? `（风格包 ${fd.pack}${fd.vertical ? ' · ' + fd.vertical : ''}）` : ''}
-            </div>
-            {src && isRealUrl ? (
-              <video src={src} controls playsInline preload="metadata" poster={fd.poster || undefined}
-                className="w-full max-h-[420px] rounded-lg bg-black" />
-            ) : (
-              <div className="text-[11px] text-amber-300">
-                成片已生成，但没拿到可播放地址（服务端入库/签名那一步没走通）。原文件路径：{String(src || '—')}
+          <div>
+            {/* 模型写的人话照常显示（不因补卡而丢掉） */}
+            {_head ? <div className="mb-2 whitespace-pre-wrap">{renderContent(_head)}</div> : null}
+            <div className="mb-2 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06]">
+              <div className="text-xs text-emerald-300 mb-2">
+                🎬 素材片已出片{fd.pack ? `（风格包 ${fd.pack}${fd.vertical ? ' · ' + fd.vertical : ''}）` : ''}
               </div>
-            )}
-            {fd.poster ? (
-              <img src={fd.poster} alt="审片图" className="mt-2 w-full rounded-lg border border-white/10" />
-            ) : null}
-            <div className="text-[10px] text-gray-400 mt-2">
-              已存入个人仓库（在「个人仓库」里可查看/下载）。想换风格再来一次「素材片」并指定风格包即可。
+              {src && isRealUrl ? (
+                <video src={src} controls playsInline preload="metadata" poster={fd.poster || undefined}
+                  className="w-full max-h-[420px] rounded-lg bg-black" />
+              ) : (
+                <div className="text-[11px] text-amber-300">
+                  成片已生成，但没拿到可播放地址（服务端入库/签名那一步没走通）。原文件路径：{String(fd.localMp4 || src || '—')}
+                </div>
+              )}
+              {fd.poster ? (
+                <img src={fd.poster} alt="审片图" className="mt-2 w-full rounded-lg border border-white/10" />
+              ) : null}
+              <div className="text-[10px] text-gray-400 mt-2">
+                已存入个人仓库（在「个人仓库」里可查看/下载）。想换风格再来一次「素材片」并指定风格包即可。
+              </div>
             </div>
           </div>
         )

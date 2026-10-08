@@ -92,11 +92,36 @@ export async function validate(orchestrationJson: string, opts: { materials: str
 /** ③ 出片：三道闸门 → 渲染（失败返回 stage，调用方据此回退） */
 export async function render(filmJson: string, outDir: string): Promise<{ ok: boolean; mp4?: string; sheet?: string; stage?: string; err?: string }> {
   const r = await runNode([path.join('tools', 'render-film.mjs'), filmJson, '--outdir', outDir], 30 * 60 * 1000)
+  // ★VF_FILM_PATH_V1（2026-10-08 用户实测：协议串里 `localMp4` 是
+  //   `…/film.mp4（6 段 · 30s）` —— 路径后面粘着**说明文字**）：
+  //   原来靠 stdout 正则 `成片：(.*?)\n` 抓路径，而 render-film 那行打印是
+  //   `成片：<相对路径>（N 段 · Ms）` ⇒ 抓到的"路径"根本不存在 ⇒ 后续 `readFile` 失败
+  //   ⇒ 入个人仓库/签名整条断掉（前端于是只剩"没拿到可播放地址"）。
+  //   现口径：**按目录找文件**（最稳，不看 stdout 文案）——
+  //     成片 = outDir 下最大的 .mp4（渲染产物只有一个）；审片图 = sheet.jpg（或 *sheet*.jpg）。
+  //   都找不到才退回"清洗过的"stdout 路径（去掉行尾说明文字/括号）。
   if (r.code === 0) {
-    const m = r.out.match(/成片：(.*?)\n/)
-    const s = r.out.match(/审片图：(.*?)\n/)
-    const abs = (p?: string) => (p ? path.join(filmToolsDir(), p.trim()) : '')
-    return { ok: true, mp4: abs(m?.[1]), sheet: abs(s?.[1]) }
+    const dirAbs = path.isAbsolute(outDir) ? outDir : path.join(filmToolsDir(), outDir)
+    let mp4 = ''
+    let sheet = ''
+    try {
+      const names = fs.readdirSync(dirAbs)
+      const sizeOf = (p: string) => { try { return fs.statSync(p).size } catch { return 0 } }
+      const mp4s = names.filter((n) => /\.mp4$/i.test(n))
+        .map((n) => ({ p: path.join(dirAbs, n), sz: sizeOf(path.join(dirAbs, n)) }))
+        .sort((a, b) => b.sz - a.sz)
+      if (mp4s.length && mp4s[0].sz > 0) mp4 = mp4s[0].p
+      const sh = names.find((n) => /^sheet\.jpe?g$/i.test(n)) || names.find((n) => /sheet.*\.jpe?g$/i.test(n))
+      if (sh) sheet = path.join(dirAbs, sh)
+    } catch { /* 目录读不到 → 走下面兜底 */ }
+    if (!mp4) {
+      const m = r.out.match(/成片[:：]\s*([^\s（(]+)/)   // 只取到空白/括号为止，别把说明文字带进来
+      if (m) {
+        const cand = path.isAbsolute(m[1]) ? m[1].trim() : path.join(filmToolsDir(), m[1].trim())
+        if (fs.existsSync(cand)) mp4 = cand
+      }
+    }
+    return { ok: true, mp4, sheet }
   }
   const stage = (r.out.match(/stage=(\w+)/) || [])[1] || 'unknown'
   const why = (r.out.split('\n').find((l) => l.includes('原因：')) || '').replace('原因：', '').trim()
