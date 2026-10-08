@@ -1,0 +1,23 @@
+{
+  "id": "neon-hud",
+  "name": "霓虹 HUD · 素材叠加",
+  "desc": "素材做画中画卡 + 取景框/扫描线，B-roll 主场景",
+  "aspect": "9:16",
+  "speed": "normal",
+  "mood": "科技",
+  "vertical": ["general", "tech", "game", "auto", "fitness"],
+  "tokens": {
+    "bg": "#050a12", "bg2": "#0d1a2b",
+    "ink": "#f2f7fb", "dim": "#a9c3d6", "faint": "#7f95a8",
+    "accent": "#4df0e4", "accentText": "#7ef0e8",
+    "font": "sans-900", "radius": 20, "density": "dense", "grain": 0.06
+  },
+  "structure": ["closeup-hud"],
+  "elements": ["media-pip", "vignette", "grid-fine", "scanline", "noise-grain", "corner-brackets", "label-chip", "kpi-row", "progress-bottom"],
+  "motion": { "enter": "push-zoom", "emphasis": "glitch-flash", "exit": "crossfade-out", "pace": 0.95 },
+  "prompt": "霓虹 HUD 监控风：素材做画中画卡（边框+暗角），卡内四角取景框 + 扫描线 + 噪点 + 偶发故障条；卡外写状态角标与数据 chip / 素材与信息层严格分工，绝不叠在一起",
+  "refs": ["pages/b1-hud-overlay"],
+  "example": "out/p3a2/../final-b1-hud-overlay/b1-hud-overlay.mp4#4.5s",
+  "thumb": "styles/thumbs/neon-hud.jpg",
+  "createdBy": "builtin"
+}

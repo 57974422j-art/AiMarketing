@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="zh-CN">
+<!-- ============================================================================
+  风格 3 / 3 · 「毛玻璃渐变 SaaS」
+  ---------------------------------------------------------------------------
+  第三种设计语言：**深靛渐变底 + 漂浮光斑 + 毛玻璃卡片 + 环形数据** —— 最接近"大厂产品片"的
+  观感，也是三条里**最容易被当成"现成模板"批量用**的一条。
+  · 底   = 深靛渐变 + 两团缓慢漂移的光斑（Canvas 径向渐变）
+  · 主角 = 毛玻璃主卡：环形进度（Canvas 画）+ 大数字 + 说明
+  · 辅   = 2×2 迷你指标卡（CSS）+ 底部渐变胶囊按钮 + 细网格
+  硬口径同前：固定容器 / 白名单 API / 字体子集 / 时间驱动（可复现）。
+  ⚠ 毛玻璃（backdrop-filter）只在**有东西可透**时才有意义：这里它透的是 Canvas 的光斑与网格。
+============================================================================ -->
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=720, height=1280" />
+<title>风格3 · 毛玻璃渐变 SaaS</title>
+<style>
+  @font-face { font-family: 'NotoSansSC'; src: url('assets/NotoSansSC-sub.woff2') format('woff2'); font-weight: 100 900; font-display: block; }
+  :root{
+    --W: 720px; --H: 1280px;
+    --ink: #f4f7ff;        /* 对深靛底 ≈ 16:1 */
+    /* ⚠ 2026-10-08 实测：毛玻璃卡**后面的光斑**会把有效对比度拉低 —— #b9c6ee 名义 ≈9:1，
+       引擎在实际渲出的像素上实测 **4.39:1**（<4.5 闸门）⇒ 提亮一档。 */
+    --dim: #ccd6f4;        /* 提亮后实测过闸门 */
+    --cyan: #7ff2ff;       /* ≈ 12:1 */
+    --glass: rgba(255,255,255,.10);
+    --glassline: rgba(255,255,255,.24);
+  }
+  *{ box-sizing: border-box; margin: 0; padding: 0; }
+  html,body{ width: var(--W); height: var(--H); background: #0b1030; }
+  body{ font-family: 'NotoSansSC', system-ui, sans-serif; overflow: hidden; }
+  .clip{ position: absolute; }
+  /* ★ 页内元素必须自带 position:absolute（只写 left/top 会被忽略 ⇒ 整页错位，昨天实测踩过） */
+  #pg > div, #pg > section{ position: absolute; }
+  #stage{ position: relative; width: var(--W); height: var(--H); overflow: hidden; }
+  #fx{ left: 0; top: 0; width: 720px; height: 1280px; }
+
+  .glass{
+    position: absolute; border-radius: 24px; background: var(--glass);
+    border: 1px solid var(--glassline); backdrop-filter: blur(16px) saturate(1.25);
+    -webkit-backdrop-filter: blur(16px) saturate(1.25);
+    box-shadow: 0 18px 46px rgba(2,6,24,.42), inset 0 1px 0 rgba(255,255,255,.14);
+  }
+
+  #eyebrow{ left: 64px; top: 96px; font-size: 16px; font-weight: 700; letter-spacing: 3.6px; color: var(--cyan); }
+  #title{ left: 64px; top: 148px; width: 600px; font-size: 62px; font-weight: 800; color: var(--ink); letter-spacing: 1px; line-height: 1.16; }
+  #sub{ left: 64px; top: 316px; width: 600px; font-size: 25px; color: var(--dim); letter-spacing: .6px; }
+
+  /* 主卡：环形进度 + 数字 + 说明 */
+  #main{ left: 56px; top: 414px; width: 608px; height: 312px; }
+  #ringWrap{ left: 40px; top: 44px; width: 224px; height: 224px; position: absolute; }
+  #bigNum{ left: 40px; top: 104px; width: 224px; text-align: center; position: absolute;
+           font-size: 58px; font-weight: 800; color: var(--ink); letter-spacing: -1px; font-variant-numeric: tabular-nums; }
+  /* 上移 16px：引擎按字形框判 `content_overlap`（58px 数字的框会压到下一行） */
+  #bigUnit{ left: 40px; top: 190px; width: 224px; text-align: center; position: absolute; font-size: 21px; color: var(--dim); }
+  #kTtl{ left: 300px; top: 62px; width: 268px; position: absolute; font-size: 25px; font-weight: 700; color: var(--ink); }
+  #kRow{ left: 300px; top: 108px; width: 268px; position: absolute; }
+  #kRow .r{ display: flex; justify-content: space-between; margin-bottom: 14px; }
+  #kRow .a{ font-size: 21px; color: var(--dim); }
+  #kRow .b{ font-size: 21px; font-weight: 700; color: var(--cyan); font-variant-numeric: tabular-nums; }
+
+  /* 2×2 迷你卡 */
+  .mini{ width: 296px; height: 154px; }
+  #m1{ left: 56px; top: 762px; }
+  #m2{ left: 368px; top: 762px; }
+  #m3{ left: 56px; top: 936px; }
+  #m4{ left: 368px; top: 936px; }
+  .mini .k{ position: absolute; left: 24px; top: 22px; font-size: 20px; color: var(--dim); letter-spacing: .6px; }
+  .mini .v{ position: absolute; left: 24px; top: 54px; font-size: 40px; font-weight: 800; color: var(--ink);
+            font-variant-numeric: tabular-nums; }
+  .mini .u{ position: absolute; left: 24px; top: 108px; font-size: 18px; color: var(--cyan); letter-spacing: .6px; }
+
+  /* CTA */
+  #cta{ left: 56px; top: 1128px; width: 608px; height: 76px; border-radius: 38px; position: absolute;
+        background: linear-gradient(100deg, #4dd7ff 0%, #8b7bff 100%);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 27px; font-weight: 800; color: #071026; letter-spacing: 2px;
+        box-shadow: 0 16px 38px rgba(77,215,255,.28); overflow: hidden; }
+  #ctaShine{ position: absolute; top: 0; left: 0; width: 180px; height: 100%;
+             background: linear-gradient(100deg, rgba(255,255,255,0), rgba(255,255,255,.55), rgba(255,255,255,0)); }
+</style>
+</head>
+<body>
+<div id="stage" data-composition-id="main" data-start="0" data-duration="9"
+     data-fps="25" data-width="720" data-height="1280">
+
+  <canvas id="fx" class="clip" data-start="0" data-duration="9" data-track-index="0" width="720" height="1280"></canvas>
+
+  <section id="pg" class="clip" data-start="0" data-duration="9" data-track-index="1">
+    <div id="eyebrow">PRODUCT ANALYTICS</div>
+    <div id="title">数据驱动增长</div>
+    <div id="sub">投放 · 素材 · 转化，一屏看清</div>
+
+    <div id="main" class="glass">
+      <div id="ringWrap"><canvas id="ring" width="224" height="224"></canvas></div>
+      <div id="bigNum">78.5</div>
+      <div id="bigUnit">本月转化率</div>
+      <div id="kTtl">关键指标</div>
+      <div id="kRow">
+        <div class="r"><span class="a">曝光</span><span class="b">12.4 万</span></div>
+        <div class="r"><span class="a">点击率</span><span class="b">4.8 %</span></div>
+        <div class="r"><span class="a">下单</span><span class="b">3.2 千</span></div>
+      </div>
+    </div>
+
+    <div id="m1" class="glass mini"><div class="k">素材产出</div><div class="v">3倍</div><div class="u">对比人工剪辑</div></div>
+    <div id="m2" class="glass mini"><div class="k">出片耗时</div><div class="v">6 分</div><div class="u">单条 200 秒片</div></div>
+    <div id="m3" class="glass mini"><div class="k">成本</div><div class="v">-62%</div><div class="u">同质量条件下</div></div>
+    <div id="m4" class="glass mini"><div class="k">可复现</div><div class="v">100%</div><div class="u">逐帧一致</div></div>
+
+    <div id="cta"><span id="ctaTxt">立即体验</span><span id="ctaShine"></span></div>
+  </section>
+</div>
+
+<script>window.__timelines = window.__timelines || {}; window.__timelines["main"] = { seek: function () {}, duration: function () { return 9; }, pause: function () {}, play: function () {} };</script>
+<script src="assets/gsap.min.js"></script>
+<script src="assets/page.js"></script>
+</body>
+</html>

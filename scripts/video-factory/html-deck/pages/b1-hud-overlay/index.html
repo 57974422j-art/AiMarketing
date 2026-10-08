@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="zh-CN">
+<!-- ============================================================================
+  风格 1 / 3 · 「霓虹 HUD · 素材叠加」—— **B-roll 动效的主场景**（第 2 版）
+  ---------------------------------------------------------------------------
+  第 1 版暴露了一个**真实的设计问题**（必须写进路线里）：
+    叠加层的文字与**素材自身的大字**撞车（素材是"AI营销指挥官"，我又在大字下面写了一遍）
+    ⇒ 观感变成"两套排版打架"。**B-roll 的铁律：叠加层与素材必须分工。**
+  第 2 版按 B-roll 标准做法改：
+    · 素材 → **画面卡（画中画）**：独立边框/圆角/阴影，内部只做 Ken Burns 缓推
+    · 信息层 → 卡片**外面**：状态角标 + 标注框 + 标题 + 数据 chips（与素材内容不重复）
+    · 质感层 → 网格 + 扫描线 + 噪点 + 故障条（全部裁剪在素材卡内，只作用于"画面"）
+  ★ 接入时把 `assets/shot.jpg` 换成你的实拍/海报/视频帧；若素材是视频，把 <img> 换 <video muted>。
+============================================================================ -->
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=720, height=1280" />
+<title>风格1 · 霓虹 HUD 素材叠加</title>
+<style>
+  @font-face { font-family: 'NotoSansSC'; src: url('assets/NotoSansSC-sub.woff2') format('woff2'); font-weight: 100 900; font-display: block; }
+  :root{
+    --W: 720px; --H: 1280px;
+    --ink: #f2f7fb;
+    --dim: #a9c3d6;
+    --neon: #4df0e4;
+    --pink: #ff5fa2;
+  }
+  *{ box-sizing: border-box; margin: 0; padding: 0; }
+  html,body{ width: var(--W); height: var(--H); background: #050a12; }
+  body{ font-family: 'NotoSansSC', system-ui, sans-serif; overflow: hidden; }
+  .clip{ position: absolute; }
+  /* ★ 页内元素必须自带 position:absolute（只写 left/top 会被忽略 ⇒ 整页错位，实测踩过） */
+  #pg > div, #pg > section{ position: absolute; }
+  #stage{ position: relative; width: var(--W); height: var(--H); overflow: hidden; }
+
+  /* ---- 素材卡（画中画）：B-roll 的分工边界 ---- */
+  #frame{ left: 56px; top: 146px; width: 608px; height: 690px; border-radius: 20px; overflow: hidden;
+          border: 1px solid rgba(77,240,228,.30); box-shadow: 0 22px 54px rgba(0,0,0,.55), inset 0 0 60px rgba(0,0,0,.35); }
+  #shot{ width: 100%; height: 100%; object-fit: cover; object-position: top center; filter: contrast(1.05) saturate(1.06); }
+  /* 素材卡内部的暗角（把素材自身的字压下去，防止与信息层抢读） */
+  #vig{ left: 0; top: 0; width: 100%; height: 100%; position: absolute; pointer-events: none;
+        background: radial-gradient(120% 90% at 50% 42%, rgba(0,0,0,0) 42%, rgba(3,7,14,.72) 100%); }
+  /* ★ HUD 画布**只覆盖素材卡**（608×690 @ 56,146）—— 第 2 版是满页 Canvas，
+     引擎 `check` 判 `text_occluded`（满页画布被视作"盖住文字的不透明层"，即使大部分透明）。
+     缩到卡片大小后：① 不再与任何 DOM 文字重叠 ② 画布更小、渲染更快。
+     代价：卡内标注文字也改由画布绘制（见 page.js 的 label()）。 */
+  #fx{ left: 56px; top: 146px; width: 608px; height: 690px; }
+
+  /* ---- 状态角标 ---- */
+  #rec{ left: 56px; top: 74px; display: flex; align-items: center; font-size: 21px; letter-spacing: 2.4px; color: var(--ink); font-weight: 600; }
+  #rec .blink{ width: 12px; height: 12px; border-radius: 50%; background: #ff3b5c; margin-right: 12px; box-shadow: 0 0 12px rgba(255,59,92,.9); }
+  #rec .tc{ margin-left: 14px; color: var(--neon); font-variant-numeric: tabular-nums; font-weight: 700; }
+  #live{ right: 56px; top: 72px; font-size: 19px; letter-spacing: 3px; font-weight: 700; color: #050a12;
+         background: var(--neon); padding: 5px 13px; border-radius: 5px; }
+
+  /* （卡内标注「主视觉区 / 数据面板」已改为**画布绘制** —— 见 page.js 的 label()：
+     它们是卡内的装饰性标注，交给画布可避免 DOM 文字与画布图层的遮挡判据冲突。） */
+
+  /* ---- 信息层（卡外）---- */
+  #title{ left: 56px; top: 892px; width: 608px; font-size: 58px; font-weight: 800; color: var(--ink); letter-spacing: 1px; }
+  #sub{ left: 56px; top: 968px; width: 608px; font-size: 25px; color: var(--dim); letter-spacing: .6px; }
+
+  #chips{ left: 56px; top: 1028px; display: flex; }
+  .chip{ margin-right: 16px; padding: 11px 17px 12px; border-radius: 12px; background: rgba(10,22,36,.85);
+         border: 1px solid rgba(77,240,228,.30); box-shadow: inset 0 0 22px rgba(77,240,228,.08); }
+  .chip .k{ font-size: 17px; color: var(--dim); letter-spacing: 1px; }
+  .chip .v{ font-size: 29px; font-weight: 800; color: var(--neon); font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .chip:nth-child(2) .v{ color: var(--ink); }
+  .chip:nth-child(3) .v{ color: var(--pink); }
+
+  #foot{ left: 56px; top: 1176px; width: 608px; font-size: 19px; color: var(--dim); letter-spacing: .6px; }
+  #bar{ left: 0; bottom: 0; width: 720px; height: 4px; background: rgba(120,170,200,.16); }
+  #bar i{ display: block; width: 100%; height: 100%; background: var(--neon); transform-origin: left center;
+          box-shadow: 0 0 12px rgba(77,240,228,.8); }
+</style>
+</head>
+<body>
+<div id="stage" data-composition-id="main" data-start="0" data-duration="9"
+     data-fps="25" data-width="720" data-height="1280">
+
+  <div id="frame" class="clip" data-start="0" data-duration="9" data-track-index="0">
+    <img id="shot" class="clip" data-start="0" data-duration="9" data-track-index="0" src="assets/shot.jpg" alt="" />
+    <div id="vig" class="clip" data-start="0" data-duration="9" data-track-index="1"></div>
+  </div>
+
+  <!-- ★ track-index = 层序（越大越在上）。第 1 版把 Canvas 放在文字之上 ⇒ 引擎 `check` 判
+       `text_occluded`（文字被不透明元素盖住，9 个时间点全报）。HUD 本来就该画在素材卡内、文字之外，
+       所以把**文字层提到 Canvas 之上**：frame(0) → fx(2) → 文字(3) → 进度条(4)。 -->
+  <section id="pg" class="clip" data-start="0" data-duration="9" data-track-index="3">
+    <div id="rec"><span class="blink"></span>REC<span class="tc" id="tc">00:00:00</span></div>
+    <div id="live">LIVE</div>
+
+    <div id="title">实时投放监控</div>
+    <div id="sub">素材画面 + 动效信息层，同一份内容每次换风格</div>
+
+    <div id="chips">
+      <div class="chip"><div class="k">转化率</div><div class="v">45%</div></div>
+      <div class="chip"><div class="k">效率</div><div class="v">3倍</div></div>
+      <div class="chip"><div class="k">成本</div><div class="v">-62%</div></div>
+    </div>
+
+    <div id="foot">AiMarketing 视频工厂 · 素材不动，动效层加信息</div>
+  </section>
+
+  <canvas id="fx" class="clip" data-start="0" data-duration="9" data-track-index="2" width="608" height="690"></canvas>
+
+  <div id="bar" class="clip" data-start="0" data-duration="9" data-track-index="4"><i id="barIn"></i></div>
+</div>
+
+<script>window.__timelines = window.__timelines || {}; window.__timelines["main"] = { seek: function () {}, duration: function () { return 9; }, pause: function () {}, play: function () {} };</script>
+<script src="assets/gsap.min.js"></script>
+<script src="assets/page.js"></script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "id": "pipeline-green",
+  "name": "工序管线 · 荧光绿",
+  "desc": "深黑底 + 荧光绿 + 顶部章节进度 + 底部流程步骤条（从参考视频抽出）",
+  "aspect": "16:9",
+  "speed": "normal",
+  "mood": "科技",
+  "vertical": ["tech", "education", "b2b", "medical", "finance", "recruit"],
+  "tokens": {
+    "bg": "#0b0d0c", "bg2": "#141814",
+    "ink": "#f2f5f2", "dim": "#b9c2b8", "faint": "#96a094",
+    "accent": "#86e01e", "accentText": "#a8f04a",
+    "font": "sans-900", "radius": 0, "density": "normal", "grain": 0.02
+  },
+  "structure": ["pipeline-process"],
+  "elements": ["bg-gradient-linear", "grid-fine", "wave-track", "chapter-progress", "step-bar", "title-duo", "eyebrow-en", "caption-bottom-big", "caption-pill", "check-mark", "logo-lockup"],
+  "motion": { "enter": "wipe-in", "emphasis": "sweep", "exit": "crossfade-out", "pace": 1.0 },
+  "prompt": "工序管线风（Creator Pipeline 那种）：近黑底 + 荧光绿唯一强调；顶部左 logo + 中英栏目名、右章节进度 03/06；大标题双色（后半句用绿）；中间放轨道/声波/时间码；底部一行大字结论 + 底部流程步骤条（文案—声音—时间轴—画面）；硬边直角、中英混排",
+  "refs": ["E:/ai-marketing/storage/1/w1__31585e8e10df.mp4#30s"],
+  "example": "ref:E:/ai-marketing/storage/1/w1__31585e8e10df.mp4#30s",
+  "thumb": "styles/thumbs/pipeline-green.jpg",
+  "createdBy": "builtin"
+}

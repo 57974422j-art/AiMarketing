@@ -1,0 +1,23 @@
+{
+  "id": "dark-dashboard",
+  "name": "深色数据大屏",
+  "desc": "深底 + 网格 + 生长环 + 大数字，信息密度高",
+  "aspect": "9:16",
+  "speed": "normal",
+  "mood": "科技",
+  "vertical": ["general", "tech", "finance", "b2b", "recruit"],
+  "tokens": {
+    "bg": "#060b14", "bg2": "#0e1c2e",
+    "ink": "#eaf2f9", "dim": "#a8bccd", "faint": "#7f95a8",
+    "accent": "#29d3c9", "accentText": "#7ef0e8",
+    "font": "sans-900", "radius": 18, "density": "normal", "grain": 0.05
+  },
+  "structure": ["data-dashboard"],
+  "elements": ["bg-gradient-radial", "grid-fine", "scanline", "particles-drift", "ring-progress", "big-number", "kpi-row", "bar-mini", "label-chip", "progress-bottom"],
+  "motion": { "enter": "rise", "emphasis": "grow-ring", "exit": "crossfade-out", "pace": 1.0 },
+  "prompt": "深色数据大屏风：冷深底 + 细网格 + 缓慢扫描线；中心环状进度 + 大数字滚筒；底部三张指标卡；青色单一强调色，只小面积用 / 信息密度高、留白克制",
+  "refs": ["pages/p3a-hud"],
+  "example": "out/p3a2/a-hud.mp4#4.5s",
+  "thumb": "styles/thumbs/dark-dashboard.jpg",
+  "createdBy": "builtin"
+}

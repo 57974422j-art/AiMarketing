@@ -1,0 +1,46 @@
+{
+  "id": "from-video-cand004",
+  "name": "参考视频抽取 · 29.75s",
+  "desc": "从参考视频 w1__31585e8e10df.mp4 的 29.75s 帧抽取（待人工微调）",
+  "aspect": "9:16",
+  "speed": "normal",
+  "mood": "科技",
+  "vertical": [
+    "tech",
+    "b2b",
+    "general"
+  ],
+  "tokens": {
+    "font": "sans-900",
+    "radius": 2,
+    "density": "normal",
+    "grain": 0.02,
+    "bg": "#0b0f14",
+    "ink": "#f0f5fa",
+    "dim": "#b8c6d6",
+    "accent": "#aad369",
+    "accentText": "#c9e0a3"
+  },
+  "structure": [
+    "opening-hero"
+  ],
+  "elements": [
+    "bg-gradient-linear",
+    "grid-fine",
+    "eyebrow-en",
+    "title-stack",
+    "step-bar"
+  ],
+  "motion": {
+    "enter": "wipe-in",
+    "emphasis": "sweep",
+    "exit": "crossfade-out",
+    "pace": 1
+  },
+  "prompt": "从参考视频抽取：深黑底 + 荧光绿唯一强调；顶部小标 + 大标题双色；底部流程步骤条；硬边直角、中英混排",
+  "refs": [
+    "E:\\ai-marketing\\storage\\1\\w1__31585e8e10df.mp4"
+  ],
+  "example": "ref:E:\\ai-marketing\\storage\\1\\w1__31585e8e10df.mp4#29.75s",
+  "createdBy": "ai"
+}

@@ -87,6 +87,22 @@ export const AGENT_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    // ★VF_FILMLINE_V1（2026-10-08）：素材片线 —— 用户给素材，出竖屏短片（"风格包 + 镜头组"，HTML 逐帧渲染）
+    //   与 make_ai_video 的区别：那条是"文案驱动的图文讲解片"；这条是"**素材驱动**的展示片"，
+    //   画面由引擎逐帧渲染（可复现、可验收），且支持"同一素材换风格"。
+    name: 'make_material_film',
+    description: '★用户给了一批素材（图片），并想要一条**好看的竖屏短片**（素材集 / showreel / 产品展示 / 风格演示）时用它：把素材做成 9:16 短片，画面由「风格包 + 镜头组」逐帧渲染（不是 AI 生成画面，可复现、可验收）。你只需给主题文本（可选风格包）；**赛道判定、风格选择、镜头组编排、文案填充由编排器完成**。⚠ 若用户明确要"AI 生成画面 / 真人感"→ 用 create_ai_video；若要"配音 + 字幕的图文讲解片"→ 用 make_ai_video。失败语义：出片前有三道闸门（素材齐全 / 用字 / 引擎校验），不过就返回原因，不产坏片。',
+    parameters: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: '主题 / 卖点 / 关键词（用来判赛道与填文案），如"旅游 攻略 景点"' },
+        pack: { type: 'string', description: '可选：指定风格包 id（不传 = 按赛道自动选）' },
+        variant: { type: 'number', description: '可选：同一赛道换风格用（0/1/2 在推荐位里轮换），默认 0' },
+        materials: { type: 'array', items: { type: 'string' }, description: '可选：只用这些素材文件名（不传 = 用该用户最近的素材）' },
+      }, required: [],
+    },
+  },
+  {
     // ★VF_ASYNC_V1（2026-09-18）：本地成片进度查询（配套 make_ai_video）
     name: 'query_make_video',
     description: '查询本地成片（make_ai_video）的进度。用户问"视频做得怎么样了/成片好了吗"时调用。返回：进行中 / 已完成（含成片文件路径）/ 失败（含日志尾部）。',

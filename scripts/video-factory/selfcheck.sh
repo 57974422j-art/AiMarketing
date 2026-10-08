@@ -648,6 +648,17 @@ ck 'VF_PPTDUR_V1'                   'src/app/agent/page.tsx' 3
 ck 'VF_PPTDUR_V1'                   'src/lib/agent/vf/vf-ppt.ts' 2
 ck 'VF_PPTMIXREQ_V1'                'src/app/api/agent/chat/route.ts' 1
 ck 'VF_PPTSECSTAT_V1'               'src/app/api/agent/chat/route.ts' 1
+# ★2026-10-08 「页面级 HTML（可编程页）」路线的两件配套
+#   ★VF_PAGEFONT_V1（html-deck/check-page-fonts.mjs）：**页面级 HTML 的用字闸门**（用户定"这个你定"）。
+#     为什么必须有：引擎内嵌字体是**子集**（GB2312 一级 3755 + ASCII + 中英标点），缺字时浏览器**静默回退系统字体**
+#     —— 开发机（装了 CJK）看不出来，**服务器上直接渲成豆腐块**（fonts/README.md 坑 28）。制式母版的用字是
+#     构造性覆盖的；但「页面级 HTML」由 AI 现写、用字不受控 ⇒ 必须逐字判一次。
+#     与 check-font-coverage.mjs 分工：那个判 **deck.json 字段值**；这个判 **任意项目 HTML/JS/CSS 里会渲出来的字**。
+#     用法：`node check-page-fonts.mjs --all`（扫 pages/ 全部项目）或 `node check-page-fonts.mjs <项目目录>`；
+#     退出码 0=过 / 1=有缺字 / 2=用法错。**首次跑就抓到一个误报**（把 `<style>` 里的 CSS 注释当成会渲染的文字）
+#     ⇒ 已按内容归属分别处理（style 走 CSS 口径只认 `content:`、内联 script 走 JS 口径）；并做了**正控**验证
+#     （故意塞表外字「熵」⇒ 准确报错 exit=1 ⇒ 还原后 exit=0）。
+ck 'VF_PAGEFONT_V1'                 'scripts/video-factory/html-deck/check-page-fonts.mjs' 1
 line "结论"
 if [ "$FAIL" -eq 0 ]; then
   echo "✅ 全过（渲染自检 + 四引擎 + 关键改动都在位）"

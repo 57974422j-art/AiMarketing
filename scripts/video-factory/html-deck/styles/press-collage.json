@@ -1,0 +1,23 @@
+{
+  "id": "press-collage",
+  "name": "双色印刷拼贴",
+  "desc": "纸底 + 半调网点圆盘 + 印章 + 粗黑体，印刷美学",
+  "aspect": "9:16",
+  "speed": "normal",
+  "mood": "高级",
+  "vertical": ["book", "fashion", "exhibition", "jewelry", "education", "government"],
+  "tokens": {
+    "bg": "#f2efe6", "bg2": "#e8e2d4",
+    "ink": "#15161a", "dim": "#4a4e57", "faint": "#5a5f6a",
+    "accent": "#d4003a", "accentText": "#b00030",
+    "font": "sans-900", "radius": 4, "density": "dense", "grain": 0.055
+  },
+  "structure": ["press-poster"],
+  "elements": ["paper-texture", "halftone-disc", "halftone-band", "title-stack", "stamp", "number-grid-3", "list-rows", "logo-lockup"],
+  "motion": { "enter": "wipe-in", "emphasis": "scale-pop", "exit": "crossfade-out", "pace": 1.0 },
+  "prompt": "双色印刷拼贴：纸底 + 品红/靛蓝双油墨；半调网点圆盘为主图形；旋转印章盖章；粗黑体大标题两行紧排擦入；网点带缓慢滚动 / 硬边直角、无发光",
+  "refs": ["pages/b2-press-collage"],
+  "example": "out/final-b2-press-collage/b2-press-collage.mp4#3.2s",
+  "thumb": "styles/thumbs/press-collage.jpg",
+  "createdBy": "builtin"
+}

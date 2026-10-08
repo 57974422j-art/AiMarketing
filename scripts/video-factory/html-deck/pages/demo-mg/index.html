@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+<!-- ============================================================================
+  MG 演示片 · 「字母散布 + 光点扩散 / 素材卡散落 → 收拢成时间线」（15 秒）
+  ---------------------------------------------------------------------------
+  复刻博主视频（`w1__93c0b62e5f9d.mp4`）里两个"造型表现力最强"的镜头组：
+    镜头组 A（0–3.8s）  「字母运动 / 光点扩散」：AI MARKETING 逐字错开、带 3D 透视散向四周，
+                        Canvas 光点从中心扩散（固定种子 ⇒ 可复现）
+    镜头组 B（3.4–12.4s）「五段素材 → 一条时间线」：五张素材卡以「位置错开 · 轻微倾斜 · 叠出层次」
+                        散落进场 → **收拢**成一条水平时刻线（轨道 + 轴线 + 播放头扫过）
+    收尾（12.0–15.0s）品牌落版
+  ★ 这条片要证明的事：**"造型表现力"来自「元素 + 排布规则 + 编排动作」，不是来自模板** ——
+    同样是那 5 张素材，同一条时间轴上，只是换了"排布"和"动作"，观感就完全不同。
+  硬口径：720×1280 固定容器 · 白名单 API（本地 gsap + Canvas2D + CSS3D，禁外网/WebGL）·
+          字体子集内用字 · 画面只由时间轴时间决定（可复现）
+  ★ 层序（照博主"五层进入同一画面"的口径）：01 背景层(canvas) → 02 中间动画层(素材卡+时间线)
+    → 03 上层动画层(轨道/播放头/取景) → 04 文字层(标题/说明) —— Canvas 永远在最底层，绝不压文字。
+============================================================================ -->
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=720, height=1280" />
+<title>MG演示 · 字母散布 / 素材卡收拢时间线</title>
+<style>
+  @font-face { font-family: 'NotoSansSC'; src: url('assets/NotoSansSC-sub.woff2') format('woff2'); font-weight: 100 900; font-display: block; }
+  :root{
+    --W: 720px; --H: 1280px;
+    --ink: #eef7ff;          /* 对深底 ≈ 16:1 */
+    --dim: #b4c6e6;          /* ≈ 8.6:1 */
+    --cyan: #7ff2ff;         /* ≈ 13:1 */
+    --line: rgba(140,200,255,.28);
+    --panel: rgba(9,16,30,.78);
+  }
+  *{ box-sizing: border-box; margin: 0; padding: 0; }
+  html,body{ width: var(--W); height: var(--H); background: #05080f; }
+  body{ font-family: 'NotoSansSC', system-ui, sans-serif; overflow: hidden; }
+  .clip{ position: absolute; }
+  #stage{ position: relative; width: var(--W); height: var(--H); overflow: hidden; }
+  #bg{ left: 0; top: 0; width: 720px; height: 1280px; }
+  .sec{ position: absolute; left: 0; top: 0; width: 720px; height: 1280px; }
+  .sec > *{ position: absolute; }
+  .cap{ left: 56px; top: 972px; width: 608px; text-align: center; font-size: 22px; color: var(--dim); letter-spacing: .8px; }
+  #bar{ left: 0; bottom: 0; width: 720px; height: 4px; background: rgba(130,180,230,.16); }
+  #bar i{ display: block; width: 100%; height: 100%; background: var(--cyan); transform-origin: left center;
+          box-shadow: 0 0 12px rgba(127,242,255,.75); }
+
+  /* ---------- 镜头组 A：字母散布 ---------- */
+  #letters{ left: 0; top: 540px; width: 720px; text-align: center; perspective: 900px; }
+  #letters .lt{ display: inline-block; font-size: 88px; font-weight: 900; color: var(--ink); letter-spacing: 2px;
+                text-shadow: 0 0 26px rgba(127,242,255,.55); transform-style: preserve-3d; }
+  #s1 .tag{ left: 56px; top: 400px; width: 608px; text-align: center; font-size: 17px; font-weight: 700;
+            letter-spacing: 3.4px; color: var(--cyan); }
+
+  /* ---------- 镜头组 B：素材卡 + 时间线 ---------- */
+  .cc{ left: 0; top: 0; width: 180px; height: 240px; transform-origin: left top; border-radius: 14px;
+       overflow: hidden; border: 1px solid var(--line); background: #0a1120;
+       box-shadow: 0 16px 38px rgba(0,0,0,.60); }
+  .cc img{ width: 100%; height: 100%; object-fit: cover; display: block; }
+  #s2 .ttl{ left: 56px; top: 320px; width: 608px; font-size: 40px; font-weight: 800; color: var(--ink); letter-spacing: 1px; }
+  #s2 .ruleA{ left: 56px; top: 470px; width: 600px; height: 2px; background: var(--line); transform-origin: left center; }
+  #s2 .ruleB{ left: 56px; top: 490px; width: 440px; height: 2px; background: var(--line); transform-origin: left center; }
+  #s2 .ruleC{ left: 56px; top: 510px; width: 260px; height: 2px; background: var(--line); transform-origin: left center; }
+  #s2 .tl{ left: 56px; top: 792px; width: 608px; height: 3px; background: var(--cyan); transform-origin: left center;
+           box-shadow: 0 0 12px rgba(127,242,255,.7); }
+  #s2 .ph{ left: 56px; top: 470px; width: 2px; height: 330px; background: rgba(255,255,255,.75); }
+  #s2 .phd{ left: 51px; top: 456px; width: 12px; height: 12px; border-radius: 50%; background: #ffffff; box-shadow: 0 0 10px rgba(255,255,255,.9); }
+  #s2 .capB{ opacity: 0; }
+
+  /* ---------- 收尾 ---------- */
+  #s3 .brand{ left: 0; top: 580px; width: 720px; text-align: center; font-size: 54px; font-weight: 800; color: var(--ink); letter-spacing: 1px; }
+  #s3 .rule2{ left: 260px; top: 676px; width: 200px; height: 3px; background: var(--cyan); transform-origin: left center; }
+  #s3 .sub2{ left: 0; top: 712px; width: 720px; text-align: center; font-size: 24px; color: var(--dim); letter-spacing: 1px; }
+</style>
+</head>
+<body>
+<div id="stage" data-composition-id="main" data-start="0" data-duration="15"
+     data-fps="25" data-width="720" data-height="1280">
+
+  <canvas id="bg" class="clip" data-start="0" data-duration="15" data-track-index="0" width="720" height="1280"></canvas>
+
+  <!-- ============ 镜头组 A：字母散布 + 光点扩散（0–3.8s）============ -->
+  <section id="s1" class="clip sec" data-start="0" data-duration="3.8" data-track-index="1">
+    <div class="tag">字母级运动 · 光点扩散</div>
+    <!-- ★ data-layout-allow-overlap：字母**故意**散开重叠（就是这条镜头组的造型本身），
+         报给引擎"这是有意叠层，别按排版事故处理" —— 这是引擎官方的豁免标记。 -->
+    <div id="letters" data-layout-allow-overlap><span class="lt" data-layout-allow-overlap>A</span><span class="lt" data-layout-allow-overlap>I</span><span class="lt" data-layout-allow-overlap>M</span><span class="lt" data-layout-allow-overlap>A</span><span class="lt" data-layout-allow-overlap>R</span><span class="lt" data-layout-allow-overlap>K</span><span class="lt" data-layout-allow-overlap>E</span><span class="lt" data-layout-allow-overlap>T</span><span class="lt" data-layout-allow-overlap>I</span><span class="lt" data-layout-allow-overlap>N</span><span class="lt" data-layout-allow-overlap>G</span></div>
+    <div class="cap">让一个个字母错开散向四周</div>
+  </section>
+
+  <!-- ============ 镜头组 B：素材卡散落 → 收拢成时间线（3.4–12.4s）============ -->
+  <section id="s2" class="clip sec" data-start="3.4" data-duration="9.0" data-track-index="1">
+    <div class="ttl">五段素材 · 一条时间线</div>
+    <div class="ruleA"></div><div class="ruleB"></div><div class="ruleC"></div>
+
+    <div class="cc" id="k1"><img src="assets/m01.jpg" alt="" /></div>
+    <div class="cc" id="k2"><img src="assets/m02.jpg" alt="" /></div>
+    <div class="cc" id="k3"><img src="assets/m03.jpg" alt="" /></div>
+    <div class="cc" id="k4"><img src="assets/m04.jpg" alt="" /></div>
+    <div class="cc" id="k5"><img src="assets/m05.jpg" alt="" /></div>
+
+    <div class="tl"></div>
+    <div class="ph"></div><div class="phd"></div>
+
+    <div class="cap capA">位置错开 · 轻微倾斜 · 叠出层次</div>
+    <div class="cap capB">散开的卡退场，五段素材陆续进来，排成一条时间线</div>
+  </section>
+
+  <!-- ============ 收尾（12.0–15.0s）============ -->
+  <section id="s3" class="clip sec" data-start="12.0" data-duration="3.0" data-track-index="1">
+    <div class="brand">AiMarketing 视频工厂</div>
+    <div class="rule2"></div>
+    <div class="sub2">元素 · 编排 · 可复现</div>
+  </section>
+
+  <div id="bar" class="clip" data-start="0" data-duration="15" data-track-index="4"><i id="barIn"></i></div>
+</div>
+
+<script>window.__timelines = window.__timelines || {}; window.__timelines["main"] = { seek: function () {}, duration: function () { return 15; }, pause: function () {}, play: function () {} };</script>
+<script src="assets/gsap.min.js"></script>
+<script src="assets/page.js"></script>
+</body>
+</html>

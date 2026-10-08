@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="zh-CN">
+<!-- ============================================================================
+  阶段 3 原型 A · 「深色数据大屏」
+  ---------------------------------------------------------------------------
+  ★ 本条路线（可编程页）的三条硬口径（用户 2026-10-07 定）：
+    ① 固定容器：720×1280（9:16），composition 的 data-width/height 即画布，
+       页内所有坐标一律用 px 写死，**不用 vw/vh/%**（保证逐帧可 seek、跨机一致）。
+    ② 白名单 API：只用 (a) 本地 `assets/gsap.min.js`（无 CDN）
+       (b) Canvas 2D  (c) CSS 动画/过渡  (d) `document.fonts`
+       —— 禁：外网请求、WebGL/Three（本地未装，且 headless 兼容性未验）、eval、时间/随机源。
+    ③ 字体子集：只允许 `fonts/chars-cmn.txt` 里的码点（GB2312 一级 3755 + ASCII + 标点），
+       缺字会被字体闸门拦成整单失败 → 用 `check-font-coverage.mjs` 自检。
+  ★ 确定性（可复现）：动画**全部由 `gsap.timeline({paused:true})` 的时间驱动**；
+    Canvas 每帧重画由时间线里一个 proxy tween 的 onUpdate 触发 ⇒ 同一 t 永远同一画面，
+    绝不用 requestAnimationFrame / Date.now / Math.random（用固定种子伪随机）。
+============================================================================ -->
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=720, height=1280" />
+<title>阶段3原型A · 深色数据大屏</title>
+<style>
+  @font-face {
+    font-family: 'NotoSansSC';
+    src: url('assets/NotoSansSC-sub.woff2') format('woff2');
+    font-weight: 100 900;
+    font-display: block;
+  }
+  :root{
+    --W: 720px; --H: 1280px;
+    --bg0: #060b14;
+    --ink: #eaf2f9;          /* 主文字（对 #060b14 ≈ 16:1） */
+    --ink-dim: #a8bccd;      /* 次要（≈ 8.3:1） */
+    --ink-faint: #7f95a8;    /* 最弱（≈ 5.6:1，仍过 4.5:1） */
+    --accent: #29d3c9;       /* 图形/线条用（小字**不许**用它，实测仅 3.75:1） */
+    --accent-text: #7ef0e8;  /* accent 的"文字安全"变体（≥4.5:1） */
+    --line: rgba(150,180,210,.13);
+  }
+  *{ box-sizing: border-box; margin: 0; padding: 0; }
+  html,body{ width: var(--W); height: var(--H); background: var(--bg0); }
+  body{ font-family: 'NotoSansSC', system-ui, sans-serif; overflow: hidden; }
+  /* ★ 引擎会把带 .clip 的元素移出文档流 ⇒ 页内一律绝对定位 */
+  .clip{ position: absolute; }
+  /* ★ 2026-10-07 实测踩坑：**页内元素必须自己写 position:absolute** ——
+     只写 `left/top` 而无 position 时它们是 static，left/top **被浏览器忽略** ⇒ 元素回到文档流里
+     从上往下堆叠（第一版就是这样：卡片跑到环上、标题压住眉标，全页错位）。
+     这里用一条 `#pg > div` 兜住，避免以后每加一个块都要记得写。 */
+  #pg > div, #pg > section{ position: absolute; }
+  #stage{ position: relative; width: var(--W); height: var(--H); overflow: hidden; }
+  #fx{ left: 0; top: 0; width: var(--W); height: var(--H); }
+
+  /* ---- 顶部眉标 ---- */
+  #kicker{ left: 64px; top: 92px; width: 592px; }
+  #kicker .en{
+    font-size: 15px; letter-spacing: 4.2px; font-weight: 600;
+    color: var(--accent-text); text-transform: uppercase;
+  }
+  #kicker .cn{ margin-top: 10px; font-size: 30px; font-weight: 700; color: var(--ink); letter-spacing: 1px; }
+  #kicker .rule{ margin-top: 14px; width: 56px; height: 3px; border-radius: 2px; background: var(--accent); transform-origin: left center; }
+
+  /* ---- 中心：大数字（环由 Canvas 画，二者同心）----
+     ★ 2026-10-07 实测踩坑：**不要让 GSAP 动的元素同时用 CSS transform 居中** ——
+       GSAP 写动画时直接改 `transform`，会把 `translate(-50%,-50%)` **整条冲掉**
+       ⇒ 第一版大数字跑到左上角压住眉标。现在：外层 `#numWrap` 只负责**定位**（(64,386)+(592,168)
+       的中心正好是 (360,470)，与 Canvas 环同心），GSAP 只动**内层** `#numInner`。 */
+  #numWrap{ left: 64px; top: 368px; width: 592px; height: 168px; overflow: hidden; }
+  #numInner{ display: flex; align-items: flex-end; justify-content: center; height: 168px; }
+  #num{ font-size: 132px; font-weight: 800; color: var(--ink); line-height: 1; letter-spacing: -3px;
+        font-variant-numeric: tabular-nums; text-shadow: 0 0 34px rgba(41,211,201,.38); }
+  /* % 与数字**同基线**：bottom 对齐时 % 会明显下沉，用 padding-bottom 抬到视觉基线上 */
+  #pct{ font-size: 54px; font-weight: 700; color: var(--accent-text); margin-left: 10px; line-height: 1; padding-bottom: 26px; }
+
+  /* ---- 标题区 ---- */
+  #title{ left: 64px; top: 706px; width: 592px; font-size: 54px; font-weight: 800; color: var(--ink); letter-spacing: 1px; }
+  #explain{ left: 64px; top: 782px; width: 592px; font-size: 26px; font-weight: 400; color: var(--ink-dim); letter-spacing: .4px; }
+
+  /* ---- 三张指标卡 ---- */
+  .cards{ left: 64px; top: 862px; width: 592px; }
+  .card{
+    position: relative; height: 96px; margin-bottom: 20px; border-radius: 18px;
+    background: linear-gradient(180deg, rgba(28,44,66,.72), rgba(14,24,38,.72));
+    border: 1px solid var(--line);
+    box-shadow: 0 14px 34px rgba(0,0,0,.34), inset 0 1px 0 rgba(190,220,245,.06);
+    display: flex; align-items: center; padding: 0 26px;
+  }
+  .card .dot{ width: 9px; height: 9px; border-radius: 50%; background: var(--accent); margin-right: 18px;
+              box-shadow: 0 0 12px rgba(41,211,201,.85); }
+  .card .k{ font-size: 22px; color: var(--ink-faint); letter-spacing: .5px; width: 116px; }
+  .card .v{ font-size: 38px; font-weight: 700; color: var(--ink); letter-spacing: .5px; font-variant-numeric: tabular-nums; }
+  .card .u{ font-size: 22px; color: var(--ink-dim); margin-left: 6px; }
+  .card .bar{ position: absolute; right: 26px; bottom: 22px; width: 148px; height: 5px; border-radius: 3px; background: rgba(150,180,210,.14); overflow: hidden; }
+  .card .bar i{ display: block; width: 100%; height: 100%; background: var(--accent); transform-origin: left center; border-radius: 3px; }
+
+  /* ---- 底部品牌 ----
+     ★ 对比度：--ink-faint(#7f95a8) 对 #060b14 ≈ 5.6:1 ⇒ 过 4.5:1 闸门 */
+  #footer{ left: 64px; top: 1204px; width: 592px; font-size: 20px; color: var(--ink-faint); letter-spacing: .6px; }
+  #bar{ position: absolute; left: 0; top: 1264px; width: 720px; height: 3px; background: rgba(150,180,210,.12); }
+  #bar i{ display: block; width: 100%; height: 100%; background: var(--accent); transform-origin: left center; }
+</style>
+</head>
+<body>
+<div id="stage" data-composition-id="main" data-start="0" data-duration="9"
+     data-fps="25" data-width="720" data-height="1280">
+
+  <!-- 背景层（Canvas：渐层 + 网格 + 粒子 + 扫描线 + 生长环） -->
+  <canvas id="fx" class="clip" data-start="0" data-duration="9" data-track-index="0" width="720" height="1280"></canvas>
+
+  <!-- 内容层 -->
+  <section id="pg" class="clip" data-start="0" data-duration="9" data-track-index="1">
+    <div id="kicker">
+      <div class="en">LIVE DASHBOARD</div>
+      <div class="cn">实时投放大盘</div>
+      <div class="rule"></div>
+    </div>
+
+    <div id="numWrap"><div id="numInner"><span id="num">78.5</span><span id="pct">%</span></div></div>
+
+    <div id="title">转化率提升</div>
+    <div id="explain">用了 AI 之后，真实投放数据</div>
+
+    <div class="cards">
+      <div class="card" id="c1">
+        <span class="dot"></span><span class="k">曝光</span><span class="v">12.4</span><span class="u">万</span>
+        <span class="bar"><i id="b1"></i></span>
+      </div>
+      <div class="card" id="c2">
+        <span class="dot"></span><span class="k">点击率</span><span class="v">4.8</span><span class="u">%</span>
+        <span class="bar"><i id="b2"></i></span>
+      </div>
+      <div class="card" id="c3">
+        <span class="dot"></span><span class="k">下单</span><span class="v">3.2</span><span class="u">千</span>
+        <span class="bar"><i id="b3"></i></span>
+      </div>
+    </div>
+
+    <div id="footer">AiMarketing 视频工厂 · 数据每 5 分钟刷新</div>
+  </section>
+
+  <div id="bar" class="clip" data-start="0" data-duration="9" data-track-index="2"><i id="barIn"></i></div>
+</div>
+
+<!-- ★ 必须内联注册（引擎 lint 只认 composition HTML 内部的注册） -->
+<script>window.__timelines = window.__timelines || {}; window.__timelines["main"] = { seek: function () {}, duration: function () { return 9; }, pause: function () {}, play: function () {} };</script>
+<script src="assets/gsap.min.js"></script>
+<script src="assets/page.js"></script>
+</body>
+</html>

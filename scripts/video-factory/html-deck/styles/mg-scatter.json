@@ -1,0 +1,23 @@
+{
+  "id": "mg-scatter",
+  "name": "MG 编排 · 散开与收拢",
+  "desc": "字母散布/光点扩散、素材卡散落→收拢成时间线（造型表现力强）",
+  "aspect": "9:16",
+  "speed": "fast",
+  "mood": "科技",
+  "vertical": ["general", "tech", "game", "education", "fitness", "auto"],
+  "tokens": {
+    "bg": "#05080f", "bg2": "#08101f",
+    "ink": "#eef7ff", "dim": "#b4c6e6", "faint": "#9db0d2",
+    "accent": "#7ff2ff", "accentText": "#7ff2ff",
+    "font": "sans-900", "radius": 14, "density": "normal", "grain": 0.05
+  },
+  "structure": ["letters-scatter", "timeline-build"],
+  "elements": ["bg-gradient-linear", "grid-fine", "star-field", "particles-drift", "media-card", "timeline-tracks", "timeline-rail", "playhead", "progress-bottom"],
+  "motion": { "enter": "scatter", "emphasis": "gather", "exit": "crossfade-out", "pace": 0.9 },
+  "prompt": "MG 编排风：深底 + 星点与网格；字母逐字错开带 3D 透视散向四周 + Canvas 光点从中心扩散；素材卡以「位置错开·轻微倾斜·叠出层次」散落，再收拢排成一条时刻线（轨道+轴线+播放头）/ 节奏快、动效是主角",
+  "refs": ["pages/demo-mg"],
+  "example": "out/demomg3/demo-mg.mp4#10.8s",
+  "thumb": "styles/thumbs/mg-scatter.jpg",
+  "createdBy": "builtin"
+}

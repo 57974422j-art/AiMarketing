@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="zh-CN">
+<!-- ============================================================================
+  30 秒素材片 · 「AI 营销系统 Showreel」（用户 2026-10-08 给的 8 张真实封面素材）
+  ---------------------------------------------------------------------------
+  用户要的是 **B-roll 那条路线的实演**：素材不动，用 HTML 动效+信息层把 30 秒讲完。
+  8 张素材的共同点：**自带大量文字**（都是深色科技风的海报）⇒ 本片的设计纪律：
+    ★ 素材只当"画面"，**叠加文字一律写在卡外或带底色的 chip 里**（不与素材文字抢读）
+    ★ 六段用**六种不同的表现形式**（不是八张图逐张翻页）：
+      S1 开场（大标题 + 一张斜置竖卡）
+      S2 作品墙（三卡错落 + 标签）
+      S3 特写 + HUD 标注（四角框 + 标注 chip + 指标）
+      S4 全屏横版 Ken Burns + 底部强遮罩大字
+      S5 四图网格（2×2 逐格弹入 + 序号）
+      S6 收尾（三个大数字 + CTA）
+  硬口径：720×1280 固定容器 · 白名单 API（本地 gsap + Canvas2D + CSS；禁外网/WebGL）·
+          字体子集内用字（`check-page-fonts.mjs` 判）· 画面只由时间轴时间决定（可复现）
+  素材映射：m01..m08 = 用户给的 8 张（m03 竖 / m04 竖 / m08 竖 / m07 横 / m01 竖 / m06 横 / m02 竖 / m05 横）
+============================================================================ -->
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=720, height=1280" />
+<title>30秒素材片 · AI营销系统 Showreel</title>
+<style>
+  @font-face { font-family: 'NotoSansSC'; src: url('assets/NotoSansSC-sub.woff2') format('woff2'); font-weight: 100 900; font-display: block; }
+  :root{
+    --W: 720px; --H: 1280px;
+    --ink: #f2f7ff;          /* 对深底 ≈ 16:1 */
+    --dim: #b7c6e4;          /* ≈ 9:1 */
+    --cyan: #7ff2ff;         /* ≈ 13:1 */
+    --violet: #b9a6ff;       /* ≈ 9.5:1 */
+    --glass: rgba(10,18,34,.72);
+    --line: rgba(140,200,255,.26);
+  }
+  *{ box-sizing: border-box; margin: 0; padding: 0; }
+  html,body{ width: var(--W); height: var(--H); background: #070c16; }
+  body{ font-family: 'NotoSansSC', system-ui, sans-serif; overflow: hidden; }
+  .clip{ position: absolute; }
+  #stage{ position: relative; width: var(--W); height: var(--H); overflow: hidden; }
+  #bg{ left: 0; top: 0; width: 720px; height: 1280px; }
+
+  /* 每段 = 一个全屏绝对定位容器；**它的直接子元素也一律绝对定位**
+     （★ 只写 left/top 而不给 position，浏览器会整条忽略 —— 这是本项目踩过的坑） */
+  .sec{ position: absolute; left: 0; top: 0; width: 720px; height: 1280px; }
+  .sec > *{ position: absolute; }
+  .card{ overflow: hidden; border-radius: 16px; border: 1px solid var(--line);
+         box-shadow: 0 18px 44px rgba(0,0,0,.55); background: #0a1120; }
+  .card img{ width: 100%; height: 100%; object-fit: cover; display: block; }
+  .eb{ font-size: 16px; font-weight: 700; letter-spacing: 3.6px; color: var(--cyan); }
+  .ttl{ font-weight: 800; color: var(--ink); letter-spacing: 1px; }
+  .sub{ font-weight: 400; color: var(--dim); letter-spacing: .5px; }
+  .chip{ padding: 10px 16px 11px; border-radius: 10px; background: var(--glass);
+         border: 1px solid var(--line); font-size: 19px; color: var(--ink); }
+  .foot{ left: 64px; top: 1180px; width: 600px; font-size: 18px; color: var(--dim); letter-spacing: .6px; }
+  #bar{ left: 0; bottom: 0; width: 720px; height: 4px; background: rgba(130,180,230,.16); }
+  #bar i{ display: block; width: 100%; height: 100%; background: var(--cyan); transform-origin: left center;
+          box-shadow: 0 0 12px rgba(127,242,255,.75); }
+
+  /* ---------- S1 开场 ---------- */
+  #s1 .t1{ left: 64px; top: 186px; width: 600px; font-size: 78px; line-height: 1.18; }
+  #s1 .t2{ left: 64px; top: 306px; width: 600px; font-size: 78px; line-height: 1.18; color: var(--cyan); }
+  #s1 .sub{ left: 64px; top: 442px; width: 600px; font-size: 26px; }
+  #s1 .card{ right: 48px; top: 540px; width: 288px; height: 500px; transform-origin: center; }
+  #s1 .tag{ right: 48px; top: 1056px; width: 288px; text-align: right; font-size: 19px; color: var(--cyan); }
+
+  /* ---------- S2 作品墙 ---------- */
+  #s2 .ttl{ left: 64px; top: 168px; width: 600px; font-size: 46px; }
+  #s2 .sub{ left: 64px; top: 240px; width: 600px; font-size: 24px; }
+  #s2 .c1{ left: 68px;  top: 340px; width: 180px; height: 380px; }
+  #s2 .c2{ left: 270px; top: 380px; width: 180px; height: 380px; }
+  #s2 .c3{ left: 472px; top: 340px; width: 180px; height: 380px; }
+  #s2 .l1{ left: 68px;  top: 736px; width: 180px; text-align: center; font-size: 20px; color: var(--cyan); }
+  #s2 .l2{ left: 270px; top: 776px; width: 180px; text-align: center; font-size: 20px; color: var(--cyan); }
+  #s2 .l3{ left: 472px; top: 736px; width: 180px; text-align: center; font-size: 20px; color: var(--cyan); }
+  #s2 .r1{ left: 64px; top: 900px;  width: 600px; font-size: 23px; color: var(--ink); }
+  #s2 .r2{ left: 64px; top: 952px;  width: 600px; font-size: 23px; color: var(--ink); }
+  #s2 .r3{ left: 64px; top: 1004px; width: 600px; font-size: 23px; color: var(--ink); }
+
+  /* ---------- S3 特写 + HUD ---------- */
+  #s3 .card{ left: 56px; top: 176px; width: 608px; height: 640px; }
+  #s3 .cnr{ width: 46px; height: 46px; border-color: var(--cyan); border-style: solid; border-width: 0; }
+  #s3 .c1{ left: 44px; top: 164px; border-left-width: 3px; border-top-width: 3px; }
+  #s3 .c2{ left: 630px; top: 164px; border-right-width: 3px; border-top-width: 3px; }
+  #s3 .c3{ left: 44px; top: 782px; border-left-width: 3px; border-bottom-width: 3px; }
+  #s3 .c4{ left: 630px; top: 782px; border-right-width: 3px; border-bottom-width: 3px; }
+  #s3 .mk{ left: 80px; top: 200px; padding: 8px 14px 9px; border-radius: 8px; background: rgba(5,12,22,.86);
+           border: 1px solid var(--cyan); font-size: 18px; font-weight: 600; color: var(--cyan); }
+  #s3 .ttl{ left: 56px; top: 868px; width: 600px; font-size: 48px; }
+  #s3 .sub{ left: 56px; top: 936px; width: 600px; font-size: 24px; }
+  #s3 .chips{ left: 56px; top: 1000px; display: flex; }
+  #s3 .chips > *{ position: relative; margin-right: 14px; }
+
+  /* ---------- S4 全屏横版 ---------- */
+  #s4 .full{ left: 0; top: 0; width: 720px; height: 1280px; }
+  #s4 .full img{ width: 100%; height: 100%; object-fit: cover; display: block; }
+  #s4 .scrimT{ left: 0; top: 0; width: 720px; height: 360px;
+    background: linear-gradient(180deg, rgba(4,8,16,.94) 0%, rgba(4,8,16,.60) 52%, rgba(4,8,16,0) 100%); }
+  #s4 .scrimB{ left: 0; bottom: 0; width: 720px; height: 640px;
+    background: linear-gradient(0deg, rgba(4,8,16,.96) 0%, rgba(4,8,16,.86) 40%, rgba(4,8,16,.30) 76%, rgba(4,8,16,0) 100%); }
+  #s4 .ttl{ left: 56px; top: 900px; width: 608px; font-size: 58px; line-height: 1.2; }
+  #s4 .sub{ left: 56px; top: 992px; width: 608px; font-size: 25px; }
+  #s4 .steps{ left: 56px; top: 1064px; display: flex; }
+  #s4 .steps > *{ position: relative; margin-right: 12px; }
+
+  /* ---------- S5 四图网格 ---------- */
+  #s5 .ttl{ left: 64px; top: 168px; width: 600px; font-size: 46px; }
+  #s5 .sub{ left: 64px; top: 240px; width: 600px; font-size: 24px; }
+  #s5 .g1{ left: 56px;  top: 320px; width: 296px; height: 322px; }
+  #s5 .g2{ left: 368px; top: 320px; width: 296px; height: 322px; }
+  #s5 .g3{ left: 56px;  top: 662px; width: 296px; height: 322px; }
+  #s5 .g4{ left: 368px; top: 662px; width: 296px; height: 322px; }
+  #s5 .n{ padding: 6px 12px 7px; border-radius: 8px; background: rgba(5,12,22,.86);
+          border: 1px solid var(--line); font-size: 18px; font-weight: 700; color: var(--cyan); }
+  #s5 .n1{ left: 72px;  top: 336px; }
+  #s5 .n2{ left: 384px; top: 336px; }
+  #s5 .n3{ left: 72px;  top: 678px; }
+  #s5 .n4{ left: 384px; top: 678px; }
+  #s5 .tail{ left: 64px; top: 1024px; width: 600px; font-size: 24px; color: var(--ink); }
+
+  /* ---------- S6 收尾 ---------- */
+  #s6 .ttl{ left: 64px; top: 296px; width: 600px; font-size: 52px; }
+  #s6 .num{ font-size: 96px; font-weight: 900; color: var(--cyan); letter-spacing: -2px;
+            font-variant-numeric: tabular-nums; line-height: 1; }
+  #s6 .n1{ left: 72px;  top: 440px; }
+  #s6 .n2{ left: 288px; top: 440px; }
+  #s6 .n3{ left: 504px; top: 440px; }
+  #s6 .k1{ left: 72px;  top: 566px; width: 200px; font-size: 22px; color: var(--dim); }
+  #s6 .k2{ left: 288px; top: 566px; width: 200px; font-size: 22px; color: var(--dim); }
+  #s6 .k3{ left: 504px; top: 566px; width: 200px; font-size: 22px; color: var(--dim); }
+  #s6 .cta{ left: 56px; top: 760px; width: 608px; height: 84px; border-radius: 42px; overflow: hidden;
+            background: linear-gradient(100deg,#4dd7ff 0%,#8b7bff 100%);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 28px; font-weight: 800; color: #06101f; letter-spacing: 3px;
+            box-shadow: 0 16px 40px rgba(77,215,255,.26); }
+  #s6 .shine{ position: absolute; top: 0; left: 0; width: 170px; height: 100%;
+              background: linear-gradient(100deg, rgba(255,255,255,0), rgba(255,255,255,.55), rgba(255,255,255,0)); }
+  #s6 .note{ left: 64px; top: 900px; width: 600px; font-size: 22px; color: var(--dim); }
+</style>
+</head>
+<body>
+<div id="stage" data-composition-id="main" data-start="0" data-duration="30"
+     data-fps="25" data-width="720" data-height="1280">
+
+  <canvas id="bg" class="clip" data-start="0" data-duration="30" data-track-index="0" width="720" height="1280"></canvas>
+
+  <!-- ============ S1 开场（0–4.6s）============ -->
+  <section id="s1" class="clip sec" data-start="0" data-duration="4.6" data-track-index="1">
+    <div class="eb" style="left:64px; top:132px;">SHOWREEL · 2026</div>
+    <div class="ttl t1">AI 营销系统</div>
+    <div class="ttl t2">一次成型</div>
+    <div class="sub">30 秒看完它能做什么</div>
+    <div class="card"><img src="assets/m03.jpg" alt="" /></div>
+    <div class="tag">智能成片 · 无需剪辑</div>
+    <div class="foot">AiMarketing 视频工厂 · 2026 年 10 月</div>
+  </section>
+
+  <!-- ============ S2 作品墙（4.2–9.2s）============ -->
+  <section id="s2" class="clip sec" data-start="4.2" data-duration="5.0" data-track-index="1">
+    <div class="ttl">一次生成 · 全套素材</div>
+    <div class="sub">海报、文案、成片，出自同一套系统</div>
+    <div class="card c1"><img src="assets/m04.jpg" alt="" /></div>
+    <div class="card c2"><img src="assets/m08.jpg" alt="" /></div>
+    <div class="card c3"><img src="assets/m07.jpg" alt="" /></div>
+    <div class="l1">海报</div>
+    <div class="l2">成片</div>
+    <div class="l3">封面</div>
+    <div class="r1">素材不动 · 动效层加信息</div>
+    <div class="r2">同一份文案 · 每次换风格</div>
+    <div class="r3">逐帧可复现 · 可验收</div>
+    <div class="foot">AiMarketing 视频工厂 · 2026 年 10 月</div>
+  </section>
+
+  <!-- ============ S3 特写 + HUD 标注（8.8–14.2s）============ -->
+  <section id="s3" class="clip sec" data-start="8.8" data-duration="5.4" data-track-index="1">
+    <div class="card"><img src="assets/m01.jpg" alt="" /></div>
+    <div class="cnr c1"></div><div class="cnr c2"></div><div class="cnr c3"></div><div class="cnr c4"></div>
+    <div class="mk">主视觉区</div>
+    <div class="ttl">细节也能打</div>
+    <div class="sub">放大看，每一张都是成品</div>
+    <div class="chips">
+      <div class="chip">高清</div><div class="chip">可编辑</div><div class="chip">多尺寸</div>
+    </div>
+    <div class="foot">AiMarketing 视频工厂 · 2026 年 10 月</div>
+  </section>
+
+  <!-- ============ S4 全屏横版 Ken Burns（13.8–19.4s）============ -->
+  <section id="s4" class="clip sec" data-start="13.8" data-duration="5.6" data-track-index="1">
+    <div class="full"><img src="assets/m06.jpg" alt="" /></div>
+    <div class="scrimT"></div><div class="scrimB"></div>
+    <div class="eb" style="left:56px; top:96px;">WORKFLOW</div>
+    <div class="ttl">从文案到成片</div>
+    <div class="sub">一句话，四步出片</div>
+    <div class="steps">
+      <div class="chip">文案</div><div class="chip">海报</div><div class="chip">配音</div><div class="chip">成片</div>
+    </div>
+    <div class="foot">AiMarketing 视频工厂 · 2026 年 10 月</div>
+  </section>
+
+  <!-- ============ S5 四图网格（19.0–24.4s）============ -->
+  <section id="s5" class="clip sec" data-start="19.0" data-duration="5.4" data-track-index="1">
+    <div class="ttl">四种风格 · 同一套流程</div>
+    <div class="sub">同一份素材，也能换个样子</div>
+    <div class="card g1"><img src="assets/m02.jpg" alt="" /></div>
+    <div class="card g2"><img src="assets/m05.jpg" alt="" /></div>
+    <div class="card g3"><img src="assets/m04.jpg" alt="" /></div>
+    <div class="card g4"><img src="assets/m08.jpg" alt="" /></div>
+    <div class="n n1">01</div><div class="n n2">02</div><div class="n n3">03</div><div class="n n4">04</div>
+    <div class="tail">一次生成，批量出片</div>
+    <div class="foot">AiMarketing 视频工厂 · 2026 年 10 月</div>
+  </section>
+
+  <!-- ============ S6 收尾（24.0–30.0s）============ -->
+  <section id="s6" class="clip sec" data-start="24.0" data-duration="6.0" data-track-index="1">
+    <div class="ttl">一个人，也能出片</div>
+    <div class="num n1">30</div>
+    <div class="num n2">1</div>
+    <div class="num n3">0</div>
+    <div class="k1">秒出一条</div>
+    <div class="k2">个人的团队</div>
+    <div class="k3">次返工</div>
+    <div class="cta">立即体验<span class="shine" id="shine"></span></div>
+    <div class="note">AiMarketing 视频工厂 · 2026 年 10 月</div>
+  </section>
+
+  <div id="bar" class="clip" data-start="0" data-duration="30" data-track-index="4"><i id="barIn"></i></div>
+</div>
+
+<script>window.__timelines = window.__timelines || {}; window.__timelines["main"] = { seek: function () {}, duration: function () { return 30; }, pause: function () {}, play: function () {} };</script>
+<script src="assets/gsap.min.js"></script>
+<script src="assets/page.js"></script>
+</body>
+</html>

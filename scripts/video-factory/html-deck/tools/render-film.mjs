@@ -1,0 +1,111 @@
+#!/usr/bin/env node
+/**
+ * ★VF_RENDERFILM_V1 —— 成片入口：film.json → 页面 → **三道闸门** → 渲染
+ * =============================================================================
+ * 这是批次 2.1 的"引擎接入"部分。设计取舍（重要）：
+ *   · **不改 deck.schema.json**：那 12 种制式页型是老线在跑的契约，动它=动老线。
+ *   · 走**独立入口**：老链路一行不改，天然满足"新东西失败 ⇒ 调用方回退老画法"。
+ *
+ * 三道闸门（任一道不过 ⇒ 返回 ok:false + stage + 原因，**绝不产出坏片**）：
+ *   ① media  素材文件必须齐全（缺一张就退，避免"黑块/占位"混进成片）
+ *   ② fonts  用字必须在字体子集内（否则服务器渲成豆腐块）
+ *   ③ check  引擎运行时校验：文字对比度 / 版面重叠 / 遮挡 / 资源缺失
+ * 之后才真渲，并抽 4 帧拼一张**审片图**（供人一眼看全片）。
+ *
+ * 用法：node tools/render-film.mjs films/demo-30s.json [--outdir out/film]
+ * 退出码：0 成功 · 1 被闸门拦（看 stdout 的 stage） · 2 用法错
+ */
+import fs from 'node:fs'
+import path from 'node:path'
+import { spawnSync } from 'node:child_process'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { buildFilm } from './film-to-page.mjs'
+
+const HERE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+const HF = path.join(HERE, 'node_modules', 'hyperframes', 'bin', 'hyperframes.mjs')
+
+function run(cmd, argv, opts) { return spawnSync(cmd, argv, Object.assign({ cwd: HERE, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }, opts || {})) }
+
+/** 解析风格包：film.pack 可以是 id（读 styles/）或内联对象 */
+function resolvePack(film) {
+  if (film.packObj) return film.packObj
+  if (film.pack && typeof film.pack === 'object') return film.pack
+  const id = String(film.pack || '').trim()
+  if (!id) return {}
+  const f = path.join(HERE, 'styles', id + '.json')
+  if (!fs.existsSync(f)) return null
+  return JSON.parse(fs.readFileSync(f, 'utf8'))
+}
+
+export function renderFilm(filmPath, opts = {}) {
+  const abs = path.resolve(filmPath)
+  if (!fs.existsSync(abs)) return { ok: false, stage: 'usage', err: 'film.json 不存在：' + abs }
+  let film
+  try { film = JSON.parse(fs.readFileSync(abs, 'utf8')) } catch (e) { return { ok: false, stage: 'usage', err: 'film.json 解析失败：' + e.message } }
+  if (!Array.isArray(film.scenes) || !film.scenes.length) return { ok: false, stage: 'usage', err: 'film.scenes 为空' }
+
+  const pack = resolvePack(film)
+  if (pack === null) return { ok: false, stage: 'pack', err: '风格包不存在：' + film.pack }
+  film = Object.assign({}, film, { packObj: pack })
+  if (!film.id) film.id = path.basename(abs, '.json')
+
+  const outDir = path.resolve(HERE, opts.outdir || path.join('out', 'film', film.id))
+  const b = buildFilm(film, outDir, path.dirname(abs))
+
+  // ① 素材齐全
+  if (b.missing.length) return { ok: false, stage: 'media', err: '缺素材：' + b.missing.join(', '), dir: outDir }
+
+  // ② 用字闸门
+  const fp = run(process.execPath, [path.join(HERE, 'check-page-fonts.mjs'), outDir])
+  if (fp.status !== 0) {
+    const miss = String(fp.stdout || '').split('\n').filter((l) => l.trim().startsWith('') && /表外字/.test(l)).join(' ')
+    return { ok: false, stage: 'fonts', err: (miss || String(fp.stdout || '')).slice(0, 300), dir: outDir }
+  }
+
+  // ③ 引擎运行时校验（对比度 / 重叠 / 遮挡 / 资源）
+  const ck = run(process.execPath, [HF, 'check', outDir])
+  if (ck.status !== 0) {
+    const lines = String(ck.stdout || '').split('\n').filter((l) => l.includes('✗')).slice(0, 6).join(' | ')
+    return { ok: false, stage: 'check', err: lines.slice(0, 400) || 'check 未通过', dir: outDir }
+  }
+
+  // ④ 真渲
+  const mp4 = path.join(outDir, film.id + '.mp4')
+  const r = run(process.execPath, [HF, 'render', outDir, '-o', mp4, '-f', String(film.fps || 25), '-q', opts.quality || 'looks'], { timeout: 30 * 60 * 1000 })
+  if (r.status !== 0 || !fs.existsSync(mp4)) return { ok: false, stage: 'render', err: String(r.stderr || r.stdout || '').slice(-400), dir: outDir }
+
+  // ⑤ 审片图（4 帧拼一张）
+  const sheet = path.join(outDir, 'sheet.jpg')
+  const total = b.total
+  const picks = [0.12, 0.37, 0.62, 0.87].map((f) => (total * f).toFixed(2))
+  const frames = []
+  picks.forEach((t, i) => {
+    const f = path.join(outDir, 'rv' + i + '.jpg')
+    run('ffmpeg', ['-nostdin', '-y', '-v', 'error', '-ss', t, '-i', mp4, '-frames:v', '1', '-vf', 'scale=420:-1', f])
+    if (fs.existsSync(f)) frames.push(f)
+  })
+  if (frames.length === 4) {
+    run('ffmpeg', ['-nostdin', '-y', '-v', 'error', '-i', path.join(outDir, 'rv%d.jpg'), '-vf', 'tile=2x2:margin=6:padding=6', '-frames:v', '1', sheet])
+  }
+
+  return { ok: true, stage: 'done', mp4, sheet: fs.existsSync(sheet) ? sheet : '', dir: outDir, total, structs: b.structs, scenes: film.scenes.length }
+}
+
+/* ---------------- CLI ---------------- */
+const isCli = process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url
+if (isCli) {
+  const args = process.argv.slice(2)
+  const arg = (k, d) => { const i = args.indexOf('--' + k); return i >= 0 ? args[i + 1] : d }
+  const filmPath = args.find((a) => !a.startsWith('--'))
+  if (!filmPath) { console.error('用法: node tools/render-film.mjs <film.json> [--outdir out/film]'); process.exit(2) }
+  const res = renderFilm(filmPath, { outdir: arg('outdir', ''), quality: arg('quality', 'looks') })
+  if (!res.ok) {
+    console.log(`✗ 被闸门拦下：stage=${res.stage}`)
+    console.log('  原因：' + res.err)
+    console.log('  ⇒ 调用方应**回退老画法**（本入口不产出任何坏片）')
+    process.exit(1)
+  }
+  console.log(`✓ 成片：${path.relative(HERE, res.mp4)}（${res.scenes} 段 · ${res.total}s）`)
+  if (res.sheet) console.log(`  审片图：${path.relative(HERE, res.sheet)}`)
+  console.log('  结构：' + res.structs.join(' → '))
+}

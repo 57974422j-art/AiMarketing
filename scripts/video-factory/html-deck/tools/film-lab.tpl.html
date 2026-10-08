@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="zh-CN">
+<!-- ============================================================================
+  30 秒素材片 · 出片工作台（批次 2.2 的用户侧入口）
+  ---------------------------------------------------------------------------
+  用户只做三件事：**给素材 → 选风格 → 点出片**。编排由 tools/arrange.mjs 自动做。
+  · 上传：多选/拖拽 → 逐张 POST /api/film/upload（服务写到 out/workbench/<job>/media）
+  · 出片：POST /api/film/make → 服务按风格包+素材**自动编排** → 跑 render-film（三道闸门）
+  · 进度：轮询 /api/film/status（一条 30 秒片约 40~60 秒）
+  · 失败：显示 stage + 原因（**不会产出坏片** —— 这就是"回退老画法"的接口）
+  数据（风格包清单）由 tools/build-studio.mjs 内嵌进来，与"风格包管理器"同一份。
+============================================================================ -->
+<head>
+<meta charset="UTF-8" />
+<title>30 秒素材片 · 出片工作台</title>
+<style>
+  :root{ --bg:#0e1116; --panel:#151a22; --panel2:#1b222c; --ink:#e9eef6; --dim:#9fb0c4; --line:#26303c;
+         --accent:#4dd7ff; --ok:#3ddc84; --warn:#ffb020; --bad:#ff7a7a; }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  body{ background:var(--bg); color:var(--ink); font:14px/1.55 "Microsoft YaHei",system-ui,sans-serif; height:100vh; overflow:hidden; }
+  header{ height:56px; display:flex; align-items:center; gap:12px; padding:0 16px; background:var(--panel); border-bottom:1px solid var(--line); }
+  header h1{ font-size:16px; } header .sp{ flex:1 }
+  a.link{ color:var(--accent); text-decoration:none; font-size:13px }
+  main{ display:grid; grid-template-columns:340px 320px 1fr; height:calc(100vh - 56px) }
+  .col{ overflow:auto; padding:14px } .col + .col{ border-left:1px solid var(--line) }
+  h3{ font-size:13px; color:var(--accent); margin:2px 0 8px }
+  .drop{ border:1.5px dashed var(--line); border-radius:12px; padding:18px; text-align:center; color:var(--dim); cursor:pointer }
+  .drop.on{ border-color:var(--accent); color:var(--accent) }
+  .grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:10px }
+  .thumb{ position:relative; border-radius:8px; overflow:hidden; border:1px solid var(--line); background:#0a0d12; aspect-ratio:3/4 }
+  .thumb img{ width:100%; height:100%; object-fit:cover; display:block }
+  .thumb b{ position:absolute; right:4px; top:4px; background:rgba(0,0,0,.6); border-radius:6px; font-size:11px; padding:1px 5px; cursor:pointer }
+  .pack{ display:flex; gap:10px; align-items:center; padding:7px; border:1px solid transparent; border-radius:10px; cursor:pointer }
+  .pack:hover{ background:var(--panel) } .pack.on{ background:var(--panel); border-color:var(--accent) }
+  .pack img{ width:52px; height:36px; object-fit:cover; border-radius:6px; background:#0a0d12 }
+  .pack b{ display:block; font-size:13px } .pack span{ font-size:11px; color:var(--dim) }
+  input,textarea{ width:100%; background:var(--panel2); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:7px 10px; font:inherit }
+  .row{ margin-bottom:8px } .row label{ display:block; font-size:12px; color:var(--dim); margin-bottom:3px }
+  button{ background:var(--panel2); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:8px 14px; font:inherit; cursor:pointer }
+  button:hover{ border-color:var(--accent); color:var(--accent) }
+  button.primary{ background:linear-gradient(100deg,#4dd7ff,#8b7bff); color:#06101f; border:0; font-weight:800 }
+  button:disabled{ opacity:.45; cursor:not-allowed }
+  .seg{ display:flex; align-items:center; gap:8px; padding:7px 9px; border:1px solid var(--line); border-radius:9px; margin-bottom:6px }
+  .seg .i{ width:20px; height:20px; border-radius:50%; background:var(--panel2); display:flex; align-items:center; justify-content:center; font-size:11px }
+  .seg b{ font-size:13px } .seg span{ font-size:11px; color:var(--dim) }
+  .bar{ height:8px; border-radius:6px; background:var(--panel2); overflow:hidden }
+  .bar i{ display:block; height:100%; width:0; background:linear-gradient(90deg,#4dd7ff,#8b7bff); transition:width .4s }
+  .note{ font-size:12px; color:var(--dim) } .bad{ color:var(--bad) } .ok{ color:var(--ok) }
+  video{ width:100%; border-radius:10px; border:1px solid var(--line); background:#000 }
+  #sheet{ width:100%; border-radius:10px; border:1px solid var(--line); margin-top:8px; display:none }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎬 30 秒素材片 · 出片工作台</h1>
+  <span class="note" id="srv"></span>
+  <span class="sp"></span>
+  <a class="link" href="/">← 风格包管理器</a>
+</header>
+
+<main>
+  <div class="col">
+    <h3>① 给素材（可多选 / 拖进来）</h3>
+    <div class="drop" id="drop">点这里选图片，或把图片拖到这里<br /><span class="note">支持 jpg / png / webp</span></div>
+    <input type="file" id="file" accept="image/*" multiple style="display:none" />
+    <div class="grid" id="thumbs"></div>
+    <div class="note" id="cnt" style="margin-top:8px">还没上传素材</div>
+  </div>
+
+  <div class="col">
+    <h3>② 选风格</h3>
+    <div id="packs"></div>
+    <h3 style="margin-top:14px">③ 文案（可留默认）</h3>
+    <div class="row"><label>主标题</label><input id="t1" value="AI 营销系统" /></div>
+    <div class="row"><label>副标题（第二行/强调）</label><input id="t2" value="一次成型" /></div>
+    <div class="row"><label>一句话说明</label><input id="sub" value="30 秒看完它能做什么" /></div>
+  </div>
+
+  <div class="col">
+    <h3>④ 编排预览（自动，不用你管）</h3>
+    <div id="segs"></div>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="go">出片</button>
+      <span class="note" id="state" style="margin-left:10px"></span>
+    </div>
+    <div class="bar"><i id="bar"></i></div>
+    <div class="note" id="log" style="margin-top:8px"></div>
+    <div id="result" style="display:none; margin-top:12px">
+      <video id="vid" controls autoplay loop muted playsinline></video>
+      <img id="sheet" alt="审片图" />
+      <div class="note" id="resnote" style="margin-top:6px"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+/*__DATA__*/
+var SRV = false, JOB = 'wb' + Date.now(), FILES = [], PACK = DB.styles[0] ? DB.styles[0].id : 'reel-showcase';
+
+/* ---- 服务检测 ---- */
+fetch('/api/ping').then(function(r){return r.json()}).then(function(j){
+  SRV = !!(j && j.ok);
+  document.getElementById('srv').textContent = SRV ? '服务已连接' : '离线（不能出片）';
+  document.getElementById('srv').style.color = SRV ? '#3ddc84' : '#ffb020';
+}).catch(function(){ document.getElementById('srv').textContent = '离线（双击 启动风格管理器.cmd 再来）'; });
+
+/* ---- ② 风格包列表 ---- */
+(function(){
+  var box = document.getElementById('packs');
+  DB.styles.forEach(function(p){
+    var d = document.createElement('div');
+    d.className = 'pack' + (p.id === PACK ? ' on' : '');
+    d.innerHTML = '<img src="' + (p.thumb || '') + '"><div><b>' + p.name + '</b><span>' + (p.mood||'') + ' · ' + (p.vertical||[]).slice(0,2).join('/') + '</span></div>';
+    d.onclick = function(){ PACK = p.id; [].forEach.call(box.children, function(c){ c.classList.remove('on') }); d.classList.add('on'); };
+    box.appendChild(d);
+  });
+})();
+
+/* ---- ① 上传 ---- */
+var drop = document.getElementById('drop'), fi = document.getElementById('file');
+drop.onclick = function(){ fi.click(); };
+drop.ondragover = function(e){ e.preventDefault(); drop.classList.add('on'); };
+drop.ondragleave = function(){ drop.classList.remove('on'); };
+drop.ondrop = function(e){ e.preventDefault(); drop.classList.remove('on'); upload(e.dataTransfer.files); };
+fi.onchange = function(){ upload(fi.files); fi.value = ''; };
+
+function upload(list){
+  if(!SRV) return alert('未连接服务：请双击 tools/启动风格管理器.cmd');
+  [].forEach.call(list, function(f){
+    if(!/^image\//.test(f.type)) return;
+    var rd = new FileReader();
+    rd.onload = function(){
+      fetch('/api/film/upload', { method:'POST', headers:{'content-type':'application/json'},
+        body: JSON.stringify({ job: JOB, name: f.name, data: rd.result }) })
+        .then(function(r){ return r.json() }).then(function(j){
+          if(!j.ok) return alert('上传失败：' + j.err);
+          FILES.push(j); renderThumbs(); renderSegs();
+        }).catch(function(e){ alert('上传失败：' + e.message) });
+    };
+    rd.readAsDataURL(f);
+  });
+}
+function renderThumbs(){
+  var box = document.getElementById('thumbs'); box.innerHTML = '';
+  FILES.forEach(function(f, i){
+    var d = document.createElement('div'); d.className = 'thumb';
+    d.innerHTML = '<img src="' + f.url + '"><b title="移除">✕</b>';
+    d.querySelector('b').onclick = function(){ FILES.splice(i,1); renderThumbs(); renderSegs(); };
+    box.appendChild(d);
+  });
+  document.getElementById('cnt').textContent = FILES.length ? ('已上传 ' + FILES.length + ' 张') : '还没上传素材';
+}
+
+/* ---- ④ 编排预览（与 tools/arrange.mjs 同一套规则，客户端只做展示） ---- */
+var SEG = [
+  { id:'opening-hero',   name:'开场',     dur:4.0, m:1 },
+  { id:'works-wall',     name:'作品墙',   dur:5.0, m:3 },
+  { id:'glass-product',  name:'数据卡',   dur:5.0, m:0 },
+  { id:'data-dashboard', name:'数据大屏', dur:5.0, m:0 },
+  { id:'fullbleed',      name:'全屏满幅', dur:5.5, m:1 },
+  { id:'grid-2x2',       name:'四宫格',   dur:5.5, m:4 },
+];
+function renderSegs(){
+  var box = document.getElementById('segs'); box.innerHTML = '';
+  var total = 0, used = 0;
+  SEG.forEach(function(s, i){
+    total += s.dur;
+    var take = Math.min(s.m, Math.max(0, FILES.length - used)); used += take;
+    var d = document.createElement('div'); d.className = 'seg';
+    d.innerHTML = '<span class="i">' + (i+1) + '</span><b>' + s.name + '</b><span>' + s.dur + 's · 素材×' + take + '</span>';
+    box.appendChild(d);
+  });
+  var n = document.createElement('div'); n.className = 'note';
+  n.textContent = '共 ' + SEG.length + ' 段 · ' + total.toFixed(1) + ' 秒（素材不足的段会自动留空，不影响出片）';
+  box.appendChild(n);
+}
+renderThumbs(); renderSegs();
+
+/* ---- ③ 出片 + 轮询 ---- */
+document.getElementById('go').onclick = function(){
+  if(!SRV) return alert('未连接服务：请双击 tools/启动风格管理器.cmd');
+  if(!FILES.length) return alert('请先上传至少 1 张素材');
+  var btn = this; btn.disabled = true;
+  document.getElementById('result').style.display = 'none';
+  document.getElementById('log').innerHTML = '';
+  setState('正在排队…', '');
+  fetch('/api/film/make', { method:'POST', headers:{'content-type':'application/json'},
+    body: JSON.stringify({ job: JOB, pack: PACK, name: document.getElementById('t1').value,
+      slots: { title1: document.getElementById('t1').value, title2: document.getElementById('t2').value, sub: document.getElementById('sub').value } }) })
+    .then(function(r){ return r.json() }).then(function(j){
+      if(!j.ok){ btn.disabled = false; return setState('出片失败：' + j.err, 'bad'); }
+      setState('渲染中（' + j.scenes + ' 段 · ' + j.total + 's，约 40~60 秒）…', '');
+      poll(btn);
+    }).catch(function(e){ btn.disabled = false; setState('出片失败：' + e.message, 'bad'); });
+};
+
+function poll(btn){
+  var t0 = Date.now();
+  var iv = setInterval(function(){
+    fetch('/api/film/status?job=' + encodeURIComponent(JOB)).then(function(r){return r.json()}).then(function(j){
+      var el = Math.round((Date.now()-t0)/1000);
+      document.getElementById('bar').style.width = Math.min(95, el * 1.7) + '%';
+      if(j.state === 'running'){ setState('渲染中… ' + el + 's', ''); if(j.log) document.getElementById('log').textContent = j.log; return; }
+      clearInterval(iv); btn.disabled = false;
+      document.getElementById('bar').style.width = '100%';
+      if(j.state === 'done'){
+        setState('✓ 出片完成（' + el + 's）', 'ok');
+        document.getElementById('result').style.display = 'block';
+        document.getElementById('vid').src = j.mp4 + '?t=' + Date.now();
+        if(j.sheet){ var s = document.getElementById('sheet'); s.src = j.sheet + '?t=' + Date.now(); s.style.display = 'block'; }
+        document.getElementById('resnote').innerHTML = '成片：<code>' + j.mp4 + '</code>（' + j.total + 's · ' + j.scenes + ' 段）';
+      } else {
+        setState('✗ 被闸门拦下（stage=' + (j.stage||'?') + '）—— 未产出坏片，可回退老画法', 'bad');
+        document.getElementById('log').innerHTML = '<span class="bad">' + (j.err || '') + '</span>';
+      }
+    }).catch(function(){});
+  }, 3000);
+}
+function setState(t, cls){ var e = document.getElementById('state'); e.textContent = t; e.className = 'note ' + (cls||''); }
+</script>
+</body>
+</html>

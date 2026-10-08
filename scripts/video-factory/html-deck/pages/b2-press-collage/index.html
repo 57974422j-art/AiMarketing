@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="zh-CN">
+<!-- ============================================================================
+  风格 2 / 3 · 「双色印刷拼贴」
+  ---------------------------------------------------------------------------
+  与风格 1 的差异在**设计语言本身**：纸底 + 双色油墨（品红 / 靛蓝）+ 半调网点 + 粗黑体 +
+  印章 —— 印刷/杂志美学，完全不靠"发光科幻"。
+  · 主图形 = **半调网点圆盘**（Canvas 用网点密度表现渐变，印刷感的核心）
+  · 质感   = 网点纹理带缓慢横向滚动 + 纸面颗粒
+  · 排印   = 粗黑体大标题两行擦入 + 大号编号 + 细线分隔 + 旋转印章落下
+  硬口径同前：固定容器 / 白名单 API / 字体子集 / 时间驱动（可复现）。
+============================================================================ -->
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=720, height=1280" />
+<title>风格2 · 双色印刷拼贴</title>
+<style>
+  @font-face { font-family: 'NotoSansSC'; src: url('assets/NotoSansSC-sub.woff2') format('woff2'); font-weight: 100 900; font-display: block; }
+  :root{
+    --W: 720px; --H: 1280px;
+    --paper: #f2efe6;
+    --ink: #15161a;       /* 对纸底 ≈ 15:1 */
+    --indigo: #1b2a6b;    /* ≈ 10:1 */
+    --magenta: #d4003a;   /* ≈ 5.2:1（只用于大字与图形） */
+    --magenta-deep: #b00030;
+  }
+  *{ box-sizing: border-box; margin: 0; padding: 0; }
+  html,body{ width: var(--W); height: var(--H); background: var(--paper); }
+  body{ font-family: 'NotoSansSC', system-ui, sans-serif; overflow: hidden; }
+  .clip{ position: absolute; }
+  /* ★ 页内元素必须自带 position:absolute（只写 left/top 会被忽略 ⇒ 整页错位，昨天实测踩过） */
+  #pg > div, #pg > section{ position: absolute; }
+  #stage{ position: relative; width: var(--W); height: var(--H); overflow: hidden; }
+  #fx{ left: 0; top: 0; width: 720px; height: 1280px; }
+
+  #eyebrow{ left: 64px; top: 84px; font-size: 17px; font-weight: 700; letter-spacing: 3.4px; color: var(--indigo); }
+  #rule1{ left: 64px; top: 124px; width: 592px; height: 7px; background: var(--ink); transform-origin: left center; }
+
+  #h1,#h2{ font-size: 100px; font-weight: 900; line-height: 1.02; letter-spacing: 2px; width: 620px; }
+  /* ★ 行距 1.02→1.28：引擎按**字形框**判 `content_overlap`（100px 字体两行只差 112px ⇒ 框重叠）。
+     设计上仍保持"紧排"观感，但把净空留到判据之外。 */
+  #h1{ left: 64px; top: 206px; color: var(--ink); }
+  #h2{ left: 64px; top: 336px; color: var(--magenta); }
+
+  /* 印章：方形粗框 + 横排小字（**不用竖排** —— 字体子集不保证竖排排版） */
+  #stamp{ right: 62px; top: 196px; width: 118px; height: 118px; border: 4px solid var(--magenta);
+          border-radius: 6px; display: flex; flex-direction: column; align-items: center; justify-content: center;
+          color: var(--magenta); transform-origin: center; }
+  #stamp .s1{ font-size: 30px; font-weight: 900; letter-spacing: 1px; }
+  #stamp .s2{ font-size: 12px; font-weight: 700; letter-spacing: 1.6px; margin-top: 3px; }
+
+  #num{ left: 64px; top: 692px; font-size: 118px; font-weight: 900; color: var(--indigo); line-height: 1;
+        font-variant-numeric: tabular-nums; }
+  #lead{ left: 64px; top: 852px; width: 600px; font-size: 27px; font-weight: 700; color: var(--ink); letter-spacing: .6px; }
+  #meta{ left: 64px; top: 936px; width: 600px; }
+  #meta .row{ display: flex; align-items: center; margin-bottom: 16px; }
+  #meta .dot{ width: 10px; height: 10px; background: var(--magenta); margin-right: 14px; }
+  #meta .t{ font-size: 23px; color: var(--indigo); letter-spacing: .6px; }
+  #rule2{ left: 64px; top: 1128px; width: 592px; height: 2px; background: var(--ink); opacity: .85; transform-origin: left center; }
+  #foot{ left: 64px; top: 1160px; width: 600px; font-size: 19px; color: var(--indigo); letter-spacing: 1px; }
+</style>
+</head>
+<body>
+<div id="stage" data-composition-id="main" data-start="0" data-duration="9"
+     data-fps="25" data-width="720" data-height="1280">
+
+  <canvas id="fx" class="clip" data-start="0" data-duration="9" data-track-index="0" width="720" height="1280"></canvas>
+
+  <section id="pg" class="clip" data-start="0" data-duration="9" data-track-index="1">
+    <div id="eyebrow">AI MARKETING · VIDEO FACTORY</div>
+    <div id="rule1" class="clip" data-start="0" data-duration="9" data-track-index="2"></div>
+
+    <div id="h1">AI营销</div>
+    <div id="h2">指挥官</div>
+
+    <div id="stamp"><span class="s1">AI</span><span class="s2">MARKETING</span></div>
+
+    <div id="num">01</div>
+    <div id="lead">一页讲清核心，三秒生成投放方案</div>
+
+    <div id="meta">
+      <div class="row"><span class="dot"></span><span class="t">素材不动 · 动效层加信息</span></div>
+      <div class="row"><span class="dot"></span><span class="t">同一份文案 · 每次换风格</span></div>
+      <div class="row"><span class="dot"></span><span class="t">逐帧可复现 · 可验收</span></div>
+    </div>
+
+    <div id="rule2" class="clip" data-start="0" data-duration="9" data-track-index="2"></div>
+    <div id="foot">AiMarketing 视频工厂 · 双色印刷风</div>
+  </section>
+</div>
+
+<script>window.__timelines = window.__timelines || {}; window.__timelines["main"] = { seek: function () {}, duration: function () { return 9; }, pause: function () {}, play: function () {} };</script>
+<script src="assets/gsap.min.js"></script>
+<script src="assets/page.js"></script>
+</body>
+</html>

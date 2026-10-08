@@ -1,0 +1,231 @@
+{
+  "version": "0.1",
+  "builtAt": "2026-10-08 07:23:38",
+  "note": "风格包清单（由 tools/build-studio.mjs 生成；管理器页面读内嵌数据，这个文件给 AGENT/其它工具读）",
+  "counts": {
+    "styles": 10,
+    "elements": 50,
+    "structures": 13,
+    "motions": 19,
+    "shotgroups": 12,
+    "verticals": 25
+  },
+  "items": [
+    {
+      "id": "dark-dashboard",
+      "name": "深色数据大屏",
+      "desc": "深底 + 网格 + 生长环 + 大数字，信息密度高",
+      "aspect": "9:16",
+      "speed": "normal",
+      "mood": "科技",
+      "vertical": [
+        "general",
+        "tech",
+        "finance",
+        "b2b",
+        "recruit"
+      ],
+      "structure": [
+        "data-dashboard"
+      ],
+      "thumb": "styles/thumbs/dark-dashboard.jpg",
+      "example": "out/p3a2/a-hud.mp4#4.5s",
+      "createdBy": "builtin"
+    },
+    {
+      "id": "from-video-cand001",
+      "name": "参考视频抽取 · 4.25s",
+      "desc": "从参考视频 w1__31585e8e10df.mp4 的 4.25s 帧抽取（待人工微调）",
+      "aspect": "9:16",
+      "speed": "normal",
+      "mood": "科技",
+      "vertical": [
+        "tech",
+        "b2b",
+        "general"
+      ],
+      "structure": [
+        "opening-hero"
+      ],
+      "thumb": "styles/thumbs/from-video-cand001.jpg",
+      "example": "ref:E:\\ai-marketing\\storage\\1\\w1__31585e8e10df.mp4#4.25s",
+      "createdBy": "ai"
+    },
+    {
+      "id": "from-video-cand004",
+      "name": "参考视频抽取 · 29.75s",
+      "desc": "从参考视频 w1__31585e8e10df.mp4 的 29.75s 帧抽取（待人工微调）",
+      "aspect": "9:16",
+      "speed": "normal",
+      "mood": "科技",
+      "vertical": [
+        "tech",
+        "b2b",
+        "general"
+      ],
+      "structure": [
+        "opening-hero"
+      ],
+      "thumb": "styles/thumbs/from-video-cand004.jpg",
+      "example": "ref:E:\\ai-marketing\\storage\\1\\w1__31585e8e10df.mp4#29.75s",
+      "createdBy": "ai"
+    },
+    {
+      "id": "glass-saas",
+      "name": "毛玻璃渐变 SaaS",
+      "desc": "深靛渐变 + 漂移光斑 + 毛玻璃卡 + 环形进度",
+      "aspect": "9:16",
+      "speed": "normal",
+      "mood": "高级",
+      "vertical": [
+        "tech",
+        "b2b",
+        "finance",
+        "beauty",
+        "general"
+      ],
+      "structure": [
+        "glass-product"
+      ],
+      "thumb": "styles/thumbs/glass-saas.jpg",
+      "example": "out/final-b3-glass-saas/b3-glass-saas.mp4#5.2s",
+      "createdBy": "builtin"
+    },
+    {
+      "id": "mg-scatter",
+      "name": "MG 编排 · 散开与收拢",
+      "desc": "字母散布/光点扩散、素材卡散落→收拢成时间线（造型表现力强）",
+      "aspect": "9:16",
+      "speed": "fast",
+      "mood": "科技",
+      "vertical": [
+        "general",
+        "tech",
+        "game",
+        "education",
+        "fitness",
+        "auto"
+      ],
+      "structure": [
+        "letters-scatter",
+        "timeline-build"
+      ],
+      "thumb": "styles/thumbs/mg-scatter.jpg",
+      "example": "out/demomg3/demo-mg.mp4#10.8s",
+      "createdBy": "builtin"
+    },
+    {
+      "id": "neon-hud",
+      "name": "霓虹 HUD · 素材叠加",
+      "desc": "素材做画中画卡 + 取景框/扫描线，B-roll 主场景",
+      "aspect": "9:16",
+      "speed": "normal",
+      "mood": "科技",
+      "vertical": [
+        "general",
+        "tech",
+        "game",
+        "auto",
+        "fitness"
+      ],
+      "structure": [
+        "closeup-hud"
+      ],
+      "thumb": "styles/thumbs/neon-hud.jpg",
+      "example": "out/p3a2/../final-b1-hud-overlay/b1-hud-overlay.mp4#4.5s",
+      "createdBy": "builtin"
+    },
+    {
+      "id": "paper-editorial",
+      "name": "亮底编辑风",
+      "desc": "米白纸感 + 衬线大标题 + 曲线生长，大留白",
+      "aspect": "9:16",
+      "speed": "slow",
+      "mood": "高级",
+      "vertical": [
+        "general",
+        "book",
+        "education",
+        "fashion",
+        "travel",
+        "beauty"
+      ],
+      "structure": [
+        "paper-report"
+      ],
+      "thumb": "styles/thumbs/paper-editorial.jpg",
+      "example": "out/p3b2/b-editorial.mp4#5.0s",
+      "createdBy": "builtin"
+    },
+    {
+      "id": "pipeline-green",
+      "name": "工序管线 · 荧光绿",
+      "desc": "深黑底 + 荧光绿 + 顶部章节进度 + 底部流程步骤条（从参考视频抽出）",
+      "aspect": "16:9",
+      "speed": "normal",
+      "mood": "科技",
+      "vertical": [
+        "tech",
+        "education",
+        "b2b",
+        "medical",
+        "finance",
+        "recruit"
+      ],
+      "structure": [
+        "pipeline-process"
+      ],
+      "thumb": "styles/thumbs/pipeline-green.jpg",
+      "example": "ref:E:/ai-marketing/storage/1/w1__31585e8e10df.mp4#30s",
+      "createdBy": "builtin"
+    },
+    {
+      "id": "press-collage",
+      "name": "双色印刷拼贴",
+      "desc": "纸底 + 半调网点圆盘 + 印章 + 粗黑体，印刷美学",
+      "aspect": "9:16",
+      "speed": "normal",
+      "mood": "高级",
+      "vertical": [
+        "book",
+        "fashion",
+        "exhibition",
+        "jewelry",
+        "education",
+        "government"
+      ],
+      "structure": [
+        "press-poster"
+      ],
+      "thumb": "styles/thumbs/press-collage.jpg",
+      "example": "out/final-b2-press-collage/b2-press-collage.mp4#3.2s",
+      "createdBy": "builtin"
+    },
+    {
+      "id": "reel-showcase",
+      "name": "素材 Showreel",
+      "desc": "素材作品集：六段不同表现形式串成 30 秒",
+      "aspect": "9:16",
+      "speed": "normal",
+      "mood": "稳重",
+      "vertical": [
+        "general",
+        "ecommerce",
+        "b2b",
+        "tech",
+        "local"
+      ],
+      "structure": [
+        "opening-hero",
+        "works-wall",
+        "closeup-hud",
+        "fullbleed-kenburns",
+        "grid-2x2",
+        "numbers-outro"
+      ],
+      "thumb": "styles/thumbs/reel-showcase.jpg",
+      "example": "out/sr30/showreel30.mp4#6.2s",
+      "createdBy": "builtin"
+    }
+  ]
+}

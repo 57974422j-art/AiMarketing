@@ -1,0 +1,20 @@
+{
+  "version": "0.1",
+  "table": "结构表（版式原型 = 一页/一个镜头组的骨架）",
+  "note": "结构 = 「哪几层 + 元素怎么摆」。AI 选结构、填内容，不自己发明版面。每条都用真实原型片验证过。",
+  "items": [
+    { "id": "opening-hero", "name": "开场 · 大标题 + 斜置卡", "layers": ["L1", "L2", "L4"], "elements": ["bg-gradient-radial", "grid-fine", "media-card", "eyebrow-en", "title-stack", "subtitle-line", "progress-bottom"], "example": "reel-showcase#1.6s", "used": ["reel-showcase"] },
+    { "id": "works-wall", "name": "作品墙 · 三卡错落", "layers": ["L1", "L2", "L4"], "elements": ["bg-gradient-radial", "media-wall-3", "title-duo", "list-rows", "label-chip"], "example": "reel-showcase#6.2s", "used": ["reel-showcase"] },
+    { "id": "closeup-hud", "name": "特写 + 取景标注", "layers": ["L1", "L2", "L3", "L4"], "elements": ["bg-gradient-radial", "media-pip", "corner-brackets", "label-chip", "title-duo", "kpi-row"], "example": "reel-showcase#11.4s", "used": ["reel-showcase", "neon-hud"] },
+    { "id": "fullbleed-kenburns", "name": "全屏满幅 + 遮罩大字", "layers": ["L1", "L2", "L4"], "elements": ["media-hero-fullbleed", "vignette", "eyebrow-en", "title-duo", "subtitle-line", "label-chip"], "example": "reel-showcase#16.6s", "used": ["reel-showcase"] },
+    { "id": "grid-2x2", "name": "四宫格", "layers": ["L1", "L2", "L3", "L4"], "elements": ["bg-gradient-radial", "media-grid-2x2", "label-chip", "title-duo"], "example": "reel-showcase#21.6s", "used": ["reel-showcase"] },
+    { "id": "numbers-outro", "name": "收尾 · 三列大数字 + CTA", "layers": ["L1", "L4"], "elements": ["bg-gradient-linear", "particles-drift", "number-grid-3", "title-duo", "logo-lockup"], "example": "reel-showcase#27.2s", "used": ["reel-showcase"] },
+    { "id": "timeline-build", "name": "素材卡散落 → 收拢成时间线", "layers": ["L1", "L2", "L3", "L4"], "elements": ["timeline-rail", "timeline-tracks", "playhead", "media-card", "title-duo"], "example": "mg-scatter#10.8s", "used": ["mg-scatter"] },
+    { "id": "letters-scatter", "name": "字母散布 + 光点扩散", "layers": ["L1", "L4"], "elements": ["particles-drift", "star-field", "title-duo", "progress-bottom"], "example": "mg-scatter#2.6s", "used": ["mg-scatter"] },
+    { "id": "data-dashboard", "name": "数据大屏 · 环 + 指标卡", "layers": ["L1", "L2", "L3", "L4"], "elements": ["bg-gradient-radial", "grid-fine", "scanline", "ring-progress", "bar-mini", "kpi-row", "big-number", "label-chip"], "example": "dark-dashboard#4.5s", "used": ["dark-dashboard"] },
+    { "id": "paper-report", "name": "亮底报告 · 曲线生长", "layers": ["L1", "L2", "L4"], "elements": ["bg-gradient-linear", "line-curve", "title-stack", "list-rows", "glass-card"], "example": "paper-editorial#5.0s", "used": ["paper-editorial"] },
+    { "id": "press-poster", "name": "双色印刷海报", "layers": ["L1", "L2", "L4"], "elements": ["paper-texture", "halftone-disc", "halftone-band", "title-stack", "stamp", "number-grid-3"], "example": "press-collage#3.2s", "used": ["press-collage"] },
+    { "id": "glass-product", "name": "毛玻璃产品页", "layers": ["L1", "L2", "L4"], "elements": ["bg-gradient-linear", "blob-glow", "stripe-diagonal", "glass-card", "ring-progress", "mini-grid-4", "big-number", "logo-lockup"], "example": "glass-saas#5.2s", "used": ["glass-saas"] },
+    { "id": "pipeline-process", "name": "工序管线 · 轨道 + 步骤条", "layers": ["L1", "L2", "L3", "L4", "L5"], "elements": ["bg-gradient-linear", "wave-track", "chapter-progress", "step-bar", "title-duo", "caption-bottom-big", "caption-pill"], "example": "pipeline-green#0s", "used": ["pipeline-green"] }
+  ]
+}

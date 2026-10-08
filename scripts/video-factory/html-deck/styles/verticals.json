@@ -1,0 +1,629 @@
+{
+  "version": "0.1",
+  "table": "赛道表（vertical）",
+  "note": "赛道不做'写死归属'：① 用来给风格包排序（优先出该赛道的卡）② **可以从素材内容自动分析**（下方 detect 规则）③ 分析置信度低就落到 general。",
+  "detect": {
+    "note": "从用户素材自动判赛道（不靠人填）。三路证据加权，命中数排序取前 3 作为候选；最高分 < 阈值 ⇒ general。（★阈值 4→3：单个关键词命中=3 分，日常文案常常只有 1 个词；门槛 4 会导致\"永远落通用\"。实测旅游/餐饮各 1~4 个词都能正确判出。）",
+    "signals": [
+      {
+        "src": "素材自带文字/用户文案关键词",
+        "weight": 3,
+        "how": "命中 hints 关键词表"
+      },
+      {
+        "src": "素材图像主色与明度",
+        "weight": 2,
+        "how": "主色偏暖/冷、明度高/低 ⇒ 匹配 tokensHint"
+      },
+      {
+        "src": "素材主体（可选，后期接入图像识别）",
+        "weight": 2,
+        "how": "人像/食物/风景/宠物/汽车…"
+      }
+    ],
+    "threshold": 3,
+    "fallback": "general"
+  },
+  "items": [
+    {
+      "id": "general",
+      "name": "通用",
+      "tokensHint": {
+        "accent": "#4dd7ff",
+        "tone": "中性"
+      },
+      "prefer": [
+        "reel-showcase",
+        "dark-dashboard",
+        "glass-saas"
+      ],
+      "hints": [
+        "营销",
+        "推广",
+        "品牌",
+        "系统",
+        "工具",
+        "方案",
+        "增长",
+        "转化"
+      ]
+    },
+    {
+      "id": "ecommerce",
+      "name": "电商零售",
+      "tokensHint": {
+        "accent": "#ff5a3c",
+        "tone": "高对比促单"
+      },
+      "prefer": [
+        "press-collage",
+        "reel-showcase"
+      ],
+      "hints": [
+        "优惠",
+        "秒杀",
+        "下单",
+        "包邮",
+        "新品",
+        "爆款",
+        "促销",
+        "折扣",
+        "价格",
+        "库存"
+      ]
+    },
+    {
+      "id": "education",
+      "name": "教育知识",
+      "tokensHint": {
+        "accent": "#2f7bff",
+        "tone": "清晰理性"
+      },
+      "prefer": [
+        "pipeline-green",
+        "paper-editorial"
+      ],
+      "hints": [
+        "课程",
+        "学习",
+        "知识",
+        "考点",
+        "教程",
+        "讲解",
+        "笔记",
+        "干货",
+        "方法",
+        "技巧"
+      ]
+    },
+    {
+      "id": "food",
+      "name": "餐饮美食",
+      "tokensHint": {
+        "accent": "#ff8a2b",
+        "tone": "暖色食欲"
+      },
+      "prefer": [
+        "glass-saas",
+        "reel-showcase"
+      ],
+      "hints": [
+        "餐厅",
+        "美食",
+        "菜品",
+        "菜单",
+        "口味",
+        "招牌",
+        "外卖",
+        "烘焙",
+        "咖啡",
+        "甜品"
+      ]
+    },
+    {
+      "id": "travel",
+      "name": "旅游文旅",
+      "tokensHint": {
+        "accent": "#22c3a6",
+        "tone": "清爽开阔"
+      },
+      "prefer": [
+        "paper-editorial",
+        "reel-showcase"
+      ],
+      "hints": [
+        "旅行",
+        "景点",
+        "攻略",
+        "路线",
+        "打卡",
+        "民宿",
+        "海岛",
+        "自驾",
+        "门票",
+        "风景"
+      ]
+    },
+    {
+      "id": "realestate",
+      "name": "房地产家居",
+      "tokensHint": {
+        "accent": "#c9a227",
+        "tone": "稳重"
+      },
+      "prefer": [
+        "glass-saas",
+        "dark-dashboard"
+      ],
+      "hints": [
+        "楼盘",
+        "户型",
+        "首付",
+        "均价",
+        "样板间",
+        "学区",
+        "交付",
+        "装修",
+        "面积",
+        "认购"
+      ]
+    },
+    {
+      "id": "pet",
+      "name": "宠物",
+      "tokensHint": {
+        "accent": "#ffb020",
+        "tone": "活泼圆润"
+      },
+      "prefer": [
+        "mg-scatter",
+        "reel-showcase"
+      ],
+      "hints": [
+        "宠物",
+        "猫",
+        "狗",
+        "萌宠",
+        "铲屎",
+        "领养",
+        "疫苗",
+        "宠物粮",
+        "撸猫",
+        "陪伴"
+      ]
+    },
+    {
+      "id": "beauty",
+      "name": "美妆个护",
+      "tokensHint": {
+        "accent": "#ff6f9c",
+        "tone": "柔和高级"
+      },
+      "prefer": [
+        "paper-editorial",
+        "glass-saas"
+      ],
+      "hints": [
+        "护肤",
+        "彩妆",
+        "口红",
+        "精华",
+        "成分",
+        "防晒",
+        "面膜",
+        "妆效",
+        "色号",
+        "肤质"
+      ]
+    },
+    {
+      "id": "fitness",
+      "name": "健身运动",
+      "tokensHint": {
+        "accent": "#7cf03c",
+        "tone": "能量"
+      },
+      "prefer": [
+        "mg-scatter",
+        "dark-dashboard"
+      ],
+      "hints": [
+        "健身",
+        "训练",
+        "减脂",
+        "增肌",
+        "燃脂",
+        "体态",
+        "拉伸",
+        "跑步",
+        "瑜伽",
+        "卡路里"
+      ]
+    },
+    {
+      "id": "medical",
+      "name": "医疗健康",
+      "tokensHint": {
+        "accent": "#26a69a",
+        "tone": "可信洁净"
+      },
+      "prefer": [
+        "pipeline-green",
+        "paper-editorial"
+      ],
+      "hints": [
+        "健康",
+        "医生",
+        "体检",
+        "指标",
+        "症状",
+        "康复",
+        "护理",
+        "用药",
+        "问诊",
+        "预防"
+      ]
+    },
+    {
+      "id": "baby",
+      "name": "母婴亲子",
+      "tokensHint": {
+        "accent": "#ffa6c1",
+        "tone": "温柔"
+      },
+      "prefer": [
+        "paper-editorial",
+        "reel-showcase"
+      ],
+      "hints": [
+        "宝宝",
+        "育儿",
+        "辅食",
+        "孕期",
+        "奶粉",
+        "亲子",
+        "早教",
+        "月子",
+        "儿童",
+        "妈妈"
+      ]
+    },
+    {
+      "id": "auto",
+      "name": "汽车",
+      "tokensHint": {
+        "accent": "#4da3ff",
+        "tone": "科技硬朗"
+      },
+      "prefer": [
+        "dark-dashboard",
+        "mg-scatter"
+      ],
+      "hints": [
+        "汽车",
+        "车型",
+        "续航",
+        "试驾",
+        "动力",
+        "配置",
+        "油耗",
+        "SUV",
+        "新能源",
+        "底盘"
+      ]
+    },
+    {
+      "id": "finance",
+      "name": "金融理财",
+      "tokensHint": {
+        "accent": "#e0b64a",
+        "tone": "稳重可信"
+      },
+      "prefer": [
+        "dark-dashboard",
+        "pipeline-green"
+      ],
+      "hints": [
+        "理财",
+        "基金",
+        "收益",
+        "利率",
+        "保险",
+        "贷款",
+        "风控",
+        "净值",
+        "估值",
+        "资产"
+      ]
+    },
+    {
+      "id": "tech",
+      "name": "数码科技",
+      "tokensHint": {
+        "accent": "#4dd7ff",
+        "tone": "冷科技"
+      },
+      "prefer": [
+        "dark-dashboard",
+        "mg-scatter",
+        "glass-saas"
+      ],
+      "hints": [
+        "科技",
+        "芯片",
+        "算法",
+        "算力",
+        "接口",
+        "系统",
+        "性能",
+        "参数",
+        "开源",
+        "模型"
+      ]
+    },
+    {
+      "id": "b2b",
+      "name": "企业服务",
+      "tokensHint": {
+        "accent": "#5b8def",
+        "tone": "专业克制"
+      },
+      "prefer": [
+        "pipeline-green",
+        "glass-saas"
+      ],
+      "hints": [
+        "企业",
+        "客户",
+        "效率",
+        "流程",
+        "协同",
+        "管理",
+        "部署",
+        "私有化",
+        "解决方案",
+        "降本"
+      ]
+    },
+    {
+      "id": "fashion",
+      "name": "服饰鞋包",
+      "tokensHint": {
+        "accent": "#111111",
+        "tone": "极简高级"
+      },
+      "prefer": [
+        "press-collage",
+        "paper-editorial"
+      ],
+      "hints": [
+        "穿搭",
+        "款式",
+        "面料",
+        "版型",
+        "上新",
+        "通勤",
+        "复古",
+        "配饰",
+        "显瘦",
+        "百搭"
+      ]
+    },
+    {
+      "id": "jewelry",
+      "name": "珠宝配饰",
+      "tokensHint": {
+        "accent": "#d4af37",
+        "tone": "奢华"
+      },
+      "prefer": [
+        "press-collage",
+        "glass-saas"
+      ],
+      "hints": [
+        "珠宝",
+        "钻石",
+        "黄金",
+        "镶嵌",
+        "克重",
+        "成色",
+        "婚戒",
+        "翡翠",
+        "证书",
+        "定制"
+      ]
+    },
+    {
+      "id": "home",
+      "name": "家居软装",
+      "tokensHint": {
+        "accent": "#a8865f",
+        "tone": "温润"
+      },
+      "prefer": [
+        "paper-editorial",
+        "glass-saas"
+      ],
+      "hints": [
+        "家居",
+        "家具",
+        "软装",
+        "收纳",
+        "风格",
+        "户型图",
+        "沙发",
+        "灯光",
+        "窗帘",
+        "改造"
+      ]
+    },
+    {
+      "id": "game",
+      "name": "游戏电竞",
+      "tokensHint": {
+        "accent": "#b06bff",
+        "tone": "高能霓虹"
+      },
+      "prefer": [
+        "mg-scatter",
+        "neon-hud"
+      ],
+      "hints": [
+        "游戏",
+        "版本",
+        "更新",
+        "攻略",
+        "装备",
+        "赛季",
+        "开黑",
+        "电竞",
+        "副本",
+        "皮肤"
+      ]
+    },
+    {
+      "id": "local",
+      "name": "本地生活",
+      "tokensHint": {
+        "accent": "#ff7a45",
+        "tone": "热闹"
+      },
+      "prefer": [
+        "glass-saas",
+        "reel-showcase"
+      ],
+      "hints": [
+        "探店",
+        "团购",
+        "附近",
+        "营业",
+        "预约",
+        "门店",
+        "优惠券",
+        "同城",
+        "打卡",
+        "服务"
+      ]
+    },
+    {
+      "id": "recruit",
+      "name": "招聘职场",
+      "tokensHint": {
+        "accent": "#3f6bff",
+        "tone": "干练"
+      },
+      "prefer": [
+        "pipeline-green",
+        "dark-dashboard"
+      ],
+      "hints": [
+        "招聘",
+        "岗位",
+        "简历",
+        "面试",
+        "薪资",
+        "入职",
+        "晋升",
+        "转行",
+        "技能",
+        "职场"
+      ]
+    },
+    {
+      "id": "agriculture",
+      "name": "农产品",
+      "tokensHint": {
+        "accent": "#6cc24a",
+        "tone": "自然"
+      },
+      "prefer": [
+        "paper-editorial",
+        "reel-showcase"
+      ],
+      "hints": [
+        "农产",
+        "产地",
+        "新鲜",
+        "采摘",
+        "季节",
+        "助农",
+        "果",
+        "茶",
+        "米",
+        "土特产"
+      ]
+    },
+    {
+      "id": "book",
+      "name": "图书文化",
+      "tokensHint": {
+        "accent": "#8b5e3c",
+        "tone": "书卷"
+      },
+      "prefer": [
+        "press-collage",
+        "paper-editorial"
+      ],
+      "hints": [
+        "书",
+        "阅读",
+        "作者",
+        "章节",
+        "书单",
+        "出版",
+        "文化",
+        "历史",
+        "思想",
+        "笔记"
+      ]
+    },
+    {
+      "id": "government",
+      "name": "政务公益",
+      "tokensHint": {
+        "accent": "#c8352f",
+        "tone": "庄重"
+      },
+      "prefer": [
+        "paper-editorial",
+        "dark-dashboard"
+      ],
+      "hints": [
+        "政策",
+        "公告",
+        "办理",
+        "指南",
+        "公益",
+        "志愿",
+        "便民",
+        "申报",
+        "须知",
+        "服务"
+      ]
+    },
+    {
+      "id": "exhibition",
+      "name": "活动会展",
+      "tokensHint": {
+        "accent": "#ff3d6e",
+        "tone": "醒目"
+      },
+      "prefer": [
+        "press-collage",
+        "mg-scatter"
+      ],
+      "hints": [
+        "展会",
+        "峰会",
+        "发布",
+        "论坛",
+        "议程",
+        "嘉宾",
+        "报名",
+        "展位",
+        "活动",
+        "论坛"
+      ]
+    }
+  ]
+}

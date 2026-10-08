@@ -1,0 +1,87 @@
+{
+  "id": "demo-30s",
+  "name": "示例成片 · 30 秒素材 Showreel",
+  "note": "★ 这是「film 契约」的第一个真实样例：一条片 = 风格包 + N 段镜头组。每段可指定结构/时长/文案/素材。素材放同目录 media/ 下。",
+  "pack": "reel-showcase",
+  "fps": 25,
+  "scenes": [
+    {
+      "shotgroup": "sg-opening-tiltcard",
+      "structure": "opening-hero",
+      "dur": 4.0,
+      "slots": {
+        "eyebrow": "SHOWREEL 2026",
+        "title1": "AI 营销系统",
+        "title2": "一次成型",
+        "sub": "30 秒看完它能做什么",
+        "foot": "AiMarketing 视频工厂 · 2026 年 10 月"
+      },
+      "media": ["media/m03.jpg"]
+    },
+    {
+      "shotgroup": "sg-works-wall",
+      "structure": "works-wall",
+      "dur": 5.0,
+      "slots": {
+        "title": "一次生成 · 全套素材",
+        "sub": "海报、文案、成片，出自同一套系统",
+        "rows": ["素材不动 · 动效层加信息", "同一份文案 · 每次换风格", "逐帧可复现 · 可验收"],
+        "foot": "AiMarketing 视频工厂 · 2026 年 10 月"
+      },
+      "media": ["media/m04.jpg", "media/m08.jpg", "media/m07.jpg"]
+    },
+    {
+      "shotgroup": "sg-glass-cards",
+      "structure": "glass-product",
+      "dur": 5.0,
+      "slots": {
+        "eyebrow": "PRODUCT ANALYTICS",
+        "title": "数据驱动增长",
+        "sub": "投放 · 素材 · 转化，一屏看清",
+        "value": "78.5", "unit": "%",
+        "kpi": [["曝光", "12.4 万"], ["点击率", "4.8 %"], ["下单", "3.2 千"]]
+      },
+      "media": []
+    },
+    {
+      "shotgroup": "sg-dashboard",
+      "structure": "data-dashboard",
+      "dur": 5.0,
+      "slots": {
+        "eyebrow": "LIVE DASHBOARD",
+        "title": "实时投放监控",
+        "sub": "每 5 分钟刷新一次",
+        "value": "45", "unit": "%",
+        "kpi": [["曝光", "12.4 万"], ["转化率", "45 %"], ["成本", "-62%"]],
+        "foot": "AiMarketing 视频工厂 · 2026 年 10 月"
+      },
+      "media": []
+    },
+    {
+      "shotgroup": "sg-fullbleed-caption",
+      "structure": "fullbleed",
+      "dur": 5.5,
+      "slots": {
+        "eyebrow": "WORKFLOW",
+        "title": "从文案到成片",
+        "sub": "一句话，四步出片",
+        "chips": ["文案", "海报", "配音", "成片"],
+        "foot": "AiMarketing 视频工厂 · 2026 年 10 月"
+      },
+      "media": ["media/m06.jpg"]
+    },
+    {
+      "shotgroup": "sg-grid-4",
+      "structure": "grid-2x2",
+      "dur": 5.5,
+      "slots": {
+        "title": "四种风格 · 同一套流程",
+        "sub": "同一份素材，也能换个样子",
+        "nums": ["01", "02", "03", "04"],
+        "tail": "一次生成，批量出片",
+        "foot": "AiMarketing 视频工厂 · 2026 年 10 月"
+      },
+      "media": ["media/m02.jpg", "media/m05.jpg", "media/m04.jpg", "media/m08.jpg"]
+    }
+  ]
+}

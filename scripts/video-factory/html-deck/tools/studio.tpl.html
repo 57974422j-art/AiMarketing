@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="zh-CN">
+<!-- ============================================================================
+  风格包管理器 · Style Studio（**双击即可打开，不需要命令行**）
+  ---------------------------------------------------------------------------
+  用途（用户 2026-10-08 定："我用户没有会命令行的"）：
+    · 看：所有风格包的缩略图 / 赛道 / 情绪 / 结构
+    · 改：色板、字体、圆角、密度、结构、动效、提示词 —— 全部点选，不写代码
+    · 加：三种方式都在这一个页面里
+        ① 套用改：点【+ 新建（复制当前）】→ 改几个字段 → 保存
+        ② 勾选建：在结构/元素/动效清单里勾选
+        ③ 喂视频自动建：把抽出的候选（extract-elements.mjs 产物）导入后勾选
+    · 存：导出 JSON（下载 / 复制），放回 styles/ 目录即生效
+  数据来源：由 tools/build-studio.mjs 把 styles/*.json 与 elements/*.json 内嵌进来
+            （编辑内容同时存浏览器 localStorage，刷新不丢）
+  ⚠ 接入后（批次 2）本页会多两个按钮：**写库**（直接落盘）与 **渲 3 秒试片**（当场看效果）。
+============================================================================ -->
+<head>
+<meta charset="UTF-8" />
+<title>风格包管理器 · Style Studio</title>
+<style>
+  :root{ --bg:#0e1116; --panel:#151a22; --panel2:#1b222c; --ink:#e9eef6; --dim:#9fb0c4;
+         --line:#26303c; --accent:#4dd7ff; --ok:#3ddc84; --warn:#ffb020; }
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  body{ background:var(--bg); color:var(--ink); font:14px/1.5 "Microsoft YaHei",system-ui,sans-serif; height:100vh; overflow:hidden; }
+  header{ height:56px; display:flex; align-items:center; gap:12px; padding:0 16px; background:var(--panel); border-bottom:1px solid var(--line); }
+  header h1{ font-size:16px; font-weight:700; margin-right:8px; }
+  header .sp{ flex:1; }
+  input,select,textarea{ background:var(--panel2); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:6px 10px; font:inherit; }
+  textarea{ width:100%; min-height:74px; resize:vertical; }
+  button{ background:var(--panel2); color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:7px 12px; font:inherit; cursor:pointer; }
+  button:hover{ border-color:var(--accent); color:var(--accent); }
+  button.primary{ background:linear-gradient(100deg,#4dd7ff,#8b7bff); color:#06101f; border:0; font-weight:700; }
+  main{ display:grid; grid-template-columns:280px 1fr 380px; height:calc(100vh - 56px); }
+  .col{ overflow:auto; }
+  .col + .col{ border-left:1px solid var(--line); }
+  .list{ padding:10px; }
+  .item{ display:flex; gap:10px; align-items:center; padding:8px; border-radius:10px; cursor:pointer; border:1px solid transparent; }
+  .item:hover{ background:var(--panel); }
+  .item.on{ background:var(--panel); border-color:var(--accent); }
+  .item img{ width:64px; height:44px; object-fit:cover; border-radius:6px; background:#0a0d12; flex:0 0 auto; }
+  .item .t{ min-width:0; }
+  .item .t b{ display:block; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .item .t span{ font-size:11px; color:var(--dim); }
+  .edit{ padding:16px; }
+  .row{ display:flex; gap:10px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+  .row label{ width:78px; color:var(--dim); font-size:12px; flex:0 0 auto; }
+  .row .grow{ flex:1; min-width:120px; }
+  fieldset{ border:1px solid var(--line); border-radius:10px; padding:12px; margin-bottom:14px; }
+  legend{ padding:0 6px; color:var(--accent); font-size:12px; }
+  .sw{ width:34px; height:26px; padding:0; border-radius:6px; border:1px solid var(--line); background:none; cursor:pointer; }
+  .chips{ display:flex; flex-wrap:wrap; gap:6px; }
+  .chip{ padding:5px 10px; border-radius:999px; border:1px solid var(--line); font-size:12px; cursor:pointer; user-select:none; }
+  .chip.on{ border-color:var(--accent); color:var(--accent); background:rgba(77,215,255,.10); }
+  .prev{ padding:14px; }
+  .prev img{ width:100%; border-radius:10px; border:1px solid var(--line); background:#0a0d12; }
+  pre{ background:#0a0d12; border:1px solid var(--line); border-radius:10px; padding:12px; font:12px/1.45 Consolas,monospace;
+       white-space:pre-wrap; word-break:break-all; max-height:46vh; overflow:auto; }
+  .note{ color:var(--dim); font-size:12px; margin-top:8px; }
+  .badge{ font-size:11px; padding:2px 7px; border-radius:999px; border:1px solid var(--line); color:var(--dim); }
+  .badge.user{ color:var(--ok); border-color:var(--ok); }
+  .err{ color:#ff7a7a; font-size:12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🎨 风格包管理器</h1>
+  <span class="badge" id="cnt"></span>
+  <input id="q" placeholder="搜索名称 / 赛道 / 情绪…" style="width:220px" />
+  <select id="fv"><option value="">全部赛道</option></select>
+  <select id="fm"><option value="">全部情绪</option></select>
+  <span class="sp"></span>
+  <button id="btnNew">＋ 新建（复制当前）</button>
+  <button id="btnImport">导入 JSON</button>
+  <button class="primary" id="btnDl">下载当前风格包</button>
+</header>
+
+<main>
+  <div class="col"><div class="list" id="list"></div></div>
+
+  <div class="col"><div class="edit" id="edit"></div></div>
+
+  <div class="col">
+    <div class="prev">
+      <img id="bigThumb" src="" alt="缩略图（构建时从成片抽帧生成）" />
+      <div class="note" id="exNote"></div>
+    </div>
+    <div class="prev">
+      <div class="row"><b>导出的风格包 JSON</b><span class="sp" style="flex:1"></span>
+        <span id="valid" class="badge">—</span></div>
+      <pre id="json"></pre>
+      <div class="row">
+        <button id="btnCopy">复制 JSON</button>
+        <button id="btnReset">撤销本卡改动</button>
+      </div>
+
+      <div class="row" style="margin-top:10px">
+        <button id="btnSave" class="primary">写库</button>
+        <button id="btnPrev">渲 3 秒试片</button>
+        <span id="srvState" class="badge">检测服务…</span>
+      </div>
+      <div class="note" id="srvHint"></div>
+
+      <div id="prevBox" style="display:none; margin-top:10px">
+        <video id="prevVid" controls autoplay loop muted playsinline style="width:100%;border-radius:10px;border:1px solid var(--line);background:#0a0d12"></video>
+        <div class="note" id="prevNote"></div>
+      </div>
+
+      <div id="candBox" style="display:none; margin-top:10px">
+        <div class="row"><b>候选条目（从视频抽取，勾选后建包）</b><span class="sp" style="flex:1"></span>
+          <button id="btnCandMake">用选中项建风格包</button></div>
+        <div id="candList"></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+/*__DATA__*/
+var S = JSON.parse(localStorage.getItem('vf-studio-styles') || 'null') || DB.styles;
+var cur = 0, isNew = false;
+var L = DB.lib;
+
+function save(){ localStorage.setItem('vf-studio-styles', JSON.stringify(S)); }
+function el(tag, attrs, kids){ var e=document.createElement(tag); for(var k in (attrs||{})){ if(k==='class') e.className=attrs[k]; else if(k==='html') e.innerHTML=attrs[k]; else if(k==='text') e.textContent=attrs[k]; else e.setAttribute(k, attrs[k]); } (kids||[]).forEach(function(c){ e.appendChild(c); }); return e; }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+function initFilters(){
+  var vs={}, ms={};
+  S.forEach(function(p){ (p.vertical||[]).forEach(function(v){ vs[v]=1; }); if(p.mood) ms[p.mood]=1; });
+  Object.keys(vs).sort().forEach(function(v){ document.getElementById('fv').appendChild(el('option',{value:v,text:v})); });
+  Object.keys(ms).sort().forEach(function(m){ document.getElementById('fm').appendChild(el('option',{value:m,text:m})); });
+}
+
+function filtered(){
+  var q=document.getElementById('q').value.trim().toLowerCase();
+  var fv=document.getElementById('fv').value, fm=document.getElementById('fm').value;
+  return S.map(function(p,i){ return {p:p,i:i}; }).filter(function(x){
+    var p=x.p;
+    if(fv && (p.vertical||[]).indexOf(fv)<0) return false;
+    if(fm && p.mood!==fm) return false;
+    if(q){ var s=(p.name+' '+(p.desc||'')+' '+(p.vertical||[]).join(' ')+' '+(p.mood||'')).toLowerCase(); if(s.indexOf(q)<0) return false; }
+    return true;
+  });
+}
+
+function renderList(){
+  var box=document.getElementById('list'); box.innerHTML='';
+  document.getElementById('cnt').textContent = S.length + ' 张风格包';
+  filtered().forEach(function(x){
+    var p=x.p;
+    var img=el('img',{src:(p.thumb||''), alt:''});
+    img.onerror=function(){ this.style.opacity=.25; };
+    var it=el('div',{class:'item'+(x.i===cur?' on':'')},[
+      img,
+      el('div',{class:'t'},[
+        el('b',{text:p.name||p.id}),
+        el('span',{html:esc(p.mood||'') + ' · ' + esc((p.vertical||[]).slice(0,2).join('/')) }),
+      ]),
+    ]);
+    it.onclick=function(){ cur=x.i; renderList(); renderEdit(); };
+    box.appendChild(it);
+  });
+}
+
+function renderEdit(){
+  var p=S[cur]; if(!p) return;
+  var box=document.getElementById('edit'); box.innerHTML='';
+  var T=p.tokens||{};
+
+  function row(label, node, grow){ return el('div',{class:'row'},[el('label',{text:label}), grow?node:node]); }
+  function sel(val, opts, on){
+    var s=el('select',{},opts.map(function(o){ return el('option',{value:o,text:o}); }));
+    s.value=val; s.onchange=function(){ on(s.value); };
+    return s;
+  }
+  function color(key){
+    var i=el('input',{type:'color',class:'sw',value:T[key]||'#000000'});
+    i.oninput=function(){ T[key]=i.value; p.tokens=T; touch(); };
+    return i;
+  }
+  function txt(label, val, on, wide){
+    var i=el('input',{value:val||''}); if(wide) i.className='grow';
+    i.oninput=function(){ on(i.value); };
+    return i;
+  }
+  function chips(label, all, arr, on){
+    var wrap=el('div',{class:'chips'});
+    all.forEach(function(v){
+      var c=el('span',{class:'chip'+(arr.indexOf(v)>=0?' on':''),text:v});
+      c.onclick=function(){ var k=arr.indexOf(v); if(k>=0) arr.splice(k,1); else arr.push(v); on(); };
+      wrap.appendChild(c);
+    });
+    return el('div',{class:'row'},[el('label',{text:label}), wrap]);
+  }
+
+  box.appendChild(el('div',{class:'row'},[
+    el('b',{text:(p.name||p.id)}),
+    el('span',{class:'badge'+(p.createdBy==='user'?' user':''),text:p.createdBy||'builtin'}),
+    el('span',{class:'sp',style:'flex:1'}),
+    el('span',{class:'badge',text:'id: '+(p.id||'')}),
+  ]));
+
+  var fs1=el('fieldset',{},[el('legend',{text:'基本信息'})]);
+  fs1.appendChild(row('名称', txt('', p.name, function(v){ p.name=v; touch(); }), true));
+  fs1.appendChild(row('描述', txt('', p.desc, function(v){ p.desc=v; touch(); }), true));
+  fs1.appendChild(row('画幅', sel(p.aspect,['9:16','16:9','1:1'], function(v){ p.aspect=v; touch(); })));
+  fs1.appendChild(row('节奏', sel(p.speed,['slow','normal','fast'], function(v){ p.speed=v; touch(); })));
+  fs1.appendChild(row('情绪', sel(p.mood,['稳重','高级','活泼','清爽','科技','温暖'], function(v){ p.mood=v; touch(); })));
+  box.appendChild(fs1);
+
+  box.appendChild(chips('适用赛道', L.verticals.map(function(v){ return v.id; }), p.vertical||[], function(){ touch(); }));
+
+  var fs2=el('fieldset',{},[el('legend',{text:'令牌（长什么样）'})]);
+  ['bg','bg2','ink','dim','accent','accentText'].forEach(function(k){
+    var r=el('div',{class:'row'},[el('label',{text:k}), color(k)]);
+    fs2.appendChild(r);
+  });
+  fs2.appendChild(row('字体', sel(T.font,['sans-900','sans-700','serif-700'], function(v){ T.font=v; p.tokens=T; touch(); })));
+  fs2.appendChild(row('密度', sel(T.density,['airy','normal','dense'], function(v){ T.density=v; p.tokens=T; touch(); })));
+  var rad=el('input',{type:'range',min:0,max:48,value:T.radius==null?16:T.radius}); rad.style.width='140px';
+  rad.oninput=function(){ T.radius=+rad.value; p.tokens=T; touch(); };
+  fs2.appendChild(row('圆角', rad));
+  var gr=el('input',{type:'range',min:0,max:12,value:Math.round((T.grain||0)*100)}); gr.style.width='140px';
+  gr.oninput=function(){ T.grain=(+gr.value)/100; p.tokens=T; touch(); };
+  fs2.appendChild(row('颗粒', gr));
+  box.appendChild(fs2);
+
+  box.appendChild(chips('结构（版式）', L.structures.map(function(s){ return s.id; }), p.structure||[], function(){ touch(); }));
+  box.appendChild(chips('追加元素', L.elements.items.map(function(s){ return s.id; }), p.elements||[], function(){ touch(); }));
+
+  var fs3=el('fieldset',{},[el('legend',{text:'动效'})]);
+  fs3.appendChild(row('入场', sel((p.motion||{}).enter, L.motions.map(function(m){ return m.id; }), function(v){ p.motion=p.motion||{}; p.motion.enter=v; touch(); })));
+  fs3.appendChild(row('强调', sel((p.motion||{}).emphasis, L.motions.map(function(m){ return m.id; }), function(v){ p.motion=p.motion||{}; p.motion.emphasis=v; touch(); })));
+  fs3.appendChild(row('退场', sel((p.motion||{}).exit, L.motions.map(function(m){ return m.id; }), function(v){ p.motion=p.motion||{}; p.motion.exit=v; touch(); })));
+  box.appendChild(fs3);
+
+  var fs4=el('fieldset',{},[el('legend',{text:'提示词（给 AI 的自然语言描述，可多段用 / 分隔）'})]);
+  var ta=el('textarea',{text:p.prompt||''});
+  ta.oninput=function(){ p.prompt=ta.value; touch(); };
+  fs4.appendChild(ta);
+  fs4.appendChild(row('示例', txt('', p.example, function(v){ p.example=v; touch(); }), true));
+  box.appendChild(fs4);
+
+  validate();
+}
+
+function touch(){ save(); renderJson(); renderList(); validate(); }
+function renderJson(){ document.getElementById('json').textContent = JSON.stringify(S[cur], null, 2); }
+
+/* 校验：字段齐不齐 + 引用是否存在（与 styles/_schema.json 同口径） */
+function validate(){
+  var p=S[cur], errs=[];
+  ['id','name','aspect','speed','mood','prompt'].forEach(function(k){ if(!p[k]) errs.push('缺字段 '+k); });
+  if(!p.tokens || !p.tokens.bg || !p.tokens.ink) errs.push('tokens.bg/ink 必填');
+  if(!(p.structure||[]).length) errs.push('至少要选一个结构');
+  [].concat(p.structure||[]).forEach(function(id){ if(!L.structures.some(function(s){ return s.id===id; })) errs.push('结构不存在: '+id); });
+  [].concat(p.elements||[]).forEach(function(id){ if(!L.elements.items.some(function(s){ return s.id===id; })) errs.push('元素不存在: '+id); });
+  ['enter','emphasis','exit'].forEach(function(k){ var v=(p.motion||{})[k]; if(v && !L.motions.some(function(m){ return m.id===v; })) errs.push('动效不存在: '+v); });
+  var b=document.getElementById('valid');
+  b.textContent = errs.length? ('✗ '+errs.length+' 处待修') : '✓ 校验通过';
+  b.style.color = errs.length? '#ff7a7a' : '#3ddc84';
+  var n=document.getElementById('exNote');
+  n.innerHTML = '示例：' + esc(p.example||'—') + (p.refs&&p.refs.length? (' ｜ 参考：'+esc(p.refs.join(', '))) : '');
+}
+
+/* ---------------- 交互 ---------------- */
+document.getElementById('q').oninput=renderList;
+document.getElementById('fv').onchange=renderList;
+document.getElementById('fm').onchange=renderList;
+document.getElementById('btnNew').onclick=function(){
+  var p=JSON.parse(JSON.stringify(S[cur]));
+  p.id=(p.id||'style')+'-copy'; p.name=(p.name||'新风格')+' 副本'; p.createdBy='user';
+  S.push(p); cur=S.length-1; touch(); renderEdit();
+};
+document.getElementById('btnCopy').onclick=function(){
+  navigator.clipboard.writeText(document.getElementById('json').textContent).then(function(){ alert('已复制，可直接粘给我或放到 styles/ 目录'); });
+};
+document.getElementById('btnDl').onclick=function(){
+  var p=S[cur];
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([JSON.stringify(p,null,2)],{type:'application/json'}));
+  a.download=(p.id||'style')+'.json'; a.click();
+};
+document.getElementById('btnReset').onclick=function(){
+  if(!confirm('撤销这张卡的所有改动？')) return;
+  S[cur]=JSON.parse(JSON.stringify(DB.styles[cur])); touch(); renderEdit();
+};
+document.getElementById('btnImport').onclick=function(){
+  var i=document.createElement('input'); i.type='file'; i.accept='.json';
+  i.onchange=function(){
+    var f=i.files[0]; if(!f) return;
+    var r=new FileReader();
+    r.onload=function(){
+      try{
+        var j=JSON.parse(r.result);
+        if(j && j.candidates){                    // ← 抽取器的产���（喂视频自动建库）
+          CANDS = j.candidates; CANDS.source = j.source || '';
+          renderCands();
+          alert('已载入 '+j.candidates.length+' 条候选（看右下"候选条目"），勾一条就变成一张风格包。');
+          return;
+        }
+        j.createdBy=j.createdBy||'user'; S.push(j); cur=S.length-1; touch(); renderEdit();
+      }catch(e){ alert('JSON 解析失败：'+e.message); }
+    };
+    r.readAsText(f);
+  };
+  i.click();
+};
+
+/* ================= 与本地服务对接（写库 / 试片 / 抽取） =================
+   · 页面用 file:// 直接打开时：没有服务 ⇒ 两个按钮禁用并提示"双击 启动风格管理器.cmd"
+   · 由 studio-server.mjs 提供时：按钮可用，点一下真的落盘 / 真的渲一段 */
+var SRV = false;
+function ping(){
+  fetch('/api/ping').then(function(r){ return r.json(); }).then(function(j){
+    SRV = !!(j && j.ok);
+    document.getElementById('srvState').textContent = SRV ? '✓ 服务已连接' : '离线模式';
+    document.getElementById('srvState').style.color = SRV ? '#3ddc84' : '#ffb020';
+    document.getElementById('srvHint').innerHTML = SRV
+      ? '写库 = 直接存进 styles/ 并重建清单；试片 = 用这条风格包当场渲 3 秒（约 10~20 秒）。'
+      : '当前是<b>离线模式</b>（只能看与改，不能写库/试片）。要启用：到 <b>tools</b> 目录双击 <b>启动风格管理器.cmd</b>，它会自己打开带服务的页面。';
+  }).catch(function(){
+    document.getElementById('srvState').textContent = '离线模式';
+    document.getElementById('srvHint').innerHTML = '当前是<b>离线模式</b>。要启用写库/试片：到 <b>tools</b> 目录双击 <b>启动风格管理器.cmd</b>。';
+  });
+}
+function toast(msg, bad){ alert(msg); }
+
+document.getElementById('btnSave').onclick = function(){
+  if(!SRV) return toast('未连接服务：请双击 tools/启动风格管理器.cmd 打开本页。');
+  var p = S[cur];
+  fetch('/api/save', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ pack:p }) })
+    .then(function(r){ return r.json(); }).then(function(j){
+      if(j.ok){ p.createdBy = p.createdBy || 'user'; toast('已写库：' + j.file + (j.rebuild && j.rebuild.ok ? '\n清单已重建。' : '\n（清单重建有告警，看服务窗口）')); }
+      else toast('写库失败：' + (j.errs ? j.errs.join('；') : (j.err||'')));
+    }).catch(function(e){ toast('写库失败：' + e.message); });
+};
+
+document.getElementById('btnPrev').onclick = function(){
+  if(!SRV) return toast('未连接服务：请双击 tools/启动风格管理器.cmd 打开本页。');
+  var p = S[cur];
+  document.getElementById('srvState').textContent = '渲染中…';
+  fetch('/api/render', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ pack:p }) })
+    .then(function(r){ return r.json(); }).then(function(j){
+      document.getElementById('srvState').textContent = j.ok ? '✓ 服务已连接' : '试片失败';
+      if(!j.ok) return toast('试片失败：' + (j.err||''));
+      var box = document.getElementById('prevBox');
+      box.style.display = 'block';
+      var v = document.getElementById('prevVid');
+      v.src = j.mp4 + '?t=' + Date.now();
+      document.getElementById('prevNote').textContent = '试片：3 秒 / 9:16 / 720×1280（' + j.mp4 + '）';
+      if(j.jpg){ var it=document.querySelectorAll('#list img')[cur]; if(it) it.src = j.jpg + '?t=' + Date.now(); }
+    }).catch(function(e){ toast('试片失败：' + e.message); });
+};
+
+/* 候选清单（"喂视频自动建库"的产物）→ 勾选 → 直接建风格包 */
+var CANDS = null;
+function renderCands(){
+  var box = document.getElementById('candBox'), list = document.getElementById('candList');
+  if(!CANDS || !CANDS.length){ box.style.display='none'; return; }
+  box.style.display = 'block'; list.innerHTML = '';
+  CANDS.forEach(function(c, i){
+    var row = el('div',{class:'item'},[
+      el('img',{src:c.url||'', alt:''}),
+      el('div',{class:'t'},[
+        el('b',{text:(c.at||'')+' · '+(c.guess&&c.guess.bgTone||'')}),
+        el('span',{text:(c.guess&&c.guess.dominantColor||'')+' '+(c.guess&&c.guess.maybeLayer||'')}),
+      ]),
+      el('span',{class:'badge',text:'采用'}),
+    ]);
+    row.onclick = function(){
+      var p = {
+        id: 'from-video-' + (c.id||i).replace(/[^a-z0-9-]/gi,''),
+        name: '视频抽取 ' + (c.at||''),
+        desc: '从参考视频抽取的候选（待调）', aspect:'9:16', speed:'normal',
+        mood: (c.guess&&c.guess.bgTone==='浅色底') ? '清爽' : '科技', vertical:['general'],
+        tokens: Object.assign({ font:'sans-900', radius:16, density:'normal', grain:0.04 },
+                  (c.guess && c.guess.suggestTokens) || {
+                    bg: (c.guess&&c.guess.bgTone==='浅色底') ? '#f5f6f8' : '#0b0f14',
+                    ink: (c.guess&&c.guess.bgTone==='浅色底') ? '#12161c' : '#f0f5fa',
+                    dim: (c.guess&&c.guess.bgTone==='浅色底') ? '#4a5563' : '#b8c6d6',
+                    accent: (c.guess&&c.guess.dominantColor) || '#4dd7ff',
+                  }),
+        structure: ['opening-hero'], elements: [],
+        motion: { enter:'rise', emphasis:'grow-ring', exit:'crossfade-out', pace:1 },
+        prompt: (c.note || '在这里写这套风格的观感描述'),
+        refs: [ (CANDS.source||'') ], createdBy:'ai',
+      };
+      S.push(p); cur = S.length-1; save(); renderList(); renderEdit(); renderJson();
+    };
+    list.appendChild(row);
+  });
+}
+
+initFilters(); renderList(); renderEdit(); renderJson(); ping();
+</script>
+</body>
+</html>

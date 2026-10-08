@@ -1,0 +1,44 @@
+{
+  "version": "0.1",
+  "note": "风格包（Style Pack）字段定义 —— 校验器与'风格包管理器'页面都按这张表判。★ 卡是**数据**不是代码：用户自己加 = 我们加，无需改代码。",
+  "fields": [
+    { "key": "id", "type": "string", "required": true, "pattern": "^[a-z0-9-]{2,32}$", "desc": "唯一标识（文件名即 id）" },
+    { "key": "name", "type": "string", "required": true, "max": 24, "desc": "中文名（给人看）" },
+    { "key": "desc", "type": "string", "required": false, "max": 60, "desc": "一句话描述" },
+    { "key": "aspect", "type": "enum", "required": true, "values": ["9:16", "16:9", "1:1"], "default": "9:16", "desc": "画幅" },
+    { "key": "speed", "type": "enum", "required": true, "values": ["slow", "normal", "fast"], "default": "normal", "desc": "节奏快慢（映射到动效 dur 系数 1.15/1.0/0.85）" },
+    { "key": "mood", "type": "enum", "required": true, "values": ["稳重", "高级", "活泼", "清爽", "科技", "温暖"], "desc": "情绪" },
+    { "key": "vertical", "type": "array", "required": true, "desc": "适用赛道（见 verticals.json 的 id）；'general' = 通用", "itemEnumRef": "verticals.json" },
+    { "key": "tokens", "type": "object", "required": true, "desc": "① 令牌：长什么样", "sub": [
+      { "key": "bg", "type": "color", "required": true },
+      { "key": "bg2", "type": "color", "required": false, "desc": "渐变第二色" },
+      { "key": "ink", "type": "color", "required": true, "desc": "主文字" },
+      { "key": "dim", "type": "color", "required": true, "desc": "次要文字（也要过 4.5:1）" },
+      { "key": "accent", "type": "color", "required": true },
+      { "key": "accentText", "type": "color", "required": false, "desc": "accent 的'文字安全'变体（小字用）" },
+      { "key": "font", "type": "enum", "required": true, "values": ["sans-900", "sans-700", "serif-700"], "default": "sans-900" },
+      { "key": "radius", "type": "number", "required": true, "min": 0, "max": 48, "default": 16 },
+      { "key": "density", "type": "enum", "required": true, "values": ["airy", "normal", "dense"], "default": "normal" },
+      { "key": "grain", "type": "number", "required": false, "min": 0, "max": 0.12, "default": 0.04 }
+    ] },
+    { "key": "structure", "type": "array", "required": true, "desc": "② 结构：引用 structures.json 的 id（页面骨架）", "itemEnumRef": "structures.json" },
+    { "key": "elements", "type": "array", "required": false, "desc": "③ 元素：引用 elements.json 的 id（比 structure 更细的追加/覆盖）", "itemEnumRef": "elements.json" },
+    { "key": "motion", "type": "object", "required": true, "desc": "④ 动效：引用 motions.json 的 id", "sub": [
+      { "key": "enter", "type": "string", "required": true, "itemEnumRef": "motions.json" },
+      { "key": "emphasis", "type": "string", "required": true, "itemEnumRef": "motions.json" },
+      { "key": "exit", "type": "string", "required": true, "itemEnumRef": "motions.json" },
+      { "key": "pace", "type": "number", "required": false, "min": 0.6, "max": 1.4, "default": 1.0 }
+    ] },
+    { "key": "prompt", "type": "string", "required": true, "max": 240, "desc": "⑤ 提示词：给 AI 的自然语言描述（可多段，用 / 分隔）" },
+    { "key": "refs", "type": "array", "required": false, "desc": "⑥ 参考：成片片段 / 截图（供 AI 与人对照）" },
+    { "key": "example", "type": "string", "required": false, "desc": "示例成片路径 + 时间点（如 out/reel30.mp4#6.2s）" },
+    { "key": "thumb", "type": "string", "required": false, "desc": "缩略图（管理器页面显示用）" },
+    { "key": "createdBy", "type": "enum", "required": false, "values": ["builtin", "user", "ai"], "default": "builtin" }
+  ],
+  "rules": [
+    "id 全库唯一；文件名 = id.json",
+    "structure / elements / motion 里的 id 必须存在于对应表（校验器会拦）",
+    "tokens.ink/dim 与 bg 的实际渲出对比度必须 ≥4.5（引擎 check 判，名义值不算）",
+    "speed 只是系数：不改动效语义，只缩放时长 ⇒ 保证'同一条配方、不同节奏'也稳定"
+  ]
+}

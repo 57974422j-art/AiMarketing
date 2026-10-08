@@ -1,0 +1,23 @@
+{
+  "id": "reel-showcase",
+  "name": "素材 Showreel",
+  "desc": "素材作品集：六段不同表现形式串成 30 秒",
+  "aspect": "9:16",
+  "speed": "normal",
+  "mood": "稳重",
+  "vertical": ["general", "ecommerce", "b2b", "tech", "local"],
+  "tokens": {
+    "bg": "#070c16", "bg2": "#0a1226",
+    "ink": "#f2f7ff", "dim": "#b7c6e4", "faint": "#9fb0d0",
+    "accent": "#7ff2ff", "accentText": "#7ff2ff",
+    "font": "sans-900", "radius": 16, "density": "normal", "grain": 0.04
+  },
+  "structure": ["opening-hero", "works-wall", "closeup-hud", "fullbleed-kenburns", "grid-2x2", "numbers-outro"],
+  "elements": ["bg-gradient-linear", "grid-fine", "particles-drift", "media-card", "media-wall-3", "media-grid-2x2", "media-hero-fullbleed", "corner-brackets", "number-grid-3", "progress-bottom"],
+  "motion": { "enter": "stagger-in", "emphasis": "push-zoom", "exit": "crossfade-out", "pace": 1.0 },
+  "prompt": "素材作品集风：深底 + 极淡网格与粒子；素材卡是主角（圆角/描边/阴影）；六段结构各不同（开场斜卡 → 三卡墙 → 特写取景 → 全屏缓推 → 四宫格 → 三列大数字收尾）；青色强调、节奏均匀",
+  "refs": ["pages/showreel30"],
+  "example": "out/sr30/showreel30.mp4#6.2s",
+  "thumb": "styles/thumbs/reel-showcase.jpg",
+  "createdBy": "builtin"
+}

@@ -1,0 +1,23 @@
+{
+  "id": "paper-editorial",
+  "name": "亮底编辑风",
+  "desc": "米白纸感 + 衬线大标题 + 曲线生长，大留白",
+  "aspect": "9:16",
+  "speed": "slow",
+  "mood": "高级",
+  "vertical": ["general", "book", "education", "fashion", "travel", "beauty"],
+  "tokens": {
+    "bg": "#f5f6f8", "bg2": "#f2efe6",
+    "ink": "#101418", "dim": "#55606e", "faint": "#4c5563",
+    "accent": "#1b5cf0", "accentText": "#1b5cf0",
+    "font": "serif-700", "radius": 16, "density": "airy", "grain": 0.03
+  },
+  "structure": ["paper-report"],
+  "elements": ["bg-gradient-linear", "blob-glow", "noise-grain", "line-curve", "title-stack", "eyebrow-en", "list-rows", "glass-card", "logo-lockup"],
+  "motion": { "enter": "wipe-in", "emphasis": "draw-curve", "exit": "crossfade-out", "pace": 1.1 },
+  "prompt": "亮底编辑风（纸感）：米白底 + 极淡色晕；衬线大标题两行擦入；单条曲线生长为主角；大留白、行距宽松；靛蓝唯一强调色 / 不发光、不描边",
+  "refs": ["pages/p3b-editorial"],
+  "example": "out/p3b2/b-editorial.mp4#5.0s",
+  "thumb": "styles/thumbs/paper-editorial.jpg",
+  "createdBy": "builtin"
+}

@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+<!-- ============================================================================
+  阶段 3 原型 B · 「亮底编辑风 · 曲线生长」
+  ---------------------------------------------------------------------------
+  与原型 A 同一套硬口径（见 A 的注释）：固定容器 720×1280 · 白名单 API
+  （本地 gsap + Canvas2D + CSS + document.fonts，禁外网/禁 WebGL）· 字体子集内用字 ·
+  画面只由时间线当前时间决定（可复现）。
+  ★ 与 A 的差异就在"设计系统"：A=深色数据大屏（信息密度高、发光、网格）；
+    B=亮底大留白（衬线大标题、留白节奏、单条曲线主角、卡片浮起）——
+    目的：证明同一个引擎、同一套口径，**换设计系统 = 换观感**。
+============================================================================ -->
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=720, height=1280" />
+<title>阶段3原型B · 亮底编辑风</title>
+<style>
+  @font-face { font-family: 'NotoSansSC'; src: url('assets/NotoSansSC-sub.woff2') format('woff2'); font-weight: 100 900; font-display: block; }
+  @font-face { font-family: 'NotoSerifSC'; src: url('assets/NotoSerifSC-sub.woff2') format('woff2'); font-weight: 200 900; font-display: block; }
+  :root{
+    --W: 720px; --H: 1280px;
+    --paper: #f5f6f8;
+    --ink: #101418;          /* 对 #f5f6f8 ≈ 17:1 */
+    --ink-dim: #55606e;      /* ≈ 7.0:1 */
+    /* ⚠ 2026-10-07 实测：亮底 + 色晕背景会把有效对比度拉低 —— #6d7886 名义 5.2:1，
+       经引擎 `check` 在**实际渲出的像素**上实测只有 **3.97:1**（<4.5:1 闸门）⇒ 换成更深一档。 */
+    --ink-faint: #4c5563;    /* 实测 ≈ 6.9:1（留足余量） */
+    --accent: #1b5cf0;       /* 对白 ≈ 6.6:1 ⇒ 连小字也能用 */
+    --gray-line: #b9c1cc;
+    --hair: rgba(16,20,24,.10);
+  }
+  *{ box-sizing: border-box; margin: 0; padding: 0; }
+  html,body{ width: var(--W); height: var(--H); background: var(--paper); }
+  body{ font-family: 'NotoSansSC', system-ui, sans-serif; overflow: hidden; }
+  .clip{ position: absolute; }
+  /* ★ 2026-10-07 实测踩坑（与原型 A 同源）：页内元素**必须自己写 position:absolute** ——
+     只写 left/top 而 position 是 static 时，left/top 被浏览器忽略 ⇒ 元素回文档流堆叠、整页错位。 */
+  #pg > div, #pg > section{ position: absolute; }
+  #stage{ position: relative; width: var(--W); height: var(--H); overflow: hidden; }
+  #fx{ left: 0; top: 0; width: var(--W); height: var(--H); }
+
+  #eyebrow{ left: 72px; top: 96px; font-size: 16px; letter-spacing: 3.6px; font-weight: 600; color: var(--ink-faint); text-transform: uppercase; }
+  /* ★ 2026-10-07 实测：衬线大字的字形框（ascender/descender）很高，两行用 line-height 叠放时
+     引擎 `check` 会判 `content_overlap`（#h1 的行框与 #h2 重叠）⇒ 改成**两行各自绝对定位、行高收紧**，
+     行框之间留 21px 净空。 */
+  #h1,#h2{ font-family: 'NotoSerifSC', serif; font-weight: 700; font-size: 92px; line-height: 1.06; color: var(--ink); letter-spacing: 2px; width: 620px; }
+  #h1{ left: 72px; top: 150px; }
+  #h2{ left: 72px; top: 268px; color: var(--accent); }
+  #sub{ left: 72px; top: 404px; width: 576px; font-size: 26px; color: var(--ink-dim); letter-spacing: .6px; }
+  #hairline{ left: 72px; top: 470px; width: 96px; height: 3px; background: var(--ink); transform-origin: left center; }
+
+  /* 曲线主角（Canvas 画）+ 图例 */
+  #legend{ left: 72px; top: 964px; width: 576px; }
+  #legend .row{ display: flex; align-items: center; }
+  #legend .row + .row{ margin-top: 18px; }
+  #legend .swatch{ width: 26px; height: 6px; border-radius: 3px; margin-right: 14px; }
+  #legend .sw1{ background: var(--accent); }
+  #legend .sw2{ background: var(--gray-line); }
+  #legend .nm{ font-size: 24px; color: var(--ink); }
+  #legend .vl{ margin-left: auto; font-size: 24px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+  /* 关键结论卡（曲线末端弹出） */
+  /* 结论卡放**曲线右上空白区**（改前在 596px 会压住曲线上升段） */
+  #callout{ left: 396px; top: 436px; width: 244px; padding: 18px 20px 20px; border-radius: 16px;
+            background: #ffffff; box-shadow: 0 18px 40px rgba(16,20,24,.14), 0 2px 6px rgba(16,20,24,.06);
+            border: 1px solid rgba(16,20,24,.05); }
+  #callout .big{ font-size: 44px; font-weight: 800; color: var(--accent); letter-spacing: -1px; font-variant-numeric: tabular-nums; }
+  #callout .cap{ margin-top: 6px; font-size: 20px; color: var(--ink-dim); }
+
+  #foot{ left: 72px; top: 1178px; width: 576px; font-size: 20px; color: var(--ink-faint); letter-spacing: .8px; }
+  #rule-l{ left: 72px; top: 1130px; width: 576px; height: 1px; background: var(--hair); transform-origin: left center; }
+</style>
+</head>
+<body>
+<div id="stage" data-composition-id="main" data-start="0" data-duration="9"
+     data-fps="25" data-width="720" data-height="1280">
+
+  <canvas id="fx" class="clip" data-start="0" data-duration="9" data-track-index="0" width="720" height="1280"></canvas>
+
+  <section id="pg" class="clip" data-start="0" data-duration="9" data-track-index="1">
+    <div id="eyebrow">AI MARKETING · SMART DELIVERY</div>
+
+    <div id="h1">一页看懂</div>
+    <div id="h2">投放效果</div>
+
+    <div id="sub">策略 · 素材 · 数据，一次生成</div>
+    <div id="hairline" class="clip" data-start="0" data-duration="9" data-track-index="2"></div>
+
+    <div id="callout">
+      <div class="big">+214%</div>
+      <div class="cap">半年自然流量增长</div>
+    </div>
+
+    <div id="legend">
+      <div class="row"><span class="swatch sw1"></span><span class="nm">智能投放</span><span class="vl">78.5</span></div>
+      <div class="row"><span class="swatch sw2"></span><span class="nm">自然流量</span><span class="vl">26.0</span></div>
+    </div>
+
+    <div id="rule-l" class="clip" data-start="0" data-duration="9" data-track-index="2"></div>
+    <div id="foot">AiMarketing 视频工厂 · 数据来自真实投放后台</div>
+  </section>
+</div>
+
+<!-- ★ 必须内联注册（引擎 lint 只认 composition HTML 内部的注册） -->
+<script>window.__timelines = window.__timelines || {}; window.__timelines["main"] = { seek: function () {}, duration: function () { return 9; }, pause: function () {}, play: function () {} };</script>
+<script src="assets/gsap.min.js"></script>
+<script src="assets/page.js"></script>
+</body>
+</html>

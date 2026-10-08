@@ -1,0 +1,23 @@
+{
+  "id": "glass-saas",
+  "name": "毛玻璃渐变 SaaS",
+  "desc": "深靛渐变 + 漂移光斑 + 毛玻璃卡 + 环形进度",
+  "aspect": "9:16",
+  "speed": "normal",
+  "mood": "高级",
+  "vertical": ["tech", "b2b", "finance", "beauty", "general"],
+  "tokens": {
+    "bg": "#0b1030", "bg2": "#171041",
+    "ink": "#f4f7ff", "dim": "#ccd6f4", "faint": "#a9b6dd",
+    "accent": "#4dd7ff", "accentText": "#7ff2ff",
+    "font": "sans-900", "radius": 24, "density": "normal", "grain": 0.04
+  },
+  "structure": ["glass-product"],
+  "elements": ["bg-gradient-linear", "blob-glow", "stripe-diagonal", "star-field", "glass-card", "ring-progress", "mini-grid-4", "big-number", "logo-lockup"],
+  "motion": { "enter": "rise", "emphasis": "grow-ring", "exit": "crossfade-out", "pace": 1.0 },
+  "prompt": "毛玻璃渐变 SaaS 风：深靛渐变底 + 三团缓慢漂移光斑；卡片用毛玻璃（背后必须有几何/光斑可透）；环形进度 + 大数字；渐变胶囊 CTA 高光循环 / 柔和阴影、圆角大",
+  "refs": ["pages/b3-glass-saas"],
+  "example": "out/final-b3-glass-saas/b3-glass-saas.mp4#5.2s",
+  "thumb": "styles/thumbs/glass-saas.jpg",
+  "createdBy": "builtin"
+}

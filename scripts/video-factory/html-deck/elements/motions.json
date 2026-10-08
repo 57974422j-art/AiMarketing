@@ -1,0 +1,26 @@
+{
+  "version": "0.1",
+  "table": "动效表（动作 = 元素怎么动）",
+  "note": "编排动作 = 入场 / 强调 / 收场 / 持续 四类。AI 从表里选+排时间，不即兴写动画（即兴=不可验收、易崩）。全部在 gsap.timeline({paused:true}) 里按绝对时间摆放 ⇒ 逐帧可 seek、可复现。",
+  "items": [
+    { "id": "fade", "kind": "enter", "name": "淡入", "params": { "dur": 0.6, "ease": "power2.out" }, "used": ["all"], "example": "reel-showcase#1.6s" },
+    { "id": "rise", "kind": "enter", "name": "浮起", "params": { "dur": 0.8, "y": 26, "ease": "power3.out" }, "used": ["all"], "example": "reel-showcase#6.2s" },
+    { "id": "wipe-in", "kind": "enter", "name": "擦入（clip-path）", "params": { "dur": 0.8, "ease": "power3.out" }, "used": ["press-collage", "paper-editorial", "reel-showcase"], "example": "press-collage#1.4s" },
+    { "id": "stagger-in", "kind": "enter", "name": "逐个入场", "params": { "stagger": 0.15, "dur": 0.75 }, "used": ["all"], "example": "reel-showcase#21.6s" },
+    { "id": "scale-pop", "kind": "enter", "name": "弹入（back 缓动）", "params": { "dur": 0.5, "ease": "back.out(2.1)" }, "used": ["press-collage", "reel-showcase"], "example": "press-collage#3.2s" },
+    { "id": "push-zoom", "kind": "continuous", "name": "缓推（Ken Burns）", "params": { "dur": "整段", "scale": "1.05→1.13", "ease": "none" }, "used": ["neon-hud", "reel-showcase"], "example": "reel-showcase#16.6s" },
+    { "id": "scatter", "kind": "emphasis", "name": "散开（逐字/逐卡）", "params": { "dist": "70~150", "rot": "±22", "rotateY": "±48", "stagger": 0.045 }, "used": ["mg-scatter"], "example": "mg-scatter#2.6s" },
+    { "id": "gather", "kind": "emphasis", "name": "收拢 / 排队", "params": { "dur": 1.15, "ease": "power3.inOut", "stagger": 0.1 }, "used": ["mg-scatter"], "example": "mg-scatter#10.8s" },
+    { "id": "burst", "kind": "emphasis", "name": "光点扩散", "params": { "count": 130, "r": "60→330", "fade": true }, "used": ["mg-scatter"], "example": "mg-scatter#2.6s" },
+    { "id": "grow-ring", "kind": "emphasis", "name": "环形生长", "params": { "dur": 1.4, "to": "78.5%", "ease": "power2.out" }, "used": ["dark-dashboard", "glass-saas"], "example": "glass-saas#5.2s" },
+    { "id": "grow-bar", "kind": "emphasis", "name": "条形生长", "params": { "dur": 0.9, "origin": "left" }, "used": ["dark-dashboard"], "example": "dark-dashboard#4.5s" },
+    { "id": "draw-curve", "kind": "emphasis", "name": "曲线描绘", "params": { "dur": 1.7, "tipDot": true }, "used": ["paper-editorial"], "example": "paper-editorial#5.0s" },
+    { "id": "roll-number", "kind": "emphasis", "name": "数字滚筒", "params": { "dur": 0.9, "steps": 12 }, "used": ["dark-dashboard", "glass-saas", "reel-showcase"], "example": "glass-saas#5.2s" },
+    { "id": "sweep", "kind": "emphasis", "name": "扫过（进度线/播放头）", "params": { "dur": 1.9, "ease": "none" }, "used": ["mg-scatter", "reel-showcase"], "example": "mg-scatter#10.8s" },
+    { "id": "float-breathe", "kind": "continuous", "name": "轻浮动/呼吸", "params": { "amp": 8, "period": 1.7, "ease": "sine.inOut" }, "used": ["all"], "example": "reel-showcase#6.2s" },
+    { "id": "shine-loop", "kind": "continuous", "name": "高光循环扫", "params": { "period": 1.4, "repeatDelay": 1.5 }, "used": ["glass-saas", "reel-showcase"], "example": "reel-showcase#27.2s" },
+    { "id": "glitch-flash", "kind": "emphasis", "name": "故障闪条", "params": { "dur": 0.14, "every": 3.2 }, "used": ["neon-hud"], "example": "neon-hud#2.5s" },
+    { "id": "crossfade-out", "kind": "exit", "name": "交叉淡出（段间）", "params": { "dur": 0.5, "overlap": 0.4 }, "used": ["reel-showcase", "mg-scatter"], "example": "reel-showcase#4.6s" },
+    { "id": "fling-out", "kind": "exit", "name": "退场（飞出/缩回）", "params": { "dur": 0.6 }, "used": [], "example": "" }
+  ]
+}
