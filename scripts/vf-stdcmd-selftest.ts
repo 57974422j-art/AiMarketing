@@ -39,7 +39,7 @@ for (const [msg, want] of cases) {
 const film = STD_COMMANDS.find((c) => c.id === 'film')
 console.log(`命令总数 ${STD_COMMANDS.length}；film 在表里：${film ? '是' : '否'}（kind=${film?.kind || '-'}，text=${film?.text || '-'}）`)
 if (!film) bad++
-if (film && film.kind !== 'tool') { console.log('❌ film 的 kind 必须是 tool（放行后由模型直接调工具，不需要状态机）'); bad++ }
+if (film && film.kind !== 'machine') { console.log('❌ film 的 kind 必须是 machine（★VF_HTMLSTD_V1：已改成状态机：素材卡→风格卡→确认卡）'); bad++ }
 if (film && film.text !== 'HTML成片') { console.log('❌ film 的 text 必须是「HTML成片」（★VF_HTMLCMD_V1）'); bad++ }
 // ★VF_HTMLCMD_V1：锁死回复里**只能出现** HTML成片（不许再列"素材片"）
 if (film && (film.alias || []).includes(film.text)) { console.log('❌ text 不该出现在 alias 里'); bad++ }

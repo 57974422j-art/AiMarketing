@@ -89,6 +89,39 @@ export async function validate(orchestrationJson: string, opts: { materials: str
   return { ok: r.code === 0, fallbacks: Number(fallbacks), note: r.out.slice(-400) }
 }
 
+/** ★VF_FILM_CARD_V1（2026-10-08）：把出片结果变成**给前端的协议串**（成片入个人仓库 + 24h 签名 URL）。
+ *  为什么独立成函数：「HTML成片」有**两个**出片调用方 ——
+ *    ① 旧的一键工具路径（route.ts 的 case 'make_material_film'）；
+ *    ② 新的状态机路径（vf-htmlfilm.ts 的确认卡「🎬 出片」）。
+ *  契约必须只有一份实现（本项目教训：同一件事两处写，必然后面改一处漏一处）。
+ *  失败语义：入库/签名失败**不判死出片** —— 回本地路径，前端如实提示（见 page.tsx 的 VF_FILM_DONE 卡）。 */
+export async function filmDoneProtocol(
+  uid: number | string,
+  r: { mp4?: string; sheet?: string; pack?: string; vertical?: string },
+): Promise<string> {
+  const { readFile } = await import('fs/promises')
+  const { saveToPersonalRepo } = await import('@/lib/personal-storage')
+  const { signedUrl } = await import('@/lib/oss')
+  try {
+    let url = ''
+    let poster = ''
+    if (r.mp4 && fs.existsSync(r.mp4)) {
+      const buf = await readFile(r.mp4)
+      const { name } = await saveToPersonalRepo({ userId: String(uid), buffer: buf, ext: 'mp4', mime: 'video/mp4' })
+      url = await signedUrl(`storage/${uid}/${name}`, 86400)
+    }
+    if (r.sheet && fs.existsSync(r.sheet)) {
+      try {
+        const bufS = await readFile(r.sheet)
+        const { name: nS } = await saveToPersonalRepo({ userId: String(uid), buffer: bufS, ext: 'jpg', mime: 'image/jpeg' })
+        poster = await signedUrl(`storage/${uid}/${nS}`, 86400)
+      } catch { /* 审片图失败不影响成片 */ }
+    }
+    if (url) return `VF_FILM_DONE:${JSON.stringify({ url, poster, pack: r.pack || '', vertical: r.vertical || '' })}`
+  } catch { /* 落到下面兜底 */ }
+  return `VF_FILM_DONE:${JSON.stringify({ url: '', poster: '', localMp4: r.mp4 || '', pack: r.pack || '', vertical: r.vertical || '' })}`
+}
+
 /** ③ 出片：三道闸门 → 渲染（失败返回 stage，调用方据此回退） */
 export async function render(filmJson: string, outDir: string): Promise<{ ok: boolean; mp4?: string; sheet?: string; stage?: string; err?: string }> {
   const r = await runNode([path.join('tools', 'render-film.mjs'), filmJson, '--outdir', outDir], 30 * 60 * 1000)

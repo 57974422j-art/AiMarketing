@@ -100,9 +100,15 @@ export const STD_COMMANDS: StdCommand[] = [
   //   命令名从「素材片」改为 **「HTML成片」**（说清了它是什么：HTML 逐帧渲染的成片）。
   //   旧说法「素材片」等**保留为 alias**（不列进锁死回复的清单）—— 用户手打旧词照样能进，
   //   但界面上/清单里只会出现「HTML成片」，不再到处"素材"。
-  { id: 'film', text: 'HTML成片', kind: 'tool',
+  // ★VF_HTMLSTD_V1（2026-10-08 用户定案「要」）：已从 `kind:'tool'`（一键、AI 提参数）改成
+  //   **`kind:'machine'`（第 8 条状态机线）** —— 用户实测时问"不是状态机吗"，一致起来了：
+  //     素材卡（勾选/上传）→ 风格卡（库里 11 套风格包）→ 确认卡（镜数/时长/不扣点）→ 出片
+  //   形制照 vf-ppt.ts：独立草稿（tag `vf_draft_htmlfilm`）/ 独立 step / 独立协议串 / 独立分派。
+  //   ⚠️ machine 命令**必须先落草稿**，且 `stdHasAnyDraft` 要登记本线（route.ts 已加），
+  //      否则第 2/3 步的 `VF_FILM_FORM:` / `VF_FILM_GO:` 会被标准模式闸门锁死（PPT成片踩过）。
+  { id: 'film', text: 'HTML成片', kind: 'machine',
     alias: ['素材片', '素材短片', '做条素材片', '素材集', 'showreel'],
-    note: '工具 make_material_film（HTML 逐帧渲染的竖屏成片：风格包 + 镜头组；三道闸门不过即回退老画法）' },
+    note: 'HTML成片线状态机（素材卡→风格卡→确认卡→出片；HTML 逐帧渲染，风格包 + 镜头组，不额外扣点）' },
 
   // ── 缺口（用户定案：先回"开发中"，把手上 7 条做扎实）──────────────────
   { id: 'hotspot',  text: '帮我查一下今日热点',        kind: 'wip',     note: '⚠️ 缺专用工具（只有 /api/agent/hotspots 接口，工具箱里没有热点工具）' },
@@ -198,6 +204,13 @@ export function isStdNoDraftAllowed(msg: string): boolean {
   //   第二步也不会被锁死（主修在 vf-ppt.ts 第一步落草稿 + route.ts 的 stdHasAnyDraft 补登记）。
   if (/^VF_PPT_FORM\s*:/.test(m)) return true
   if (/^VF_DECK_CONFIRM\s*[:{]/.test(m)) return true
+  // ★VF_HTMLSTD_V1（2026-10-08 用户定案「要」）：**HTML成片线**（第 8 条状态机线）的两条卡片协议串：
+  //   · `VF_FILM_FORM:{at:'mat'|'style'|'back_mat'|'back_style',…}` = 素材卡「下一步」/ 风格卡「下一步」/「← 上一步」
+  //   · `VF_FILM_GO:{…}` = 确认卡「🎬 出片」
+  //   它们只由**我们自己的卡片按钮**产生（用户不会手打），进线后仍过本线 step 校验 ⇒ 放行安全
+  //   （与 `VF_PPT_FORM` 同一规矩；这条是兜底：草稿因任何原因没读到时也不会被锁死）。
+  if (/^VF_FILM_FORM\s*[:{]/.test(m)) return true
+  if (/^VF_FILM_GO\s*[:{]/.test(m)) return true
   return false
 }
 

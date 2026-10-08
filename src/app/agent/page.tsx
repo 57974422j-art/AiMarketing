@@ -1929,6 +1929,150 @@ function VfDeckConfirm({ vj, onSend }: { vj: any; onSend: (m: string) => void })
   )
 }
 
+/** ★VF_HTMLSTD_V1（2026-10-08 用户定案「要」）：【HTML成片】状态机三张卡（素材 / 风格 / 确认）。
+ *  用户原话：「要不要我照其他线的规矩改成状态机？大致三张卡：素材卡（用仓库最近 N 张／你去勾选或上传）；
+ *  风格卡（库里 11 套风格包 + 镜头组，可预览）；确认卡（时长/报价）→ 出片 → 完成卡」→「**要**」。
+ *  服务端（src/lib/agent/vf/vf-htmlfilm.ts）按 step 下发三张卡：
+ *    film_mat（选素材）→ film_style（选风格包）→ film_confirm（确认出片）；
+ *  本组件**只做展示与发协议串**（VF_FILM_FORM: / VF_FILM_GO:），业务判断全在服务端。
+ *  ⚠️ 上传走与 VideoFormCard 同一套（POST /api/storage/files + electronAPI.storageMirror 镜像）——
+ *     不新造上传通道（本项目教训：同一件事两处实现必然分叉）。 */
+function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => void; userId?: number | string }) {
+  const step = String(vj?.step || 'film_mat')
+  const images: any[] = Array.isArray(vj?.images) ? vj.images : []
+  const packs: any[] = Array.isArray(vj?.packs) ? vj.packs : []
+  const [sel, setSel] = useState<string[]>(Array.isArray(vj?.names) && vj.names.length ? vj.names.map((x: any) => String(x)) : [])
+  const [pack, setPack] = useState<string>(String(vj?.pack || ''))
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const fileRef = useRef<HTMLInputElement | null>(null)
+
+  // 素材卡：没手动选过就默认勾最近 12 张（与服务端"不勾就用最近 12 张"同口径）
+  useEffect(() => {
+    if (step === 'film_mat' && !sel.length && images.length) setSel(images.slice(0, 12).map((x: any) => String(x.name)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, images.length])
+
+  const toggle = (n: string) => setSel((p) => (p.includes(n) ? p.filter((x) => x !== n) : (p.length >= 40 ? p : p.concat(n))))
+
+  const doUpload = async (fs: FileList | null) => {
+    if (!fs || !fs.length) return
+    setBusy(true); setMsg('')
+    let ok = 0
+    for (const f of Array.from(fs)) {
+      try {
+        const fd = new FormData()
+        fd.append('file', f)
+        if (userId !== undefined) fd.append('userId', String(userId))
+        const r = await fetch('/api/storage/files', { method: 'POST', body: fd, credentials: 'include' }).then((x) => x.json())
+        if (r && (r.success || r.ok)) {
+          ok++
+          try { (window as any).electronAPI?.storageMirror?.(`/api/storage/file?userId=${userId}&name=${encodeURIComponent(String(f.name || ''))}`) } catch { /* 镜像失败不影响上传 */ }
+        }
+      } catch { /* 单张失败不打断整批 */ }
+    }
+    setBusy(false)
+    setMsg(ok ? `已上传 ${ok} 张 —— 点「🔄 刷新列表」就能勾选它们` : '上传失败，请重试')
+  }
+
+  const box = 'mb-2 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06]'
+  const btn = 'px-3 py-1.5 rounded-lg text-xs border'
+  const next = (at: 'mat' | 'style' | 'back_mat' | 'back_style', extra?: any) => onSend('VF_FILM_FORM:' + JSON.stringify({ at, ...(extra || {}) }))
+
+  return (
+    <div className={box}>
+      <div className="text-xs text-emerald-300 mb-2">🎬 HTML成片 · {vj?.hint || '第 1 步'}</div>
+
+      {/* ── 第 1 步：素材卡 ── */}
+      {step === 'film_mat' ? (
+        <>
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            <button onClick={() => fileRef.current?.click()} disabled={busy}
+              className={btn + ' border-white/15 text-gray-200 hover:bg-white/[0.08] disabled:opacity-50'}>
+              {busy ? '上传中…' : '⬆️ 上传图片'}
+            </button>
+            <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => doUpload(e.target.files)} />
+            <button onClick={() => next('back_mat')} className={btn + ' border-white/15 text-gray-300 hover:bg-white/[0.08]'}>🔄 刷新列表</button>
+            <button onClick={() => setSel(images.map((x: any) => String(x.name)))} className={btn + ' border-white/15 text-gray-300 hover:bg-white/[0.08]'}>全选</button>
+            <button onClick={() => setSel([])} className={btn + ' border-white/15 text-gray-300 hover:bg-white/[0.08]'}>清空</button>
+            <span className="text-[10px] text-gray-400">已选 {sel.length} 张{images.length ? `（仓库共 ${images.length} 张可勾）` : ''}</span>
+          </div>
+          {msg ? <div className="text-[10px] text-amber-300 mb-2">{msg}</div> : null}
+          {images.length ? (
+            <div className="grid grid-cols-4 gap-1.5 max-h-56 overflow-y-auto mb-2">
+              {images.map((im: any) => {
+                const on = sel.includes(String(im.name))
+                return (
+                  <button key={String(im.name)} onClick={() => toggle(String(im.name))}
+                    className={`relative rounded-lg overflow-hidden border ${on ? 'border-emerald-400' : 'border-white/10'} bg-black/40`}
+                    title={String(im.name)}>
+                    {im.url ? <img src={im.url} alt={String(im.name)} className="w-full h-20 object-cover" />
+                      : <div className="w-full h-20 flex items-center justify-center text-[9px] text-gray-500">无预览</div>}
+                    {on ? <span className="absolute top-0.5 right-0.5 text-[10px] px-1 rounded bg-emerald-500/80 text-black">✓</span> : null}
+                  </button>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="text-[11px] text-gray-400 mb-2">个人仓库里还没有图片 —— 点「⬆️ 上传图片」传几张（或直接点下一步，用最近素材）。</div>
+          )}
+          <button onClick={() => next('mat', { names: sel })}
+            className="w-full px-4 py-2 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100 text-sm font-medium">
+            下一步 → 选风格（已选 {sel.length || '最近'} 张）
+          </button>
+        </>
+      ) : null}
+
+      {/* ── 第 2 步：风格卡 ── */}
+      {step === 'film_style' ? (
+        <>
+          <div className="grid grid-cols-2 gap-1.5 max-h-64 overflow-y-auto mb-2">
+            <button onClick={() => setPack('')}
+              className={`text-left px-2 py-1.5 rounded-lg border ${!pack ? 'border-emerald-400 bg-emerald-500/[0.10]' : 'border-white/10 hover:bg-white/[0.06]'}`}>
+              <div className="text-[11px] text-gray-100">自动（按素材判赛道）</div>
+              <div className="text-[9px] text-gray-500">编排器自己挑一套</div>
+            </button>
+            {packs.map((p: any) => (
+              <button key={String(p.id)} onClick={() => setPack(String(p.id))}
+                className={`text-left px-2 py-1.5 rounded-lg border ${pack === String(p.id) ? 'border-emerald-400 bg-emerald-500/[0.10]' : 'border-white/10 hover:bg-white/[0.06]'}`}
+                title={String(p.desc || '')}>
+                <div className="text-[11px] text-gray-100">{String(p.name || p.id)}{p.mood ? <span className="text-[9px] text-gray-500"> · {String(p.mood)}</span> : null}</div>
+                <div className="text-[9px] text-gray-500 truncate">{String(p.desc || p.id)}</div>
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => next('back_mat')} className={btn + ' border-white/15 text-gray-300 hover:bg-white/[0.08]'}>← 换素材</button>
+            <button onClick={() => next('style', { pack })}
+              className="flex-1 px-4 py-2 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100 text-sm font-medium">
+              下一步 → 确认出片
+            </button>
+          </div>
+        </>
+      ) : null}
+
+      {/* ── 第 3 步：确认卡 ── */}
+      {step === 'film_confirm' ? (
+        <>
+          <div className="text-[11px] text-gray-300 leading-relaxed mb-2">
+            <div>素材：{vj?.n ? `${vj.n} 张（你勾选的）` : '个人仓库最近 12 张'}</div>
+            <div>风格包：{String(vj?.packName || '自动')}</div>
+            <div>预计：约 {Number(vj?.estShots) || 6} 段 · {Number(vj?.estSec) || 30} 秒（编排器按风格包定段数）</div>
+            <div className="text-emerald-300">点数：不额外扣点（本线用本机引擎逐帧渲染，不调 AI 生成画面）</div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => next('back_style')} className={btn + ' border-white/15 text-gray-300 hover:bg-white/[0.08]'}>← 换风格</button>
+            <button onClick={() => onSend('VF_FILM_GO:' + JSON.stringify({ pack: String(vj?.pack || '') }))}
+              className="flex-1 px-4 py-2 rounded-lg bg-emerald-500/30 hover:bg-emerald-500/50 border border-emerald-400/50 text-emerald-50 text-sm font-medium">
+              🎬 出片（约 40~60 秒）
+            </button>
+          </div>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
 /** ★VF_PPT_UI_V1（2026-10-06 用户定案「彻底拆开」）：【PPT 成片】设置卡（只吃「文案 + 皮肤」）。
  *  入口命令「PPT成片」/「动态PPT」/「动态PPT成片」→ 服务端出 step:'ppt_setup'；
  *  提交发机器协议串 `VF_PPT_FORM:{aspect,dur,voice,bgm,skin,topic,script}`；
@@ -3837,6 +3981,9 @@ function AgentPageInner() {
         if (_vj && _vj.step === 'lead_setup') return <LeadSetupCard vj={_vj} onStart={sendMessage} buAccounts={buAccounts} />
         if (_vj && _vj.step === 'lead_preview') return <LeadPreviewCard vj={_vj} onStart={sendMessage} />
         if (_vj && _vj.step === 'form') return <VideoFormCard vj={_vj} onStart={sendMessage} userId={user?.id} />
+        {/* ★VF_HTMLSTD_V1（2026-10-08 用户定案「要」）：【HTML成片】状态机三张卡（素材 / 风格 / 确认） */}
+        if (_vj && (_vj.step === 'film_mat' || _vj.step === 'film_style' || _vj.step === 'film_confirm'))
+          return <VfFilmCard vj={_vj} onSend={sendMessage} userId={user?.id} />
         {/* ★VF_PPT_UI_V1（2026-10-06 用户定案「彻底拆开」）：【PPT 成片】独立线两张卡 */}
         if (_vj && _vj.step === 'ppt_setup') return <VfPptCard vj={_vj} onSend={sendMessage} />
         if (_vj && _vj.step === 'ppt_confirm') {

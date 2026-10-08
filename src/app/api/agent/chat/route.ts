@@ -971,6 +971,11 @@ async function stdHasAnyDraft(userId: number | string): Promise<boolean> {
   //   —— 与 09-28 视频混剪、09-29 获客线**同一个坑**（第三次）。这里补上（函数 vf-ppt.ts 早就导出了）。
   //   （动态 import：本文件对 vf-ppt 一直是动态引入，静态引会把 vf-deck-render 拖进启动路径）
   try { const { hasPptDraft } = await import('@/lib/agent/vf/vf-ppt'); if (await hasPptDraft(prisma, uid)) return true } catch { /* ignore */ }
+  // ★VF_HTMLSTD_V1（2026-10-08 用户定案「要」）：**HTML成片线补登记**（第 8 条线改状态机）。
+  //   与 PPT 线同一个坑的第四次预防：本线草稿（tag `vf_draft_htmlfilm`）单独存，
+  //   不登记这张名单 ⇒ 第 2/3 步协议串（`VF_FILM_FORM:` / `VF_FILM_GO:`）会被闸门锁死。
+  //   （动态 import：与 vf-ppt 同一写法，避免把渲染链拖进启动路径）
+  try { const { hasHtmlFilmDraft } = await import('@/lib/agent/vf/vf-htmlfilm'); if (await hasHtmlFilmDraft(prisma, uid)) return true } catch { /* ignore */ }
   return false
 }
 
@@ -1099,7 +1104,7 @@ import { createPublishTask, parsePublishTask } from '@/lib/agent/publish-task'
 import { AGENT_TOOLS, TOOL_STEP_LABEL } from '@/lib/agent/tools'
 import { buildSystemPrompt } from '@/lib/agent/prompts'
 // ★VF_FILMLINE_V1（2026-10-08）：素材片线（独立入口，不动老线）
-import { makeFilmFromMaterials, capabilityBrief, filmLineReady } from '@/lib/agent/vf/vf-film'
+import { makeFilmFromMaterials, capabilityBrief, filmLineReady, filmDoneProtocol } from '@/lib/agent/vf/vf-film'
 import { materialDir } from '@/lib/agent/video-material'
 import {
   PLATFORM_NAME,
@@ -1387,35 +1392,9 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         return `TOOL_REJECT:HTML成片出片被拦（${r.stage}）：${String(r.err || '').slice(0, 200)}；可改用 make_ai_video（老画法）或改文案后重试`
       }
       vfLog(uidFilm, `[HTML成片] 完成：${r.mp4}（赛道=${r.vertical} 风格包=${r.pack}）`)
-      // ★VF_FILM_CARD_V1（2026-10-08 用户实测「素材片出片了但看不到任何卡」）：
-      //   ① `r.mp4 / r.sheet` 是**渲染机上的绝对路径**（前端放不了）⇒ 必须**入个人仓库 + 签 24h URL**
-      //      （与样板镜同做法：saveToPersonalRepo + signedUrl，见 make_ai_video 的 VF_PREVIEW_DONE）；
-      //   ② 协议串里放 URL（`url`/`poster`），前端 `renderContent` 的 `VF_FILM_DONE:` 分支据此出卡。
-      //   入库/签名失败**不判死**出片（退回本地路径并写日志，前端会提示"没拿到可播放地址"）。
-      try {
-        const { readFile } = await import('fs/promises')
-        const { saveToPersonalRepo } = await import('@/lib/personal-storage')
-        const { signedUrl } = await import('@/lib/oss')
-        let url = ''
-        let poster = ''
-        if (r.mp4) {
-          const buf = await readFile(r.mp4)
-          const { name } = await saveToPersonalRepo({ userId: String(uidFilm), buffer: buf, ext: 'mp4', mime: 'video/mp4' })
-          url = await signedUrl(`storage/${uidFilm}/${name}`, 86400)
-        }
-        if (r.sheet) {
-          try {
-            const bufS = await readFile(r.sheet)
-            const { name: nS } = await saveToPersonalRepo({ userId: String(uidFilm), buffer: bufS, ext: 'jpg', mime: 'image/jpeg' })
-            poster = await signedUrl(`storage/${uidFilm}/${nS}`, 86400)
-          } catch { /* 审片图失败不影响成片 */ }
-        }
-        if (url) return `VF_FILM_DONE:${JSON.stringify({ url, poster, pack: r.pack, vertical: r.vertical })}`
-        vfLog(uidFilm, '[HTML成片] 入库未拿到 URL → 退回本地路径（前端会提示）')
-      } catch (eU: any) {
-        vfLog(uidFilm, '[HTML成片] 入库/签名失败：' + String(eU?.message || eU).slice(0, 160))
-      }
-      return `VF_FILM_DONE:${JSON.stringify({ url: '', poster: '', localMp4: r.mp4, pack: r.pack, vertical: r.vertical })}`
+      // ★VF_HTMLSTD_V1（2026-10-08）：入库 + 签名 + 协议串统一走 `filmDoneProtocol`
+      //   —— 新状态机那条路（vf-htmlfilm.ts 的确认卡）用的是**同一个函数**（一件事只有一份实现）。
+      return await filmDoneProtocol(uidFilm, r)
     }
 
     case 'make_ai_video': {
@@ -3193,7 +3172,13 @@ export async function POST(request: NextRequest) {
     //   命令一旦出现就走哪条线，不能看模型心情（与"看到第一条命令就是重来"同一规矩）。
     try {
       if (matchStdCommand(userMessage)?.id === 'film') {
-        sysBlocks.push('【本次命令 = HTML成片（用户点/说了「HTML成片」；旧说法「素材片」同一条）】你必须调用工具 `make_material_film` —— 把用户给的图片做成竖屏短片（风格包 + 镜头组，HTML 逐帧渲染）。**不要**调用 make_ai_video / create_ai_video（那是文案驱动、或 AI 生成画面，不是这条命令）。参数：text = 用户给的主题（没给就留空，编排器会按图片判赛道）；要指定风格包才用 pack（**只能引用库内 id**）。')
+        // ★VF_HTMLSTD_V1（2026-10-08 用户定案「要」）：本线已改成**状态机**（素材卡 → 风格卡 → 确认卡）。
+        //   正常情况下服务端在 AI 之前就接管了（见下面的分派块），这段提示词只在**万一**落到 AI 时才看得到
+        //   ⇒ 明确告诉模型："卡在推流程，你不要调工具、不要自己造协议串"。
+        sysBlocks.push('【本次消息 = HTML成片】这条线现在是**状态机**（素材卡 → 风格卡 → 确认卡）。'
+          + '① 标准模式下**服务端会先接管并出卡**，你不需要调用任何工具（尤其不要调 make_material_film / make_ai_video / create_ai_video），也不要自己拼协议串；'
+          + '② 万一你看到这条却没有卡片（例如自由模式），就用一句话告诉用户：去标准模式点「HTML成片」按钮；**不要**自己造卡片协议串。'
+          + '若用户在本线里另外说话，按当下那张卡的提示用一句话回答即可。')
       }
     } catch { /* 注入失败不影响对话 */ }
     // ═══ ★VF_MEMORY_V1（2026-09-30 用户定案「常用之后就不用再去看了，从记忆里就已经知道用户是做什么的」）═══
@@ -4282,6 +4267,28 @@ PUBLISH_DRAFT.delete(uidW)
         //   本线判定**精确到自己的命令（stdCmdHit.id === 'vf_ppt'）与自己的协议串（^VF_PPT_FORM:）**，
         //   且**不再看 leadHandled**（否则又被获客线挡住）⇒ 放最前面零风险。
         // ═══════════════════════════════════════════════════════════════════════════
+        // ═══ ★VF_HTMLSTD_V1（2026-10-08 用户定案「要」）：【HTML成片】独立状态机（第 8 条线）═══
+        //   为什么放最前：本线判定**精确到自己的命令（stdCmdHit.id==='film'）与自己的协议串
+        //   （^VF_FILM_FORM: / ^VF_FILM_GO:）**，不看任何别的线的 handled 标志 ⇒ 放最前零风险
+        //   （与 PPT 线同一理由：被别的线挡住过一次，就再也轮不到）。
+        //   ⚠️ 铁律：进线即落草稿（step:'mat'）—— 否则第 2 步协议串会被标准模式闸门锁死。
+        try {
+          const { handleHtmlFilmLine } = await import('@/lib/agent/vf/vf-htmlfilm')
+          const _msgHF = String(userMessage || '').trim()
+          const _isHtmlFilm = (!!stdCmdHit && stdCmdHit.id === 'film') || /^VF_FILM_(FORM|GO)\s*[:{]/.test(_msgHF)
+          if (_isHtmlFilm) {
+            const _rHF = await handleHtmlFilmLine({
+              uid: uidVF2,
+              userMessage,
+              prisma,
+              // 只有"点/说了命令"才算入口（协议串来的时候不能当成新的一单，否则会清掉刚存的草稿）
+              isEntry: !!stdCmdHit && stdCmdHit.id === 'film',
+            })
+            if (_rHF) { wfEarlyReply = _rHF; finalResult = _rHF }
+          }
+        } catch (eHF: any) {
+          try { vfLog(uidVF2, '[HTML成片] 分派异常: ' + String(eHF?.message || eHF).slice(0, 200)) } catch { /* ignore */ }
+        }
         let vfPptHandled = false
         try {
           const { handlePptLine } = await import('@/lib/agent/vf/vf-ppt')
