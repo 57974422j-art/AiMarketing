@@ -1387,7 +1387,35 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         return `TOOL_REJECT:素材片出片被拦（${r.stage}）：${String(r.err || '').slice(0, 200)}；可改用 make_ai_video（老画法）或改文案后重试`
       }
       vfLog(uidFilm, `[素材片] 完成：${r.mp4}（赛道=${r.vertical} 风格包=${r.pack}）`)
-      return `VF_FILM_DONE:${JSON.stringify({ mp4: r.mp4, sheet: r.sheet, pack: r.pack, vertical: r.vertical })}`
+      // ★VF_FILM_CARD_V1（2026-10-08 用户实测「素材片出片了但看不到任何卡」）：
+      //   ① `r.mp4 / r.sheet` 是**渲染机上的绝对路径**（前端放不了）⇒ 必须**入个人仓库 + 签 24h URL**
+      //      （与样板镜同做法：saveToPersonalRepo + signedUrl，见 make_ai_video 的 VF_PREVIEW_DONE）；
+      //   ② 协议串里放 URL（`url`/`poster`），前端 `renderContent` 的 `VF_FILM_DONE:` 分支据此出卡。
+      //   入库/签名失败**不判死**出片（退回本地路径并写日志，前端会提示"没拿到可播放地址"）。
+      try {
+        const { readFile } = await import('fs/promises')
+        const { saveToPersonalRepo } = await import('@/lib/personal-storage')
+        const { signedUrl } = await import('@/lib/oss')
+        let url = ''
+        let poster = ''
+        if (r.mp4) {
+          const buf = await readFile(r.mp4)
+          const { name } = await saveToPersonalRepo({ userId: String(uidFilm), buffer: buf, ext: 'mp4', mime: 'video/mp4' })
+          url = await signedUrl(`storage/${uidFilm}/${name}`, 86400)
+        }
+        if (r.sheet) {
+          try {
+            const bufS = await readFile(r.sheet)
+            const { name: nS } = await saveToPersonalRepo({ userId: String(uidFilm), buffer: bufS, ext: 'jpg', mime: 'image/jpeg' })
+            poster = await signedUrl(`storage/${uidFilm}/${nS}`, 86400)
+          } catch { /* 审片图失败不影响成片 */ }
+        }
+        if (url) return `VF_FILM_DONE:${JSON.stringify({ url, poster, pack: r.pack, vertical: r.vertical })}`
+        vfLog(uidFilm, '[素材片] 入库未拿到 URL → 退回本地路径（前端会提示）')
+      } catch (eU: any) {
+        vfLog(uidFilm, '[素材片] 入库/签名失败：' + String(eU?.message || eU).slice(0, 160))
+      }
+      return `VF_FILM_DONE:${JSON.stringify({ url: '', poster: '', localMp4: r.mp4, pack: r.pack, vertical: r.vertical })}`
     }
 
     case 'make_ai_video': {
@@ -5571,7 +5599,21 @@ PUBLISH_DRAFT.delete(uidW)
       } else {
         reply = (typeof finalResult === 'string' ? finalResult : finalResult?.content) || formatToolResult(toolText)
         // 2026-09-12: ★防 AI 编造「已创建任务」（本轮没真建任务却声称已创建 → 拦掉——用户会被误导以为发出去了）
-        if (!createdTaskThisTurn && /已创建|已提交|任务已建|已发布到|发布任务/.test(String(reply))) {
+        // ★VF_ANTIFAB_V2（2026-10-08 用户实测：「素材片」→ 回我「⚠️ 纠正一下…没有真正创建发布任务」）：
+        //   原判定**只看发布线自己的** `createdTaskThisTurn` ⇒ 别的线**真建了任务**也会被当成编造，
+        //   于是把**正确的回复整段替换**成那句发布纠正（用户看到的正是它，"素材片"看起来完全没通）。
+        //   素材片成功时工具返回 `VF_FILM_DONE:{mp4,pack,…}` = 真出片了 ⇒ 不该被拦。两处收紧：
+        //     ① "真的建了任务" = 发布线标志 **或** 本轮**任何工具结果**里出现我们自己的任务协议串
+        //        （VF_FILM_DONE 素材片 / BROWSER_TASK_QUEUED 发布 / PUBLISH_QUEUED / TASK_QUEUED / MAKE_QUEUED）；
+        //     ② 只在**发布语义**下才纠正（回复里同时提到 发布/上线/发出/平台）—— 护栏本意是防"谎称发出去了"，
+        //        与"素材片 / 成片 / 渲染 / 出片"无关（那类任务在「我的视频」里看得见，不构成误导）。
+        //   发布线的原有保护**一字未减**：谎称"已发布到抖音"且本轮没建任务 ⇒ 依旧被拦（两个正则都命中）。
+        const _toolAll = messages.filter((m: any) => m.role === 'tool').map((m: any) => String(m.content || '')).join('\n')
+        const _taskProtoRe = /VF_FILM_DONE:|BROWSER_TASK_QUEUED:|PUBLISH_QUEUED:|TASK_QUEUED:|MAKE_QUEUED:/
+        const _realTask = createdTaskThisTurn || _taskProtoRe.test(_toolAll) || _taskProtoRe.test(String(toolText || ''))
+        if (!_realTask
+          && /已创建|已提交|任务已建|已发布到|发布任务/.test(String(reply))
+          && /发布|上线|发出|平台/.test(String(reply))) {
           console.log('[防编造] AI 声称已创建任务但本轮未建——已拦下：', String(reply).slice(0, 60))
           reply = '⚠️ 纠正一下：我刚才说的「已创建任务」并不准确——本轮**没有真正创建发布任务**。' + String.fromCharCode(10) + '要发布请说「帮我发一个视频」走完整流程（选视频 → 标题 → 话题 → 封面 → 点平台按钮）。'
         }
@@ -5579,6 +5621,18 @@ PUBLISH_DRAFT.delete(uidW)
       //   却被当成**通用**兜底 → 用户问"成片进度"时看到的正是它（看起来像乱接/编造）。
       //   改成中性话术，并且查询类消息已在上面有了确定性分支（不会再落到这里）。
       if (!reply) reply = '我没拿到这一轮的结果——请稍等再试一次；如果是在问成片进度，直接说「视频做得怎么样了」。'
+      // ★VF_FILM_CARD_V1（2026-10-08 用户实测「素材片出片了但看不到任何卡」· 第二处缺口）：
+      //   素材片成功时工具返回 `VF_FILM_DONE:{url,poster,pack,vertical}`，但**正常路径**下回复用的是
+      //   **模型自己写的人话**（协议串被顶掉）⇒ 前端拿不到卡，用户"出片了却看不到片"。
+      //   这里做成**确定性**的：只要本轮工具结果里有 VF_FILM_DONE，就把它附到回复末尾
+      //   （模型写没写、写什么都无所谓 —— 与"不依赖模型调工具"的既有护栏同一思路）。
+      {
+        const _toolAllX = messages.filter((m: any) => m.role === 'tool').map((m: any) => String(m.content || '')).join('\n')
+        const _fm = _toolAllX.match(/VF_FILM_DONE:\{[^\n]*\}/)
+        if (_fm && !String(reply).includes('VF_FILM_DONE:')) {
+          reply = (String(reply).trim() ? String(reply).trim() + '\n\n' : '') + _fm[0]
+        }
+      }
       }
       // 2026-08-27: 发布话术强制校验——模型说“已创建”但工具未真返回 PUBLISH_QUEUED → 强制纠正（不信模型话术，信工具结果）
       try {
