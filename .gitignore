@@ -10,6 +10,14 @@ node_modules/
 /.next/
 /out/
 
+# ★VF_STUDIORUNTIME_V1（2026-10-08 实测发现：storage/ 从来没被忽略过 ⇒ 隐患）
+# 用户数据 + 工作室产物，**绝不入库**：
+#   storage/<uid>/          = 用户个人仓库（图片/视频，可能几个 GB）
+#   storage/_studio/styles/ = 风格库**运行时库**（后台保存的风格包写这里，内置库 html-deck/styles 只读）
+#   storage/_studio/out/    = 试片 / 成片 / 抽帧产物
+# 注：实测 `git ls-files storage` = 0 ⇒ 整体忽略安全（此前只是"没被 add 过"，不是"被忽略"）。
+/storage/
+
 # Production
 /build
 

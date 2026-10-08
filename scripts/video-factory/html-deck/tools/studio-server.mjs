@@ -23,7 +23,52 @@ import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const HERE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')   // html-deck/
-const stylesDir = path.join(HERE, 'styles')
+// ══════════════ ★VF_STUDIORUNTIME_V1（2026-10-08 用户定案 ②③④）══════════════
+// ① **风格库写进"运行时库"**：`<项目>/storage/_studio/styles/` —— **绝不写代码目录的 styles/**
+//    代码目录是 git 仓库：在生产上写它会与仓库不同步（下次 git pull 冲突/被覆盖）。
+//    引擎读取口径 = **内置库（html-deck/styles，随仓库交付）+ 运行时库（本目录，运行产出）**，
+//    同名以运行时优先；要"**固化进内置库**"时由我提交进仓库（别再忘）。
+// ② 试片 / 成片 / 抽帧产物也落运行时根（`storage/_studio/out/`），不再往代码目录的 out/ 堆。
+// ③ 这些动作（抽帧 / 试片 / 出片）都要 ffmpeg + 超帧引擎 ⇒ **只在管理员本机跑**：
+//    生产服务器上不启本服务（本服务只监听 127.0.0.1），普通用户机器没有 ffmpeg、也不参与试片。
+// 可用 VF_STUDIO_HOME 覆盖运行时根（默认 = html-deck 往上 3 级的 storage）。
+const STORAGE_ROOT = process.env.VF_STUDIO_HOME || path.resolve(HERE, '..', '..', '..', 'storage')
+const RUNTIME_ROOT = path.join(STORAGE_ROOT, '_studio')
+const stylesDir = path.join(HERE, 'styles')                 // 内置库（**只读**）
+const runtimeStyles = path.join(RUNTIME_ROOT, 'styles')     // 运行时库（可写）
+const outRoot = path.join(RUNTIME_ROOT, 'out')              // 产物根（试片/成片/抽帧）
+const ensureDir = (d) => { try { fs.mkdirSync(d, { recursive: true }) } catch { /* ignore */ } }
+ensureDir(runtimeStyles); ensureDir(outRoot)
+/** 风格包解析：**运行时优先** → 内置（同名以运行时为准）；找不到返回 '' */
+const resolvePackFile = (id) => {
+  const s = safeId(id)
+  if (!s) return ''
+  const r = path.join(runtimeStyles, s + '.json')
+  if (fs.existsSync(r)) return r
+  const b = path.join(stylesDir, s + '.json')
+  return fs.existsSync(b) ? b : ''
+}
+/** 读一个目录下的风格包（排除 _schema / index / verticals 这类非包文件） */
+const NOT_A_PACK = new Set(['index.json', 'verticals.json'])
+const readPacks = (dir) => {
+  const out = []
+  let fs2 = []
+  try { fs2 = fs.readdirSync(dir) } catch { return out }
+  for (const f of fs2) {
+    if (!f.endsWith('.json') || f.startsWith('_') || NOT_A_PACK.has(f)) continue
+    try { out.push(JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))) } catch { /* 跳过坏文件 */ }
+  }
+  return out
+}
+/** 重建**运行时清单**（只写运行时库里的 index.json；内置 index.json 仍由仓库维护） */
+const rebuildRuntimeIndex = () => {
+  try {
+    const packs = readPacks(runtimeStyles)
+    fs.writeFileSync(path.join(runtimeStyles, 'index.json'),
+      JSON.stringify({ version: 'runtime', at: new Date().toISOString(), items: packs }, null, 2) + '\n', 'utf8')
+    return packs.length
+  } catch { return -1 }
+}
 const args = process.argv.slice(2)
 const arg = (k, d) => { const i = args.indexOf('--' + k); return i >= 0 ? args[i + 1] : d }
 const PORT = parseInt(arg('port', '7788'), 10)
@@ -40,7 +85,7 @@ function readBody(req) { return new Promise((resolve) => { let s = ''; req.on('d
    ★ 失败语义：render-film 的闸门拦下时，作业状态 = failed + stage + 原因
      （页面显示原因；**不产出坏片** —— 这正是"回退老画法"的接口）。 */
 const JOBS = new Map()
-const workRoot = path.join(HERE, 'out', 'workbench')
+const workRoot = path.join(outRoot, 'workbench')            // ★VF_STUDIORUNTIME_V1：产物落运行时根
 const EXT_OK = new Set(['.jpg', '.jpeg', '.png', '.webp'])
 const safeId = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^-+|-+$/g, '').slice(0, 32)
 
@@ -64,7 +109,22 @@ const server = http.createServer(async (req, res) => {
   const p = decodeURIComponent(u.pathname)
 
   // ---------- API ----------
-  if (p === '/api/ping') return send(res, 200, { ok: true, root: HERE, version: 'VF_STUDIO_SRV_V1' })
+  if (p === '/api/ping') return send(res, 200, {
+    ok: true, root: HERE, version: 'VF_STUDIO_SRV_V2',
+    // ★VF_STUDIORUNTIME_V1：把"库在哪"如实回给前端（内置=只读 / 运行时=可写 / 产物在哪）
+    builtin: stylesDir, runtime: runtimeStyles, out: outRoot,
+    builtinN: readPacks(stylesDir).length, runtimeN: readPacks(runtimeStyles).length,
+  })
+
+  // ★VF_STUDIORUNTIME_V1：清单 = **内置 + 运行时合并**（同名以运行时为准），带 source 标记
+  if (p === '/api/list') {
+    const bi = readPacks(stylesDir).map((x) => ({ ...x, source: 'builtin' }))
+    const rt = readPacks(runtimeStyles).map((x) => ({ ...x, source: 'runtime' }))
+    const byId = new Map()
+    for (const x of bi) byId.set(String(x.id), x)
+    for (const x of rt) byId.set(String(x.id), x)
+    return send(res, 200, { ok: true, items: Array.from(byId.values()), builtinN: bi.length, runtimeN: rt.length })
+  }
 
   if (p === '/api/save' && req.method === 'POST') {
     const { pack } = await readBody(req)
@@ -73,22 +133,27 @@ const server = http.createServer(async (req, res) => {
     const id = safeId(pack.id)
     pack.id = id
     pack.createdBy = pack.createdBy || 'user'
-    fs.mkdirSync(stylesDir, { recursive: true })
-    const file = path.join(stylesDir, id + '.json')
+    // ★VF_STUDIORUNTIME_V1（用户定案 ②）：**写运行时库**，绝不碰代码目录的 styles/
+    const file = path.join(runtimeStyles, id + '.json')
     fs.writeFileSync(file, JSON.stringify(pack, null, 2) + '\n', 'utf8')
-    const rb = rebuild()
-    return send(res, 200, { ok: true, file: path.relative(HERE, file), rebuild: rb })
+    const n = rebuildRuntimeIndex()
+    return send(res, 200, {
+      ok: true, file, where: 'runtime', runtimeN: n,
+      note: '已存入**运行时库**（' + path.relative(RUNTIME_ROOT, file).replace(/\\/g, '/') + '）；内置库只读、不受影响。'
+        + '要"固化进内置库"请让 AI 提交进仓库（这样 git pull 不会冲突）。',
+    })
   }
 
   if (p === '/api/render' && req.method === 'POST') {
     const { id, pack } = await readBody(req)
     let use = pack
     if (!use) {
-      const f = path.join(stylesDir, safeId(id) + '.json')
-      if (!fs.existsSync(f)) return send(res, 404, { ok: false, err: '风格包不存在：' + id })
+      // ★VF_STUDIORUNTIME_V1：运行时库优先 → 内置库
+      const f = resolvePackFile(id)
+      if (!f) return send(res, 404, { ok: false, err: '风格包不存在：' + id })
       use = JSON.parse(fs.readFileSync(f, 'utf8'))
     }
-    const outDir = path.join(HERE, 'out', 'preview', safeId(use.id))
+    const outDir = path.join(outRoot, 'preview', safeId(use.id))   // ★VF_STUDIORUNTIME_V1：产物落运行时根
     const mod = await import('./pack-to-page.mjs')
     try {
       mod.buildPage(use, outDir)
@@ -105,7 +170,7 @@ const server = http.createServer(async (req, res) => {
   if (p === '/api/extract' && req.method === 'POST') {
     const { video, every } = await readBody(req)
     if (!video || !fs.existsSync(video)) return send(res, 400, { ok: false, err: '视频不存在：' + video })
-    const outDir = path.join(HERE, 'out', 'extract', 'v' + Date.now())
+    const outDir = path.join(outRoot, 'extract', 'v' + Date.now())   // ★VF_STUDIORUNTIME_V1：产物落运行时根
     const r = spawnSync(process.execPath, [path.join(HERE, 'tools', 'extract-elements.mjs'), video,
       '--out', outDir, '--every', String(every || 8.5)], { cwd: HERE, encoding: 'utf8', timeout: 10 * 60 * 1000 })
     const cf = path.join(outDir, 'candidates.json')
@@ -119,8 +184,10 @@ const server = http.createServer(async (req, res) => {
 
   if (p === '/api/open' && req.method === 'POST') {
     const { target } = await readBody(req)
-    const f = path.resolve(HERE, target || '')
-    if (!f.startsWith(HERE) || !fs.existsSync(f)) return send(res, 400, { ok: false, err: '路径不合法' })
+    const f = path.resolve(target || '')
+    // ★VF_STUDIORUNTIME_V1：产物现在在运行时根（storage/_studio）⇒ 两处都放行
+    const okPath = f.startsWith(HERE) || f.startsWith(RUNTIME_ROOT)
+    if (!okPath || !fs.existsSync(f)) return send(res, 400, { ok: false, err: '路径不合法' })
     if (process.platform === 'win32') spawnSync('cmd', ['/c', 'start', '', f], { windowsHide: true })
     else spawnSync('open', [f])
     return send(res, 200, { ok: true })
@@ -165,8 +232,10 @@ const server = http.createServer(async (req, res) => {
     const st = { state: 'running', stage: '', err: '', log: '', mp4: '', sheet: '', startedAt: Date.now(), total: film.total, scenes: film.scenes.length, pack: film.pack }
     JOBS.set(jid, st)
     const rf = path.join(HERE, 'tools', 'render-film.mjs')
-    const child = spawn(process.execPath, [rf, path.join(dir, 'film.json'), '--outdir', path.join('out', 'workbench', jid, 'render')],
-      { cwd: HERE })
+    // ★VF_STUDIORUNTIME_V1：产物落运行时根；并把**运行时库**告诉引擎（VF_STYLES_EXTRA）
+    //   —— 这样"刚在管理器里存的新风格"能立刻在实验室出片，而不必先固化进内置库。
+    const child = spawn(process.execPath, [rf, path.join(dir, 'film.json'), '--outdir', path.join(outRoot, 'workbench', jid, 'render')],
+      { cwd: HERE, env: { ...process.env, VF_STYLES_EXTRA: runtimeStyles } })
     let so = ''
     child.stdout.on('data', (d) => { so += d; st.log = so.slice(-400) })
     child.stderr.on('data', (d) => { so += d; st.log = so.slice(-400) })
@@ -191,8 +260,13 @@ const server = http.createServer(async (req, res) => {
   }
 
   // ---------- 静态 ----------
-  let file = path.join(HERE, p === '/' ? 'tools/style-studio.html' : (p === '/lab' ? 'tools/film-lab.html' : p))
-  if (!file.startsWith(HERE) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
+  // ★VF_STUDIORUNTIME_V1：`/out/*` 现在映射到**运行时产物根**（storage/_studio/out）——
+  //   试片 mp4/jpg、抽帧候选图、实验室素材与成片都在那儿（URL 形状不变，前端零改动）。
+  const isOut = p === '/out' || p.startsWith('/out/')
+  const baseDir = isOut ? outRoot : HERE
+  const rel = isOut ? p.replace(/^\/out\/?/, '') : (p === '/' ? 'tools/style-studio.html' : (p === '/lab' ? 'tools/film-lab.html' : p))
+  let file = path.join(baseDir, rel)
+  if (!file.startsWith(baseDir) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }); return res.end('404')
   }
   const ext = path.extname(file).toLowerCase()

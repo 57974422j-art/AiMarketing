@@ -26,15 +26,27 @@ const HF = path.join(HERE, 'node_modules', 'hyperframes', 'bin', 'hyperframes.mj
 
 function run(cmd, argv, opts) { return spawnSync(cmd, argv, Object.assign({ cwd: HERE, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 }, opts || {})) }
 
-/** 解析风格包：film.pack 可以是 id（读 styles/）或内联对象 */
+/** 解析风格包：film.pack 可以是 id（读 styles/）或内联对象
+ *  ★VF_STUDIORUNTIME_V1（2026-10-08 用户定案 ②）：读取口径 = **运行时库优先 → 内置库**。
+ *   运行时库目录由 `VF_STYLES_EXTRA` 传入（studio-server 会带；不设 ⇒ 行为与从前一字不差）。
+ *   为什么：后台保存的风格包写进 `storage/_studio/styles`（不写代码目录，避免与 git 冲突），
+ *   所以引擎必须知道"运行时库"这回事，否则刚存的风格在实验室里出不了片。 */
+function styleDirs() {
+  const extra = String(process.env.VF_STYLES_EXTRA || '').split(/[;,]/).map((s) => s.trim()).filter(Boolean)
+  return extra.concat([path.join(HERE, 'styles')])
+}
 function resolvePack(film) {
   if (film.packObj) return film.packObj
   if (film.pack && typeof film.pack === 'object') return film.pack
   const id = String(film.pack || '').trim()
   if (!id) return {}
-  const f = path.join(HERE, 'styles', id + '.json')
-  if (!fs.existsSync(f)) return null
-  return JSON.parse(fs.readFileSync(f, 'utf8'))
+  for (const d of styleDirs()) {
+    const f = path.join(d, id + '.json')
+    if (fs.existsSync(f)) {
+      try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch { /* 换下一个库 */ }
+    }
+  }
+  return null
 }
 
 export function renderFilm(filmPath, opts = {}) {

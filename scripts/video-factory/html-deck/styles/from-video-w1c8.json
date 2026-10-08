@@ -1,0 +1,23 @@
+{
+  "id": "from-video-w1c8",
+  "name": "绿调教程 HUD · 左信息卡右实拍",
+  "desc": "从用户视频抽出（w1__c829017b25e7.mp4 @21s）：近黑底 + 单一绿强调；左信息卡（STEP 行式要点）+ 右实拍演示窗 + 底部字幕带 + 顶部技术标记行",
+  "aspect": "9:16",
+  "speed": "normal",
+  "mood": "科技",
+  "vertical": ["general", "tech", "tool", "edu"],
+  "tokens": {
+    "bg": "#0a0f0c", "bg2": "#12201a",
+    "ink": "#f2f7f2", "dim": "#b9c9bd", "faint": "#7f9285",
+    "accent": "#69d396", "accentText": "#a3e0bd",
+    "font": "sans-900", "radius": 14, "density": "normal", "grain": 0.05
+  },
+  "structure": ["closeup-hud"],
+  "elements": ["media-pip", "list-rows", "step-bar", "label-chip", "caption-bottom-big", "eyebrow-en", "vignette", "noise-grain", "grid-fine"],
+  "motion": { "enter": "rise", "emphasis": "grow-bar", "exit": "crossfade-out", "pace": 1 },
+  "prompt": "绿调教程 HUD：近黑底（带一点绿调）+ 只用一种绿色做强调；左侧信息卡（STEP 编号 + 行式要点 + 发丝分割线），右侧实拍/演示窗（圆角 + 轻暗角），顶部一行技术标记（REC / 参数），底部绿底深字字幕带。入场逐条上浮（stagger），克制、信息密度中高，观感＝「系统监控 + 教程」的混合体。",
+  "refs": ["E:\\ai-marketing\\storage\\1\\w1__c829017b25e7.mp4"],
+  "example": "ref:E:\\ai-marketing\\storage\\1\\w1__c829017b25e7.mp4#21.0s",
+  "thumb": "",
+  "createdBy": "user-video"
+}

@@ -25,7 +25,11 @@ const HERE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const RUNTIME = path.join(HERE, 'tools', 'runtime', 'app.js')
 const GSAP = path.join(HERE, 'masters', 'master-tech', 'assets', 'gsap.min.js')
 const FONTS = path.join(HERE, 'fonts')
-const IMPL = ['opening-hero', 'works-wall', 'glass-product', 'data-dashboard']
+const IMPL = ['opening-hero', 'works-wall', 'glass-product', 'data-dashboard',
+  // ★VF_CLOSEUPHUD_V1（2026-10-08 用户实测「你只换了一个颜色」）：
+  //   按用户给的参考视频（w1__c829017b25e7.mp4）实现「左信息卡 + 右实拍窗 + 顶技术行 + 底字幕带」
+  //   —— 结构 id 沿用库里已登记的 `closeup-hud`（structures.json 早就有这个名字，缺的是**页面实现**）。
+  'closeup-hud']
 const DUR = 3.0
 
 /** 试片用的占位文案（用字都在字体子集内，由 check-page-fonts 二次把关） */
@@ -37,6 +41,12 @@ const SAMPLE = {
   rows: ['素材不动 · 动效层加信息', '同一份文案 · 每次换风格', '逐帧可复现 · 可验收'],
   kpi: [['曝光', '12.4 万'], ['点击率', '4.8 %'], ['下单', '3.2 千']],
   cards: ['海报', '文案', '成片'],
+  // ── closeup-hud 专用占位（照参考视频的"教程分步"口吻；全部常用字，零豆腐块风险）──
+  techL: 'REC  AI 视频工作流', techR: 'VOICE · AVATAR · RENDER',
+  chip: 'STEP 02', ct1: 'Fish Audio', ct2: '克隆配音',
+  hudRows: ['脚本按语义分段', 'speed 1.0 生成', '拼接 + 响度标准化'],
+  note: 'w1c8 · Agent 流水线', win: '实拍 / 演示窗', badge: 'AGENT',
+  cap: '第一步 你要用 Fish Audio',
 }
 
 const lum = (hex) => {
@@ -45,8 +55,10 @@ const lum = (hex) => {
   return (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255
 }
 
-/** 只输出**当前结构**那一段 CSS（跨结构混写会串味，实测过）—— film-to-page 也复用它 */
-export function cssFor(s) {
+/** 只输出**当前结构**那一段 CSS（跨结构混写会串味，实测过）—— film-to-page 也复用它
+ *  ⚠️ 第二个参数 T（tokens）是**可选**的：只有 closeup-hud 需要按 accent 明暗决定"绿底上的字色"。
+ *     film-to-page 那边仍按老签名调用（cssFor(s)）⇒ 行为一字不变。 */
+export function cssFor(s, T) {
   if (s === 'opening-hero') return `
   #t1{left:64px;top:180px;width:600px;font-size:78px}
   #t2{left:64px;top:300px;width:600px;font-size:78px}
@@ -83,7 +95,9 @@ export function cssFor(s) {
     display:flex;align-items:center;justify-content:center;font-size:27px;font-weight:800;color:#06101f;letter-spacing:3px}
   .shine{position:absolute;top:0;left:0;width:170px;height:100%;
     background:linear-gradient(100deg,rgba(255,255,255,0),rgba(255,255,255,.55),rgba(255,255,255,0))}`.trim()
-  return `
+  // ⚠️ 这一段是**兜底**（data-dashboard 与"未知结构"共用）：必须排除 closeup-hud，
+  //    否则它会无条件 return ⇒ 下面 closeup-hud 的分支永远不可达（2026-10-08 实测踩到：试片仍出 dashboard）
+  if (s !== 'closeup-hud') return `
   #k1{left:64px;top:120px;font-size:16px;font-weight:700;letter-spacing:3.4px;color:var(--at)}
   #t1{left:64px;top:176px;width:600px;font-size:64px}
   #ex{left:64px;top:280px;width:600px;font-size:25px}
@@ -95,6 +109,34 @@ export function cssFor(s) {
   .kpi span{font-size:22px;color:var(--dim)}
   .kpi b{font-size:34px;font-weight:800;color:var(--ink)}
   #s1 .kp1{left:56px;top:880px}#s1 .kp2{left:56px;top:996px}#s1 .kp3{left:56px;top:1112px}`.trim()
+  // ═══ ★VF_CLOSEUPHUD_V1（2026-10-08 用户实测「你只换了一个颜色」）═══
+  // 按用户参考视频实现：**左信息卡 + 右实拍窗 + 顶部技术行 + 底部字幕带**（9:16 版式）
+  if (s === 'closeup-hud') {
+    // 绿底上的字色按 accent 明暗自动定（亮绿 → 深字；暗 accent → 用 ink），引擎侧还有对比度闸门兜底
+    const _acc = (T && T.accent) || '#69d396'
+    const _onAcc = lum(_acc) > 0.55 ? '#0a1014' : ((T && T.ink) || '#f2f7f2')
+    return `
+  #recdot{left:48px;top:99px;width:10px;height:10px;border-radius:5px;background:var(--accent)}
+  #techL{left:66px;top:92px;font-size:16px;font-weight:800;color:var(--at);letter-spacing:.8px}
+  #techR{left:48px;top:92px;width:624px;text-align:right;font-size:15px;font-weight:700;color:var(--dim);letter-spacing:1.4px}
+  #card{left:48px;top:176px;width:344px;height:520px;border-radius:var(--r);
+    background:color-mix(in srgb, var(--bg) 78%, #ffffff 8%);
+    border:1px solid color-mix(in srgb, var(--accent) 26%, transparent)}
+  #chip{left:76px;top:212px;padding:7px 13px;border-radius:6px;background:${_acc};color:${_onAcc};
+    font-size:15px;font-weight:800;letter-spacing:1.8px}
+  #ct{left:76px;top:266px;width:288px;font-size:36px;font-weight:800;color:var(--ink);line-height:1.24}
+  .r{width:288px;font-size:21px;color:var(--ink);white-space:nowrap}
+  .r i{font-style:normal;font-weight:800;color:var(--at);margin-right:10px}
+  .r u{position:absolute;left:0;bottom:-14px;width:288px;height:1px;text-decoration:none;
+    background:color-mix(in srgb, var(--accent) 24%, transparent)}
+  #r1{left:76px;top:420px}#r2{left:76px;top:496px}#r3{left:76px;top:572px}
+  #note{left:76px;top:640px;width:288px;font-size:15px;color:var(--dim);letter-spacing:.6px}
+  #win{left:416px;top:176px;width:256px;height:520px}
+  #badge{left:594px;top:658px;padding:5px 10px;border-radius:5px;background:${_acc};color:${_onAcc};
+    font-size:13px;font-weight:800;letter-spacing:1px}
+  #cap{left:48px;top:1120px;width:624px;height:76px;border-radius:8px;background:${_acc};
+    display:flex;align-items:center;padding:0 22px;font-size:22px;font-weight:800;color:${_onAcc};letter-spacing:.4px}`.trim()
+  }
 }
 
 /** 结构 → body 片段（全部用占位块，零外部图片 ⇒ 任何风格包都能渲） */
@@ -139,7 +181,8 @@ function bodyFor(structure, T) {
     <div class="glass mini m3"><span>成本</span><b>-62%</b></div>
     <div class="cta" id="cta">立即体验<span class="shine" id="shine"></span></div>
   </section>`
-  return `
+  // ⚠️ 同上：兜底 body 必须排除 closeup-hud（否则无条件 return ⇒ 新结构的分支不可达）
+  if (structure !== 'closeup-hud') return `
   <section id="s1" class="clip sec" data-start="0" data-duration="${DUR}">
     <div class="k" id="k1">LIVE DASHBOARD</div>
     <div class="ttl" id="t1">${S.title1}${S.title2}</div>
@@ -154,6 +197,23 @@ function bodyFor(structure, T) {
     <div class="cd kpi kp2"><span>点击率</span><b>${S.kpi[1][1]}</b></div>
     <div class="cd kpi kp3"><span>下单</span><b>${S.kpi[2][1]}</b></div>
     <div class="foot">AiMarketing 视频工厂</div>
+  </section>`
+  // ★VF_CLOSEUPHUD_V1：左信息卡（绿 STEP 标签 + 标题 + 编号行 + 小注）+ 右实拍窗（+角标）+ 顶技术行 + 底字幕带
+  if (structure === 'closeup-hud') return `
+  <section id="s1" class="clip sec" data-start="0" data-duration="${DUR}">
+    <div id="recdot"></div>
+    <div id="techL">${S.techL}</div>
+    <div id="techR">${S.techR}</div>
+    <div id="card"></div>
+    <div id="chip">${S.chip}</div>
+    <div id="ct">${S.ct1}<br/>${S.ct2}</div>
+    <div class="r" id="r1"><i>01</i>${S.hudRows[0]}<u></u></div>
+    <div class="r" id="r2"><i>02</i>${S.hudRows[1]}<u></u></div>
+    <div class="r" id="r3"><i>03</i>${S.hudRows[2]}<u></u></div>
+    <div id="note">${S.note}</div>
+    <div class="card media" id="win"><div class="ph"><span>${S.win}</span></div></div>
+    <div id="badge">${S.badge}</div>
+    <div id="cap">${S.cap}</div>
   </section>`
 }
 
@@ -197,7 +257,7 @@ export function makeHtml(pack) {
        ⇒ 毛玻璃页标题变 78px 压住副标（引擎判 content_overlap）。现按结构隔离。
      ★ 踩坑二：这段注释里曾经出现**反引号** ⇒ 本文件是模板字符串，反引号会截断它 ⇒ SyntaxError。
        ⚠ 规矩：模板字符串内部**任何反引号都不许出现**。 */
-  ${cssFor(structure)}`.trim()
+  ${cssFor(structure, T)}`.trim()
 
   return `<!doctype html>
 <html lang="zh-CN">

@@ -125,6 +125,19 @@
     tl.fromTo('#num', { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.7 * P, ease: 'power3.out', immediateRender: true }, 0.62 * P)
     tl.fromTo('#ringArc', { strokeDashoffset: 999 }, { strokeDashoffset: 999 * 0.215, duration: 1.0 * P, ease: 'power2.out', immediateRender: true }, 0.70 * P)
     tl.fromTo('.cd', { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.65 * P, stagger: 0.14 * P, ease: 'power3.out', immediateRender: true }, 1.05 * P)
+  } else if (S === 'closeup-hud') {
+    // ★VF_CLOSEUPHUD_V1（2026-10-08）：参考视频那套节奏 —— 顶技术行 → 信息卡 → STEP 标签 → 标题
+    //   → 编号行**逐条上浮**（stagger）→ 实拍窗推入 → 角标弹出 → 底部字幕带浮起。
+    tl.fromTo(['#recdot', '#techL', '#techR'], { opacity: 0, y: -8 },
+      { opacity: 1, y: 0, duration: 0.45 * P, stagger: 0.05 * P, ease: 'power2.out', immediateRender: true }, 0.05 * P)
+    tl.fromTo('#card', { opacity: 0, y: 22 }, { opacity: 1, y: 0, duration: 0.55 * P, ease: 'power3.out', immediateRender: true }, 0.12 * P)
+    tl.fromTo('#chip', { opacity: 0, scale: .86 }, { opacity: 1, scale: 1, duration: 0.4 * P, ease: 'back.out(2)', immediateRender: true }, 0.34 * P)
+    tl.fromTo('#ct', { opacity: 0, y: 16 }, { opacity: 1, y: 0, duration: 0.5 * P, ease: 'power3.out', immediateRender: true }, 0.44 * P)
+    tl.fromTo('.r', { opacity: 0, x: -14 }, { opacity: 1, x: 0, duration: 0.45 * P, stagger: 0.12 * P, ease: 'power2.out', immediateRender: true }, 0.62 * P)
+    tl.fromTo('#note', { opacity: 0 }, { opacity: 1, duration: 0.4 * P, immediateRender: true }, 1.05 * P)
+    tl.fromTo('#win', { opacity: 0, x: 26, scale: .97 }, { opacity: 1, x: 0, scale: 1, duration: 0.7 * P, ease: 'power3.out', immediateRender: true }, 0.30 * P)
+    tl.fromTo('#badge', { opacity: 0, scale: .8 }, { opacity: 1, scale: 1, duration: 0.35 * P, ease: 'back.out(2)', immediateRender: true }, 0.95 * P)
+    tl.fromTo('#cap', { opacity: 0, y: 18 }, { opacity: 1, y: 0, duration: 0.5 * P, ease: 'power2.out', immediateRender: true }, 1.15 * P)
   } else {
     // 未实现的结构 ⇒ 回落到 opening-hero 的动效（页面结构由生成器兜底为 opening-hero）
     tl.fromTo('#t1', { opacity: 0, y: 26 }, { opacity: 1, y: 0, duration: 0.7 * P, ease: 'power3.out', immediateRender: true }, 0.2 * P)

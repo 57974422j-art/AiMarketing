@@ -1,9 +1,9 @@
 {
   "version": "0.1",
-  "builtAt": "2026-10-08 07:23:38",
+  "builtAt": "2026-10-08 10:32:56",
   "note": "风格包清单（由 tools/build-studio.mjs 生成；管理器页面读内嵌数据，这个文件给 AGENT/其它工具读）",
   "counts": {
-    "styles": 10,
+    "styles": 11,
     "elements": 50,
     "structures": 13,
     "motions": 19,
@@ -69,6 +69,26 @@
       "thumb": "styles/thumbs/from-video-cand004.jpg",
       "example": "ref:E:\\ai-marketing\\storage\\1\\w1__31585e8e10df.mp4#29.75s",
       "createdBy": "ai"
+    },
+    {
+      "id": "from-video-w1c8",
+      "name": "绿调教程 HUD · 左信息卡右实拍",
+      "desc": "从用户视频抽出（w1__c829017b25e7.mp4 @21s）：近黑底 + 单一绿强调；左信息卡（STEP 行式要点）+ 右实拍演示窗 + 底部字幕带 + 顶部技术标记行",
+      "aspect": "9:16",
+      "speed": "normal",
+      "mood": "科技",
+      "vertical": [
+        "general",
+        "tech",
+        "tool",
+        "edu"
+      ],
+      "structure": [
+        "closeup-hud"
+      ],
+      "thumb": "styles/thumbs/from-video-w1c8.jpg",
+      "example": "ref:E:\\ai-marketing\\storage\\1\\w1__c829017b25e7.mp4#21.0s",
+      "createdBy": "user-video"
     },
     {
       "id": "glass-saas",

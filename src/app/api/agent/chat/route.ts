@@ -1355,7 +1355,23 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           .filter((f) => (only.length ? only.some((o) => o === f || f.endsWith(o)) : true))
           .map((f) => path.join(mdir, f))
       } catch { files = [] }
-      if (!files.length) return 'TOOL_REJECT:没有找到素材（请先在「素材」里上传图片，或指定 materials 文件名）'
+      // ★VF_FILMREPO_V1（2026-10-08 用户实测「我现在就要到 AGENT 页去测试」）：
+      //   `video-factory/material/` 只是**起草链下载素材的目录**（downloadMaterials 落那儿）；
+      //   用户刚在 AGENT 页/素材库上传的图进的是**个人仓库**，不在那儿 ⇒ 原来直接报"没有找到素材"，
+      //   等于这条线对普通用户不可用（用户实测路径就是这么断的）。现在：material/ 为空 →
+      //   **回退用个人仓库最近的图片**（下载到本地再编排出片，最多 8 张）。
+      if (!files.length) {
+        try {
+          const _repo = await listRepoMaterials(uidFilm, 40, 'recent')
+          const _imgs = (_repo || []).filter((m: any) => m.kind === 'image').slice(0, 8)
+          if (_imgs.length) {
+            const _dl = await downloadMaterials(uidFilm, _imgs)
+            files = (_dl || []).map((m: any) => String(m.localPath || '')).filter(Boolean)
+            if (files.length) vfLog(uidFilm, `[素材片] material/ 为空 → 回退用个人仓库图片 ${files.length} 张`)
+          }
+        } catch (eR: any) { vfLog(uidFilm, '[素材片] 回退取仓库图片失败: ' + String(eR?.message || eR).slice(0, 120)) }
+      }
+      if (!files.length) return 'TOOL_REJECT:没有找到素材（请先上传图片到素材库，或在参数里指定 materials 文件名）'
       files = files.slice(-8)
       const workDir = path.join(vfStorageRoot(), String(uidFilm), 'video-factory', 'film_' + Date.now())
       vfLog(uidFilm, `[素材片] 开始：${files.length} 张素材 → 编排 + 出片`)
@@ -3143,6 +3159,15 @@ export async function POST(request: NextRequest) {
     //   所以每次把**能力边界 + 只能引用库内 id + 失败回退语义**喂给它 —— 这是它不乱编的前提。
     //   注入失败（工具目录缺失等）→ 静默跳过，绝不影响对话。
     try { if (filmLineReady()) sysBlocks.push(capabilityBrief()) } catch { /* 注入失败不影响对话 */ }
+    // ★VF_FILMLINE_V1（2026-10-08）：用户点了命令「素材片」⇒ **确定性路由**到素材片线。
+    //   为什么必须钉这一句：标准模式里 kind='tool' 的命令是"放行后交给模型带工具跑一次"，
+    //   而模型很可能按老习惯去调 make_ai_video（那是"文案驱动的图文讲解片"，不是素材展示片）。
+    //   命令一旦出现就走哪条线，不能看模型心情（与"看到第一条命令就是重来"同一规矩）。
+    try {
+      if (matchStdCommand(userMessage)?.id === 'film') {
+        sysBlocks.push('【本次命令 = 素材片（用户点/说了「素材片」）】你必须调用工具 `make_material_film` —— 把用户的素材做成竖屏短片（风格包 + 镜头组，HTML 逐帧渲染）。**不要**调用 make_ai_video / create_ai_video（那是文案驱动、或 AI 生成画面，不是这条命令）。参数：text = 用户给的主题（没给就留空，编排器会按素材判赛道）；要指定风格包才用 pack（**只能引用库内 id**）。')
+      }
+    } catch { /* 注入失败不影响对话 */ }
     // ═══ ★VF_MEMORY_V1（2026-09-30 用户定案「常用之后就不用再去看了，从记忆里就已经知道用户是做什么的」）═══
     //   把【画像类记忆 + 仓库摘要】拼成 ≤300 字的一段常驻 system 提示，末尾加一句"已确认过，别重复问/重复识别"。
     //   硬要求（用户/团队约定）：

@@ -32,6 +32,11 @@ const sections: CardSection[] = [
       { title: '坐标截图工具', desc: 'Q1设备实时截图点击获取像素坐标', href: '/coord.html', icon: '📍', roles: ['admin'] },
       { title: 'SOP 工作流', desc: '内容生产/直播运营/客户获取标准化流程', href: '/dashboard/sop', icon: '📋', roles: ['admin', 'editor'] },
       { title: '趋势猎手', desc: 'AI 搜索全球热门趋势，采集视频信息，支持播放与下载', href: '/admin/trendvideo', icon: '🔍', roles: ['admin'] },
+      // ★VF_STUDIOADMIN_V1（2026-10-08 用户定案）：风格库 / 实验室（**只 admin 可见**）
+      //   · 名字按用户定案：「风格库 / 实验室」（**不要**出现"素材片"字样）
+      //   · 只在管理员**本机**用（需先启本地服务 studio-server；抽帧/试片/出片要 ffmpeg）
+      //   · 风格包写运行时库 storage/_studio/styles，产物落 storage/_studio/out
+      { title: '🎨 风格库 / 实验室', desc: '风格包管理 + 30 秒短片实验（仅管理员本机：需先启动本地服务）', href: '/admin/vf-studio', icon: '🎨', roles: ['admin'] },
     ],
   },
   {

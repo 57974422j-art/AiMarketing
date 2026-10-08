@@ -394,6 +394,24 @@ function renderCands(){
 }
 
 initFilters(); renderList(); renderEdit(); renderJson(); ping();
+/* ★VF_STUDIORUNTIME_V1（2026-10-08 用户定案 ②）：把**运行时库**（storage/_studio/styles）的风格包也列进来。
+   为什么：内置库是"烤"进本页的（DB.styles，随仓库交付、只读）；后台新存的风格包进的是运行时库，
+   不合并的话"存了却在列表里看不到"。口径：**同 id 不覆盖**（避免冲掉用户本地未保存的改动）。 */
+function mergeRuntime(){
+  fetch('/api/list').then(function(r){ return r.json(); }).then(function(j){
+    if(!j || !j.ok || !j.items) return;
+    var ids = {}; S.forEach(function(p){ ids[p.id] = 1; });
+    var added = 0;
+    j.items.forEach(function(p){
+      if(p.source !== 'runtime') return;
+      if(ids[p.id]) return;
+      var q = JSON.parse(JSON.stringify(p)); delete q.source;
+      S.push(q); added++;
+    });
+    if(added) renderList();
+  }).catch(function(){});
+}
+mergeRuntime();
 </script>
 </body>
 </html>

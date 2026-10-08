@@ -89,6 +89,15 @@ export const STD_COMMANDS: StdCommand[] = [
   { id: 'copy',     text: '帮我写一个小红书文案',      kind: 'tool',    note: '工具 generate_copy（平台=小红书）' },
   { id: 'poster',   text: '帮我生成一张产品海报',      kind: 'tool',    note: '工具 generate_image（会先搜公共模板）' },
   { id: 'digital',  text: '帮我生成一个数字人口播',    kind: 'tool',    note: '工具 digital_human_speak' },
+  // ── ★VF_FILMLINE_V1（2026-10-08，用户定案）：「素材片」= 新的制作模式（素材片线）──
+  //   用户原话：「新的制作模式我怎么在 AGENT 页测试」+「我们现在所有做的都是标准模式下状态机激发的，
+  //   自由模式现在就是一个纯空壳」⇒ **必须登记进本表**，否则标准模式把它当"非命令"直接锁死
+  //   （历史同款坑：图视混剪 09-24 建好后漏登记，用户实测被锁死回复拦住）。
+  //   kind='tool'：不需要状态机 —— 放行后由模型直接调工具 `make_material_film`（参数从话里提）。
+  //   ⚠️ text 必须与 page.tsx 的 FEATURE_TIPS **一字不差**；匹配是"去空白后完全相等"（少一字/错一字不执行）。
+  //   alias 只是"另一个精确写法"，不是放宽匹配。
+  { id: 'film', text: '素材片', kind: 'tool', alias: ['素材短片', '做条素材片', '素材集', 'showreel'],
+    note: '工具 make_material_film（素材驱动竖屏短片：风格包 + 镜头组，HTML 逐帧渲染；三道闸门不过即回退老画法）' },
 
   // ── 缺口（用户定案：先回"开发中"，把手上 7 条做扎实）──────────────────
   { id: 'hotspot',  text: '帮我查一下今日热点',        kind: 'wip',     note: '⚠️ 缺专用工具（只有 /api/agent/hotspots 接口，工具箱里没有热点工具）' },
