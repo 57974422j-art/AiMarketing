@@ -1367,14 +1367,14 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           if (_imgs.length) {
             const _dl = await downloadMaterials(uidFilm, _imgs)
             files = (_dl || []).map((m: any) => String(m.localPath || '')).filter(Boolean)
-            if (files.length) vfLog(uidFilm, `[素材片] material/ 为空 → 回退用个人仓库图片 ${files.length} 张`)
+            if (files.length) vfLog(uidFilm, `[HTML成片] material/ 为空 → 回退用个人仓库图片 ${files.length} 张`)
           }
-        } catch (eR: any) { vfLog(uidFilm, '[素材片] 回退取仓库图片失败: ' + String(eR?.message || eR).slice(0, 120)) }
+        } catch (eR: any) { vfLog(uidFilm, '[HTML成片] 回退取仓库图片失败: ' + String(eR?.message || eR).slice(0, 120)) }
       }
       if (!files.length) return 'TOOL_REJECT:没有找到素材（请先上传图片到素材库，或在参数里指定 materials 文件名）'
       files = files.slice(-8)
       const workDir = path.join(vfStorageRoot(), String(uidFilm), 'video-factory', 'film_' + Date.now())
-      vfLog(uidFilm, `[素材片] 开始：${files.length} 张素材 → 编排 + 出片`)
+      vfLog(uidFilm, `[HTML成片] 开始：${files.length} 张素材 → 编排 + 出片`)
       const r = await makeFilmFromMaterials({
         materials: files,
         text: String(args.text || ''),
@@ -1383,10 +1383,10 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         workDir,
       })
       if (!r.ok) {
-        vfLog(uidFilm, `[素材片] 被闸门拦下：stage=${r.stage} ${String(r.err || '').slice(0, 160)}`)
-        return `TOOL_REJECT:素材片出片被拦（${r.stage}）：${String(r.err || '').slice(0, 200)}；可改用 make_ai_video（老画法）或改文案后重试`
+        vfLog(uidFilm, `[HTML成片] 被闸门拦下：stage=${r.stage} ${String(r.err || '').slice(0, 160)}`)
+        return `TOOL_REJECT:HTML成片出片被拦（${r.stage}）：${String(r.err || '').slice(0, 200)}；可改用 make_ai_video（老画法）或改文案后重试`
       }
-      vfLog(uidFilm, `[素材片] 完成：${r.mp4}（赛道=${r.vertical} 风格包=${r.pack}）`)
+      vfLog(uidFilm, `[HTML成片] 完成：${r.mp4}（赛道=${r.vertical} 风格包=${r.pack}）`)
       // ★VF_FILM_CARD_V1（2026-10-08 用户实测「素材片出片了但看不到任何卡」）：
       //   ① `r.mp4 / r.sheet` 是**渲染机上的绝对路径**（前端放不了）⇒ 必须**入个人仓库 + 签 24h URL**
       //      （与样板镜同做法：saveToPersonalRepo + signedUrl，见 make_ai_video 的 VF_PREVIEW_DONE）；
@@ -1411,9 +1411,9 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           } catch { /* 审片图失败不影响成片 */ }
         }
         if (url) return `VF_FILM_DONE:${JSON.stringify({ url, poster, pack: r.pack, vertical: r.vertical })}`
-        vfLog(uidFilm, '[素材片] 入库未拿到 URL → 退回本地路径（前端会提示）')
+        vfLog(uidFilm, '[HTML成片] 入库未拿到 URL → 退回本地路径（前端会提示）')
       } catch (eU: any) {
-        vfLog(uidFilm, '[素材片] 入库/签名失败：' + String(eU?.message || eU).slice(0, 160))
+        vfLog(uidFilm, '[HTML成片] 入库/签名失败：' + String(eU?.message || eU).slice(0, 160))
       }
       return `VF_FILM_DONE:${JSON.stringify({ url: '', poster: '', localMp4: r.mp4, pack: r.pack, vertical: r.vertical })}`
     }
@@ -3193,7 +3193,7 @@ export async function POST(request: NextRequest) {
     //   命令一旦出现就走哪条线，不能看模型心情（与"看到第一条命令就是重来"同一规矩）。
     try {
       if (matchStdCommand(userMessage)?.id === 'film') {
-        sysBlocks.push('【本次命令 = 素材片（用户点/说了「素材片」）】你必须调用工具 `make_material_film` —— 把用户的素材做成竖屏短片（风格包 + 镜头组，HTML 逐帧渲染）。**不要**调用 make_ai_video / create_ai_video（那是文案驱动、或 AI 生成画面，不是这条命令）。参数：text = 用户给的主题（没给就留空，编排器会按素材判赛道）；要指定风格包才用 pack（**只能引用库内 id**）。')
+        sysBlocks.push('【本次命令 = HTML成片（用户点/说了「HTML成片」；旧说法「素材片」同一条）】你必须调用工具 `make_material_film` —— 把用户给的图片做成竖屏短片（风格包 + 镜头组，HTML 逐帧渲染）。**不要**调用 make_ai_video / create_ai_video（那是文案驱动、或 AI 生成画面，不是这条命令）。参数：text = 用户给的主题（没给就留空，编排器会按图片判赛道）；要指定风格包才用 pack（**只能引用库内 id**）。')
       }
     } catch { /* 注入失败不影响对话 */ }
     // ═══ ★VF_MEMORY_V1（2026-09-30 用户定案「常用之后就不用再去看了，从记忆里就已经知道用户是做什么的」）═══

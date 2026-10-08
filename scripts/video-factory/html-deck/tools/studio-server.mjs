@@ -222,7 +222,7 @@ const server = http.createServer(async (req, res) => {
     const arr = await import('./arrange.mjs')
     const film = arr.arrange({
       id: 'wb-' + jid,
-      name: body.name || '30 秒素材片',
+      name: body.name || '30 秒 HTML成片',   // ★VF_HTMLCMD_V1：旧名「素材片」→「HTML成片」
       pack: body.pack || 'reel-showcase',
       media: files.map((f) => 'media/' + f),
       structures: body.structures,
@@ -278,7 +278,7 @@ server.listen(PORT, '127.0.0.1', () => {
   const url = 'http://127.0.0.1:' + PORT + '/'
   console.log('风格包管理器已启动：' + url)
   console.log('（这个窗口不要关；关掉就等于停服务）')
-  console.log('30 秒素材片工作台：' + url + 'lab')
+  console.log('30 秒 HTML成片工作台：' + url + 'lab')
   if (!args.includes('--no-open')) {
     if (process.platform === 'win32') spawnSync('cmd', ['/c', 'start', '', url], { windowsHide: true })
     else spawnSync('open', [url])

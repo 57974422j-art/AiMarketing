@@ -45,7 +45,8 @@ const featureCards = [
     color: 'from-emerald-500/20 to-emerald-600/10 border-emerald-500/30',
     hoverColor: 'hover:border-emerald-400/50 hover:shadow-emerald-500/10',
     path: '/storage',
-    badgeDefault: '素材管理',
+    // ★VF_REPO_NAME_V1（2026-10-08 用户定案）：全站显示名统一「个人仓库」（不再叫"素材管理/素材仓库"）
+    badgeDefault: '个人仓库',
     badgeColor: 'bg-emerald-500/20 text-emerald-400',
   },
   {

@@ -3468,10 +3468,12 @@ function AgentPageInner() {
     'AI 制片',                       // ③ AI 制片（画面全部 AI 生成）
     '素材+AI',
     'PPT成片',                       // ★VF_PPT_SPLIT_V1（2026-10-06）：PPT 成片独立线（只吃文案+皮肤；配音为时序真源，不掺素材图）                       // ④ 素材+AI 创作（AI 挑该动的镜用 AI，其余用素材）
-    // ★VF_FILMLINE_V1（2026-10-08，用户定案「新的制作模式」）：素材片线 —— 素材驱动竖屏短片
-    //   （风格包 + 镜头组，HTML 逐帧渲染；与「图片成片」的区别：那条是文案驱动图文讲解片，这条是素材展示片）
+    // ★VF_FILMLINE_V1（2026-10-08，用户定案「新的制作模式」）：新线 —— 图片驱动的竖屏短片
+    //   （风格包 + 镜头组，HTML 逐帧渲染；与「图片成片」的区别：那条是文案驱动图文讲解片，这条是展示片）
+    // ★VF_HTMLCMD_V1（2026-10-08 用户定案「不要叫素材片吧，你直接 HTML成片。素材这个词用的太多」）：
+    //   按钮文字 = **HTML成片**（旧说法「素材片」在标准模式里保留为别名，手打仍可进）
     //   ⚠️ 必须与 standard-commands.ts 的 STD_COMMANDS 的 text **一字不差**
-    '素材片',
+    'HTML成片',
     // ★VF_LEAD_V1（2026-09-29 老板定案）：第 5 条状态机线 ——「智能获客」设置面板。
     //   ⚠️ 与 standard-commands.ts 的 STD_COMMANDS 必须一字不差（后端是"去空白后完全相等"）。
     '智能获客',
@@ -3960,7 +3962,7 @@ function AgentPageInner() {
             {_head ? <div className="mb-2 whitespace-pre-wrap">{renderContent(_head)}</div> : null}
             <div className="mb-2 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06]">
               <div className="text-xs text-emerald-300 mb-2">
-                🎬 素材片已出片{fd.pack ? `（风格包 ${fd.pack}${fd.vertical ? ' · ' + fd.vertical : ''}）` : ''}
+                🎬 HTML成片 已完成{fd.pack ? `（风格包 ${fd.pack}${fd.vertical ? ' · ' + fd.vertical : ''}）` : ''}
               </div>
               {src && isRealUrl ? (
                 <video src={src} controls playsInline preload="metadata" poster={fd.poster || undefined}
@@ -3974,7 +3976,7 @@ function AgentPageInner() {
                 <img src={fd.poster} alt="审片图" className="mt-2 w-full rounded-lg border border-white/10" />
               ) : null}
               <div className="text-[10px] text-gray-400 mt-2">
-                已存入个人仓库（在「个人仓库」里可查看/下载）。想换风格再来一次「素材片」并指定风格包即可。
+                已存入个人仓库（在「个人仓库」里可查看/下载）。想换风格再来一次「HTML成片」并指定风格包即可。
               </div>
             </div>
           </div>

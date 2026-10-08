@@ -149,10 +149,13 @@ export default function StoragePage() {
       <div className="max-w-6xl mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
-          <p className="text-xs tracking-[0.2em] text-gray-500 mb-1 font-mono">素材管理 / STORAGE</p>
-          <h1 className="text-mono-lg text-white">素材仓库 / MY LIBRARY</h1>
+          {/* ★VF_REPO_NAME_V1（2026-10-08 用户定案「个人仓库 有『素材仓库』字样，一直没改，你可以改下」）：
+              全站口径统一成**个人仓库**（这里以前写「素材管理 / 素材仓库」）。
+              ⚠️ 只改**显示名**：路由仍是 /storage、接口与字段（files/quota/素材名单）一律不动 ⇒ 零回归。 */}
+          <p className="text-xs tracking-[0.2em] text-gray-500 mb-1 font-mono">个人仓库 / STORAGE</p>
+          <h1 className="text-mono-lg text-white">个人仓库 / MY LIBRARY</h1>
           <p className="text-sm text-gray-500 mt-1 font-mono">
-            上传、管理和推送视频/图片素材 · 配额 {fmt(quota.total)}
+            上传、管理与推送你的图片 / 视频 · 配额 {fmt(quota.total)}
           </p>
         </div>
 

@@ -64,7 +64,7 @@ export function arrange(opts = {}) {
     slots: { title: o.gridTitle, sub: o.gridSub, nums: ['01', '02', '03', '04'], tail: o.tail, foot: o.foot }, media: take(5, 4) })
 
   const total = +scenes.reduce((a, s) => a + s.dur, 0).toFixed(2)
-  return { id: opts.id || 'auto-' + Date.now(), name: opts.name || '30 秒素材片（自动编排）', pack: opts.pack || 'reel-showcase',
+  return { id: opts.id || 'auto-' + Date.now(), name: opts.name || '30 秒 HTML成片（自动编排）', pack: opts.pack || 'reel-showcase',
     fps: 25, note: '由 tools/arrange.mjs 自动编排；可手工微调 scenes 顺序/时长/文案/素材。', total, scenes }
 }
 

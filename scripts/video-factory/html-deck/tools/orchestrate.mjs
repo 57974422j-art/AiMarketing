@@ -114,7 +114,7 @@ export function orchestrateRule(opts = {}) {
   const media = mats.map((m) => m.file)
   const film = arrange({
     id: opts.id || 'orch-' + Date.now(),
-    name: opts.name || '素材片（自动编排）',
+    name: opts.name || 'HTML成片（自动编排）',   // ★VF_HTMLCMD_V1：旧名「素材片」→「HTML成片」
     pack,
     media,
     slots: opts.slots || {},
@@ -219,7 +219,7 @@ if (isCli) {
     if (out) {
       // id 取**输出文件名**（否则成片会都叫 orch.mp4，现场分不清哪条是哪条 —— 实测踩过）
       const id = j.id || path.basename(out, '.json')
-      fs.writeFileSync(out, JSON.stringify({ id, name: j.name || '素材片', pack: v.pack, fps: 25, scenes: v.scenes }, null, 2) + '\n', 'utf8')
+      fs.writeFileSync(out, JSON.stringify({ id, name: j.name || 'HTML成片', pack: v.pack, fps: 25, scenes: v.scenes }, null, 2) + '\n', 'utf8')
       console.log('已写：' + out)
     }
     console.log('fallback ' + v.fallbacks.length + ' 处' + (v.fallbacks.length ? '：\n  ' + v.fallbacks.join('\n  ') : ''))
