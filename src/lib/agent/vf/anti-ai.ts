@@ -352,6 +352,14 @@ export const PICK_DESIGN_KEYS = ['theme', 'variant', 'motion', 'transition', 'ki
   //   否则两条线的"显式造对象 + pickDesignFields(s)"会在归一化时把它静默丢掉（deck variant 同款坑）。
   'overlay_ppt', 'overlay_side'] as const
 
+/** ★VF_FX_SWITCH_V1（2026-10-08 用户定案「另加一个『特效：开 / 关』」）：
+ *  「特效=关」时要清掉的**动效字段**（只清"动不动"，不动 theme/variant/shadow/overlay_ppt 这类版式字段）。
+ *  必须与渲染层的动效入口**逐字对齐**（scripts/video-factory/render.py）：
+ *    motion（淡入/上滑/逐字浮现）· enter（整块版式滑入）· transition（镜间转场写法）·
+ *    wipe（擦入）· bgblur（背景虚化）· float（缓慢浮动）· frame（相框也会带浮动/擦入观感）。
+ *  另有**单镜** `sustain='none'`（持续动效总开关）由 buildVideoPlan 一并写死。 */
+export const FX_STRIP_KEYS = ['motion', 'enter', 'transition', 'wipe', 'bgblur', 'float', 'frame'] as const
+
 /** 从 AI 给的镜里挑出设计字段（只收非空字符串；值是否合法交给 sanitizeAntiAiShots 白名单判）
  *  为什么单独一个小函数：分镜出口有两处（vf-video.ts 与 chat/route.ts 的 genVideoShots），
  *  两边的 `bgimage` 分支都是**显式造对象**（不是 {...s}）→ 不显式带上就会把 theme/variant/motion 丢掉。 */

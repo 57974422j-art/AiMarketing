@@ -109,6 +109,12 @@ export interface VfVideoDraft {
   /** ★OVERLAY_TEXT_SWITCH_V1（2026-09-29 用户定案）：画面大字开关 'on'|'off'
    *  只关【压在素材/视频上的大字】；独立文字卡（标题/结尾/列表…）与字幕不受影响。 */
   big?: string
+  /** ★VF_FX_SWITCH_V1（2026-10-08 用户定案「另加一个『特效：开 / 关』」）：
+   *  'on'（缺省 = 现状，什么都没变）/ 'off' = **整片静态**（不淡入 / 不上滑 / 不逐字浮现 / 不整块滑入 /
+   *  不生长 / 不呼吸 / 不浮动 / 图片不推拉 / 数字不滚动 / 列表不逐条插入）。
+   *  ⚠️ 与 big（画面大字）**正交**：fx 管"动不动"，big 管"有没有大字"。
+   *  落地：buildVideoPlan 里清动效字段 + plan 根级 `fx:'off'`（render.py 的 ★VF_FX_SWITCH_V1 读它）。 */
+  fx?: string
   /** ★VF_UPLOADWHITELIST_V1（2026-10-06）：有它 ⇒ **只认这一批**（不掺仓库旧素材、不打散）；
    *  空 ⇒ 老行为（全仓库打散抽样）。与素材+AI / 图片成片 / AI 制片同语义。 */
   uploaded: string[]
@@ -407,6 +413,7 @@ function formCard(vd: VfVideoDraft): string {
     // ★VF_STYLES_WIRE_V1（2026-10-01）：「🎨 画面风格」**回显**（未选 = '' → 卡片显示"跟随 AI / 不指定"）
     style: vd.style || '',
     big: vd.big || 'on',      // ★OVERLAY_TEXT_SWITCH_V1：画面大字（加 / 不加），默认加
+    fx: vd.fx || 'on',        // ★VF_FX_SWITCH_V1：特效（开 / 关），默认开（= 现状）
     // ★VF_VIDI2V_V1：让图动起来（逐镜图生视频）开关；★VF_MATUI_V1 起**默认不动**（'off'，0 点动图）
     i2v: vd.i2v || 'off',
     // ★VF_BANNER_V1：顶部固定标题（AI 自动拟两行）开关 —— 默认开（用户要"默认这样，方便后期集成自动化"）
@@ -448,6 +455,8 @@ async function saveVideoMatPolicy(db: any, uid: number | string, name: string, a
 async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): Promise<string> {
   const { uid } = ctx
   const dur = Math.max(5, Math.min(900, Number(vd.dur) || 30))
+  // ★VF_FX_SWITCH_V1（2026-10-08）：特效开关（'off' = 整片静态）——提示词与后续日志都用它
+  const _fxOff = String(vd.fx || '') === 'off'
 
   // ── 1) 素材：图片 + 视频（视频要探测元信息 + 抽帧看懂内容）──
   // ★VF_MEMORY_V1（2026-09-30）：先读用户「提拔/禁用」名单 → 起草时即生效（deny 一律排除、allow 一律保留）
@@ -519,12 +528,21 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   //   而它们彼此独立，并行后总耗时≈最慢的那一件。
   const [clipLines, imgBrief, imgLocal] = await Promise.all([
     ctx.describeVideoClips(clips, uid),
+    // ★VF_USEALL_V1（2026-10-08 用户定案「都识别一下，因为要有文案，到时候对不上麻烦」）：
+    //   原来固定只识别 8 张 ⇒ 传 15 张时后 7 张 AI 没见过（文案/分镜与画面容易对不上）。
+    //   现口径：**按本次进画面的张数识别**（下限 10，上限由 summarizeMaterials 内部白名单兜住）。
     (imgs.length && ctx.summarizeMaterials)
-      ? ctx.summarizeMaterials(uid, mats || [], 8) : Promise.resolve(''),
-    imgs.length ? ctx.downloadMaterials(uid, imgs.slice(0, 20)) : Promise.resolve([] as any[]),
+      ? ctx.summarizeMaterials(uid, mats || [], Math.max(10, imgs.length)) : Promise.resolve(''),
+    // ★VF_USEALL_V1（2026-10-08 用户实测「上传 15 张图，它调 5 个做的」）：
+    //   图片下载上限写死 20 张。用户铁律是「**上传多少就用多少**」，所以按实际张数放宽到 40
+    //   （20 是历史护栏；40 与分镜上限 shotN≤40 对齐）。超过 40 张才截断，并如实写日志。
+    imgs.length ? ctx.downloadMaterials(uid, imgs.slice(0, Math.min(40, Math.max(20, imgs.length)))) : Promise.resolve([] as any[]),
   ])
   const brief = [imgBrief, clipLines].filter(Boolean).join('\n')
   const imgPaths = imgLocal.map((m: any) => m.localPath).filter(Boolean)
+  if (imgs.length > 40 && imgPaths.length < imgs.length) {
+    ctx.log(uid, `[VF-V][VF_USEALL_V1] ⚠️ 素材共 ${imgs.length} 张，超过单次上限 40 → 本次只用 40 张（其余未参与分镜）`)
+  }
   // ★VF_VIDI2V_V1：图片本地路径 → 个人仓库 key 的映射（用通用小工具 i2vKeyMap 建）。
   //   为什么需要它：分镜里 bgimage 的 src 是**服务器本地路径**（downloadMaterials 下的 material/），
   //   而图生视频供应商要求首帧是**公网可拉取**的地址（拿不到 cookie、读不到服务器磁盘）
@@ -586,7 +604,17 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   }
 
   // ── 4) 排分镜：把图片 + 视频（含真实时长与内容）一起给 AI，由它决定哪几镜用视频 ──
-  const shotN = Math.max(4, Math.min(40, Math.round(dur / 5)))
+  // ★VF_SHOTN_V1（2026-10-08 用户实测「**上传 15 张图，它只调 5 个做的** —— 上传多少就该用多少，
+  //   不管视频多长、图片多少张」）：
+  //   原口径 shotN = round(dur/5)，而 dur 缺省 30 ⇒ **6 镜**；规则⑧又要求"每 4~5 镜 1 张文字卡"
+  //   ⇒ 实际只剩 **5 镜能用素材** —— 与用户看到的"调 5 个"逐字吻合。
+  //   现口径：**上传模式（durAuto 或带上传名单）⇒ 素材有几张就给几镜**（另按规则⑧给文字卡留位），
+  //   保证"上传多少用多少"；**纯仓库模式保持老口径**（零回归）。
+  const _matNeed = imgPaths.length + clips.length
+  const _textCardSlots = Math.ceil(Math.max(4, _matNeed) / 5)
+  const shotN = (vd.durAuto || _wantedUp.length)
+    ? Math.max(4, Math.min(40, _matNeed + _textCardSlots))
+    : Math.max(4, Math.min(40, Math.round(dur / 5)))
   const prompt = `你是短视频混剪编导。把下面这条口播文案排成分镜，画面用【用户的素材】。\n` +
     `画幅 ${aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'}，总时长约 ${dur} 秒，【必须切成 ${shotN} 个镜头左右（±3 以内）】。\n` +
     `【可用的图】共 ${imgPaths.length} 张（图号 1~${imgPaths.length}）${imgBrief ? '：\n' + imgBrief : ''}\n` +
@@ -613,11 +641,25 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
     //   提示词里给出"每张最多用一次"的**硬规矩**（服务端在归一化阶段还有兜底去重，见下方 dedupeMaterialUse）。
     `⑩【素材不许重复用】同一张图 / 同一个视频在一份分镜里【最多用一次】；` +
     `只有在素材总数 < 镜头数时才允许重复，且同一素材的两镜之间【至少隔 2 镜】\n` +
+    // ★VF_USEALL_V1（2026-10-08 用户实测「上传 15 张图它调 5 个做的」）：
+    //   上面 ⑩ 只管"最多用一次"（防重复），**没有"至少用一次"** ⇒ AI 用够就收手。
+    //   用户点名了这批素材时（上传模式）⇒ **每一张都必须出现**，用不完就用 duo/frame 拼版消化。
+    (_matNeed > 0 && _matNeed <= 40
+      ? `⑪【每一张图都必须用上】图号 1~${imgPaths.length} 里的**每一张都至少要在 1 个镜里出现**（用户传了几张就要看到几张）；` +
+        `镜位不够时就把 2 张拼一版 {"type":"duo","picks":[i,j]} 或 3~4 张拼一版 {"type":"frame","picks":[i,j,k]}，` +
+        `**不许整张不用**。\n`
+      : '') +
     // ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：「长镜必须有动效」档位接进提示词（放在 ⑩ 附近）。
     //   用户实测原话：「第一个图片应该是个 PPT 没有动效或者是不明显，时间过长」；逐帧实测第 1 镜
     //   "动 1 秒、静止 5.5 秒"。根因 = 渲染层动效字段（enter/motion/frame/wipe/bgblur）在 src/ 里
     //   0 命中（提示词没接线）→ AI 永远不写。这段规矩与图片成片线**共用同一份常量**（anti-ai.ts）。
     VF_MOTION_PROMPT +
+    // ★VF_FX_SWITCH_V1（2026-10-08 用户定案「另加一个『特效：开 / 关』」）：特效=关 ⇒
+    //   这条**覆盖上面所有动效要求**；第二道兜底在 buildVideoPlan（动效字段直接清掉）。
+    (_fxOff
+      ? `★★【本次特效=关（用户在设置卡关掉了特效）】**不要写** motion / enter / transition / frame / float / wipe / bgblur 任何一个动效字段；` +
+        `也**不要**为了"长镜必须有动效"去补动效 —— 整片是**静态排版**（上面那条"长镜必须有动效"本次不适用）。\n`
+      : '') +
     // ★VF_DECK_WIRE_V1（2026-10-01）：把「富编排 PPT 页」（variant=deck / 4 套风格）接进本线提示词
     //   —— 何时用/何时不用/字段怎么填；与「图片成片」线共用同一份常量（anti-ai.ts）。
     VF_DECK_PROMPT +
@@ -1006,7 +1048,10 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
       vd = {
         step: 'form', topic, aspect: 'auto', dur: 30,
         voice: (ctx.voiceList && ctx.voiceList[0] && ctx.voiceList[0].id) || 'longxiaochun',
-        theme: 'dark', bgm: '', uploaded: [], script: '', brief: '', keepAudio: false,
+        // ★VF_DEFTHEME_V1（2026-10-08 用户实测「默认模版不要黑乎乎的」）：默认 dark → **light（清爽浅色）**
+        theme: 'light', bgm: '', uploaded: [], script: '', brief: '', keepAudio: false,
+        // ★VF_FX_SWITCH_V1：特效开关默认开（缺省 = 现状，零回归）
+        fx: 'on',
         // ★VF_MATUI_V1（2026-09-30 用户定案「能不加 AI 做视频就不加」）：**默认 = 'off'（不动）**。
         //   四档全部保留，用户想动随时在设置卡切：off（默认）/ picked（只动勾选）/ on（智能筛）/ all（全部）。
         i2v: 'off',
@@ -1041,6 +1086,8 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
         //   （非法 / 未选 → '' = 不指定；出片时据此决定是否写 plan 根级 `style`）。
         if (f.style !== undefined) vd.style = normalizeStyle(f.style)
       if (f.big) vd.big = String(f.big)   // ★OVERLAY_TEXT_SWITCH_V1：'on' | 'off'
+        // ★VF_FX_SWITCH_V1：'on'（默认 = 现状）/ 'off'（整片静态）
+        if (f.fx !== undefined) vd.fx = (String(f.fx) === 'off') ? 'off' : 'on'
         // ★VF_VIDI2V_V1：'off'（全静态图，不额外计费）| 'on'（智能筛，只动有主体可动的图）
         // ★VF_MATUI_V1（2026-09-30 用户定案）：新增 'picked'（只动我勾选的🎞）；缺省 = 'off'
         // ★VF_I2VSUIT_V1（2026-09-30）：'all' / 'picked' = 不按素材类型筛选（用户手动点名了）

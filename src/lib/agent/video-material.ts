@@ -678,7 +678,9 @@ export async function summarizeMaterials(
   items: RepoMaterial[],
   maxImages = 10,
 ): Promise<string> {
-  const imgs = items.filter((i) => i.kind === 'image').slice(0, Math.max(1, Math.min(20, maxImages)))
+  // ★VF_USEALL_V1（2026-10-08 用户定案「都识别一下，因为要有文案，到时候对不上麻烦」）：
+  //   上限 20 → 40（与"上传多少用多少"的张数上限对齐）—— 传 15 张时不能只识别前 8~20 张。
+  const imgs = items.filter((i) => i.kind === 'image').slice(0, Math.max(1, Math.min(40, maxImages)))
   const vids = items.filter((i) => i.kind === 'video').slice(0, 5)
   if (!imgs.length && !vids.length) return ''
 

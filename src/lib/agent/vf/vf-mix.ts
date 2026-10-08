@@ -233,8 +233,11 @@ export async function handleMixLine(ctx: VfMixCtx): Promise<string> {
         .replace(/^(用|请用|请|来|帮我|帮忙|给我|麻烦)\s*/, '')
         .replace(/^[\s:：,，,。、]+/, '').trim()
       vd = {
+        // ★VF_DEFTHEME_V1（2026-10-08 用户定案「默认模版不要黑乎乎的」+「vf-mix 也改下」）：
+        //   默认 theme 从 'dark' 改成 **'light'（浅色纸感）**。只改默认值 ——
+        //   用户在设置卡显式选 dark/tech/light 时仍以他选的为准（白名单见下方表单解析）。
         step: 'form', topic, aspect: 'portrait', dur: 30,
-        voice: 'longxiaochun', theme: 'dark', bgm: 'auto', script: '', source: 'mix',
+        voice: 'longxiaochun', theme: 'light', bgm: 'auto', script: '', source: 'mix',
       }
       VF_MIX_DRAFT.set(uid, vd)
       await saveVfMixDraft(ctx.prisma, uid, vd)
@@ -257,7 +260,8 @@ export async function handleMixLine(ctx: VfMixCtx): Promise<string> {
       if (f.engine !== undefined) vd.engine = String(f.engine) === 'deck' ? 'deck' : 'classic'
       if (f.aspect) vd.aspect = ['portrait', 'landscape', 'auto'].includes(String(f.aspect)) ? String(f.aspect) : 'portrait'
       if (f.dur) vd.dur = Math.max(5, Math.min(900, parseInt(f.dur) || 30))
-      if (f.theme) vd.theme = ['dark', 'tech', 'light'].includes(String(f.theme)) ? String(f.theme) : 'dark'
+      // ★VF_DEFTHEME_V1：非法/未选时兜底也一起改成 'light'（与默认值同口径，否则"没选 = 变黑"的老毛病还在）
+      if (f.theme) vd.theme = ['dark', 'tech', 'light'].includes(String(f.theme)) ? String(f.theme) : 'light'
       if (f.voice) vd.voice = String(f.voice)
       if (typeof f.topic === 'string' && f.topic.trim()) vd.topic = f.topic.trim().slice(0, 300)
       if (f.script && String(f.script).trim()) vd.script = String(f.script).trim().slice(0, 4000)

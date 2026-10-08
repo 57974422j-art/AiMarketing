@@ -21,7 +21,9 @@
 import { stripEmoji, normalizeDeckStyle,
   // ★VF_STYLES_WIRE_V1（2026-10-01）：成品风格（5 套，人话名字）→ plan 根级 `style`。
   //   未指定/非法 → '' → **不写 style 键**（老链路 theme + deck_style 零回归）。
-  normalizeStyle } from './anti-ai'
+  normalizeStyle,
+  // ★VF_FX_SWITCH_V1（2026-10-08）：特效=关时要清掉的动效字段（与渲染层入口逐字对齐）
+  FX_STRIP_KEYS } from './anti-ai'
 
 /** 第 1 行（钩子/主题）字数上限 —— 用户定案 ≤12 字 */
 export const VF_BANNER_LINE1_MAX = 12
@@ -297,13 +299,28 @@ export function buildVideoPlan(shots: any[], vd: any, opts?: { sizeDefault?: num
       mix: true,
     }
     : null
+  // ★VF_FX_SWITCH_V1（2026-10-08 用户定案「另加一个『特效：开 / 关』」）：
+  //   用户原话：「现在应该没有打字了。都是 PPT，你关闭打字直接改成关闭特效。」
+  //   → 做成**总闸**，并且**在 plan 组装这一处统一落地**（四条线共用本函数 ⇒ 一处覆盖全部）：
+  //     ① 每一镜清掉动效字段（motion/enter/transition/wipe/bgblur/float/frame）+ 写 `sustain:'none'`；
+  //     ② 填根级 `fx: 'off'`（渲染层的总闸，见 render.py 的 ★VF_FX_SWITCH_V1）。
+  //   ⚠️ 默认（'on'/缺省）**一个键都不写、一个字段都不动** ⇒ 老草稿/老行为逐字不变（零回归）。
+  const _fxOff = String(vd?.fx || '') === 'off'
+  const _shots = (Array.isArray(shots) ? shots : []).map((s: any) => {
+    if (!_fxOff || !s || typeof s !== 'object') return s
+    const o: any = { ...s }
+    for (const k of FX_STRIP_KEYS) if (o[k] !== undefined) delete o[k]
+    o.sustain = 'none'
+    return o
+  })
   return planWithBanner({
     size,
     fps: VF_PLAN_FPS,
-    shots: Array.isArray(shots) ? shots : [],
+    shots: _shots,
     overlay_text: vd?.big !== 'off',                 // 'off' 才关；缺省 = 开（与 render.py 缺省一致）
     deck_style: normalizeDeckStyle(vd?.deckStyle),   // ★VF_DECK_STYLES_V1：画面模版（非法/缺省 = 'auto'）
     ...(_style ? { style: _style } : {}),            // ★VF_STYLES_WIRE_V1：成品风格（选了才写；不选 = 不写）
     ...(_pp ? { pptpage: _pp } : {}),                // ★VF_PPTIMG_V1：新引擎皮肤（只有 PPT+图视 线写）
+    ...(_fxOff ? { fx: 'off' } : {}),                // ★VF_FX_SWITCH_V1：特效=关（只有关时才写这个键）
   }, bannerFieldOf(vd))
 }

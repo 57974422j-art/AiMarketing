@@ -110,6 +110,8 @@ async function genVideoShotsRaw(o: {
   /** ★VF_AIVIDEO_V1（2026-09-20）：「全部 AI 生成」时，额外要求每镜给一个【英文画面描述】，
    *  作为 MiniMax H3 的生成提示词。**不传时输出与原来完全一致**（素材合成不受任何影响）。 */
   wantPrompt?: boolean
+  /** ★VF_FX_SWITCH_V1（2026-10-08）：用户在设置卡关了「特效」⇒ 提示词里禁写动效字段（见下方那条） */
+  fxOff?: boolean
   /** ★VF_AIONLY_V1（2026-09-21 用户定案）：**AI 制片 = 文生视频** ——
    *  除了"第一步看素材猜题材"之外，**全程不碰素材库**。所以归一化时**只允许不需要素材图的卡**
    *  （title / list / number / compare / chart / end）：`bgimage` / `image` 一律降级成 `title`（不配图）。
@@ -140,6 +142,13 @@ async function genVideoShotsRaw(o: {
     //   同一份常量；本 prompt 就是任务里点名的 vfShotsPrompt —— 只在这里与紧邻的归一化逻辑上加，
     //   文件后半段的模型读取/传参区域一律不碰）。
     VF_MOTION_PROMPT +
+    // ★VF_FX_SWITCH_V1（2026-10-08 用户定案「另加一个『特效：开 / 关』」）：
+    //   特效=关 ⇒ 这条**覆盖上面所有动效要求**（含"长镜必须有动效"），整片静态排版。
+    //   还有第二道兜底：buildVideoPlan 会把动效字段**直接清掉**（AI 写不写都无所谓）。
+    (o.fxOff
+      ? `★★【本次特效=关（用户在设置卡关掉了特效）】**不要写** motion / enter / transition / frame / float / wipe / bgblur 任何一个动效字段；` +
+        `也**不要**为了"长镜必须有动效"去补动效 —— 整片是**静态排版**（上面那条"长镜必须有动效"本次不适用）。\n`
+      : '') +
     // ★VF_DECK_WIRE_V1（2026-10-01）：把「富编排 PPT 页」（variant=deck / 4 套风格）接进本线提示词
     //   —— 何时用/何时不用/4 套风格怎么挑/字段怎么填；与「视频混剪」线共用同一份常量（anti-ai.ts）。
     VF_DECK_PROMPT +
@@ -318,7 +327,7 @@ async function genVideoShotsRaw(o: {
     const dur2 = Math.min(8, Math.max(2, parseInt(s?.dur) || 5))
     if (!lp2 || o.aiOnly) return { type: 'title', text: bigTextCut(head2, 14), subtitle: sub2, dur: dur2 }
     return { type: 'bgimage', src: lp2, text: bigTextCut(head2, 14), subtitle: sub2, dur: dur2 }
-  }).filter(Boolean).slice(0, Math.max(4, Math.min(40, o.shotN || 8)))
+  }).filter(Boolean).slice(0, Math.max(4, Math.min(60, o.shotN || 8)))   // ★VF_SHOTN_V1：上限 40→60（与上传张数对齐）
   // ★VF_SHOTCOUNT_V1（2026-09-20 用户实测“13 镜/190 秒、一镜 14.6 秒太闷”）：
   //   AI 常排不够镜头（目标 36 只给 13），而兜底又是“按现有镜数切” → 一镜 24 秒。
   //   这里直接按【目标镜数】重排：文案切 N 段 + 保留 AI 的解说卡骨架（按位置摊开）
@@ -703,6 +712,8 @@ function sbPayload(vd: any, shots: any[], aspect: string): Record<string, any> {
       size: plan?.size ?? null,
       fps: plan?.fps ?? null,
       overlay_text: plan?.overlay_text ?? null,
+      // ★VF_FX_SWITCH_V1（2026-10-08）：特效总闸（只有关时才有值；开 = null）——留档如实记
+      fx: plan?.fx ?? null,
       deck_style: plan?.deck_style ?? null,
       // ★VF_STYLES_WIRE_V1（2026-10-01）：「🎨 画面风格」（选了才有；没选 = null）——留档如实记
       style: plan?.style ?? null,
@@ -1087,6 +1098,9 @@ import { PrismaClient } from '@prisma/client'
 import { createPublishTask, parsePublishTask } from '@/lib/agent/publish-task'
 import { AGENT_TOOLS, TOOL_STEP_LABEL } from '@/lib/agent/tools'
 import { buildSystemPrompt } from '@/lib/agent/prompts'
+// ★VF_FILMLINE_V1（2026-10-08）：素材片线（独立入口，不动老线）
+import { makeFilmFromMaterials, capabilityBrief, filmLineReady } from '@/lib/agent/vf/vf-film'
+import { materialDir } from '@/lib/agent/video-material'
 import {
   PLATFORM_NAME,
   PLATFORM_NAMES,
@@ -1326,6 +1340,40 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
     // ── 本地成片（★VF_AGENT_V1）：文案 → 分镜 → 配音 → FFmpeg 渲染（全本地）──
     //   与 create_ai_video 的区别：那个走 AI 逐镜生成画面（贵、慢）；
     //   这个走【本地渲染】（tts.py + render.py），快、便宜、画面是模板化卡片/图文。
+    // ★VF_FILMLINE_V1（2026-10-08）：素材片线 —— 用户给素材 → 竖屏短片（风格包 + 镜头组逐帧渲染）
+    //   设计纪律：**独立入口，不改老线**（老线：图片成片 / 图视混剪 / PPT+图视）。
+    //   失败即回退：三道闸门（素材/用字/引擎校验）任一不过 ⇒ 返回 TOOL_REJECT 原因，不产坏片，
+    //   由模型据提示改用 make_ai_video（老画法）或改文案重试。
+    case 'make_material_film': {
+      const uidFilm = auth?.userId || 0
+      const mdir = materialDir(uidFilm)
+      let files: string[] = []
+      try {
+        const only: string[] = Array.isArray(args.materials) ? args.materials.map((x: any) => String(x)) : []
+        files = fs.readdirSync(mdir)
+          .filter((f) => /\.(jpe?g|png|webp)$/i.test(f))
+          .filter((f) => (only.length ? only.some((o) => o === f || f.endsWith(o)) : true))
+          .map((f) => path.join(mdir, f))
+      } catch { files = [] }
+      if (!files.length) return 'TOOL_REJECT:没有找到素材（请先在「素材」里上传图片，或指定 materials 文件名）'
+      files = files.slice(-8)
+      const workDir = path.join(vfStorageRoot(), String(uidFilm), 'video-factory', 'film_' + Date.now())
+      vfLog(uidFilm, `[素材片] 开始：${files.length} 张素材 → 编排 + 出片`)
+      const r = await makeFilmFromMaterials({
+        materials: files,
+        text: String(args.text || ''),
+        pack: args.pack ? String(args.pack) : '',
+        variant: Number(args.variant) || 0,
+        workDir,
+      })
+      if (!r.ok) {
+        vfLog(uidFilm, `[素材片] 被闸门拦下：stage=${r.stage} ${String(r.err || '').slice(0, 160)}`)
+        return `TOOL_REJECT:素材片出片被拦（${r.stage}）：${String(r.err || '').slice(0, 200)}；可改用 make_ai_video（老画法）或改文案后重试`
+      }
+      vfLog(uidFilm, `[素材片] 完成：${r.mp4}（赛道=${r.vertical} 风格包=${r.pack}）`)
+      return `VF_FILM_DONE:${JSON.stringify({ mp4: r.mp4, sheet: r.sheet, pack: r.pack, vertical: r.vertical })}`
+    }
+
     case 'make_ai_video': {
       const vfScript = String(args.script || args.topic || '').trim()
       // ★VF_PLAN_V1：允许 AI 直接给分镜（plan），比"按标点自动切句"好得多
@@ -1689,6 +1737,8 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       const sbObj: any = { size: Array.isArray(planP?.size) ? planP.size : [720, 1280], fps: 25, shots: pickP }
       if (planP?.theme && typeof planP.theme === 'object') sbObj.theme = planP.theme
       if (planP?.overlay_text === false) sbObj.overlay_text = false
+      // ★VF_FX_SWITCH_V1：样板镜也要带特效开关（否则"样板镜有动效、成片没动效"会让人误判）
+      if (planP?.fx === 'off') sbObj.fx = 'off'
       // ★VF_PREVIEW_STYLE_FIX_V1（2026-10-01 team-lead 定案）：样板镜的意义就是"先看效果"——
       //   原来只拷 size/theme/overlay_text，**没拷 `style`/`deck_style`** → 用户选了「画面风格」
       //   却在这 8 秒样板镜里看不到（白看）。这里**只加字段、不动任何逻辑**：
@@ -1765,12 +1815,18 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       if (!idx && !edits.length) {
         return listVfShots(String(uidE), tid).msg            // 只列清单
       }
+      // ★VF_EDITBATCH_V1（2026-10-08）：**单镜**（index/text/subtitle/type）与**批量**（edits[]）统一成同一张改法。
+      //   原来草稿阶段只认单镜 `idx`（`if (_dShots.length && idx)`）⇒ 客户端「✏️ 分镜清单」一次改多镜
+      //   （发的是 `edits:[{index,…},…]`，**没有顶层 index**）会**被漏掉**，直接掉到下面的"只重渲染"分支去改
+      //   磁盘上**上一条已出片任务**的文件 —— 用户以为改了草稿，实际草稿一个字没动（用户实测"改了没用"）。
       const one = edits.length ? edits : [{ index: idx, text: args.text, subtitle: args.subtitle, type: args.type }]
       // ★VF_EDIT_V1：**还没出片**（草稿停在 step='script'）→ 直接改草稿清单（不渲染、不扣钱），
       //   改完让用户点「确认出片」按新版出片；只有"片已经出过"的情况才走下面的只重渲染。
       const _uidD = (auth?.userId || 0) as any
       const _dft: any = VIDEO_DRAFT.get(_uidD)
       const _dShots: any[] = Array.isArray(_dft?.shots) ? _dft.shots : []
+      const _EDIT_KEYS = ['text', 'title', 'subtitle', 'type', 'items', 'value', 'label', 'suffix',
+        'left', 'right', 'leftDesc', 'rightDesc', 'cta']
       if (_dShots.length && !idx && !edits.length) {
         return `分镜清单（草稿 · 还没出片，共 ${_dShots.length} 镜）：\n` +
           _dShots.map((s: any, i: number) =>
@@ -1779,25 +1835,45 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
           ).join('\n') +
           '\n—— 要改就说「第 N 镜大字改成 X/字幕改成 Y」；也可以点卡片上的「✏️ 分镜清单」逐行改。'
       }
-      if (_dShots.length && idx) {
-        const _i = idx - 1
-        if (!(_i >= 0 && _i < _dShots.length)) return `镜号超出范围（这条片共 ${_dShots.length} 镜）。`
-        const _s = _dShots[_i]
-        const _before = `[${_s.type || '?'}] 大字=${String(_s.text || _s.title || '') || '（无）'}`
-        for (const k of ['text', 'title', 'subtitle', 'type', 'items', 'value', 'label', 'suffix',
-          'left', 'right', 'leftDesc', 'rightDesc', 'cta']) {
-          const v = (args as any)[k]
-          if (v === undefined || v === null) continue
-          // ★VF_EDIT_P0_V1：文本类字段允许清空；卡型/数值/条目 不允许清成空串
-          if (v === '' && (k === 'type' || k === 'value' || k === 'items')) continue
-          _s[k] = v
+      if (_dShots.length) {
+        // 把"批量 edits"与"单镜"归一成同一份 [(镜号, 字段)]，再统一落盘（一处逻辑、两个入口）
+        const _pairs: Array<{ i: number; f: any }> = []
+        if (edits.length) {
+          for (const e of edits) {
+            const _i = parseInt(e?.index) - 1
+            if (_i >= 0 && _i < _dShots.length) _pairs.push({ i: _i, f: e })
+          }
+        } else if (idx) {
+          const _i = idx - 1
+          if (!(_i >= 0 && _i < _dShots.length)) return `镜号超出范围（这条片共 ${_dShots.length} 镜）。`
+          _pairs.push({ i: _i, f: args as any })
         }
-        _dft.shots = _dShots
-        VIDEO_DRAFT.set(_uidD, _dft)
-        await saveVfDraft(_uidD, _dft)
-        vfLog(String(uidE), `[分镜编辑] 出片前改第 ${idx} 镜：${_before} → [${_s.type || '?'}] 大字=${String(_s.text || _s.title || '') || '（无）'}`)
-        return `分镜已更新（还没出片，不扣钱）：第 ${idx} 镜 ${_before} → [${_s.type || '?'}] ` +
-          `大字=${String(_s.text || _s.title || '') || '（无）'}\n点「确认出片」就按这个版本出片。`
+        if (_pairs.length) {
+          const _out: string[] = []
+          for (const p of _pairs) {
+            const _s = _dShots[p.i]
+            const _before = `[${_s.type || '?'}] 大字=${String(_s.text || _s.title || '') || '（无）'}`
+            let _hit = 0
+            for (const k of _EDIT_KEYS) {
+              const v = (p.f as any)?.[k]
+              if (v === undefined || v === null) continue
+              // ★VF_EDIT_P0_V1：文本类字段允许清空；卡型/数值/条目 不允许清成空串
+              if (v === '' && (k === 'type' || k === 'value' || k === 'items')) continue
+              _s[k] = v; _hit++
+            }
+            if (_hit) _out.push(`第 ${p.i + 1} 镜 ${_before} → [${_s.type || '?'}] 大字=${String(_s.text || _s.title || '') || '（无）'}`)
+          }
+          if (_out.length) {
+            _dft.shots = _dShots
+            VIDEO_DRAFT.set(_uidD, _dft)
+            await saveVfDraft(_uidD, _dft)
+            vfLog(String(uidE), `[分镜编辑] 出片前改 ${_out.length} 镜（edits=${edits.length}/idx=${idx}）：` + _out.join('；'))
+            return `分镜已更新（还没出片、不计点，共 ${_out.length} 镜）：\n· ${_out.join('\n· ')}\n点「确认出片」就按这个版本出片（出片时才计点）。`
+          }
+          return `没有实际改动（内容要和原来不一样）。当前共 ${_dShots.length} 镜。`
+        }
+        // 有镜号但全部越界（如 idx=99）⇒ 明确报错，**绝不去改别的任务**
+        if (idx || edits.length) return `镜号超出范围（这条片共 ${_dShots.length} 镜）。`
       }
       const r = await editVfShots(String(uidE), one, tid)
       return r.msg
@@ -3062,6 +3138,11 @@ export async function POST(request: NextRequest) {
 
     // 构建消息（Agnes 多模态对话格式）
     const sysBlocks: string[] = [buildSystemPrompt(agentProfile, onboarding === true, (body as any)?.mode === 'free' || (body as any)?.agentMode === 'free')]
+    // ★VF_FILMLINE_V1（2026-10-08）：把「素材片线」的能力清单**常驻**进 system prompt ——
+    //   模型不可能"了解"一个 2025 年的新渲染引擎（用户实测反馈：不联网的 AI 会瞎编 HyperFrames 的能力），
+    //   所以每次把**能力边界 + 只能引用库内 id + 失败回退语义**喂给它 —— 这是它不乱编的前提。
+    //   注入失败（工具目录缺失等）→ 静默跳过，绝不影响对话。
+    try { if (filmLineReady()) sysBlocks.push(capabilityBrief()) } catch { /* 注入失败不影响对话 */ }
     // ═══ ★VF_MEMORY_V1（2026-09-30 用户定案「常用之后就不用再去看了，从记忆里就已经知道用户是做什么的」）═══
     //   把【画像类记忆 + 仓库摘要】拼成 ≤300 字的一段常驻 system 提示，末尾加一句"已确认过，别重复问/重复识别"。
     //   硬要求（用户/团队约定）：
@@ -4344,11 +4425,82 @@ PUBLISH_DRAFT.delete(uidW)
               }
             }
 
+            // ═══ ★VF_REPLAN_V1（2026-10-08）：**「分镜重排」的唯一实现**（一处覆盖三个入口）═══
+            // 为什么必须抽出来（用户实测根因）：成片的画面大字 / 字幕 / 配音**全部来自 `shots`**
+            //   （出片走 make.py 的 `--plan`；`script` 只在"完全没有分镜"时才用来切句；tts.py 念的也是
+            //   shot.subtitle）⇒ **任何"改了文案却没重排分镜"的操作，成片必然还是旧文案**。
+            // 三个调用方必须**同一口径**：① 用户说「重试/重排分镜」 ② 文案微调（改了 script）
+            //   ③ 分镜卡阶段重发表单（改了文案）。口径含：镜数（上传模式按素材张数）/ 覆盖度兜底 /
+            //   主题锁 / 相邻同大字去重 / 大字与字幕同文 / 超长字幕拆镜 / i2v 报价同源。
+            // 返回：给用户看的确认卡（含新分镜清单）+ 已把 vd.shots/cover/subLen 写回草稿。
+            const _replanFromDraft = async (draft: any, extraHint = '', tag = '重排分镜'): Promise<{ card: string; n: number; cover: number }> => {
+              // ★VF_SHOTN_V1（2026-10-08）：与首次起草**同口径** —— 上传模式按素材张数给镜
+              const _upN = Array.isArray(draft.imgs) ? draft.imgs.length : 0
+              const _shotN = _upN > 0
+                ? Math.max(4, Math.min(60, _upN + Math.ceil(_upN / 5)))
+                : Math.max(4, Math.min(40, Math.round((draft.dur || 30) / 5)))
+              const _hint = extraHint || (draft.cover != null
+                ? `上次 subtitle 一共只写了 ${draft.subLen || 0} 字，文案共 ${String(draft.script || '').length} 字，只覆盖了 ${Math.round((draft.cover || 0) * 100)}%。这次**必须覆盖全文**（平均每镜约 ${Math.round(String(draft.script || '').length / _shotN)} 字），镜头数 ${_shotN} 个。`
+                : '上次没排出合规 JSON。这次只输出严格 JSON 数组，pick 用纯数字。')
+              const _shots = await genVideoShots({
+                uid: uidVF2,
+                aspect: draft.aspectResolved || (draft.aspect === 'landscape' ? 'landscape' : 'portrait'),
+                dur: draft.dur || 30,
+                shotN: _shotN,
+                // ★VF_FX_SWITCH_V1：重排分镜同样带特效开关（与首次起草同口径）
+                fxOff: String(draft.fx || '') === 'off',
+                imgPaths: (draft.imgs || []), brief: String(draft.brief || ''), script: String(draft.script || ''),
+                wantPrompt: draft.source === 'ai',
+                deckStyle: draft.deckStyle, style: draft.style,
+                retryHint: _hint,
+              })
+              await vfRememberUsedImages(uidVF2, vfDedupeImageShots(uidVF2, _shots, draft.imgs || []))
+              {
+                const _tl = lockUserTheme(_shots, draft.theme)
+                if (_tl.notes.length) vfLog(uidVF2, '[主题] ' + _tl.notes.join('；'))
+              }
+              {
+                const _dd = dedupeAdjacentSameText(_shots)
+                if (_dd.notes.length) { _shots.splice(0, _shots.length, ..._dd.shots); for (const _n of _dd.notes) vfLog(uidVF2, '[大字] ' + _n) }
+              }
+              {
+                const _bs = quietBigSameAsSubtitle(_shots)
+                if (_bs.notes.length) { _shots.splice(0, _shots.length, ..._bs.shots); for (const _n of _bs.notes) vfLog(uidVF2, '[大字] ' + _n) }
+              }
+              {
+                const _sp = splitLongSubtitles(_shots)
+                if (_sp.notes.length) { _shots.splice(0, _shots.length, ..._sp.shots); for (const _n of _sp.notes) vfLog(uidVF2, '[分镜] ' + _n) }
+              }
+              const _subN = _shots.reduce((a: number, s: any) => a + String(s.subtitle || '').length, 0)
+              const _cover = draft.script ? _subN / String(draft.script).length : 0
+              const _est = Math.round(_subN / VF_SUB_CPS)
+              draft.shots = (_shots.length >= 2 && _cover >= 0.8) ? _shots : undefined
+              draft.cover = _cover; draft.subLen = _subN
+              // ★VF_I2V_BASELINE_V1：重排后重算"让哪几张图动起来"（与首次起草同口径，报价同源）
+              const _i2vR = buildI2vShots({
+                shots: _shots, keyByPath: draft.i2vKeys || {},
+                summaryByPath: draft.i2vSuit,
+                enabled: (draft.source === 'ai' || draft.mode === 'ai') ? 'off' : (draft.i2v ?? 'off'),
+                picked: (await loadMatPolicy(uidVF2)).i2v,
+              })
+              for (const _n of _i2vR.notes) vfLog(uidVF2, '[图生视频] ' + _n)
+              VIDEO_DRAFT.set(uidVF2, draft); await saveVfDraft(uidVF2, draft)
+              vfLog(uidVF2, `[${tag}] ${_shots.length} 镜，覆盖 ${Math.round(_cover * 100)}%（预计 ${_est} 秒 / 目标 ${draft.dur} 秒）`)
+              const _card = vfScriptCard({ ...draft, i2vSec: _i2vR.plan.sec, i2vImages: _i2vR.plan.images,
+                i2vSkipped: _i2vR.plan.unfitSamples, i2vSkippedN: _i2vR.plan.skippedUnfit,
+                i2vNotPicked: _i2vR.plan.notPickedNames, i2vNotPickedN: _i2vR.plan.skippedNotPicked },
+                _shots, (draft.imgs || []).length, String(draft.brief || ''), draft.aspectResolved || 'portrait', _cover, _est)
+              return { card: _card, n: _shots.length, cover: _cover }
+            }
+
             // ★VF_FORM_CLAIM_V1（第二段）：草稿刚被作废、而本次正是表单提交 → 直接起一条干净草稿，
             //   交给下面 `else if (vd.step === 'form' || 'source')` 去解析本次表单并一路起草到底。
             //   不这么做就会走「第 1 步 起稿」→ 只回一张空表单卡 → 用户得再点一次，且这次填的全丢。
             if (!vd && _vfIsForm) {
-              vd = { step: 'form', topic: '', voice: 'longxiaochun', theme: 'dark', aspect: 'auto', dur: 30, voiceList: VF_VOICE_BASE.slice(), deckStyle: 'auto', style: '' }
+              // ★VF_DEFTHEME_V1（2026-10-08 用户实测「现在图片成片默认模版怎么有点黑……默认模版不要黑乎乎的」）：
+              //   默认 theme 从 'dark' 改成 **'light'（清爽浅色）** —— "不选模版"时的底色不再是一整片黑。
+              //   ⚠️ 只改**默认值**：用户在设置卡显式选了 dark/tech/light 时仍以他选的为准（白名单见下方解析）。
+              vd = { step: 'form', topic: '', voice: 'longxiaochun', theme: 'light', aspect: 'auto', dur: 30, voiceList: VF_VOICE_BASE.slice(), deckStyle: 'auto', style: '', fx: 'on' }
               VIDEO_DRAFT.set(uidVF2, vd)
               vfLog(uidVF2, '[草稿认领] 已按本次表单参数重新起草（不再回表单卡）')
             }
@@ -4359,16 +4511,20 @@ PUBLISH_DRAFT.delete(uidW)
             if (!vd && /^VF_EDIT\s*[:{]/.test(String(userMessage || '').trim())) {
               let _editsR: any[] = []
               let _tidR = ''
+              // ★VF_REVOICE_V1（2026-10-08）：客户端「🎙 连配音一起重录」勾选 → revoice:true
+              //   （没勾 = 只重渲染复用旧配音；改了字幕时 vf-edit 也会**自动**改走重录，防音画不一致）
+              let _revoiceR = false
               try {
                 const _mmR = String(userMessage).trim().match(/^VF_EDIT:(\{[\s\S]*\})/)
                 const _jjR: any = _mmR ? JSON.parse(_mmR[1]) : {}
                 _editsR = Array.isArray(_jjR?.edits) ? _jjR.edits : []
                 _tidR = String(_jjR?.taskId || '')
+                _revoiceR = !!_jjR?.revoice
               } catch { _editsR = [] }
-              if (_editsR.length) {
+              if (_editsR.length || _revoiceR) {
                 const { editVfShots } = await import('@/lib/agent/vf/vf-edit')
-                vfLog(uidVF2, `[只重渲染] 片已出、无草稿 → VF_EDIT 改 ${_editsR.length} 处，复用配音只重渲染（不扣点）`)
-                wfEarlyReply = (await editVfShots(String(uidVF2), _editsR, _tidR)).msg
+                vfLog(uidVF2, `[重出片] 片已出、无草稿 → VF_EDIT 改 ${_editsR.length} 处${_revoiceR ? ' + 连配音一起重录' : '（不重新 TTS）'}`)
+                wfEarlyReply = (await editVfShots(String(uidVF2), _editsR, _tidR, { revoice: _revoiceR })).msg
               } else {
                 wfEarlyReply = '没收到要改的内容（镜号 + 新大字/字幕）。'
               }
@@ -4392,8 +4548,11 @@ PUBLISH_DRAFT.delete(uidW)
               //   一路带到出片时的 plan 根级（见 banner.ts buildVideoPlan）。
               const _vfLineNew = stdCmdOwned(['vf_pptimg']) ? 'pptimg' : 'local'
               vd = {
-                step: 'form', topic: _vfTopic0Clean, voice: 'longxiaochun', theme: 'dark', aspect: 'auto', dur: 30,
+                // ★VF_DEFTHEME_V1：同上 —— 默认浅色（'light'），不再"不选模版就一片黑"
+                step: 'form', topic: _vfTopic0Clean, voice: 'longxiaochun', theme: 'light', aspect: 'auto', dur: 30,
                 line: _vfLineNew,
+                // ★VF_FX_SWITCH_V1：特效开关默认开（缺省 = 现状，零回归）
+                fx: 'on',
                 ...(_vfLineNew === 'pptimg' ? { skin: 'tech', palette: 'cyan' } : {}),
               }
               VIDEO_DRAFT.set(uidVF2, vd)
@@ -4413,6 +4572,10 @@ PUBLISH_DRAFT.delete(uidW)
               wfEarlyReply = 'VF_JSON:' + JSON.stringify({
                 step: 'form', topic: _vfTopic0Clean, aspect: 'auto', dur: 30, voice: 'longxiaochun',
                 voices: _vList,
+                // ★VF_FX_SWITCH_V1（2026-10-08）：特效开关**回显**（用户再进设置卡还能看到自己选的；缺省 on）
+                fx: String(vd.fx || 'on'),
+                // ★OVERLAY_TEXT_SWITCH_V1 补齐：画面大字**回显**（本线原先连解析都没有，见上面表单解析处的取证）
+                big: String(vd.big || 'on'),
                 // ★VF_LINETAG_V1（2026-10-06）：结构化线标识 —— 本卡与「图视混剪」共用同一组件
                 //   （VideoFormCard），客户端靠这个字段决定"视频会不会被画出来"那类文案（见 page.tsx）。
                 //   'local' = 图片成片（画面只从【图片】取）；'video' = 图视混剪（吃视频，见 vf-video.ts formCard）。
@@ -4447,7 +4610,9 @@ PUBLISH_DRAFT.delete(uidW)
                   if (f.dur) vd.dur = Math.max(5, Math.min(900, parseInt(f.dur) || 30))
                   // ★VF_THEME_UI_V1（2026-09-20）：画面风格（dark / tech / light）—— 之前表单没暴露，只能默认 dark
                   //   ★白名单校验：make.py 的 --theme 是 choices=[dark,light,tech]，传别的值 argparse 会直接报错
-                  if (f.theme) vd.theme = ['dark', 'tech', 'light'].includes(String(f.theme)) ? String(f.theme) : 'dark'
+                  //   ★VF_DEFTHEME_V1（2026-10-08）：非法/未选时兜底也从 'dark' 改成 'light'
+                  //     —— 否则"没选模版就变黑乎乎"的老毛病在**脏值**这条路上还在。
+                  if (f.theme) vd.theme = ['dark', 'tech', 'light'].includes(String(f.theme)) ? String(f.theme) : 'light'
                   if (f.voice) vd.voice = String(f.voice)
                   if (typeof f.topic === 'string' && f.topic.trim()) vd.topic = f.topic.trim().slice(0, 300)
                   if (f.script && String(f.script).trim()) vd.formScript = String(f.script).trim().slice(0, 4000) // 用户直接贴了文案
@@ -4459,6 +4624,14 @@ PUBLISH_DRAFT.delete(uidW)
                   //   原样存草稿，起草时交给 buildBanner 决定"用手填还是调 AI"（清洗/截断都在 buildBanner 里）。
                   if (f.pin1 !== undefined) vd.pin1 = String(f.pin1 || '').slice(0, 60)
                   if (f.pin2 !== undefined) vd.pin2 = String(f.pin2 || '').slice(0, 80)
+                  // ★OVERLAY_TEXT_SWITCH_V1 补齐（2026-10-08 实测）：本线**一直没解析 `big`**
+                  //   （`vd.big` 在 route.ts 里 0 命中）⇒ 用户在卡上选「画面大字：不加」其实**不生效**
+                  //   （用户正好发了这个开关的截图当证据）。现在接上：走 plan 根级 overlay_text（渲染层读它）。
+                  if (f.big !== undefined) vd.big = (String(f.big) === 'off') ? 'off' : 'on'
+                  // ★VF_FX_SWITCH_V1（2026-10-08 用户定案「另加一个『特效：开 / 关』」）：
+                  //   'on'（默认 = 现状）/ 'off'（整片静态）。落地在 buildVideoPlan（一处覆盖全部线）+
+                  //   渲染层总闸（render.py）。这里只做**白名单归一**。
+                  if (f.fx !== undefined) vd.fx = (String(f.fx) === 'off') ? 'off' : 'on'
                   // ★VF_DECK_STYLES_V1（2026-10-01 用户定案「我没看到新模版」）：设置卡「🎨 画面模版」——
                   //   走 normalizeDeckStyle 白名单归一（非法/缺省 → 'auto'）；出片时写进 plan 根级 `deck_style`。
                   if (f.deckStyle !== undefined) vd.deckStyle = normalizeDeckStyle(f.deckStyle)
@@ -4606,7 +4779,14 @@ PUBLISH_DRAFT.delete(uidW)
                 // ★VF_MATN_V1（2026-09-20，用户要求）：素材张数跟时长走——【每 30 秒约 5 张】
                 //   30s→5 张、60s→10 张、90s→15 张、180s→30 张；仓库不够就有多少用多少。
                 //   视觉理解张数（喂 VL）单独限：8~20 张（成本控制，每张约 0.2 点）
-                const vfVisN = Math.max(8, Math.min(20, Math.round(_dur0 / 30) * 5))
+                // ★VF_USEALL_V1（2026-10-08 用户定案「都识别一下，因为要有文案，到时候对不上麻烦」）：
+                //   原来识别张数 = **时长配比**（8~20 张），而上传模式下时长默认 30 ⇒ 只识别 **8 张**
+                //   ⇒ 传 15 张时后 7 张 AI 从没见过（文案/分镜与画面容易对不上）。
+                //   现口径：**上传模式按上传张数全识别**（上限 40，与下载/镜头上限对齐；每张约 0.2 点）。
+                const _vfImgN = vfMats.filter((m: any) => m.kind === 'image').length
+                const vfVisN = _uploadMode
+                  ? Math.max(8, Math.min(40, Math.max(_wanted.length, _vfImgN)))
+                  : Math.max(8, Math.min(20, Math.round(_dur0 / 30) * 5))
                 let vfBrief = await summarizeMaterials(uidVF2, vfMats, vfVisN)
                 // ★VF_I2VSUIT_V1（2026-09-30）：单独留一份 **AI 原始看图结论** ——
                 //   用户可以在"素材识别结果"里手改（briefOverride 覆盖 vfBrief），但"这张图有没有主体可动"
@@ -4641,7 +4821,16 @@ PUBLISH_DRAFT.delete(uidW)
                 // ★VF_DUR_V1：时长驱动【文案字数 + 镜头数】——用户要求"让 AI 知道时长"
                 //   （中文配音约 4.5 字/秒；镜头按 5 秒一个估）
                 const vfDur = Math.max(5, Math.min(900, parseInt(vd.dur) || 30))
-                const vfShotN = Math.max(4, Math.min(40, Math.round(vfDur / 5)))
+                // ★VF_SHOTN_V1（2026-10-08 用户实测「**上传 15 张图，它只调 5 个做的** —— 上传多少就该用多少，
+                //   不管视频多长、图片多少张」）：
+                //   原口径 = round(30/5) = **6 镜**；规则 ⑤/⑥ 又要"每 3~4 个图镜插 1 张信息卡" ⇒ 实际只剩 **5 个素材镜**
+                //   —— 与用户看到的"调 5 个"逐字吻合（截图/日志双证）。
+                //   现口径：**上传模式 ⇒ 素材几张就给几镜**（另按 ⑤ 给信息卡留位，上限 60）；
+                //   纯仓库模式口径**一字不变**（零回归）。
+                const _vfUpN = _wanted.length
+                const vfShotN = _vfUpN > 0
+                  ? Math.max(4, Math.min(60, _vfUpN + Math.ceil(_vfUpN / 5)))
+                  : Math.max(4, Math.min(40, Math.round(vfDur / 5)))
                 vfLog(uidVF2, `[画幅] 判定=${vfAspect}（横${vfSz.landscape}/竖${vfSz.portrait}/方${vfSz.square}，探测${vfSz.total}张） 时长=${vfDur}s`)
                 vd.dur = vfDur
                 let vfProfile = ''
@@ -4664,8 +4853,11 @@ PUBLISH_DRAFT.delete(uidW)
                 //   改成【两次调用】：① 只写文案（输出小）  ② 只排分镜（输出小）
                 // ★VF_UPLOAD_V2：上传模式下**以用户上传的张数为准**（他传了 8 张就该用 8 张，
                 //   不被“每 30 秒 5 张”的配比截断）；上限 40 张防极端。
+                // ★VF_USEALL_V1（2026-10-08 用户定案「上传模式不要删上传素材的图片，一切根据上传素材定」）：
+                //   上限 40 → 60（与镜头数上限对齐）⇒ **上传多少就下载多少**；只有真的超过 60 张才会被截断，
+                //   且会写进日志与 matWarn（绝不静默丢素材）。
                 const _vfMatN0 = Math.max(5, Math.min(40, Math.round(vfDur / 30) * 5))
-                const vfMatN = (_wanted.length ? Math.max(_vfMatN0, Math.min(40, _wanted.length)) : _vfMatN0)
+                const vfMatN = (_wanted.length ? Math.max(_vfMatN0, Math.min(60, _wanted.length)) : _vfMatN0)
                 // ★VF_HDONLY_V1（2026-09-20 用户实测“图片都是糊的”）：**低清图不进画面**——
                 //   仓库里混着发布时抽的帧 `frame_*.jpg`（640×304），铺到画布要放大数倍 = 极糊。
                 //   做法：① 用上面探测到的 sizes 给每张图打“短边”分 ② 过滤掉短边 < 640 的
@@ -4755,6 +4947,8 @@ PUBLISH_DRAFT.delete(uidW)
                 const vfImgs = vfLocal.map((m: any) => m.localPath).filter(Boolean)
                 const vfShots = await genVideoShots({
                   uid: uidVF2, aspect: vfAspect, dur: vfDur, shotN: vfShotN,
+                // ★VF_FX_SWITCH_V1：把设置卡的「特效」开关带进提示词（关 ⇒ 禁写动效字段）
+                fxOff: String(vd.fx || '') === 'off',
                   imgPaths: vfImgs, brief: String(vfBrief || ''), script: vfScript2,
                   // ★VF_AIVIDEO_V1（2026-09-20）：AI 模式额外要一镜一个英文画面描述（喂 H3）。
                   //   非 AI 模式不传 → 输出与原来完全一致（素材合成零影响）。
@@ -5169,80 +5363,52 @@ PUBLISH_DRAFT.delete(uidW)
               }
             } else if (vd.step === 'script' && !vd.shots?.length && /^重试|重新排|再排一次|重排分镜/.test(userMessage.trim())) {
               // ★「重试分镜」：复用草稿里存的素材清单（vd.imgs/vd.brief），只重跑分镜
+              // ★VF_REPLAN_V1（2026-10-08）：改为调用**共用实现**（与"改文案后重排"同一条路）——
+              //   内联两份实现必然漂移，而这条口径直接决定成片的画面/字幕/配音。
               vfLog(uidVF2, '[重试分镜] 用户要求重排')
-              const vfShotN2 = Math.max(4, Math.min(40, Math.round((vd.dur || 30) / 5)))
-              const vfAgain = await genVideoShots({
-                uid: uidVF2,
-                aspect: vd.aspectResolved || (vd.aspect === 'landscape' ? 'landscape' : 'portrait'),
-                dur: vd.dur || 30,
-                shotN: vfShotN2,
-                imgPaths: (vd.imgs || []), brief: String(vd.brief || ''), script: String(vd.script || ''),
-                // ★VF_AIVIDEO_V1（2026-09-20）：重试时也要（重试分支不在 vfAI 的作用域，用草稿上的 source）
-                wantPrompt: vd.source === 'ai',
-                // ★VF_DECK_STYLES_V1（2026-10-01）：重排分镜同样带上用户选的画面模版（与首次起草同口径）
-                deckStyle: vd.deckStyle,
-                // ★VF_STYLES_WIRE_V1（2026-10-01）：重排分镜同样带上用户选的画面风格（与首次起草同口径）
-                style: vd.style,
-                // ★把上次失败原因带上：AI 这次才知道“要覆盖全文、要排够镜数”
-                retryHint: vd.cover != null
-                  ? `上次 subtitle 一共只写了 ${vd.subLen || 0} 字，文案共 ${String(vd.script || '').length} 字，只覆盖了 ${Math.round((vd.cover || 0) * 100)}%。这次**必须覆盖全文**（平均每镜约 ${Math.round(String(vd.script || '').length / vfShotN2)} 字），镜头数 ${vfShotN2} 个。`
-                  : '上次没排出合规 JSON。这次只输出严格 JSON 数组，pick 用纯数字。',
-              })
-              // ★VF_POOL_V1（2026-09-30）：重排分镜同样做"同一张图不重复"兜底（复用同一份纯函数）——
-              //   与首次起草同口径；并更新"最近用过"（重排后实际用到的图才算）。
-              await vfRememberUsedImages(uidVF2, vfDedupeImageShots(uidVF2, vfAgain, vd.imgs || []))
-              // ★VF_THEMELOCK_V1：重排分镜同样锁定主题（与首次起草同口径）
               {
-                const _tl2 = lockUserTheme(vfAgain, vd.theme)
-                if (_tl2.notes.length) vfLog(uidVF2, '[主题] ' + _tl2.notes.join('；'))
+                const _rpR = await _replanFromDraft(vd, '', '重试分镜')
+                wfEarlyReply = _rpR.card
+                finalResult = wfEarlyReply
               }
-              // ★VF_SUBSPLIT_V1（2026-09-30）：重排分镜同样做「单镜字幕上限 → 超长按句拆镜」兜底
-              //   （与首次起草同口径；放在 vfAgainSub/vfAgainCover 之前，保证覆盖用拆后的口径算）。
-              // ── ★VF_NEIGHBOR_DEDUP_V1（2026-10-01）：「相邻两镜同大字」重排分镜同样兜底（与首次起草同口径）──
-              {
-                const _dd2 = dedupeAdjacentSameText(vfAgain)
-                if (_dd2.notes.length) {
-                  vfAgain.splice(0, vfAgain.length, ..._dd2.shots)
-                  for (const _n of _dd2.notes) vfLog(uidVF2, '[大字] ' + _n)
-                }
+            } else if (vd.step === 'script' && /^VF_FORM:/.test(userMessage.trim())) {
+              // ★VF_FORMATSCRIPT_V1（2026-10-08 用户实测「文案修改了、合成时还是原来的文案」）：
+              //   草稿已经在**分镜卡**（step='script'）时，用户回到设置卡改文案再点「开始出片」——
+              //   原来 `VF_FORM:` 只在 step='form'/'source' 才被处理（全文件仅那一处），
+              //   这一串会掉进下面的"文案微调"兜底（把整串 JSON 当"用户要求"喂给 AI）⇒
+              //  **文案/分镜一个字都没变**（用户看到的"改了没用"）。
+              //   现在：解析**同一份表单** → ① 改了文案 ⇒ 重排分镜；② 只换音色/风格 ⇒ 只刷新确认卡。
+              let _f2: any = {}
+              try { _f2 = JSON.parse(userMessage.trim().replace(/^VF_FORM:/, '')) || {} } catch { /* 非法 JSON → 按"没改文案"处理 */ }
+              let _scriptChanged = false
+              if (typeof _f2.script === 'string' && _f2.script.trim() && String(_f2.script).trim() !== String(vd.script || '')) {
+                vd.script = String(_f2.script).trim().slice(0, 4000)
+                vd.formScript = vd.script          // 与首次起草同口径：用户贴的文案就是 formScript
+                _scriptChanged = true
               }
-              // ── ★VF_BIGSUB_V1（2026-10-06）：重排分镜同样治「大字与字幕同文」（与首次起草同口径）──
-              {
-                const _bs2 = quietBigSameAsSubtitle(vfAgain)
-                if (_bs2.notes.length) {
-                  vfAgain.splice(0, vfAgain.length, ..._bs2.shots)
-                  for (const _n of _bs2.notes) vfLog(uidVF2, '[大字] ' + _n)
-                }
+              if (_f2.voice) vd.voice = String(_f2.voice)
+              if (_f2.theme) vd.theme = ['dark', 'tech', 'light'].includes(String(_f2.theme)) ? String(_f2.theme) : vd.theme
+              if (_f2.style !== undefined) vd.style = normalizeStyle(_f2.style)
+              if (_f2.deckStyle !== undefined) vd.deckStyle = normalizeDeckStyle(_f2.deckStyle)
+              if (_f2.big !== undefined) vd.big = (String(_f2.big) === 'off') ? 'off' : 'on'
+              if (_f2.fx !== undefined) vd.fx = (String(_f2.fx) === 'off') ? 'off' : 'on'
+              if (_f2.dur && !vd.durAuto) vd.dur = Math.max(5, Math.min(900, parseInt(_f2.dur) || 30))
+              if (_scriptChanged) {
+                // ★VF_REPLAN_V1：**文案改了必须重排分镜**（成片的画面/字幕/配音全部来自 shots）
+                await _maybeRebuildBanner(vd, String(vd.script || ''))
+                vfLog(uidVF2, `[设置卡改文案] 新文案 ${vd.script.length} 字 → 重排分镜（不重排 = 成片还是旧文案）`)
+                const _rpF = await _replanFromDraft(vd,
+                  '用户在设置卡里换了**新文案**（下面这段就是新文案）：请完全按新文案重排分镜，subtitle 必须完整覆盖新文案且顺序一致，镜头数按新文案长度给足。',
+                  '设置卡改文案重排')
+                wfEarlyReply = _rpF.card
+              } else {
+                // 没改文案 → 只刷新确认卡（音色/风格/大字/特效等设置项即时生效，不重排、不计点）
+                VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
+                vfLog(uidVF2, '[设置卡] 未改文案 → 只刷新确认卡（不重排分镜）')
+                wfEarlyReply = vfScriptCard({ ...vd }, vd.shots || [], (vd.imgs || []).length,
+                  String(vd.brief || ''), vd.aspectResolved || 'portrait', vd.cover || 0,
+                  Math.round((vd.subLen || 0) / VF_SUB_CPS))
               }
-              {
-                const _sp2 = splitLongSubtitles(vfAgain)
-                if (_sp2.notes.length) {
-                  vfAgain.splice(0, vfAgain.length, ..._sp2.shots)
-                  for (const _n of _sp2.notes) vfLog(uidVF2, '[分镜] ' + _n)
-                }
-              }
-              const vfAgainSub = vfAgain.reduce((a: number, s: any) => a + String(s.subtitle || '').length, 0)
-              const vfAgainCover = vd.script ? vfAgainSub / String(vd.script).length : 0
-              const vfAgainEst = Math.round(vfAgainSub / VF_SUB_CPS)
-              vd.shots = (vfAgain.length >= 2 && vfAgainCover >= 0.8) ? vfAgain : undefined
-              vd.cover = vfAgainCover; vd.subLen = vfAgainSub
-              // ★VF_I2V_BASELINE_V1：重排分镜后重新算"让哪几张图动起来"（与首次起草同口径，报价同源）
-              const _i2vB2 = buildI2vShots({
-                shots: vfAgain, keyByPath: vd.i2vKeys || {},
-                // ★VF_I2VSUIT_V1：重排分镜后同样按摘要筛（与首次起草同口径）
-                summaryByPath: vd.i2vSuit,
-                // ★VF_MATUI_V1：缺省 = 'off'（不调 AI、0 点动图）
-                enabled: (vd.source === 'ai' || vd.mode === 'ai') ? 'off' : (vd.i2v ?? 'off'),
-                picked: (await loadMatPolicy(uidVF2)).i2v,
-              })
-              for (const _n of _i2vB2.notes) vfLog(uidVF2, '[图生视频] ' + _n)
-              VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
-              vfLog(uidVF2, `[重试分镜] ${vfAgain.length} 镜，覆盖 ${Math.round(vfAgainCover * 100)}%（预计 ${vfAgainEst} 秒 / 目标 ${vd.dur} 秒）`)
-              wfEarlyReply = vfScriptCard({ ...vd, i2vSec: _i2vB2.plan.sec, i2vImages: _i2vB2.plan.images,
-                // ★VF_I2VDFLT_V1：重排后同样把"跳过名单"透到卡片
-                i2vSkipped: _i2vB2.plan.unfitSamples, i2vSkippedN: _i2vB2.plan.skippedUnfit,
-                i2vNotPicked: _i2vB2.plan.notPickedNames, i2vNotPickedN: _i2vB2.plan.skippedNotPicked },
-                vfAgain, (vd.imgs || []).length, String(vd.brief || ''), vd.aspectResolved || 'portrait', vfAgainCover, vfAgainEst)
               finalResult = wfEarlyReply
             } else if (vd.step === 'script') {
               // ── 文案微调 / 换音色 / 换主题（★AI 出场①）──
@@ -5262,12 +5428,27 @@ PUBLISH_DRAFT.delete(uidW)
               } else {
                 const vfNew = await generateText(`按用户要求修改下面这段口播文案，保留数字与专业术语，仍用「。」「！」断句，只输出文案：\n原文：${vd.script}\n用户要求：${userMessage}`, writerModel)
                 const vfNewScript = String(vfNew || '').replace(/[*#`]/g, '').replace(/^[\s"'“”「」『』]+|[\s"'“”「」『』]+$/g, '').trim().slice(0, 600)
+                const _scriptChanged2 = !!vfNewScript && vfNewScript !== String(vd.script || '')
                 if (vfNewScript) vd.script = vfNewScript
                 // ★VF_BANNER_RECOMPUTE_V1（2026-09-29 team-lead 要求）：文案改了 → 标题必须跟着重算，
                 //   否则"标题还停在旧文案上"（出片前改文案的常见路径）。手填两行 → 永不覆盖（shouldRebuildBanner 拦）。
                 await _maybeRebuildBanner(vd, String(vd.script || ''))
-                VIDEO_DRAFT.set(uidVF2, vd)
-                wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'script', topic: vd.topic, script: vd.script, voice: vd.voice, voiceName: vd.voice, theme: vd.theme, cost: Math.max(1, Math.ceil(vd.script.length / 20)), hint: '文案已更新——回复「确认」出片' + (vd.banner ? `（📌 顶部标题已随新文案重算：「${vd.banner.line1} / ${vd.banner.line2}」）` : '') })
+                if (_scriptChanged2) {
+                  // ★VF_REPLAN_V1（2026-10-08 用户实测根因「文案修改了、合成时还是原来的文案」）：
+                  //   原来这里**只改 `vd.script`** 就回了一句「文案已更新——回复确认出片」——
+                  //   但成片的画面大字/字幕/配音**全部来自 `shots`**（make.py 的 `--plan` 优先；
+                  //   tts.py 念的是 shot.subtitle）⇒ 用户回「确认」出片，出来的还是**旧文案**
+                  //   （卡片回显新文案、报价也按新文案，承诺与产出不一致 —— 这就是用户看到的怪象）。
+                  //   现在：文案改了 ⇒ **立刻按新文案重排分镜**，确认卡上的分镜清单就是新文案的那份。
+                  const _rp3 = await _replanFromDraft(vd,
+                    `用户的修改要求是：「${String(userMessage).slice(0, 120)}」。请**按上面这段新文案**重排分镜，subtitle 必须完整覆盖新文案且顺序一致，镜头数按新文案长度给足。`,
+                    '改文案重排')
+                  vfLog(uidVF2, `[文案微调] 已按新文案重排 ${_rp3.n} 镜（覆盖 ${Math.round(_rp3.cover * 100)}%）`)
+                  wfEarlyReply = _rp3.card
+                } else {
+                  VIDEO_DRAFT.set(uidVF2, vd)
+                  wfEarlyReply = 'VF_JSON:' + JSON.stringify({ step: 'script', topic: vd.topic, script: vd.script, voice: vd.voice, voiceName: vd.voice, theme: vd.theme, cost: Math.max(1, Math.ceil(vd.script.length / 20)), hint: '文案没有实际变化——回复「确认」出片' + (vd.banner ? `（📌 顶部标题：「${vd.banner.line1} / ${vd.banner.line2}」）` : '') })
+                }
               }
               finalResult = wfEarlyReply
               console.log('[成片状态机] 文案轮——', String(userMessage).slice(0, 20))

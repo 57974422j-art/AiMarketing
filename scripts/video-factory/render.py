@@ -705,6 +705,11 @@ def center_lines_drawtext(font, lines, fs, txc, W, H, dur, y_off=0, stroke=True,
     lines = [l for l in (lines or []) if str(l).strip()]
     if not lines:
         return []
+    # ★VF_FX_SWITCH_V1（2026-10-08）：特效=关 ⇒ **不淡入 / 不呼吸 / 不上滑**（纯静态）。
+    #   放在这里（函数入口）而不是各调用方：本函数是所有"静态文字层"的唯一出口，
+    #   一处覆盖 title/deck/quote/compare/chart/end 等全部卡型（调用方不传 fade 就是默认淡入）。
+    if not fx_on():
+        fade, breath, motion = False, False, 'fade'
     gap = int(fs * 1.34)
     y0 = int(H * 0.5 - gap * len(lines) * 0.5 + y_off)
     _dx = int(x_off) // 2
@@ -900,6 +905,50 @@ def overlay_text_on():
     return SHOW_OVERLAY_TEXT
 
 
+# ══════════════════ ★VF_FX_SWITCH_V1（2026-10-08 用户定案「另加一个『特效：开 / 关』」）══════════════════
+# 用户原话：「现在应该没有打字了。都是 PPT，你关闭打字直接改成关闭特效。」
+# 语义（别做偏）：关 = **整片静态排版**，一个"动"都不要 ——
+#   ① 入场：不淡入、不上滑、不逐字浮现、不整块版式滑入；
+#   ② 强调：强调条不生长、大字不呼吸、不横向浮动、底部进度线不走；
+#   ③ 内容呈现：图片不推拉（Ken Burns）、数字不滚动、列表不逐条插入；
+#   ④ 底板：渐变不流动。
+#   **保留**：画面大字本身、内容排版、每镜首尾的柔和过渡（fade in/out，否则镜间成硬切）。
+# 控制方式（三处任选，JSON 优先）：storyboard 根级 `"fx": "off"` ／ 单镜 `motion/enter/sustain` ／ CLI `--no-fx`。
+# ⚠️ 默认**开**（SHOW_FX=True）⇒ 不设这个开关时**一个字节都不变**（零回归，自检有断言）。
+SHOW_FX = True
+
+
+def fx_on():
+    """本片是否允许动效（★VF_FX_SWITCH_V1）。"""
+    return SHOW_FX
+
+
+# 静态化用的三条正则（只匹配**纯表达式**，不动几何/颜色/滤镜结构）：
+_FX_ALPHA_RE = re.compile(r":alpha='[^']*'")
+_FX_ENABLE_RE = re.compile(r":enable='gte\(t,[^']*\)'")
+# `%{eif\:min(t*1.0\,78)\:d}` / `%{eif\:min(max(t-3.2\,0)*1.2\,78)\:d}` → 取末尾那个终值
+_FX_EIF_RE = re.compile(r'%\{eif\\:.*?\\,([0-9.]+)\)?\\:d\}')
+
+
+def _fx_static_chain(vf):
+    r"""★VF_FX_SWITCH_V1：把滤镜链里的**动效表达式**替换成静态值（特效=关时用）。
+
+    为什么放在"链子拼好之后"做（而不是逐个卡型改）：动效的出现方式散在 13 个卡型 + 装饰层里，
+    逐个改必然漏；而**所有动效最终都落在三类表达式**上 ⇒ 在这一处统一抹掉，覆盖面无死角：
+      · `:alpha='…'`          → 删（drawtext 默认不透明 ⇒ 静态）
+      · `:enable='gte(t,…)'`  → 删（默认全程可见 ⇒ 不再"分段出现"）
+      · `%{eif\:min(…,N)\:d}` → 直接写终值 `N`（数字滚动 ⇒ 静态数字）
+    结构类动效（整块滑入/浮动/推拉/生长/列表逐条）另在各自函数入口被关（enter_of/sustain_of/…）。
+    """
+    s = str(vf or '')
+    if not s:
+        return s
+    s = _FX_ALPHA_RE.sub('', s)
+    s = _FX_ENABLE_RE.sub('', s)
+    s = _FX_EIF_RE.sub(lambda m: m.group(1), s)
+    return s
+
+
 # ══════════════════ 配方卡渲染 ══════════════════
 
 # ══════════════════ ★VF_VARIANT_V1 / VF_MOTION_V3（2026-09-29 用户定案 P1）══════════════════
@@ -974,6 +1023,9 @@ def enter_of(shot):
     e = str((shot or {}).get('enter') or '').strip().lower()
     if e in ('none', 'off', 'false', '0'):
         return 'none'
+    # ★VF_FX_SWITCH_V1：特效=关 ⇒ 整块版式**不滑入**（一处覆盖所有文字卡）
+    if not fx_on():
+        return 'none'
     return e if e in PPT_ENTERS else 'up'
 
 
@@ -1039,6 +1091,9 @@ def sustain_of(shot):
     """★VF_SUSTAIN_V1：本镜要不要持续动效。白名单外的自造值 → 按"开"处理（绝不把渲染搞挂）。"""
     s = str((shot or {}).get('sustain') or '').strip().lower()
     if s in ('none', 'off', 'false', '0'):
+        return False
+    # ★VF_FX_SWITCH_V1：特效=关 ⇒ 持续动效全关（生长 / 呼吸 / 浮动 / 底部进度线 —— 一处覆盖全部调用方）
+    if not fx_on():
         return False
     return bool(SUSTAIN_ON)
 
@@ -1420,6 +1475,10 @@ def card_list(shot, th, W, H, fps):
     # ★VF_VARIANT_V1（2026-09-29 P1）：列表卡两种版式（AI 可写 variant，白名单外的值回 steps）
     #   steps（默认，老样式）= 一项=一步、逐项揭示（讲解节奏）· stack = 整板同时出现 + 每项前强调色方块（"清单"观感）
     _var = variant_of(shot, LIST_VARIANTS, 'steps')
+    # ★VF_FX_SWITCH_V1（2026-10-08）：特效=关 ⇒ 列表**整板一次出现**（不逐条插入）
+    if not fx_on():
+        _var = 'stack'
+        step = 0.0
     # ★VF_SUSTAIN_V1 A2（2026-10-01）：条目文字在"逐条插入"之后继续轻微呼吸（长镜里有持续感）
     _lst_br = '*' + breath_alpha(dur) if sustain_of(shot) else ''
     # ══════════════ ★VF_STYLE_V1（2026-09-30 ②编辑风列表：超大编号 + 黑色横条 + 逐条插入）══════════════
@@ -1724,6 +1783,9 @@ def card_image(shot, th, W, H, fps):
             vf = _pp + f"[smooth]trim=duration={dur},setpts=PTS-STARTPTS,format=yuv420p"
             return (f"-loop 1 -t {dur} -i \"{src}\"", vf, dur)
     kb = shot.get('kb', 'zoomin')
+    # ★VF_FX_SWITCH_V1（2026-10-08）：特效=关 ⇒ 图片**不推拉**（Ken Burns 关掉，静态图）
+    if not fx_on():
+        kb = 'none'
     frames = max(1, int(dur * fps))
     if kb in ('none', 'off', 'static'):
         # ★VF_KBSTATIC_V1（2026-10-07 P0）：**逐镜关掉推拉**（静止镜）。为什么需要：
@@ -3127,6 +3189,9 @@ def stage_layer(th, W, H, dur, accent_bar=True, grad_speed=None):
     #   都可能带 0（钩子测试就写 0），直接拼进滤镜串在老 ffmpeg 上会让**整镜失败**。
     _spd = clamp_grad_speed((os.environ.get('VF_GRAD_SPEED') or '').strip()
                            or (grad_speed or '') or _grad_speed())
+    # ★VF_FX_SWITCH_V1（2026-10-08）：特效=关 ⇒ 渐变底板**不流动**（冻结，不是 0 —— 见 ★VF_GRAD_SPEED_RANGE_V1）
+    if not fx_on():
+        _spd = clamp_grad_speed(GRAD_STATIC_SPEED, default=GRAD_STATIC_SPEED)
     if _has_gradients(_ff):
         inp = ['-f', 'lavfi', '-i',
                'gradients=s=%dx%d:c0=%s:c1=%s:d=%s:speed=%s'
@@ -3170,6 +3235,11 @@ def _reveal_seq(shot, font, fs, txc, dur, text=None, box=None, y_off=0, x_off=0,
     ★VF_TPL_LAND_V1（2026-09-30）：`x_off` = 把整块文字挪到【右侧大字区】（同 center_lines_drawtext
       的做法：块心 +x_off/2）。缺省 0 → 表达式逐字不变（老调用方零回归）。
     """
+    # ★VF_FX_SWITCH_V1（2026-10-08 用户定案「关闭打字 → 关闭特效」）：
+    #   特效=关 ⇒ **不做逐字浮现**（这就是用户口中的"打字"）。返回空 list 时，所有调用方
+    #   都会自动回落到静态的 `center_lines_drawtext(...)`（它们本来就写着 `_rev if _rev else …`）。
+    if not fx_on():
+        return []
     chars = list(str(text if text is not None else (shot.get('text') or '')))
     nch = len(chars)
     if nch <= 0:
@@ -3718,7 +3788,8 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
     #   所以一直没暴露；但 B 组的【擦入】是画在 [smooth] **之前**的 → 一上 zoompan 就永远停在
     #   "一条都还没亮"（本机实测：bgimage 的卡片整镜不出现，只剩虚化底图）。
     #   卡片版式本身已有"极缓慢浮动"提供运动 → 这里直接旁路 zoompan，行为才是对的。
-    if _plate:
+    # ★VF_FX_SWITCH_V1（2026-10-08）：特效=关 ⇒ 素材页也不推拉
+    if _plate or not fx_on():
         _zoomstage = '[smooth]null,'
     else:
         # ★VF_KENBURNS_V1（2026-09-20）：静图缓慢推近——只让画面“活”起来，不改时长
@@ -5442,6 +5513,11 @@ def render_shot(shot, th, workdir, idx, W, H, fps, ffmpeg, still=None):
     #   ffmpeg 报 `No such filter: ''` → 整镜失败 → 重试 2 次仍失败 → 抛错 → 整片出不来。
     #   实测触发链：list 卡的 items 被服务端"示例词黑名单"清空 → card_list 返回空串。
     #   这里做【全卡型通用兜底】：只拼非空段；万一全空就用 null（无操作滤镜）保证链子合法。
+    # ★VF_FX_SWITCH_V1（2026-10-08 用户定案「另加一个『特效：开 / 关』」）：
+    #   特效=关 ⇒ 在这里把**整条链**静态化（一处覆盖 13 个卡型 + 装饰层 + deck 版式，
+    #   见 _fx_static_chain 的三条正则说明）。**保留**下面的首尾 fade（镜间过渡，不是特效）。
+    if not fx_on():
+        vf = _fx_static_chain(vf)
     vf2 = ','.join([str(p) for p in (
         vf,
         (f"fade=t=in:st=0:d={_fd:.2f}" if _fd > 0.001 else ''),
@@ -6217,6 +6293,9 @@ def main():
     ap.add_argument('--no-karaoke', action='store_true', help='不生成 ASS 逐字高亮（回落 SRT）')
     ap.add_argument('--no-bigtext', action='store_true',
                     help='★OVERLAY_TEXT_SWITCH_V1：不把画面大字压在素材/视频上（独立文字卡与字幕照旧）')
+    # ★VF_FX_SWITCH_V1（2026-10-08 用户定案「另加一个『特效：开 / 关』」）：整片静态（不淡入/不逐字浮现/…）
+    ap.add_argument('--no-fx', action='store_true',
+                    help='★VF_FX_SWITCH_V1：整片静态排版（storyboard 根级 "fx": "off" 等效）')
     ap.add_argument('--sub-size', default='0', help='字幕字号（0 = 按分辨率自适应）')
     ap.add_argument('--selftest', action='store_true')
     # ★VF_BANNER_V1：顶部固定标题总开关（storyboard 里的 banner 字段优先；CLI 关掉则一律不画）
@@ -6394,6 +6473,22 @@ def main():
     print('[VF] 主题 = %s（%s）%s' % (th.get('id') or '?', th.get('desc') or '',
                                      ' · 编辑风版式（kicker/横条/大编号/细线）' if _is_editorial(th) else ''))
 
+    # ══════════ ★开关提前（2026-10-08 实测修 bug）：全局开关必须在**任何 render_shot 之前**设置 ══════════
+    # ⚠️ 原先这两段写在"拼接完成"之后（渲染循环**之后**）⇒ render_shot 读到的永远是默认值
+    #    ⇒ **开关根本不生效**（用户拿「画面大字：不加」的截图来问，根因就在这里；
+    #    同理"特效=关"若不提前也一样不生效）。现在统一提到这里：
+    #    PPT 抽帧（--ppt-preview）/ 样板镜 / 正式出片 三条路都在其后。**别再挪回去。**
+    global SHOW_OVERLAY_TEXT, SHOW_FX
+    if a.no_bigtext or (sb.get('overlay_text') is False):
+        SHOW_OVERLAY_TEXT = False
+        print('[VF] ★画面大字=关（本次不把大字压在素材/视频上；独立文字卡与字幕保留）')
+    # ★VF_FX_SWITCH_V1（2026-10-08 用户定案「另加一个『特效：开 / 关』」）：
+    #   storyboard 根级 `"fx": "off"` 或 CLI `--no-fx`（任一为关即关）→ 整片静态排版。
+    #   默认（没写/写 on）⇒ SHOW_FX 保持 True ⇒ 一个字节都不变（零回归）。
+    if getattr(a, 'no_fx', False) or (str(sb.get('fx') or '').strip().lower() in ('off', 'none', 'false', '0')):
+        SHOW_FX = False
+        print('[VF] ★特效=关（本次全片静态：不淡入/不逐字浮现/不滑入/不生长/不推拉/数字不滚动/列表不逐条）')
+
     # ★VF_TINT_V1（2026-09-20，C4 主色底板）：取前几张素材的平均色，混进“卡片底板色”
     #   → 纯色卡（title/list/number/end）跟着素材色相走，整片视觉统一。取色失败不影响出片。
     try:
@@ -6544,15 +6639,9 @@ def main():
     video_for_audio = merged
     # ★VF_SUBSIZE_V1（2026-09-20）：字幕字号原来写死 26 —— 在 1920x1080 下只有屏高 2.4%，太小。
     #   改为未指定时按分辨率自适应（约屏高 4.2%）；显式传 --sub-size 仍以传入值为准。
-    # ★OVERLAY_TEXT_SWITCH_V1（2026-09-29 用户定案）：画面大字总开关 ——
-    #   storyboard JSON 的 "overlay_text": false，或 CLI 的 --no-bigtext（任一为关即关）。
-    #   只关【压在素材/视频上的大字】（bgimage/video/aivideo 三类卡）；
-    #   独立文字卡（title/end/list/number/compare/chart/quote）与底部字幕【不受影响】——
-    #   需要文字时就用这种"单独几帧的文字卡"，也就是用户说的"单独加几帧都行"。
-    global SHOW_OVERLAY_TEXT
-    if a.no_bigtext or (sb.get('overlay_text') is False):
-        SHOW_OVERLAY_TEXT = False
-        print('[VF] ★画面大字=关（本次不把大字压在素材/视频上；独立文字卡与字幕保留）')
+    # ★OVERLAY_TEXT_SWITCH_V1（2026-09-29 用户定案）/ ★VF_FX_SWITCH_V1（2026-10-08）：
+    #   ⚠️ 两个全局开关**已提前到"主题解析"之后**（见上面的 ★开关提前 段）——
+    #   原先写在这里（渲染循环**之后**）⇒ render_shot 读不到 ⇒ 开关不生效（2026-10-08 实测定位）。**别再挪回来。**
 
     _sub_size = int(a.sub_size) if str(a.sub_size).isdigit() and int(a.sub_size) > 0 else max(26, int(H * 0.042))
     if not a.no_subs:

@@ -497,37 +497,50 @@ class AgentErrorBoundary extends React.Component<{ children: any }, { err: strin
  *  片出完后，改一个画面大字/字幕没必要重做整条（重写文案 + 重新配音要 3~4 分钟且再花钱）——
  *  复用已有配音，只重跑渲染，约 1~2 分钟、**不扣点**（服务端走 vf-edit.ts 的 make.py --render-only）。
  *  为什么需要这个按钮：分镜清单卡片只在【出片前】存在；片出完后草稿被作废，界面上就没有入口了。
- *  发的就是 `VF_EDIT:{taskId, edits}`（与分镜清单同一个协议；服务端"无草稿 → 只重渲染"分支处理）。 */
+ *  发的就是 `VF_EDIT:{taskId, edits}`（与分镜清单同一个协议；服务端"无草稿 → 重出片"分支处理）。
+ *  ★VF_REVOICE_V1（2026-10-08 用户实测「文案改了、合成还是原来的文案」）：
+ *    · 只改**画面大字** → 只重渲染（复用配音，快、不计点）
+ *    · 改**字幕（= 配音念的台词）** → 服务端**自动**改走"连配音一起重录"（否则画面新字、声音旧句）；
+ *      也可以在这里主动勾「🎙 连配音一起重录」（比如只改了错别字也想重录一遍，或改的是大字但想换语气）。 */
 function VfReRenderShot({ taskId, onSend }: { taskId: string; onSend: (msg: string) => void }) {
   const [open, setOpen] = useState(false)
   const [n, setN] = useState('')
   const [txt, setTxt] = useState('')
   const [sub, setSub] = useState('')
+  const [revoice, setRevoice] = useState(false)
   const idx = parseInt(n) || 0
-  const ready = idx > 0 && (!!txt.trim() || !!sub.trim())
+  // ★VF_REVOICE_V1：勾了"连配音一起重录"时，可以不改画面文字、只重录配音（★不再要求必须先改点什么）
+  const ready = revoice ? true : (idx > 0 && (!!txt.trim() || !!sub.trim()))
   const go = () => {
     if (!ready) return
     const e: any = { index: idx }
     if (txt.trim()) e.text = txt.trim()
     if (sub.trim()) e.subtitle = sub.trim()
-    onSend('VF_EDIT:' + JSON.stringify({ taskId, edits: [e] }))
-    setOpen(false); setN(''); setTxt(''); setSub('')
+    const edits = (idx > 0 && (txt.trim() || sub.trim())) ? [e] : []
+    onSend('VF_EDIT:' + JSON.stringify({ taskId, edits, ...(revoice ? { revoice: true } : {}) }))
+    setOpen(false); setN(''); setTxt(''); setSub(''); setRevoice(false)
   }
   return (
     <div className="mt-2">
       <button type="button" onClick={() => setOpen(!open)} className="text-[10px] text-gray-400 hover:text-gray-200">
-        {open ? '▾' : '▸'} 🔁 只重渲第 N 镜（复用配音，不扣点）
+        {open ? '▾' : '▸'} 🔁 只重渲第 N 镜 / 重录配音
       </button>
       {open && (
-        <div className="mt-1 flex flex-wrap items-center gap-1.5">
-          <input value={n} onChange={(e: any) => setN(e.target.value.replace(/[^\d]/g, '').slice(0, 3))}
-            placeholder="第几镜" className="w-[64px] px-1.5 py-0.5 rounded text-[10px] bg-white/[0.05] border border-white/[0.08] text-gray-200 placeholder-gray-600 outline-none" />
-          <input value={txt} onChange={(e: any) => setTxt(e.target.value)} placeholder="新大字（可空）"
-            className="w-[130px] px-1.5 py-0.5 rounded text-[10px] bg-white/[0.05] border border-white/[0.08] text-emerald-200 placeholder-gray-600 outline-none" />
-          <input value={sub} onChange={(e: any) => setSub(e.target.value)} placeholder="新字幕（可空；只改字，不重配音）"
-            className="flex-1 min-w-[130px] px-1.5 py-0.5 rounded text-[10px] bg-white/[0.05] border border-white/[0.08] text-emerald-200 placeholder-gray-600 outline-none" />
-          <button type="button" disabled={!ready} onClick={go}
-            className={`px-2.5 py-0.5 rounded text-[10px] ${ready ? 'bg-emerald-500/30 hover:bg-emerald-500/50 text-white' : 'bg-white/[0.03] text-gray-600'}`}>重渲</button>
+        <div className="mt-1 space-y-1">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <input value={n} onChange={(e: any) => setN(e.target.value.replace(/[^\d]/g, '').slice(0, 3))}
+              placeholder="第几镜" className="w-[64px] px-1.5 py-0.5 rounded text-[10px] bg-white/[0.05] border border-white/[0.08] text-gray-200 placeholder-gray-600 outline-none" />
+            <input value={txt} onChange={(e: any) => setTxt(e.target.value)} placeholder="新大字（可空）"
+              className="w-[130px] px-1.5 py-0.5 rounded text-[10px] bg-white/[0.05] border border-white/[0.08] text-emerald-200 placeholder-gray-600 outline-none" />
+            <input value={sub} onChange={(e: any) => setSub(e.target.value)} placeholder="新字幕（可空）"
+              className="flex-1 min-w-[130px] px-1.5 py-0.5 rounded text-[10px] bg-white/[0.05] border border-white/[0.08] text-emerald-200 placeholder-gray-600 outline-none" />
+            <button type="button" disabled={!ready} onClick={go}
+              className={`px-2.5 py-0.5 rounded text-[10px] ${ready ? 'bg-emerald-500/30 hover:bg-emerald-500/50 text-white' : 'bg-white/[0.03] text-gray-600'}`}>重渲</button>
+          </div>
+          <label className="flex items-center gap-1.5 text-[10px] text-gray-400 cursor-pointer select-none">
+            <input type="checkbox" checked={revoice} onChange={(e: any) => setRevoice(!!e.target.checked)} />
+            🎙 连配音一起重录（改的是字幕/台词时**会自动**走这条路；勾了也可以只重录配音）
+          </label>
         </div>
       )}
     </div>
@@ -564,6 +577,12 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
   //   用户要的就是"有的视频不一定要，需要文字时用单独的文字卡（几帧）也行"。
   //   选项名按要求"简单点"：加 / 不加。
   const [big, setBig] = useState(vj.big || 'on')
+  // ★VF_FX_SWITCH_V1（2026-10-08 用户定案「另加一个『特效：开 / 关』」）：
+  //   用户原话：「现在应该没有打字了。都是 PPT，你关闭打字直接改成关闭特效。」
+  //   → **新增**一个总闸（不动老开关）：关 = **整片静态**（不淡入 / 不逐字浮现 / 不整块滑入 /
+  //     不生长 / 不呼吸 / 不浮动 / 图片不推拉 / 数字不滚动 / 列表不逐条插入）。
+  //   与「画面大字」正交：那个管"有没有大字"，这个管"动不动"。默认开 = 现状（零回归）。
+  const [fx, setFx] = useState(vj.fx || 'on')
   // ★VF_VIDI2V_V1（2026-09-29 用户定案「图视混剪 → 逐镜图生视频，50 点/秒」）：
   //   「🎞 让图动起来」开关 —— 开=每张图片镜先拿首帧生成一段动图（4~8 秒 ≈ 200~400 点/张，
   //   同一张图只生成一次）；关=全部静态图 + Ken Burns（不额外花钱）。默认开。
@@ -855,6 +874,17 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
         </div>
       </div>
 
+      {/* ★VF_FX_SWITCH_V1（2026-10-08 用户定案「另加一个『特效：开 / 关』」）：
+          关 = 整片静态排版（不淡入 / 不逐字浮现 / 不滑入 / 不生长 / 不推拉 / 数字不滚动 / 列表不逐条）。
+          与上面「画面大字」正交（那个管"有没有大字"，这个管"动不动"）。默认开 = 现状。 */}
+      <div className="mb-3">
+        <div className="text-[10px] text-gray-400 mb-1">特效 <span className="text-gray-600">（关 = 整片静态：不淡入 / 不逐字浮现 / 不滑入 / 不推拉 / 数字不滚动）</span></div>
+        <div className="flex flex-wrap gap-1.5">
+          {R(fx, 'on', '✨ 开', setFx)}
+          {R(fx, 'off', '🚫 关', setFx)}
+        </div>
+      </div>
+
       {/* ★VF_VIDI2V_V1：让图动起来（逐镜图生视频）——
           只有【图片镜】会动（视频镜本来就动态、文字卡没有图）；同一张图只生成一次；
           费用在分镜卡上如实写（"含让 N 张图动起来：约 M 点"），不藏。 */}
@@ -919,6 +949,8 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
           // ★VF_PPT_SPLIT_V1（2026-10-06）：本线只出老引擎 —— deck 已独占给独立的「PPT成片」线（服务端也会强制）
           engine: 'classic',
           aspect, dur: parseInt(dur) || 30, voice, source, topic, script, bgm, theme, big,
+          // ★VF_FX_SWITCH_V1：特效开关（'on' 默认 / 'off' 整片静态）—— 三条线（图片成片/图视混剪/PPT+图视）共用本卡
+          fx,
           // ★VF_DECK_STYLES_V1 / ★VF_ONELAYER_V1（2026-10-06）：deckStyle 已不再上卡（冗余层删除），
           //   但**仍按原值提交** —— 选了「🎨 画面风格」时由风格内部决定，没选时 = 'auto'（AI 按题材选）。
           //   服务端 trim/normalize 契约与改前逐字一致（零回归）。

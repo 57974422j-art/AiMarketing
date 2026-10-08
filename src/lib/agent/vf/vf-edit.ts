@@ -120,7 +120,8 @@ export function listVfShots(uid: string, taskId?: string) {
   const head = `任务 ${found.task?.id || ''} 分镜清单（共 ${shots.length} 镜，${found.task?.status === 'done' ? '已出片' : String(found.task?.status || '')}）：`
   const body = shots.map((s, i) => shotLine(i, s)).join('\n')
   const tail = `\n—— 要改就直接说，例如「第 3 镜大字改成 效率翻三倍」「第 7 镜字幕改成 …」。` +
-    `改完我会【只重渲染】（复用配音，1~2 分钟、不扣点）。`
+    `\n· 只改**画面大字** → 只重渲染（复用配音，1~2 分钟、不计点）；` +
+    `\n· 改**字幕/台词** → 会自动**连配音一起重录**（约 3~4 分钟）—— 因为配音念的就是字幕。`
   return { ok: true, msg: head + '\n' + body + tail, shots, taskId: String(found.task?.id || ''), work: found.work, file }
 }
 
@@ -171,8 +172,22 @@ function writeTaskFile(taskFile: string, o: Record<string, any>) {
   } catch (e) { /* 落盘失败不阻塞渲染 */ }
 }
 
-/** 起一个"只重渲染"任务：复用 work 目录的配音与分镜，跑完照旧传 OSS + 写任务文件 */
-export async function startRenderOnly(uid: string, srcTask: any, work: string): Promise<{ ok: boolean; taskId?: string; msg?: string }> {
+/** 分镜文件优先级（`--render-only` 用已配音那份；**重录配音**要重新走 TTS，用哪份都行、以改过的为准） */
+const SB_PRIORITY = ['storyboard.json', 'storyboard.ai.json', 'storyboard.voiced.json']
+/** 从 work 目录挑出一个可用分镜文件（挑不到 = 空串 ⇒ 调用方必须拒掉，绝不瞎跑一条空片） */
+function pickStoryboard(work: string): string {
+  for (const n of SB_PRIORITY) {
+    const p = path.join(work, n)
+    if (fs.existsSync(p)) return p
+  }
+  return ''
+}
+
+/** ★VF_REVOICE_V1（2026-10-08）：出片任务启动器（两条路的**唯一**实现）
+ *  · revoice=false → `make.py --render-only`：复用 work 里的配音与分镜（改画面大字用，1~2 分钟）
+ *  · revoice=true  → **完整链路**（不带 --render-only）：tts.py 按【当前分镜的 subtitle】重新合音
+ *    ⇒ 用户改了字幕/台词，声音才会跟着变（原来没有这条路 ⇒ 只能"画面新字、声音旧句"） */
+async function startWork(uid: string, srcTask: any, work: string, revoice: boolean): Promise<{ ok: boolean; taskId?: string; msg?: string }> {
   const root = vfRootDir()
   if (!root) return { ok: false, msg: 'TOOL_REJECT:未找到本地成片脚本（scripts/video-factory/make.py）' }
   const { spawn } = await import('child_process')
@@ -182,14 +197,28 @@ export async function startRenderOnly(uid: string, srcTask: any, work: string): 
   const newOut = path.join(outDir, `vf_${Date.now()}.mp4`)
   const taskFile = path.join(outDir, newId + '.json')
   const py = process.env.BU_PYTHON || (process.platform === 'win32' ? 'python' : 'python3')
-  const argsRun = [mkPy, '--render-only', '--workdir', work, '--out', newOut]
+  // ★VF_REVOICE_V1：两条路的差别只有 make.py 的参数 ——
+  //   重录配音必须显式给 `--storyboard`（就是我们刚改过的那份），否则 make.py 会因
+  //   缺 --script/--plan/--storyboard 直接退出；theme/speaker 从原任务带过来，观感保持一致。
+  let argsRun: string[]
+  if (revoice) {
+    const sbFile = pickStoryboard(work)
+    if (!sbFile) return { ok: false, msg: 'TOOL_REJECT:工程目录里没有分镜文件，无法重录配音' }
+    argsRun = [mkPy, '--storyboard', sbFile, '--workdir', work, '--out', newOut]
+    const _th = String(srcTask?.theme || '').trim()
+    if (_th) argsRun.push('--theme', _th)
+    const _sp = String(srcTask?.speaker || srcTask?.voice || '').trim()
+    if (_sp) argsRun.push('--speaker', _sp)
+  } else {
+    argsRun = [mkPy, '--render-only', '--workdir', work, '--out', newOut]
+  }
   const bgm = String(srcTask?.bgm || '')
   if (bgm && fs.existsSync(bgm)) argsRun.push('--bgm', bgm)
 
   const startedAt = new Date().toISOString()
   writeTaskFile(taskFile, {
     id: newId, status: 'running', startedAt, out: newOut, work,
-    uid: String(uid), cost: 0, renderOnly: true, from: String(srcTask?.id || ''),
+    uid: String(uid), cost: 0, renderOnly: !revoice, revoice: revoice || undefined, from: String(srcTask?.id || ''),
   })
   try {
     const ch = spawn(py, argsRun, { windowsHide: true })
@@ -229,11 +258,21 @@ export async function startRenderOnly(uid: string, srcTask: any, work: string): 
   return { ok: true, taskId: newId }
 }
 
+/** 只重渲染（复用已有配音、不重新 TTS）——既有行为一字不变 */
+export async function startRenderOnly(uid: string, srcTask: any, work: string) {
+  return startWork(uid, srcTask, work, false)
+}
+/** ★VF_REVOICE_V1：**连配音一起重录**（重新 TTS + 重渲染）——"改了台词、声音也要跟着变"走这条 */
+export async function startRevoice(uid: string, srcTask: any, work: string) {
+  return startWork(uid, srcTask, work, true)
+}
+
 /**
- * 改分镜 + 只重渲染。
+ * 改分镜 + 重出片（★VF_REVOICE_V1：改了字幕就**自动连配音一起重录**）。
  * @param edits 形如 [{index:3, text:'新大字'}, {index:7, subtitle:'新字幕'}]
+ * @param opts.revoice 显式要求重录配音（客户端「🎙 连配音一起重录」勾选）
  */
-export async function editVfShots(uid: string, edits: any[], taskId?: string) {
+export async function editVfShots(uid: string, edits: any[], taskId?: string, opts?: { revoice?: boolean }) {
   const found = findVfTask(uid, taskId)
   if (!found) {
     return { ok: false, msg: '找不到可编辑的成片任务（要么还没出过片，要么那条片太旧没记工程目录）。' }
@@ -246,19 +285,32 @@ export async function editVfShots(uid: string, edits: any[], taskId?: string) {
   if (!shots.length) {
     return { ok: false, msg: `找不到分镜文件（${work}）` }
   }
-  const { applied, subtitleChanged } = applyEdits(work, edits || [])
-  if (!applied.length) {
+  // ★VF_REVOICE_V1（2026-10-08 用户实测「文案改了、合成还是原来的文案」）：
+  //   · 只改**画面大字** → 配音念的是 subtitle，不需要重配音 ⇒ `--render-only`（1~2 分钟、不计点）
+  //   · 改了**字幕（= 台词）** → 必须**连配音一起重录**，否则"画面是新字、声音还是旧句"（用户不要这个）
+  //   ⇒ 这里**自动**判定：改了字幕就自动重录（不再依赖一句"你还得说『重新配音出片』"的空承诺）。
+  const revoice = !!opts?.revoice
+  const hasEdits = Array.isArray(edits) && edits.length > 0
+  const { applied, subtitleChanged } = hasEdits
+    ? applyEdits(work, edits)
+    : { applied: [] as string[], subtitleChanged: false }
+  if (!applied.length && !revoice) {
     return {
       ok: false,
       msg: `没有实际改动（镜号要在 1~${shots.length} 之间，且内容要真的变）。\n` +
         shots.map((s, i) => shotLine(i, s)).join('\n'),
     }
   }
-  const r = await startRenderOnly(uid, task, work)
+  const doRevoice = revoice || subtitleChanged
+  const r = doRevoice ? await startRevoice(uid, task, work) : await startRenderOnly(uid, task, work)
   if (!r.ok) return { ok: false, msg: r.msg || '重出片启动失败' }
-  const warn = subtitleChanged
-    ? '\n⚠️ 你改了字幕文字，但【配音没有重录】（声音还是原来那句）。要求声音也跟着变，请说「重新配音出片」重跑整条流程。'
+  const _how = doRevoice
+    ? '**连配音一起重录**（重新 TTS + 重渲染，约 3~4 分钟）'
+    : '只重渲染、复用已有配音（不重新 TTS，约 1~2 分钟）'
+  const _why = (doRevoice && subtitleChanged && !revoice)
+    ? '\nℹ️ 你改的是**字幕（= 配音念的台词）**，为避免"画面新字、声音旧句"，本次**自动连配音一起重录**。'
     : ''
+  const _what = applied.length ? `· ${applied.join('\n· ')}` : '· 未改画面文字，只重录配音'
   return {
     ok: true,
     taskId: r.taskId,
@@ -266,8 +318,7 @@ export async function editVfShots(uid: string, edits: any[], taskId?: string) {
     // ★MAKE_VIDEO_TASK 必须原样出现在回复里：客户端靠它启动"进度轮询 + 出片完成卡"
     //   （轮询是 `content.includes('MAKE_VIDEO_TASK:')` + `match(/MAKE_VIDEO_TASK:(\S+)/)`，
     //    不要求行首，但放行首最稳）
-    msg: `MAKE_VIDEO_TASK:${r.taskId} 已按你的修改重新出片（只重渲染、复用已有配音，` +
-      `不重新 TTS、本次不扣点，约 1~2 分钟）：\n· ${applied.join('\n· ')}${warn}`,
+    msg: `MAKE_VIDEO_TASK:${r.taskId} 已按你的修改重新出片（${_how}，本次不计点）：\n` + _what + _why,
   }
 }
 
