@@ -37,6 +37,8 @@ import { matchStdCommand, STD_UNSUPPORTED_REPLY, STD_WIP_REPLY, STD_QUERY_RE, is
 // ★VF_SUBSPLIT_V1（2026-09-30）：splitLongSubtitles —— 单镜字幕上限 + 超长按句拆镜的服务端硬兜底
 //   （纯函数，与 anti-ai 同一套，两个分镜出口共用，免得两处走偏）。
 import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, splitLongSubtitles,
+  // ★VF_AXIS_LINT_V1（2026-10-09）：出片前分镜体检（硬伤自动修 / 其余只报告）—— 图片成片启用
+  lintShots,
   VF_MOTION_PROMPT, ensurePersistentMotion,
   // ★VF_DECK_WIRE_V1（2026-10-01）：「富编排 PPT 页」（variant=deck）的提示词 ——
   //   与「视频混剪」线（vf-video.ts）**共用 anti-ai.ts 里同一份常量**，两条线不一致的问题不会再出现。
@@ -106,6 +108,11 @@ function vfParseShots(raw: string): any[] | null {
  */
 async function genVideoShotsRaw(o: {
   uid: number | string; aspect: string; dur: number; shotN: number
+  /** ★VF_AXIS_V1（2026-10-09）：**轴优先模式**（只有「图片成片」传 true）——
+   *  ① 切文案时给"最小段长"（宁少勿碎，镜数由文案定）；
+   *  ② 扩镜出来的镜长**按字数估**（不再写死 5 秒）。
+   *  ⚠️ 不传/undefined ⇒ 老行为一字不变（其它线零影响）。 */
+  axisV1?: boolean
   imgPaths: string[]; brief: string; script: string; retryHint?: string
   /** ★VF_AIVIDEO_V1（2026-09-20）：「全部 AI 生成」时，额外要求每镜给一个【英文画面描述】，
    *  作为 MiniMax H3 的生成提示词。**不传时输出与原来完全一致**（素材合成不受任何影响）。 */
@@ -334,7 +341,8 @@ async function genVideoShotsRaw(o: {
   //   + 其余用素材图卡轮换 → 每镜回到 ~5 秒的正常节奏。
   if (shots.length >= 2 && shots.length < o.shotN * 0.7 && charN > 0) {
     const beforeN = shots.length
-    const segs = vfSplitScript(o.script, o.shotN)
+    // ★VF_AXIS_V1：axisV1（图片成片）⇒ 最小段长 12 字（宁少勿碎）；其它线传 0 = 老行为
+    const segs = vfSplitScript(o.script, o.shotN, 45, o.axisV1 ? 12 : 0)
     if (segs.length > shots.length) {
       const specials = shots.filter((s: any) => s?.type && s.type !== 'bgimage' && s.type !== 'image')
       const slotMap = new Map<number, any>()
@@ -356,10 +364,15 @@ async function genVideoShotsRaw(o: {
           const _ri = nextIdx(-1)
           // ★VF_BIGTEXT_FALLBACK_V1：原来这里 text 写死为 ''（扩镜出来的每一镜【天生没有大字】，
           //   是"整片看着简陋"的一大来源）→ 改成用该段字幕首句当大字。
-          rebuilt.push({ type: 'bgimage', src: _ri >= 0 ? imgs[Math.max(0, Math.min(imgs.length - 1, _ri))] : '', text: bigText('', sub), subtitle: sub.slice(0, 300), dur: 5 })
+          // ★VF_AXIS_V1（2026-10-09）：**镜长跟文案走**（原来写死 dur:5 ⇒ 与字幕字数脱节）——
+          //   口径：中文 ≈4.5 字/秒，段长 12~16 字 ⇒ 约 2.7~3.6 秒；夹在 [1.5, 8] 秒内。
+          const _dur = o.axisV1
+            ? Math.max(1.5, Math.min(8, Math.round((sub.length / 4.5) * 10) / 10))
+            : 5
+          rebuilt.push({ type: 'bgimage', src: _ri >= 0 ? imgs[Math.max(0, Math.min(imgs.length - 1, _ri))] : '', text: bigText('', sub), subtitle: sub.slice(0, 300), dur: _dur })
         }
       }
-      vfLog(o.uid, `[扩镜] AI 只排 ${beforeN} 镜（目标 ${o.shotN}）→ 按目标重排 ${rebuilt.length} 镜（每镜约 ${Math.round(charN / Math.max(1, rebuilt.length))} 字 ≈ ${Math.round(charN / Math.max(1, rebuilt.length) / 4.5)} 秒）`)
+      vfLog(o.uid, `[扩镜] AI 只排 ${beforeN} 镜（目标 ${o.shotN}）→ 按目标重排 ${rebuilt.length} 镜（每镜约 ${Math.round(charN / Math.max(1, rebuilt.length))} 字${o.axisV1 ? '；镜长按字数估（轴=文案）' : ` ≈ ${Math.round(charN / Math.max(1, rebuilt.length) / 4.5)} 秒`}）`)
       return rebuilt
     }
   }
@@ -607,7 +620,13 @@ async function refreshMatUI(vd: any, uid: number | string): Promise<void> {
  *    ② 装箱阈值降为 min(maxLen, per*1.35) → 段长更均匀
  *    ③ 段数不足 n 时**把最长段劈开**（原来是补空段 → 空段 = 一镜没字幕没配音）
  */
-function vfSplitScript(script: string, n: number, maxLen = 45): string[] {
+function vfSplitScript(script: string, n: number, maxLen = 45, minSeg = 0): string[] {
+  // ★VF_AXIS_V1（2026-10-09 用户定案「轴的真源=TTS 真时长；不许按镜数硬切」）：
+  //   新增 `minSeg`（最小段长）。**>0 时开启"宁少勿碎"**：④ 劈段时一旦最长段 < minSeg*2 就停，
+  //   **允许返回比 n 更少的段**（镜数由文案决定，而不是反过来把文案劈碎去凑镜数）。
+  //   为什么（2026-10-08 实测）：n 被放大到 34、文案只能自然分出 ~11 段 ⇒ ④ 一路劈成 4~5 字碎片
+  //   ⇒ 成片里出现「给这桌美 / 味」「这就是理 / 想中的聚」这种读不通的镜（用户实测）。
+  //   ⚠️ 默认 minSeg=0 ⇒ **老行为一字不变**（其它线零影响）。
   // ① 一级：按句末切
   const raw: string[] = []
   let cur = ''
@@ -645,7 +664,8 @@ function vfSplitScript(script: string, n: number, maxLen = 45): string[] {
     let mi = 0
     for (let i = 1; i < out.length; i++) if ((out[i] || '').length > (out[mi] || '').length) mi = i
     const long = out[mi] || ''
-    if (long.length < 10) break
+    // ★VF_AXIS_V1：minSeg>0 时用"最小段长×2"当止损线（劈两半后每半 ≥ minSeg 才有意义）
+    if (long.length < Math.max(10, minSeg * 2)) break
     const half = Math.max(1, Math.floor(long.length / 2))
     let cut = -1
     for (let i = half; i < Math.min(long.length, half + 12); i++) {
@@ -4887,10 +4907,18 @@ PUBLISH_DRAFT.delete(uidW)
                 //   —— 与用户看到的"调 5 个"逐字吻合（截图/日志双证）。
                 //   现口径：**上传模式 ⇒ 素材几张就给几镜**（另按 ⑤ 给信息卡留位，上限 60）；
                 //   纯仓库模式口径**一字不变**（零回归）。
-                const _vfUpN = _wanted.length
-                const vfShotN = _vfUpN > 0
-                  ? Math.max(4, Math.min(60, _vfUpN + Math.ceil(_vfUpN / 5)))
-                  : Math.max(4, Math.min(40, Math.round(vfDur / 5)))
+                // ★VF_AXIS_V1（2026-10-09 用户定案「镜数不该由素材张数决定」+「轴的真源=TTS 真时长」）：
+                //   昨天（VF_SHOTN_V1）这里是"**素材几张 ⇒ 给几镜**" ⇒ 目标镜数被放大到 34 ⇒
+                //   文案被 ④ 一路劈成 4~5 字碎片（"给这桌美 / 味"），且总时长 = 镜数×3 秒 = **102 秒**。
+                //   现口径：
+                //     · **镜数跟「文案长度 + 目标时长」走**（目标时长是软目标，只用来估镜数）；
+                //     · 每镜 ≈14 字（护栏内偏保守，给大字/停顿留余量）；每镜 ≈4 秒；
+                //     · **素材多不再加镜** ⇒ 改由「拼版（duo/frame）」消化（分镜提示词规则⑪已要求）。
+                const _charsN = String(vd.script || '').replace(/\s+/g, '').length
+                const _byChars = Math.ceil(_charsN / 14)
+                const _byDur = Math.round(vfDur / 4)
+                const vfShotN = Math.max(4, Math.min(60, Math.max(_byChars, _byDur, 4)))
+                vfLog(uidVF2, `[轴] 镜数=${vfShotN}（文案 ${_charsN} 字 ⇒ ${_byChars} 镜；目标 ${vfDur}s ⇒ ${_byDur} 镜；素材 ${_wanted.length} 张只用于拼版，**不加镜**）`)
                 vfLog(uidVF2, `[画幅] 判定=${vfAspect}（横${vfSz.landscape}/竖${vfSz.portrait}/方${vfSz.square}，探测${vfSz.total}张） 时长=${vfDur}s`)
                 vd.dur = vfDur
                 let vfProfile = ''
@@ -5007,6 +5035,9 @@ PUBLISH_DRAFT.delete(uidW)
                 const vfImgs = vfLocal.map((m: any) => m.localPath).filter(Boolean)
                 const vfShots = await genVideoShots({
                   uid: uidVF2, aspect: vfAspect, dur: vfDur, shotN: vfShotN,
+                  // ★VF_AXIS_V1：**图片成片**开启"轴优先"（最小段长 12 字 + 镜长按字数估）
+                  //   ⚠️ 只有这条线传；图视混剪 / 其它线一律不传 ⇒ 老行为零回归
+                  axisV1: true,
                 // ★VF_FX_SWITCH_V1：把设置卡的「特效」开关带进提示词（关 ⇒ 禁写动效字段）
                 fxOff: String(vd.fx || '') === 'off',
                   imgPaths: vfImgs, brief: String(vfBrief || ''), script: vfScript2,
@@ -5020,6 +5051,17 @@ PUBLISH_DRAFT.delete(uidW)
                   //   （'' / 缺省 = 空串，与原来完全一致）。
                   style: vd.style,
                 })
+                // ★VF_AXIS_LINT_V1（2026-10-09 用户定案「lint 只报告、硬伤才重排」）——
+                //   **出片前体检**（只对图片成片）：硬伤自动修（单字/超短行并入相邻、相邻重复行合并），
+                //   其余只写日志（语速超限 / 行尾被切断 / CTA 刷屏）。**不静默改内容**，改了会留痕在日志里。
+                {
+                  const _axisLint = lintShots(vfShots)
+                  if (_axisLint.changed.length || _axisLint.notes.length) {
+                    vfLog(uidVF2, `[轴-lint] 自动修复 ${_axisLint.changed.length} 处${_axisLint.changed.length ? '：' + _axisLint.changed.join('；') : ''}` +
+                      `${_axisLint.notes.length ? `｜报告（未改）：${_axisLint.notes.join('；')}` : ''}`)
+                  }
+                  if (_axisLint.changed.length) vfShots.splice(0, vfShots.length, ..._axisLint.shots)
+                }
                 // ★VF_POOL_V1（2026-09-30）：同一张图不重复（归一化后兜底 / 素材不足则至少隔 2 镜）
                 //   + 把本份用到的图记进"最近用过"（下次起草降权）。AI 模式无 bgimage → 自动 no-op。
                 await vfRememberUsedImages(uidVF2, vfDedupeImageShots(uidVF2, vfShots, vfImgs))

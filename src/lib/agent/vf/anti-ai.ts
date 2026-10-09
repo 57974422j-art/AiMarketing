@@ -358,7 +358,12 @@ export const PICK_DESIGN_KEYS = ['theme', 'variant', 'motion', 'transition', 'ki
  *    motion（淡入/上滑/逐字浮现）· enter（整块版式滑入）· transition（镜间转场写法）·
  *    wipe（擦入）· bgblur（背景虚化）· float（缓慢浮动）· frame（相框也会带浮动/擦入观感）。
  *  另有**单镜** `sustain='none'`（持续动效总开关）由 buildVideoPlan 一并写死。 */
-export const FX_STRIP_KEYS = ['motion', 'enter', 'transition', 'wipe', 'bgblur', 'float', 'frame'] as const
+export const FX_STRIP_KEYS = ['motion', 'enter', 'transition', 'wipe', 'float'] as const
+// ★VF_FX_SWITCH_V2（2026-10-09 用户实测「关闭特效后每帧上有几条黑杠」）：**去掉 `bgblur` 与 `frame`**。
+//   查证：`bgblur` = 背景虚化强度（版式，"主体清晰、背景退后"的分层，render.py:2587），
+//         `frame`  = 相框（版式，render.py:2626「卡片层 → 圆角 → 相框/白边」）。
+//   它们**不是"动不动"**，而是**版式**：清掉之后分层/相框没了 ⇒ 画面露出黑底（那几条黑杠）。
+//   口径修正：特效关只清**真正的动效**（入场 / 转场 / 擦入 / 浮动 / 持续动效），**版式字段一律不动**。
 
 /** 从 AI 给的镜里挑出设计字段（只收非空字符串；值是否合法交给 sanitizeAntiAiShots 白名单判）
  *  为什么单独一个小函数：分镜出口有两处（vf-video.ts 与 chat/route.ts 的 genVideoShots），
@@ -783,6 +788,83 @@ export function splitTextByCap(text: any, cap: number): string[] {
  *  为什么放在服务端而不是渲染层：渲染层只能"别糊屏"，真正的内容治理（拆镜让配音/时长自然）
  *  必须在这里做。上限检查要放在「覆盖文案 ≥80%」闸门**之前**（拆完再算覆盖，避免"拆了反而被拒"）。
  */
+/** ★VF_AXIS_LINT_V1（2026-10-09 用户定案「lint 只报告、硬伤才自动重排」）—— 分镜/字幕**体检器**。
+ *
+ *  背景（2026-10-08 实测那条 102 秒片子）：文案被按镜数硬切 ⇒ 出现「给这桌美 / 味」这种碎片、
+ *  单字镜（"吃"/"味"/"暖"）、相邻重复（"起来"×2），而且**没人报警**，只能等看成片才发现。
+ *
+ *  口径（照 overlay-studio 的 lint 哲学）：
+ *    · **硬伤 → 自动修复**（能确定是错的）：① 单字/超短行（<6 字）→ 并入相邻行；
+ *      ② 相邻两镜内容完全相同 → 合并（同一句被切到两镜）。
+ *    · **其余 → 只报告、不修改**：③ 语速超限（>9 字/秒）④ 行尾落在连接词（疑似被切断）
+ *      ⑤ CTA 类文案重复出现（"立即咨询"刷屏）。
+ *  ⚠️ 纯函数、零依赖（可单测）；**只改 subtitle/dur**，不碰 type/src/text 等版式字段。
+ */
+export function lintShots(shots: any[]): { shots: any[]; changed: string[]; notes: string[] } {
+  const changed: string[] = []
+  const notes: string[] = []
+  const src = (Array.isArray(shots) ? shots : []).map((s) => ({ ...(s || {}) }))
+  const sub = (s: any) => String(s?.subtitle == null ? '' : s.subtitle).replace(/\s+/g, '')
+  const addDur = (a: any, b: any) => Math.round(((Number(a?.dur) || 0) + (Number(b?.dur) || 0)) * 10) / 10
+  const MIN = 6
+  // ★VF_AXIS_LINT_V1：**CTA / 固定角标**（"立即咨询"这类）虽然短，但它们是**每镜都有的设计**，
+  //   不是"字幕被切碎" ⇒ **不合并**，只报告（否则会像"镜数 2"那样把 3 个 CTA 糊到一句里）。
+  const CTA_RE = /立即咨询|点击咨询|马上咨询|私信我|加微信|关注我|点赞|下方链接/
+
+  // ① 单字/超短行 → 并入相邻（优先并入**下一行**，保持朗读顺序；是首行则并入上一行）
+  const out: any[] = []
+  for (let i = 0; i < src.length; i++) {
+    const s = src[i]
+    const t = sub(s)
+    if (t && t.length < MIN && src.length > 1 && !CTA_RE.test(t)) {
+      const nxt = src[i + 1]
+      const prv = out[out.length - 1]
+      if (nxt && sub(nxt)) {
+        nxt.subtitle = String(t + sub(nxt))
+        nxt.dur = addDur(s, nxt)
+        changed.push(`第 ${i + 1} 镜仅 ${t.length} 字「${t}」→ 并入第 ${i + 2} 镜`)
+        continue
+      }
+      if (prv) {
+        prv.subtitle = String(String(prv.subtitle || '') + t)
+        prv.dur = addDur(prv, s)
+        changed.push(`第 ${i + 1} 镜仅 ${t.length} 字「${t}」→ 并入上一镜`)
+        continue
+      }
+    }
+    out.push(s)
+  }
+
+  // ② 相邻重复行 → 合并
+  //  ★VF_AXIS_LINT_V1 修正（2026-10-09 自检暴露）：**只合并"够长的"重复行（≥MIN）**。
+  //    原因：短文案重复（"立即咨询"这类 CTA / 固定角标）本来就是**每镜都有的设计**，
+  //    不是字幕被切重复 ⇒ 合并它反而把"CTA 刷屏"这个**该报的问题**掩盖掉（自检第一条就抓到了）。
+  for (let i = 1; i < out.length; i++) {
+    const a = sub(out[i - 1])
+    const b = sub(out[i])
+    if (b && b.length >= MIN && a === b) {
+      out[i - 1].dur = addDur(out[i - 1], out[i])
+      changed.push(`第 ${i} / ${i + 1} 镜内容重复「${b}」→ 合并`)
+      out.splice(i, 1)
+      i--
+    }
+  }
+
+  // ③ 只报告（不修改）——⚠️ **在原始分镜上报告**（不是在修复结果上）：
+  //    否则"被自动修掉的毛病"就不会出现在报告里（本轮自检第一条就是这么抓出来的）。
+  const TAIL = '的了和给与在一是不我你们这那就都也还只'
+  let ctaN = 0
+  src.forEach((s, i) => {
+    const t = sub(s)
+    const d = Math.max(0.5, Number(s.dur) || 0)
+    if (t && t.length / d > 9) notes.push(`第 ${i + 1} 镜语速偏快（${t.length} 字 / ${d}s ≈ ${Math.round(t.length / d)} 字/秒 > 9）`)
+    if (t.length >= MIN && TAIL.includes(t.slice(-1))) notes.push(`第 ${i + 1} 镜行尾落在「${t.slice(-1)}」，疑似被切断：「${t}」`)
+    if (CTA_RE.test(t)) ctaN++
+  })
+  if (ctaN > 1) notes.push(`CTA 类文案出现 ${ctaN} 次（建议只保留结尾 1 次）`)
+  return { shots: out, changed, notes }
+}
+
 export function splitLongSubtitles(shots: any[]): { shots: any[]; notes: string[] } {
   const notes: string[] = []
   const src = Array.isArray(shots) ? shots : []

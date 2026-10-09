@@ -924,10 +924,27 @@ def fx_on():
 
 
 # 静态化用的三条正则（只匹配**纯表达式**，不动几何/颜色/滤镜结构）：
-_FX_ALPHA_RE = re.compile(r":alpha='[^']*'")
+# ★VF_FX_SWITCH_V2（2026-10-09 用户实测「关闭特效后每帧上有几条黑杠」）：
+#   原来这里是 `_FX_ALPHA_RE = re.compile(r":alpha='[^']*'")` —— **无差别**删掉所有 `:alpha='…'`。
+#   问题：`:alpha` 里有大量**常量**（底板/蒙版的透明度，甚至有刻意设成 `0` 的"应该看不见"层）。
+#   删掉之后 ffmpeg 取默认 `alpha=1` ⇒ 那一层变成**实心黑块** ⇒ 用户看到的"几条黑杠"。
+#   现口径：**只静态化"含 t 的时间表达式"**（把它换成终值）；**常量原样保留**。
+_FX_ALPHA_TIME_RE = re.compile(r":alpha='([^']*)'")
 _FX_ENABLE_RE = re.compile(r":enable='gte\(t,[^']*\)'")
 # `%{eif\:min(t*1.0\,78)\:d}` / `%{eif\:min(max(t-3.2\,0)*1.2\,78)\:d}` → 取末尾那个终值
 _FX_EIF_RE = re.compile(r'%\{eif\\:.*?\\,([0-9.]+)\)?\\:d\}')
+
+
+def _fx_static_alpha(expr):
+    """★VF_FX_SWITCH_V2：把"含 t 的 alpha 表达式"换成它的**终值**（静止态）；常量原样返回。
+
+    为什么不能一律删：常量 alpha（如遮罩 `0.35`、或刻意 `0` 的隐藏层）删掉 → ffmpeg 默认 1.0
+    → 该层变实心黑块（用户实测到的"黑杠"就是这个）。"""
+    e = str(expr or '')
+    if 't' not in e:
+        return e                                   # 常量（0.42 / 0 / 0.94+…）：**不动它**
+    m = re.search(r'\*\s*(0?\.\d+)\s*$', e)         # 形如 min(t/0.5,1)*0.6 → 终值 0.6
+    return m.group(1) if m else '1'                # 其余（淡入/呼吸）→ 终值 1
 
 
 def _fx_static_chain(vf):
@@ -943,7 +960,7 @@ def _fx_static_chain(vf):
     s = str(vf or '')
     if not s:
         return s
-    s = _FX_ALPHA_RE.sub('', s)
+    s = _FX_ALPHA_TIME_RE.sub(lambda m: ":alpha='%s'" % _fx_static_alpha(m.group(1)), s)
     s = _FX_ENABLE_RE.sub('', s)
     s = _FX_EIF_RE.sub(lambda m: m.group(1), s)
     return s
