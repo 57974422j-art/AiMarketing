@@ -111,11 +111,18 @@ export async function filmDoneProtocol(
     //   客户端就能用 `/api/storage/file?...&name=<repoName>&persist=1` 镜像到本地仓库（见 page.tsx）。
     let repoName = ''
     let repoPoster = ''
-    if (r.mp4 && fs.existsSync(r.mp4)) {
+    // ★VF_NOEMPTY_V1（2026-10-09 用户实测「视频根本打不开」·真因）：
+    //   服务端混音失败时 ffmpeg 会**留下 0 字节文件**，老代码只判 `existsSync` ⇒ 当成功 ⇒
+    //   把 0 字节 buffer 传上 OSS ⇒ 客户端镜像到本地就是 0.0MB 文件（本地/网页都打不开）。
+    //   现口径：**空文件一律不入库**（宁可不给地址，也不给一个坏文件）。
+    const mp4Sz = (() => { try { return fs.statSync(r.mp4).size } catch { return -1 } })()
+    if (r.mp4 && mp4Sz > 0) {
       const buf = await readFile(r.mp4)
       const { name } = await saveToPersonalRepo({ userId: String(uid), buffer: buf, ext: 'mp4', mime: 'video/mp4' })
       repoName = String(name || '')
       url = await signedUrl(`storage/${uid}/${name}`, 86400)
+    } else if (r.mp4) {
+      console.error('[film] 成片为空（' + mp4Sz + 'B）⇒ 不入库、不给地址：' + r.mp4)
     }
     if (r.sheet && fs.existsSync(r.sheet)) {
       try {
@@ -159,7 +166,9 @@ export async function render(filmJson: string, outDir: string): Promise<{ ok: bo
       const m = r.out.match(/成片[:：]\s*([^\s（(]+)/)   // 只取到空白/括号为止，别把说明文字带进来
       if (m) {
         const cand = path.isAbsolute(m[1]) ? m[1].trim() : path.join(filmToolsDir(), m[1].trim())
-        if (fs.existsSync(cand)) mp4 = cand
+        // ★VF_NOEMPTY_V1（2026-10-09 服务端实测 0 字节还报成功）：stdout 兜底路径也**必须非空**
+        //   （ffmpeg/引擎失败会先留下 0 字节文件 ⇒ 只判 existsSync 会把空文件当成功）
+        try { if (fs.existsSync(cand) && fs.statSync(cand).size > 0) mp4 = cand } catch { /* 读不到就不认它 */ }
       }
     }
     return { ok: true, mp4, sheet }
@@ -196,7 +205,11 @@ async function voiceFilm(
     const all = hit.length ? hit : scan(/\.mp4$/i)
     mp4 = all.sort((a, b) => { try { return fs.statSync(b).size - fs.statSync(a).size } catch { return 0 } })[0] || ''
   }
-  if (r.code === 0 && mp4 && fs.existsSync(mp4)) {
+  // ★VF_NOEMPTY_V1（2026-10-09 服务端实测「0 字节 mp4 却报成功」）：成片**非空**才算成功。
+  //   空文件一律当"配音失败"⇒ 上层回退无声版并如实告知；**绝不把空文件传上去**
+  //   （传上 OSS 后客户端会镜像成本地 0.0MB 文件，本地/网页都打不开 —— 就是用户这次踩的坑）。
+  const voicedOk = (() => { try { return fs.statSync(mp4).size >= 20 * 1024 } catch { return false } })()
+  if (r.code === 0 && mp4 && fs.existsSync(mp4) && voicedOk) {
     const sheet = path.join(dirAbs, 'render', 'sheet.jpg')
     return { ok: true, mp4, sheet: fs.existsSync(sheet) ? sheet : '' }
   }

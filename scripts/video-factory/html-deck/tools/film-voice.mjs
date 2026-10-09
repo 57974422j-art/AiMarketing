@@ -100,6 +100,31 @@ const ffDur = (f) => {
   const r = run('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', f])
   return parseFloat(String(r.stdout || '').trim()) || 0
 }
+// ★VF_NOEMPTY_V1（2026-10-09 用户实测「视频根本打不开」= 服务端 0 字节还报成功）：
+//   事故链（**客户端日志原文**为证）：`[storage:mirror] 已镜像到本地仓库: …20261009_021.mp4 (0.0MB)`
+//     · ffmpeg 有个恶习 —— **先把输出文件创建出来、再报错退出**（`-y` 会立刻把目标 truncate 成 0 字节）；
+//     · 老代码只判 `fs.existsSync(finalMp4)` ⇒ **0 字节也当成功** ⇒ 打印 FINAL_MP4 ⇒ 上传空对象到 OSS
+//       ⇒ 客户端把它镜像到本地就是 0.0MB ⇒ 本地、网页**都**打不开（与 faststart 无关，那是另一件事）。
+//   现口径：**每一步都过三道闸** ① exit=0 ② 产物存在 ③ 产物**不是空的**（还要能被 ffprobe 读出时长）。
+//   混音失败**降级重试**：先去掉烧字幕 → 再退到"只换音轨不重编码"；全失败才 exit 1（上层如实回退无声版）。
+const sizeOf = (f) => { try { return fs.statSync(f).size } catch { return -1 } }
+const okFile = (f, min) => sizeOf(f) >= (min || 512)
+const rmQuiet = (f) => { try { fs.unlinkSync(f) } catch { /* 本来就没有 */ } }
+/** ffmpeg 能力探测（编码器/滤镜缺不缺）—— 出片日志里直接写明，别等出事再猜。
+ *  刻意在**失败现场**也再打一遍（见下面 exit 1 之前的那行）：
+ *  服务端是精简 ffmpeg 时，缺 libmp3lame/libx264/libass 就是"0 字节/没字幕"的真正原因。 */
+const CAPS = (() => {
+  const r = run('ffmpeg', ['-hide_banner', '-encoders'])
+  const t = String(r.stdout || '') + String(r.stderr || '')
+  const rf = run('ffmpeg', ['-hide_banner', '-filters'])
+  const tf = String(rf.stdout || '')
+  return { lame: / libmp3lame /.test(t), x264: / libx264 /.test(t), libass: / subtitles /.test(tf) }
+})()
+const capsLine = () => '音轨编码=' + AUDIO.enc + ' libmp3lame=' + (CAPS.lame ? '有' : '无')
+  + ' libx264=' + (CAPS.x264 ? '有' : '无') + ' libass=' + (CAPS.libass ? '有' : '无')
+/** 音轨编码：优先 mp3，缺 libmp3lame 就退 aac/.m4a ——
+ *  服务端 ffmpeg 常是精简构建，**没有 libmp3lame 会让整条音轨全空**（老代码忽略 exit code ⇒ 一路"成功"） */
+const AUDIO = CAPS.lame ? { enc: 'libmp3lame', ext: '.mp3' } : { enc: 'aac', ext: '.m4a' }
 const pad2 = (n) => String(n).padStart(2, '0')
 const srtTime = (t) => {
   const ms = Math.max(0, Math.round(t * 1000))
@@ -202,20 +227,42 @@ console.log('  实测合计 = ' + film.total + 's（字幕 ' + srtRows.length + 
 // ---------------- ③ 拼音轨（每段补静音到该镜时长 ⇒ 与画面严格对齐） ----------------
 const listFile = path.join(work, 'concat.txt')
 const listLines = []
+console.log('  ffmpeg 环境：' + capsLine()
+  + (CAPS.lame ? '' : '（没有 libmp3lame ⇒ 音轨退 aac/.m4a）')
+  + (CAPS.x264 ? '' : '（没有 libx264 ⇒ 成片不重编码、字幕只能旁挂）'))
+const badAudio = []
 clips.forEach((c, k) => {
-  const p = path.join(work, 'p' + k + '.mp3')
-  if (c.mp3) {
-    run('ffmpeg', ['-y', '-v', 'error', '-i', c.mp3, '-af', 'apad', '-t', String(c.dur),
-      '-c:a', 'libmp3lame', '-ar', '44100', '-ac', '2', p])
-  } else {
-    run('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', String(c.dur),
-      '-c:a', 'libmp3lame', p])
+  const p = path.join(work, 'p' + k + AUDIO.ext)
+  rmQuiet(p)
+  const a = c.mp3
+    ? ['-y', '-v', 'error', '-i', c.mp3, '-af', 'apad', '-t', String(c.dur),
+      '-c:a', AUDIO.enc, '-ar', '44100', '-ac', '2', p]
+    : ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', String(c.dur),
+      '-c:a', AUDIO.enc, p]
+  const r2 = run('ffmpeg', a)
+  // ★VF_NOEMPTY_V1：**必须校验**（老代码把 exit code 全忽略 ⇒ 服务端没有 libmp3lame 时
+  //   p*.mp3 全失败 ⇒ 拼出空 voice.mp3 ⇒ 混音 0 字节 ⇒ 还报成功）
+  if (r2.status !== 0 || !okFile(p, 512)) {
+    badAudio.push('p' + k + '（' + (r2.status === 0 ? '空文件' : 'exit=' + r2.status) + '）')
+    rmQuiet(p)
+    // 兜底：拿**静音**补上这一段（宁可有静音，也不要整条音轨作废）
+    run('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo',
+      '-t', String(c.dur), '-c:a', AUDIO.enc, p])
   }
   listLines.push("file '" + p.replace(/\\/g, '/') + "'")
 })
 fs.writeFileSync(listFile, listLines.join(String.fromCharCode(10)) + String.fromCharCode(10), 'utf8')
-const voiceMp3 = path.join(build, 'voice.mp3')
-run('ffmpeg', ['-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', voiceMp3])
+const voiceTrack = path.join(build, 'voice' + AUDIO.ext)
+rmQuiet(voiceTrack)
+const cr = run('ffmpeg', ['-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', listFile, '-c', 'copy', voiceTrack])
+if (cr.status !== 0 || !okFile(voiceTrack, 4096)) {
+  console.error('  ✗ 音轨合成失败（' + (badAudio.length ? '异常段 ' + badAudio.slice(0, 4).join(', ') + ' · ' : '')
+    + '）' + String(cr.stderr || cr.stdout || '').replace(/\s+/g, ' ').slice(-260))
+  console.error('  ffmpeg 环境：' + capsLine())   // ★VF_NOEMPTY_V1：失败现场自报能力（服务端缺什么一眼可见）
+  rmQuiet(voiceTrack)
+  process.exit(1)
+}
+if (badAudio.length) console.log('    ⚠ ' + badAudio.length + ' 段音轨异常（已按静音补齐）：' + badAudio.slice(0, 4).join(', '))
 
 // ---------------- ④ 渲染画面（用新时长） ----------------
 const renderDir = path.join(outDir, 'render')
@@ -240,26 +287,25 @@ if (!mp4) {
 console.log('  ✓ 画面：' + path.relative(PROJECT, mp4).replace(/\\/g, '/'))
 
 // ---------------- ⑤ 混音 + 烧字幕 ----------------
-const hasLibass = (() => {
-  const r = run('ffmpeg', ['-hide_banner', '-filters'])
-  return / subtitles /.test(String(r.stdout || ''))
-})()
+const hasLibass = CAPS.libass   // ★VF_NOEMPTY_V1：探测上移到 CAPS —— 失败现场也要能打出来
 fs.copyFileSync(path.join(build, 'subs.srt'), path.join(renderDir, 'subs.srt'))
 const finalMp4 = path.join(outDir, film.id + '-voiced.mp4')
 // ★VF_FILMVOICE_V1d：输入用**实际找到的那个 mp4**（cwd=renderDir ⇒ 取 basename），不写死名字
-const base = ['-y', '-v', 'error', '-i', path.basename(mp4), '-i', voiceMp3]
-const tail = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p',
-  // ⚠️ 这里必须用**绝对路径**：ffmpeg 的 cwd 是 renderDir，写成 basename 会落到 render/ 子目录里
-  //    （2026-10-09 实测踩到：第一次跑完产物在 render/xxx-voiced.mp4，而脚本按 outDir 去判存在 ⇒ 误报失败）
-  '-c:a', 'aac', '-b:a', '192k', '-shortest',
-  // ★VF_FASTSTART_V1（2026-10-09 用户实测「视频根本打不开」）——**必须**加 faststart：
-  //   病灶铁证（本机比对了两个文件的文件头）：
-  //     · 引擎渲染出的静帧产物：`ftyp` 后紧接 **`moov`**（索引在头）⇒ 浏览器能秒开、能流式播；
-  //     · 我混音+烧字幕后的成片：`ftyp` 后是 `free`+`mdat`，**`moov` 被推到文件尾** ⇒
-  //       网页 `<video>` 必须先把整个文件（含末尾索引）拿到才能初始化 ⇒ 表现就是"转圈/根本打不开"；
-  //       而本地播放器能直接 seek 到文件尾拿索引 ⇒ 所以本机"解码校验"一切正常、看不出来。
-  //   ⇒ 混音这一步**一律要 +faststart**（把索引挪到文件头），与引擎产物保持同一口径。
-  '-movflags', '+faststart', finalMp4]
+const base = ['-y', '-v', 'error', '-i', path.basename(mp4), '-i', voiceTrack]
+// 视频侧：有 libx264 ⇒ 重编码（**只有重编码才能烧字幕**）；没有 ⇒ 直接 copy（不重编码，字幕只能旁挂）
+const venc = CAPS.x264
+  ? ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p']
+  : ['-c:v', 'copy']
+// 音频 + 输出。⚠️ 输出必须用**绝对路径**：ffmpeg 的 cwd 是 renderDir，写成 basename 会落到 render/ 子目录里
+//    （2026-10-09 实测踩到：第一次跑完产物在 render/xxx-voiced.mp4，而脚本按 outDir 去判存在 ⇒ 误报失败）
+// ★VF_FASTSTART_V1（2026-10-09 用户实测「视频根本打不开」）——**必须**加 faststart：
+//   病灶铁证（本机比对了两个文件的文件头）：
+//     · 引擎渲染出的静帧产物：`ftyp` 后紧接 **`moov`**（索引在头）⇒ 浏览器能秒开、能流式播；
+//     · 只混音不加 faststart 的成片：`ftyp` 后是 `free`+`mdat`，**`moov` 被推到文件尾** ⇒
+//       网页 `<video>` 必须先把整个文件（含末尾索引）拿到才能初始化 ⇒ 表现就是"转圈/根本打不开"。
+//   （注：本次 0.0MB 那件事不是它 —— 那是混音失败留下 0 字节被当成功，见 ★VF_NOEMPTY_V1。
+//     两件事都修了，别只修一件。）
+const AMIX = ['-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', finalMp4]
 let vvf = null
 if (!has('no-sub') && hasLibass) {
   // ★VF_SUBCUE_V1（用户实测「字幕太大压在上面」后定稿）：**小字号 + 贴底安全条**。
@@ -270,20 +316,41 @@ if (!has('no-sub') && hasLibass) {
   vvf = "subtitles=subs.srt:force_style='FontName=" + SUB_FONT + ",FontSize=" + SUB_SIZE
     + ",PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BorderStyle=3,Outline=1,Shadow=0,MarginV=" + SUB_MARGIN + "'"
 }
-const fr = run('ffmpeg', base.concat(vvf ? ['-vf', vvf] : []).concat(tail),
-  { cwd: renderDir })
-if (!fs.existsSync(finalMp4)) {
-  console.error('  ✗ 混音/烧字幕失败：' + String(fr.stderr || fr.stdout || '').replace(/\s+/g, ' ').slice(-300))
+// ★VF_NOEMPTY_V1：混音**降级重试链** + 三道闸校验（exit=0 / 非空 / ffprobe 读得出时长）。
+//   老代码只跑一次、且只判 `existsSync` ⇒ ffmpeg 失败留下的 0 字节文件被当成功（用户这次踩的坑）。
+const tries = []
+if (vvf) tries.push({ tag: '混音 + 烧字幕', vf: vvf, enc: venc })
+if (CAPS.x264) tries.push({ tag: '混音（不烧字幕）', vf: null, enc: venc })
+tries.push({ tag: '只换音轨（不重编码）', vf: null, enc: ['-c:v', 'copy'] })
+let used = null
+let lastErr = ''
+for (const t of tries) {
+  rmQuiet(finalMp4)   // ← 关键：每次先把上一次留下的 0 字节残骸删掉（否则 existsSync 会骗人）
+  const fr = run('ffmpeg', base.concat(t.vf ? ['-vf', t.vf] : []).concat(t.enc, AMIX), { cwd: renderDir })
+  const szNow = sizeOf(finalMp4)
+  const dur = ffDur(finalMp4)
+  if (fr.status === 0 && szNow >= 20 * 1024 && dur > 0.5) { used = t; break }
+  lastErr = String(fr.stderr || fr.stdout || '').replace(/\s+/g, ' ').slice(-300)
+  console.log('    ⚠ ' + t.tag + ' 失败（'
+    + (fr.status !== 0 ? 'exit=' + fr.status : (szNow < 20 * 1024 ? '产物为空 ' + szNow + 'B' : '时长读不出'))
+    + '）' + (lastErr ? '：' + lastErr.slice(-160) : ''))
+}
+if (!used) {
+  rmQuiet(finalMp4)   // ← 绝不留 0 字节"假产物"（本次事故就是它被当成功、传上 OSS 的）
+  console.error('  ✗ 混音全部降级尝试都失败（末次原因）：' + lastErr)
+  console.error('  ffmpeg 环境：' + capsLine())
   process.exit(1)
 }
-const sz = Math.round(fs.statSync(finalMp4).size / 1024)
-console.log('  ✓ 成片（含配音' + (vvf ? ' + 烧字幕' : '，字幕为旁挂 SRT') + '）：'
-  + path.relative(PROJECT, finalMp4).replace(/\\/g, '/') + '  ' + sz + ' KB  ' + film.total + 's')
+const sz = Math.round(sizeOf(finalMp4) / 1024)
+console.log('  ✓ 成片（含配音' + (used.vf ? ' + 烧字幕' : '，字幕为旁挂 SRT') + '）：'
+  + path.relative(PROJECT, finalMp4).replace(/\\/g, '/') + '  ' + sz + ' KB  ' + film.total + 's'
+  + (used.vf ? '' : '（因环境能力不足降级：' + used.tag + '）'))
 // ★VF_FILMVOICE_V1d：给调用方（vf-film.ts）一行**机器可读**的成片路径，别再靠猜文件名
 console.log('FINAL_MP4:' + finalMp4)
-if (!vvf) {
-  console.log('    ⚠ 本机 ffmpeg 没有 libass（subtitles 滤镜）⇒ **没有烧字幕**，已把字幕留在：'
-    + path.relative(PROJECT, path.join(build, 'subs.srt')).replace(/\\/g, '/') + '（可播放器外挂，或让带 libass 的机器再跑一次）')
+if (!used.vf) {
+  console.log('    ⚠ 这次**没有烧字幕**（' + (hasLibass ? '已降级，见上面失败行）' : '本机 ffmpeg 没有 libass 的 subtitles 滤镜）')
+    + '，字幕已留在：' + path.relative(PROJECT, path.join(build, 'subs.srt')).replace(/\\/g, '/')
+    + '（可播放器外挂，或让带 libass + libx264 的机器再跑一次）')
 }
 console.log('  产物清单：' + path.relative(PROJECT, outDir).replace(/\\/g, '/') + '/'
-  + '  [build/film.voiced.json · build/subs.srt · build/voice.mp3 · render/*.mp4 · ' + film.id + '-voiced.mp4]')
+  + '  [build/film.voiced.json · build/subs.srt · build/voice' + AUDIO.ext + ' · render/*.mp4 · ' + film.id + '-voiced.mp4]')

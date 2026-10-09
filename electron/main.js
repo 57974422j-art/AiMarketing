@@ -1971,6 +1971,11 @@ ipcMain.handle('storage:mirror', async (_event, url) => {
     const resp = await fetch(fullUrl, { headers: cookie ? { cookie } : {} })
     if (!resp.ok) return { success: false, error: 'HTTP ' + resp.status + '（未登录/鉴权失败）' }
     const buf = Buffer.from(await resp.arrayBuffer())
+    // ★VF_NOEMPTY_V1（2026-10-09 用户实测「视频根本打不开」）：**服务端返回空 body 就不落盘**。
+    //   现场证据（本机日志原文）：`[storage:mirror] 已镜像到本地仓库: …20261009_021.mp4 (0.0MB)`
+    //   —— 服务端那份成片是 0 字节（上传时就空），客户端"如实"写了个 0 字节文件 ⇒ 本地都打不开。
+    //   现口径：空 body = 失败，**不写文件**（免得本地仓库里躺一堆 0 字节假片），并如实报错。
+    if (!buf.length) return { success: false, error: '服务端返回空文件（0 字节）⇒ 已跳过落盘：' + name }
     fs.writeFileSync(dest, buf)
     // 如实写日志（含落盘路径与大小）—— 以后"到底下没下下来"有据可查，不靠猜
     try { buLog('[storage:mirror] 已镜像到本地仓库: ' + dest + ' (' + (buf.length / 1048576).toFixed(1) + 'MB)') } catch (e) {}
