@@ -138,6 +138,58 @@ async function repoImages(uid: number | string): Promise<Array<{ name: string; u
   } catch { return [] }
 }
 
+/** ★VF_JSONSCAN_V1（2026-10-09 用户实测「文案解析失败：Unexpected non-whitespace character after JSON」）：
+ *  取**第一个完整**的 JSON 值（配对括号扫描，带字符串/转义处理）。
+ *  为什么不能用 `indexOf('[')…lastIndexOf(']')`：模型常在 JSON 后面又补一段解释或**再吐一个数组**，
+ *  那种切法会把尾巴一起塞进 JSON.parse ⇒ 直接解析失败（同一个坑在 scripts/vf-film-gen.mjs 已修过一次，
+ *  这里当时没照抄 —— 我的疏漏）。 */
+function scanJson(text: string): any | null {
+  const s = String(text || '')
+  for (let st = 0; st < s.length; st++) {
+    const open = s[st]
+    if (open !== '{' && open !== '[') continue
+    const close = open === '{' ? '}' : ']'
+    let depth = 0, inStr = false, esc = false
+    for (let i = st; i < s.length; i++) {
+      const c = s[i]
+      if (inStr) {
+        if (esc) esc = false
+        else if (c === '\\') esc = true
+        else if (c === '"') inStr = false
+      } else if (c === '"') inStr = true
+      else if (c === open) depth++
+      else if (c === close) {
+        depth--
+        if (depth === 0) {
+          try { return JSON.parse(s.slice(st, i + 1)) } catch { break }   // 这段不是合法 JSON ⇒ 从下一个位置再试
+        }
+      }
+    }
+  }
+  return null
+}
+
+/** ★VF_FILMCOPY_V2 降级用：用**读图总结**里的词直接拼一版文案（**取材于素材本身 ⇒ 不算编造、也不带数字**）。
+ *  为什么要有它：AI 文案抽风时不能把整条线卡死（用户："为什么老是出错"）；但也不能编造 ⇒
+ *  就从视觉模型对这批素材的真实描述里取词。 */
+function deriveCopyFromSummary(summary: string, scenes: Array<{ structure: string; media: string[] }>): any[] {
+  const lines = String(summary || '')
+    .split(/[\n；;]+/).map((s) => s.replace(/^\s*[\d.、)）]+\s*/, '').trim()).filter((s) => s.length >= 2)
+  return scenes.map((sc, i) => {
+    const raw = lines[Math.min(lines.length - 1, i)] || ''
+    const parts = raw.replace(/[，。,.；;:：、]/g, ' ').trim().split(/\s+/).filter(Boolean)
+    const short = String(parts[0] || '').slice(0, 8)
+    const sub = String(parts.slice(1).join(' ')).slice(0, 16)
+    const slots: any = {}
+    const st = String(sc.structure || '')
+    if (st === 'opening-hero') { slots.title1 = short; if (sub) slots.sub = sub }
+    else if (st === 'works-wall') { slots.title = short; slots.rows = [] }
+    else if (st === 'grid-2x2') { slots.title = short; slots.nums = ['01', '02', '03', '04'] }
+    else { slots.title = short; if (sub) slots.sub = sub }
+    return { slots }
+  })
+}
+
 /** ★VF_FILMCOPY_V1（2026-10-09 用户定案 B：「该用模型就用模型。还有让 AI 先总结素材。不要乱出片」）
  *  —— AI「先总结素材 → 再写逐镜文案」，**任一步不过就不许出片**。
  *   ① 看图：qwen-vl-max 一次读前 8 张（describeImagesWithVL）→ 一句话总结 + 逐张一句；
@@ -146,7 +198,7 @@ async function repoImages(uid: number | string): Promise<Array<{ name: string; u
  *   ④ 服务端校验：解析 + 每镜 ≤60 字 + 用字在字表内 + 无 emoji + **剥掉任何数字卡字段**（红线：不许编造数据）。
  *  ⚠️ 与 scripts/vf-film-gen.mjs 同一套硬规矩；区别：那边让模型**排分镜**，这里骨架已定、只让模型**填文案**。 */
 async function aiPrepareCopy(ctx: HtmlFilmCtx, uid: number | string, vd: HtmlFilmDraft):
-Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[] }> {
+Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[]; warn?: string }> {
   if (!ctx.generateText) return { ok: false, err: '服务端没接上文案模型（generateText 未注入）' }
   // ① 素材（勾选的优先，没勾用最近 12 张 —— 与真正出片同一口径）
   let picked: any[] = []
@@ -207,36 +259,72 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
     + '3. 每段文案合计 ≤60 字；chips 每条 ≤3 字；rows 每条 ≤12 字。\n'
     + '4. **不许用「涮」字**（项目字体子集里没有，会上豆腐块）——火锅的动作写「烫 / 下锅 / 火锅」；别用生僻字。\n'
     + '5. 只回一个 JSON 数组（长度 = 段数），元素形如 {"slots":{...}}；不要 markdown 围栏、不要解释。'
-  let txt = ''
-  try { txt = await ctx.generateText(prompt) } catch (e: any) { return { ok: false, err: '文案模型调用失败：' + String(e?.message || e).slice(0, 100) } }
-  let arr: any[] = []
-  try {
-    const s = String(txt).replace(/```(?:json)?/gi, '')
-    const a = s.indexOf('['), b = s.lastIndexOf(']')
-    if (a < 0 || b < 0) throw new Error('没给 JSON 数组')
-    arr = JSON.parse(s.slice(a, b + 1))
-    if (!Array.isArray(arr)) throw new Error('不是数组')
-  } catch (e: any) { return { ok: false, err: '文案解析失败：' + String(e?.message || e).slice(0, 80) } }
-  if (arr.length !== pl.scenes.length) return { ok: false, err: '文案段数(' + arr.length + ')与骨架(' + pl.scenes.length + ')不一致' }
-  // ⑤ 校验（用字表 / 字数 / emoji）+ 剥数字卡字段
+  // ★VF_FILMCOPY_V2（2026-10-09 用户实测「为什么老是出错」）：**最多两次尝试 + 三次降级，绝不卡死**。
+  //   ① 宽容解析（scanJson 配对扫描：数组 / {scenes:[…]} / 带解释的尾巴 都能取到）；
+  //   ② 解析不过 ⇒ 带"上次哪里错"**重试一次**；
+  //   ③ 仍不过/校验不过（字数/字表/emoji）⇒ 用**读图总结**拼一版（取材于素材本身，不编造、不带数字），
+  //      并在确认卡上**如实标注**"这版是自动拼的，建议换风格重试"。
+  //   只有"模型完全调不通 / 没素材 / 下载失败"这类**环境问题**才整步失败（那时也确实不该出片）。
+  const parseArr = (t: string): any[] | null => {
+    const j = scanJson(String(t).replace(/```(?:json)?/gi, ''))
+    if (!j) return null
+    if (Array.isArray(j)) return j
+    if (Array.isArray((j as any)?.scenes)) return (j as any).scenes
+    if (Array.isArray((j as any)?.copy)) return (j as any).copy
+    return null
+  }
+  const planOut = pl.scenes.map((s) => ({ structure: s.structure, media: s.media, dur: s.dur }))
+  let arr: any[] | null = null
+  let why = ''
+  for (let attempt = 1; attempt <= 2 && !arr; attempt++) {
+    let txt = ''
+    try {
+      txt = await ctx.generateText(attempt === 1
+        ? prompt
+        : prompt + '\n\n⚠️ 上一次你的输出不合法（' + why + '）。这次**只回一个 JSON 对象**：{"scenes":[{"slots":{…}}]} —— 不要任何解释、不要 markdown 围栏、不要多余的数组。')
+    } catch (e: any) {
+      why = '模型调用失败：' + String(e?.message || e).slice(0, 80)
+      break   // 模型都调不通 ⇒ 环境问题，走失败（不该硬造一条片）
+    }
+    const got = parseArr(txt)
+    if (!got) { why = why || '不是合法 JSON'; continue }
+    if (got.length !== pl.scenes.length) { why = '段数 ' + got.length + ' ≠ ' + pl.scenes.length; continue }
+    arr = got
+  }
+  // 校验（用字表 / 字数 / emoji）+ 剥数字卡字段
   let charset = ''
   try { charset = fs.readFileSync(path.join(filmToolsDir(), 'fonts', 'chars-cmn.txt'), 'utf8') } catch { charset = '' }
   const set = new Set(charset.split(''))
   const copy: any[] = []
-  for (let i = 0; i < arr.length; i++) {
-    const slots: any = Object.assign({}, (arr[i] || {}).slots || {})
-    const all = JSON.stringify(slots)
-    if (/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(all)) return { ok: false, err: '第 ' + i + ' 段带了 emoji' }
-    const n = ['eyebrow', 'title', 'title1', 'title2', 'sub', 'tail', 'foot'].reduce((a, k) => a + String(slots[k] || '').length, 0)
-      + (Array.isArray(slots.rows) ? slots.rows.join('').length : 0)
-      + (Array.isArray(slots.chips) ? slots.chips.join('').length : 0)
-    if (n > 60) return { ok: false, err: '第 ' + i + ' 段文案 ' + n + ' 字（>60）' }
-    const bad = charset ? Array.from(new Set(Array.from(all).filter((c) => c.charCodeAt(0) > 127 && !set.has(c)))) : []
-    if (bad.length) return { ok: false, err: '第 ' + i + ' 段有字表外的字：' + bad.join('') }
-    delete slots.value; delete slots.unit; delete slots.kpi; delete slots.kpiTitle
-    copy.push({ slots })
+  if (arr) {
+    for (let i = 0; i < arr.length; i++) {
+      const slots: any = Object.assign({}, (arr[i] || {}).slots || {})
+      const all = JSON.stringify(slots)
+      if (/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(all)) { why = '第 ' + i + ' 段带 emoji'; copy.length = 0; break }
+      const n = ['eyebrow', 'title', 'title1', 'title2', 'sub', 'tail', 'foot'].reduce((a, k) => a + String(slots[k] || '').length, 0)
+        + (Array.isArray(slots.rows) ? slots.rows.join('').length : 0)
+        + (Array.isArray(slots.chips) ? slots.chips.join('').length : 0)
+      if (n > 60) { why = '第 ' + i + ' 段 ' + n + ' 字（>60）'; copy.length = 0; break }
+      const bad = charset ? Array.from(new Set(Array.from(all).filter((c) => c.charCodeAt(0) > 127 && !set.has(c)))) : []
+      if (bad.length) { why = '第 ' + i + ' 段有字表外的字：' + bad.join(''); copy.length = 0; break }
+      delete slots.value; delete slots.unit; delete slots.kpi; delete slots.kpiTitle
+      copy.push({ slots })
+    }
   }
-  return { ok: true, summary, plan: pl.scenes.map((s) => ({ structure: s.structure, media: s.media, dur: s.dur })), copy }
+  if (!copy.length && !arr) {
+    // ③ 降级：用读图总结拼一版（不卡死、也不编造）
+    if (!summary) return { ok: false, err: '文案模型没给出可用结果（' + why + '），且没有读图总结可兜底' }
+    vfLog(uid, '[HTML成片] AI 文案降级为"读图拼句"：' + why)
+    return { ok: true, summary, plan: planOut, copy: deriveCopyFromSummary(summary, pl.scenes),
+      warn: '⚠️ 这版文案没能由 AI 写好（' + why + '），已按**读图结果**自动拼了一版；建议点「← 换风格」重试一次。' }
+  }
+  if (!copy.length) {
+    if (!summary) return { ok: false, err: 'AI 文案没过校验（' + why + '），且没有读图总结可兜底' }
+    vfLog(uid, '[HTML成片] AI 文案没过校验 → 降级为"读图拼句"：' + why)
+    return { ok: true, summary, plan: planOut, copy: deriveCopyFromSummary(summary, pl.scenes),
+      warn: '⚠️ 这版文案没过校验（' + why + '），已按**读图结果**自动拼了一版；建议点「← 换风格」重试一次。' }
+  }
+  return { ok: true, summary, plan: planOut, copy }
 }
 
 /* ───────────────────────── 三张卡（都走 VF_JSON，客户端按 step 选组件）───────────────────────── */
@@ -292,6 +380,8 @@ function confirmCard(vd: HtmlFilmDraft): string {
     summary: String(vd.summary || ''),
     plan,
     copy,
+    // ★VF_FILMCOPY_V2：降级时把原因带给前端（卡片上要如实显示，不能让用户以为 AI 正常写了）
+    warn: String((vd as any).warn || ''),
   }
   return 'VF_JSON:' + JSON.stringify(body)
 }
@@ -351,8 +441,10 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
       vd.plan = prep.plan
       vd.copy = prep.copy
       vd.step = 'confirm'
+      // ★VF_FILMCOPY_V2：降级时带一句"这版是自动拼的"（如实告知，别让用户以为 AI 正常工作了）
+      ;(vd as any).warn = String(prep.warn || '')
       await saveHtmlFilmDraft(prisma, uid, vd)
-      vfLog(uid, `[HTML成片] AI 已总结素材并写好 ${(prep.copy || []).length} 段文案 → 出确认卡（等用户点出片）`)
+      vfLog(uid, `[HTML成片] AI 已总结素材并写好 ${(prep.copy || []).length} 段文案${prep.warn ? '（降级）' : ''} → 出确认卡（等用户点出片）`)
       return confirmCard(vd)
     }
     if (at === 'back_style') { vd.step = 'style'; await saveHtmlFilmDraft(prisma, uid, vd); return styleCard(vd) }

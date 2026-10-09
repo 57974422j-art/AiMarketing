@@ -2065,6 +2065,12 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
             {/* ══ ★VF_FILMCOPY_V1（2026-10-09 用户定案「让 AI 先总结素材。不要乱出片」）══
                 「下一步」时服务端已经**先让 AI 看了素材、并按骨架写好逐镜文案**；这里把它显示出来，
                 用户**看到文案再点出片** —— 不再出现"文案跑偏/编造数据"那种乱出片。 */}
+            {/* ★VF_FILMCOPY_V2：降级（AI 文案没写好、改用读图拼句）时如实标出来，别让用户以为是 AI 写的 */}
+            {vj?.warn ? (
+              <div className="mt-2 p-2 rounded-lg bg-amber-500/10 border border-amber-400/30 text-[11px] text-amber-200">
+                {String(vj.warn)}
+              </div>
+            ) : null}
             {vj?.summary ? (
               <div className="mt-2 p-2 rounded-lg bg-black/20 text-[11px] text-gray-200 whitespace-pre-wrap">
                 <div className="text-emerald-300 mb-1">
