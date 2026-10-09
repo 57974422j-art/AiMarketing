@@ -249,6 +249,21 @@ export async function planFilm(opts: {
   } catch (e: any) { return { ok: false, err: '读骨架失败：' + String(e?.message || e).slice(0, 120) } }
 }
 
+/** ★VF_NOCOPY_V1（2026-10-09 用户定案「分镜没有任何文案就不许出片」）：
+ *  判"这一镜到底有没有文案"——与 `tools/film-voice.mjs:deriveVoice` **同一口径**
+ *  （title/title1/title2/sub 为主，其次 eyebrow/foot/tail，再看 chips/rows/nums）。
+ *  为什么必须有它：配音线的**镜头时长与字幕全靠分镜文本** ——
+ *  没文本 ⇒ 不调 TTS ⇒ 音轨全静音、0 条字幕、每镜时长只能落 2.2s 下限
+ *  ⇒ 成片就是"没字没声的快闪哑片"（用户实测：8 段 = 8×2.2 = 17.6s）。 */
+function slotsHasText(slots: any): boolean {
+  const v = slots || {}
+  const one = ['title', 'title1', 'title2', 'sub', 'eyebrow', 'foot', 'tail']
+    .map((k) => String(v[k] || '').trim()).join('')
+  const arr = ['chips', 'rows', 'nums']
+    .map((k) => (Array.isArray(v[k]) ? v[k].join('') : '')).join('')
+  return !!(one.trim() || arr.trim())
+}
+
 /** 端到端一步到位：素材 → 编排 → 出片（试点线用；AI 想自己编排时改用 orchestrate + validate）
  *  ★VF_FILMVOICE_V1：`voiced=true` ⇒ 走 audio-first（TTS 实测时长 + 字幕 + 混音 + 烧字幕）。
  *  ⚠️ 配音失败**不判死出片**：回退"无声版"并在 `voiceErr` 里如实带原因（与"失败即回退"同口径）。 */
@@ -268,24 +283,55 @@ export async function makeFilmFromMaterials(opts: {
   const rel = path.relative(filmToolsDir(), filmJson).replace(/\\/g, '/')
   const o = await orchestrate({ materials: opts.materials, text: opts.text, pack: opts.pack, variant: opts.variant, id: 'vf-film', outJson: rel })
   if (!o.ok) return { ok: false, stage: 'orchestrate', err: o.note }
-  // ★VF_FILMCOPY_V1：把 AI 写好的**逐镜文案**按序号并进骨架（arrange 确定性 ⇒ 序号与确认卡上看到的一致）。
-  //   只在"该键有非空值"时覆盖 ⇒ 不会把骨架里该有的东西抹掉；空值一律不写（宁缺勿编）。
+  // ★VF_FILMCOPY_V3（2026-10-09 用户实测「卡片上文案齐全、成片没字没声」· 根因，已确认）：
+  //   **形状分叉** —— 服务端生成的 copy 是 `{ slots: {...} }`
+  //   （`vf-htmlfilm.ts:311` `copy.push({ slots })`；提示词也要求"元素形如 {\"slots\":{…}}"；
+  //     确认卡 `page.tsx:2085` 也是按 `c.slots` 渲染的 ⇒ 所以卡片上那 8 条文案显示得好好的），
+  //   而**这里**老代码按"扁平 key"合并（看注释还写着"key 名按结构：title1/sub/chips/rows…"）⇒
+  //   唯一的顶层 key 就是 `slots` ⇒ 只用 `String(对象)` 写进一个 `slots.slots = "[object Object]"`，
+  //   **title/sub/eyebrow/chips/rows 一个都没进分镜**。
+  //   后果（与用户实测逐项吻合）：分镜无文案 ⇒ 不调 TTS（音轨全静音 -91dB）+ 0 条字幕 +
+  //   每镜时长落 2.2s 下限 ⇒ 成片 = "8×2.2 = 17.6s 快闪哑片"。
+  //   现口径：**两种形状都认**（`c.slots` 优先，其次扁平），并杜绝"slots 套 slots"。
   if (Array.isArray(opts.copy) && opts.copy.length) {
     try {
       const j = JSON.parse(fs.readFileSync(filmJson, 'utf8'))
       j.scenes = (j.scenes || []).map((s: any, i: number) => {
         const c: any = (opts.copy as any[])[i]
         if (!c || typeof c !== 'object') return s
+        const src: any = (c.slots && typeof c.slots === 'object') ? c.slots : c   // ★兼容两种形状
         const slots: any = Object.assign({}, s.slots || {})
-        for (const k of Object.keys(c)) {
-          const v = c[k]
+        for (const k of Object.keys(src)) {
+          if (k === 'slots') continue                 // 防"套娃"：绝不把 slots 塞进 slots
+          const v = src[k]
           if (v === undefined || v === null || String(v) === '') continue
           slots[k] = Array.isArray(v) ? v.map((x: any) => String(x)) : String(v)
         }
         return Object.assign({}, s, { slots })
       })
       fs.writeFileSync(filmJson, JSON.stringify(j, null, 2) + '\n', 'utf8')
-    } catch { /* 合并失败不判死：退化成"无文案骨架"，仍可出片（不产坏片） */ }
+    } catch (e: any) {
+      // ★VF_FILMCOPY_V3：**不再静默吞**（老代码 `catch { /* 忽略 */ }` ⇒ 合并失败没人知道，
+      //   最后只表现为"没字没声的哑片"，排查成本极高）。合并失败 = 直接不出片、如实报因。
+      return { ok: false, stage: 'copy', err: '文案并进分镜失败：' + String(e?.message || e).slice(0, 160) }
+    }
+  }
+  // ★VF_NOCOPY_V1（2026-10-09 用户定案「分镜没有任何文案就不许出片」）：
+  //   配音模式下**每镜都必须有文案** —— 缺一镜就是 2.2s 静音快闪，整片就废了。
+  //   ⇒ 缺就用 stage=copy 拦下（宁可不做，也不给假成片）。
+  if (opts.voiced) {
+    const missing: number[] = []
+    try {
+      const j = JSON.parse(fs.readFileSync(filmJson, 'utf8'))
+      ;(j.scenes || []).forEach((s: any, k: number) => { if (!slotsHasText(s && s.slots)) missing.push(k) })
+    } catch { missing.push(-1) }
+    if (missing.length) {
+      return {
+        ok: false, stage: 'copy',
+        err: '分镜里' + (missing[0] === -1 ? '读不出文案' : ('第 ' + missing.slice(0, 6).join('、') + ' 镜没有文案'))
+          + '（共 ' + missing.length + ' 镜）⇒ 未出片；配音线的时长/字幕全靠分镜文本，缺文案只会得到快闪哑片。请点「← 换风格」重写一次文案',
+      }
+    }
   }
   const outDirRel = path.join('out', 'film', path.basename(opts.workDir))
   if (opts.voiced) {

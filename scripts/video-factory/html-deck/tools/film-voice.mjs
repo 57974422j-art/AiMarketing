@@ -177,14 +177,36 @@ let i = 0
  *  （`title1`/`title` + `sub`）—— 画面写什么就念什么，绝不编造。 */
 const deriveVoice = (sc) => {
   const v = sc.slots || {}
-  const t = String(v.title || v.title1 || '').trim()
-  const sub = String(v.sub || '').trim()
-  return (t + (sub ? (t ? '，' : '') + sub : '')).trim()
+  const pick = (...ks) => ks.map((k) => String(v[k] || '').trim()).filter(Boolean)
+  const arr = (k) => (Array.isArray(v[k]) ? v[k].map((x) => String(x).trim()).filter(Boolean) : [])
+  // 主口径：标题 + 副题（画面写什么就念什么，绝不编造）
+  let s = pick('title', 'title1', 'title2', 'sub').join('，')
+  // ★VF_VOICE_DERIVE_V2（2026-10-09）：标题/副题都空时**退到画面上的其它文字** ——
+  //   否则"这镜其实有字"也会被判成没文案 ⇒ 又变成 2.2s 静音镜（就是用户踩的那条哑片）。
+  if (!s) s = pick('eyebrow', 'foot', 'tail').join('，')
+  if (!s) s = arr('chips').concat(arr('rows')).concat(arr('nums')).join('，')
+  return s.trim()
+}
+
+// ★VF_NOCOPY_V1（2026-10-09 用户定案「分镜没有任何文案就不许出片」；与 vf-film.ts 同一口径）：
+//   配音线的**时长与字幕全靠分镜文本**：没文本 ⇒ 不调 TTS ⇒ 音轨全静音、字幕 0 条、
+//   每镜时长只能落 2.2s 下限 ⇒ 出来就是"没字没声的快闪哑片"（用户实测 8 段 = 8×2.2 = 17.6s）。
+//   ⇒ 先算清每镜文本，**有一镜没文案就拒绝出片**（在调 TTS 之前拦，不浪费配额）。
+const texts = scenes.map((sc, k) => (k < lines.length
+  ? String(lines[k] || '')
+  : String(sc.voice || deriveVoice(sc))).trim())
+const noTextIdx = texts.map((t, k) => (t ? -1 : k)).filter((k) => k >= 0)
+if (noTextIdx.length) {
+  console.error('  ✗ ' + noTextIdx.length + '/' + scenes.length + ' 镜**没有任何文案**（第 '
+    + noTextIdx.slice(0, 8).join('、') + ' 镜）⇒ 拒绝出片（ERR_KIND:NO_TEXT）')
+  console.error('    配音线的时长/字幕全靠分镜文本：没文本 ⇒ 不调 TTS、0 条字幕、每镜只能掉到 2.2s 下限（快闪哑片）。')
+  console.error('    多半是"AI 文案没并进分镜"（形状/字段没对上）—— 回去查合并那一步（vf-film.ts 的 ★VF_FILMCOPY）。')
+  console.error('  ffmpeg 环境：' + capsLine())
+  process.exit(1)
 }
 
 for (const sc of scenes) {
-  const hasLine = i < lines.length
-  const text = (hasLine ? String(lines[i] || '') : String(sc.voice || deriveVoice(sc))).trim()
+  const text = texts[i]
   const mp3 = path.join(work, 's' + i + '.mp3')
   let audio = 0
   if (text) {
