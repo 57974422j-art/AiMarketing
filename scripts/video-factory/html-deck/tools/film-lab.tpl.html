@@ -74,10 +74,22 @@
     <div class="row"><label>主标题</label><input id="t1" value="AI 营销系统" /></div>
     <div class="row"><label>副标题（第二行/强调）</label><input id="t2" value="一次成型" /></div>
     <div class="row"><label>一句话说明</label><input id="sub" value="30 秒看完它能做什么" /></div>
+
+    <!-- ★VF_LABVOICE_V1（2026-10-09 用户定案「先接入我再测试」）：**配音 + 字幕出口** -->
+    <h3 style="margin-top:14px">④ 配音（可选，默认关）</h3>
+    <div class="row" style="gap:6px">
+      <input type="checkbox" id="voiced" style="width:auto" />
+      <label for="voiced" style="width:auto;cursor:pointer">配音 + 字幕（TTS 实测时长驱动）</label>
+    </div>
+    <div class="note" style="margin:2px 0 6px">
+      打开后：逐镜配音 → 镜头时长按<b>真实音频</b>排（不再用字数估）→ 字幕烧进画面；约多花 20~30 秒。<br />
+      ⚠️ 需要 DASHSCOPE_API_KEY（项目 .env.local 里已有；缺了这一步会失败并如实报错，不会产坏片）。
+    </div>
+    <textarea id="lines" placeholder="口播文案，一行一句（行数不必与镜数一致；留空 = 自动用在屏文案）" style="width:100%;min-height:72px;background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font:inherit"></textarea>
   </div>
 
   <div class="col">
-    <h3>④ 编排预览（自动，不用你管）</h3>
+    <h3>⑤ 编排预览（自动，不用你管）</h3>
     <div id="segs"></div>
     <div class="row" style="margin-top:12px">
       <button class="primary" id="go">出片</button>
@@ -184,12 +196,15 @@ document.getElementById('go').onclick = function(){
   document.getElementById('result').style.display = 'none';
   document.getElementById('log').innerHTML = '';
   setState('正在排队…', '');
+  // ★VF_LABVOICE_V1：带上"配音开关 + 口播文案"（每行一句；留空 = 服务端用在屏文案兜底）
+  var VOICED = !!(document.getElementById('voiced') || {}).checked;
+  var LINES = (document.getElementById('lines') || {}).value ? String(document.getElementById('lines').value).split(/\r?\n/).map(function(s){ return s.trim() }) : [];
   fetch('/api/film/make', { method:'POST', headers:{'content-type':'application/json'},
-    body: JSON.stringify({ job: JOB, pack: PACK, name: document.getElementById('t1').value,
+    body: JSON.stringify({ job: JOB, pack: PACK, name: document.getElementById('t1').value, voiced: VOICED, lines: LINES,
       slots: { title1: document.getElementById('t1').value, title2: document.getElementById('t2').value, sub: document.getElementById('sub').value } }) })
     .then(function(r){ return r.json() }).then(function(j){
       if(!j.ok){ btn.disabled = false; return setState('出片失败：' + j.err, 'bad'); }
-      setState('渲染中（' + j.scenes + ' 段 · ' + j.total + 's，约 40~60 秒）…', '');
+      setState((j.voiced ? '配音 + 渲染中（' : '渲染中（') + j.scenes + ' 段 · ' + j.total + 's，约 ' + (j.voiced ? '60~120' : '40~60') + ' 秒）…', '');
       poll(btn);
     }).catch(function(e){ btn.disabled = false; setState('出片失败：' + e.message, 'bad'); });
 };
@@ -206,9 +221,14 @@ function poll(btn){
       if(j.state === 'done'){
         setState('✓ 出片完成（' + el + 's）', 'ok');
         document.getElementById('result').style.display = 'block';
-        document.getElementById('vid').src = j.mp4 + '?t=' + Date.now();
+        var v = document.getElementById('vid');
+        v.src = j.mp4 + '?t=' + Date.now();
+        // ★VF_LABVOICE_V1：配音版**必须开声音**（模板里 video 默认 muted ⇒ 不处理的话用户会以为"没配上音"）
+        v.muted = !j.voiced;
+        try { v.play(); } catch (e) {}
         if(j.sheet){ var s = document.getElementById('sheet'); s.src = j.sheet + '?t=' + Date.now(); s.style.display = 'block'; }
-        document.getElementById('resnote').innerHTML = '成片：<code>' + j.mp4 + '</code>（' + j.total + 's · ' + j.scenes + ' 段）';
+        document.getElementById('resnote').innerHTML = '成片：<code>' + j.mp4 + '</code>（' + j.total + 's · ' + j.scenes + ' 段）'
+          + (j.voiced ? ' <b>· 含配音 + 烧字幕</b>（镜头时长按 TTS 实测排）' : '');
       } else {
         setState('✗ 被闸门拦下（stage=' + (j.stage||'?') + '）—— 未产出坏片，可回退老画法', 'bad');
         document.getElementById('log').innerHTML = '<span class="bad">' + (j.err || '') + '</span>';

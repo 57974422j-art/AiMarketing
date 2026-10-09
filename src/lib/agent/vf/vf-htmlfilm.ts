@@ -228,6 +228,11 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
 
   // ── ③ 确认卡「🎬 出片」：VF_FILM_GO:{…} → 真的出片
   if (/^VF_FILM_GO\s*[:{]/.test(msg)) {
+    let goF: any = {}
+    try { goF = JSON.parse(msg.slice(msg.indexOf('{'))) } catch { /* ignore */ }
+    // ★VF_FILMVOICE_V1（2026-10-09 用户定案「先校准流程」）：**本线默认配音 + 字幕**。
+    //   用户原话是「本次制作还是没有字幕 TTS 只有图片」⇒ 默认就该有声；要无声版时由确认卡明确传 false。
+    const wantVoice = goF.voiced === undefined ? true : !!goF.voiced
     const vd = await loadHtmlFilmDraft(prisma, uid)
     if (!vd) return 'HTML成片：这一单已经结束了（没有进行中的流程）——请重新说一次「HTML成片」。'
 
@@ -253,18 +258,21 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
     files = files.slice(0, 40)   // ★与"上传多少用多少"同口径（上限 40）
 
     const workDir = path.join(vfStorageRoot(), String(uid), 'video-factory', 'film_' + Date.now())
-    vfLog(uid, `[HTML成片] 开始：${files.length} 张素材 → 编排 + 出片（风格包=${vd.pack || '自动'}）`)
+    vfLog(uid, `[HTML成片] 开始：${files.length} 张素材 → 编排 + 出片（风格包=${vd.pack || '自动'}${wantVoice ? ' · 配音+字幕' : ' · 无声'}）`)
     const r = await makeFilmFromMaterials({
       materials: files,
       text: String(vd.topic || ''),
       pack: vd.pack || '',
       workDir,
+      // ★VF_FILMVOICE_V1：默认配音 + 字幕（走 film-voice：TTS 实测时长 → 重排镜头 → 字幕 → 混音烧字幕）
+      voiced: wantVoice,
+      voice: goF.voice ? String(goF.voice) : undefined,
     })
     if (!r.ok) {
       vfLog(uid, `[HTML成片] 被闸门拦下：stage=${r.stage} ${String(r.err || '').slice(0, 160)}`)
       return `TOOL_REJECT:HTML成片出片被拦（${r.stage}）：${String(r.err || '').slice(0, 200)}；可改文案/换风格包后重试，或改用「图片成片」。`
     }
-    vfLog(uid, `[HTML成片] 完成：${r.mp4}（赛道=${r.vertical} 风格包=${r.pack}）`)
+    vfLog(uid, `[HTML成片] 完成：${r.mp4}（赛道=${r.vertical} 风格包=${r.pack}${r.voiced ? ' · 配音+字幕' : ''}${r.voiceErr ? ' · 配音失败：' + r.voiceErr : ''}）`)
     // 出片即作废草稿（与各线一致：同一套内容要重做就重新说一次命令）
     await clearHtmlFilmDraft(prisma, uid)
     return await filmDoneProtocol(uid, r)

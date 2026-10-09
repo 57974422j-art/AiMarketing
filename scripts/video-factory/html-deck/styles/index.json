@@ -1,15 +1,23 @@
 {
   "version": "0.1",
-  "builtAt": "2026-10-08 10:32:56",
+  "builtAt": "2026-10-09 08:08:48",
   "note": "风格包清单（由 tools/build-studio.mjs 生成；管理器页面读内嵌数据，这个文件给 AGENT/其它工具读）",
   "counts": {
     "styles": 11,
+    "masters": 10,
     "elements": 50,
     "structures": 13,
     "motions": 19,
     "shotgroups": 12,
     "verticals": 25
   },
+  "impl": [
+    "opening-hero",
+    "works-wall",
+    "glass-product",
+    "data-dashboard",
+    "closeup-hud"
+  ],
   "items": [
     {
       "id": "dark-dashboard",
@@ -30,7 +38,8 @@
       ],
       "thumb": "styles/thumbs/dark-dashboard.jpg",
       "example": "out/p3a2/a-hud.mp4#4.5s",
-      "createdBy": "builtin"
+      "createdBy": "builtin",
+      "canPage": true
     },
     {
       "id": "from-video-cand001",
@@ -49,7 +58,8 @@
       ],
       "thumb": "styles/thumbs/from-video-cand001.jpg",
       "example": "ref:E:\\ai-marketing\\storage\\1\\w1__31585e8e10df.mp4#4.25s",
-      "createdBy": "ai"
+      "createdBy": "ai",
+      "canPage": true
     },
     {
       "id": "from-video-cand004",
@@ -68,7 +78,8 @@
       ],
       "thumb": "styles/thumbs/from-video-cand004.jpg",
       "example": "ref:E:\\ai-marketing\\storage\\1\\w1__31585e8e10df.mp4#29.75s",
-      "createdBy": "ai"
+      "createdBy": "ai",
+      "canPage": true
     },
     {
       "id": "from-video-w1c8",
@@ -88,7 +99,8 @@
       ],
       "thumb": "styles/thumbs/from-video-w1c8.jpg",
       "example": "ref:E:\\ai-marketing\\storage\\1\\w1__c829017b25e7.mp4#21.0s",
-      "createdBy": "user-video"
+      "createdBy": "user-video",
+      "canPage": true
     },
     {
       "id": "glass-saas",
@@ -109,7 +121,8 @@
       ],
       "thumb": "styles/thumbs/glass-saas.jpg",
       "example": "out/final-b3-glass-saas/b3-glass-saas.mp4#5.2s",
-      "createdBy": "builtin"
+      "createdBy": "builtin",
+      "canPage": true
     },
     {
       "id": "mg-scatter",
@@ -132,7 +145,8 @@
       ],
       "thumb": "styles/thumbs/mg-scatter.jpg",
       "example": "out/demomg3/demo-mg.mp4#10.8s",
-      "createdBy": "builtin"
+      "createdBy": "builtin",
+      "canPage": false
     },
     {
       "id": "neon-hud",
@@ -153,7 +167,8 @@
       ],
       "thumb": "styles/thumbs/neon-hud.jpg",
       "example": "out/p3a2/../final-b1-hud-overlay/b1-hud-overlay.mp4#4.5s",
-      "createdBy": "builtin"
+      "createdBy": "builtin",
+      "canPage": true
     },
     {
       "id": "paper-editorial",
@@ -175,7 +190,8 @@
       ],
       "thumb": "styles/thumbs/paper-editorial.jpg",
       "example": "out/p3b2/b-editorial.mp4#5.0s",
-      "createdBy": "builtin"
+      "createdBy": "builtin",
+      "canPage": false
     },
     {
       "id": "pipeline-green",
@@ -197,7 +213,8 @@
       ],
       "thumb": "styles/thumbs/pipeline-green.jpg",
       "example": "ref:E:/ai-marketing/storage/1/w1__31585e8e10df.mp4#30s",
-      "createdBy": "builtin"
+      "createdBy": "builtin",
+      "canPage": false
     },
     {
       "id": "press-collage",
@@ -219,7 +236,8 @@
       ],
       "thumb": "styles/thumbs/press-collage.jpg",
       "example": "out/final-b2-press-collage/b2-press-collage.mp4#3.2s",
-      "createdBy": "builtin"
+      "createdBy": "builtin",
+      "canPage": false
     },
     {
       "id": "reel-showcase",
@@ -245,7 +263,130 @@
       ],
       "thumb": "styles/thumbs/reel-showcase.jpg",
       "example": "out/sr30/showreel30.mp4#6.2s",
-      "createdBy": "builtin"
+      "createdBy": "builtin",
+      "canPage": true
+    }
+  ],
+  "masters": [
+    {
+      "id": "master-ecom",
+      "name": "电商高饱和",
+      "dir": "master-ecom",
+      "cover": "masters/master-ecom/cover.jpg",
+      "vertical": true,
+      "horizontal": true,
+      "fonts": [
+        "NotoSerifSC-sub.woff2",
+        "NotoSansSC-sub.woff2"
+      ]
+    },
+    {
+      "id": "master-editorial",
+      "name": "纸感编辑风（亮底) ",
+      "dir": "master-editorial",
+      "cover": "masters/master-editorial/cover.jpg",
+      "vertical": true,
+      "horizontal": true,
+      "fonts": [
+        "NotoSerifSC-sub.woff2",
+        "NotoSansSC-sub.woff2"
+      ]
+    },
+    {
+      "id": "master-edu",
+      "name": "教育培训（暖乳白课堂蓝）",
+      "dir": "master-edu",
+      "cover": "masters/master-edu/cover.jpg",
+      "vertical": true,
+      "horizontal": true,
+      "fonts": [
+        "NotoSerifSC-sub.woff2",
+        "NotoSansSC-sub.woff2"
+      ]
+    },
+    {
+      "id": "master-festive",
+      "name": "红金庆典风",
+      "dir": "master-festive",
+      "cover": "masters/master-festive/cover.jpg",
+      "vertical": true,
+      "horizontal": true,
+      "fonts": [
+        "NotoSerifSC-sub.woff2",
+        "NotoSansSC-sub.woff2"
+      ]
+    },
+    {
+      "id": "master-formal",
+      "name": "正式庄重（象牙墨绿）",
+      "dir": "master-formal",
+      "cover": "masters/master-formal/cover.jpg",
+      "vertical": true,
+      "horizontal": true,
+      "fonts": [
+        "NotoSerifSC-sub.woff2",
+        "NotoSansSC-sub.woff2"
+      ]
+    },
+    {
+      "id": "master-health",
+      "name": "医疗健康（清透青绿）",
+      "dir": "master-health",
+      "cover": "masters/master-health/cover.jpg",
+      "vertical": true,
+      "horizontal": true,
+      "fonts": [
+        "NotoSerifSC-sub.woff2",
+        "NotoSansSC-sub.woff2"
+      ]
+    },
+    {
+      "id": "master-mono",
+      "name": "极简黑白杂志",
+      "dir": "master-mono",
+      "cover": "masters/master-mono/cover.jpg",
+      "vertical": true,
+      "horizontal": true,
+      "fonts": [
+        "NotoSerifSC-sub.woff2",
+        "NotoSansSC-sub.woff2"
+      ]
+    },
+    {
+      "id": "master-tech",
+      "name": "深青科技风",
+      "dir": "master-tech",
+      "cover": "masters/master-tech/cover.jpg",
+      "vertical": true,
+      "horizontal": true,
+      "fonts": [
+        "NotoSerifSC-sub.woff2",
+        "NotoSansSC-sub.woff2"
+      ]
+    },
+    {
+      "id": "master-v1",
+      "name": "暗色暖金（v1）",
+      "dir": "master-v1",
+      "cover": "masters/master-v1/cover.jpg",
+      "vertical": true,
+      "horizontal": true,
+      "fonts": [
+        "NotoSerifSC-sub.woff2",
+        "NotoSansSC-sub.woff2"
+      ]
+    },
+    {
+      "id": "master-v2",
+      "name": "浅色商务（v2）",
+      "dir": "master-v2",
+      "cover": "masters/master-v2/cover.jpg",
+      "vertical": false,
+      "horizontal": false,
+      "fonts": [
+        "NotoSerifSC-sub.woff2",
+        "NotoSansSC-sub.woff2"
+      ]
     }
   ]
 }

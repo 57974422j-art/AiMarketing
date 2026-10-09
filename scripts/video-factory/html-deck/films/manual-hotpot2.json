@@ -1,0 +1,165 @@
+{
+  "id": "manual-hotpot2",
+  "name": "手工样例 2 · 火锅到店（满幅为主 + 亮底编辑风）",
+  "pack": "paper-editorial",
+  "vertical": "ecommerce",
+  "fps": 25,
+  "scenes": [
+    {
+      "shotgroup": "sg-opening-tiltcard",
+      "structure": "opening-hero",
+      "dur": 3.5,
+      "slots": {
+        "eyebrow": "到店必点 · 实拍",
+        "title1": "这桌火锅",
+        "title2": "点单不踩雷",
+        "sub": "17 张实拍，一道一道看",
+        "foot": "牛气老火锅 · 聚餐首选"
+      },
+      "media": ["E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173330_2797_304.jpg"]
+    },
+    {
+      "shotgroup": "sg-fullbleed-caption",
+      "structure": "fullbleed",
+      "dur": 3.2,
+      "slots": {
+        "eyebrow": "01 / 毛肚",
+        "title": "七上八下，最脆",
+        "sub": "八秒起锅，蘸蒜泥",
+        "chips": ["脆", "鲜", "不油"]
+      },
+      "media": ["E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173331_2798_304.jpg"]
+    },
+    {
+      "shotgroup": "sg-fullbleed-caption",
+      "structure": "fullbleed",
+      "dur": 3.2,
+      "slots": {
+        "eyebrow": "02 / 肥牛",
+        "title": "八秒最嫩",
+        "sub": "变色就捞，别烫老",
+        "chips": ["嫩", "多汁", "奶香"]
+      },
+      "media": ["E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173332_2799_304.jpg"]
+    },
+    {
+      "shotgroup": "sg-works-wall",
+      "structure": "works-wall",
+      "dur": 4.2,
+      "slots": {
+        "title": "小料这样调",
+        "sub": "麻酱打底 · 蒜泥提香",
+        "rows": ["麻酱：香而不腻", "蒜泥：解腻提鲜", "香油：锁住肉汁"],
+        "foot": "牛气老火锅 · 聚餐首选"
+      },
+      "media": [
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173333_2800_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173334_2801_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173335_2802_304.jpg"
+      ]
+    },
+    {
+      "shotgroup": "sg-fullbleed-caption",
+      "structure": "fullbleed",
+      "dur": 3.2,
+      "slots": {
+        "eyebrow": "03 / 虾滑",
+        "title": "手打才弹",
+        "sub": "筷子挑起，下锅即熟",
+        "chips": ["弹", "鲜", "无粉感"]
+      },
+      "media": ["E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173336_2803_304.jpg"]
+    },
+    {
+      "shotgroup": "sg-fullbleed-caption",
+      "structure": "fullbleed",
+      "dur": 3.2,
+      "slots": {
+        "eyebrow": "04 / 鱼片",
+        "title": "最后下，汤更鲜",
+        "sub": "薄切三秒，别煮散",
+        "chips": ["薄", "嫩", "鲜汤"]
+      },
+      "media": ["E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173337_2804_304.jpg"]
+    },
+    {
+      "shotgroup": "sg-grid-4",
+      "structure": "grid-2x2",
+      "dur": 4.5,
+      "slots": {
+        "title": "四人份 · 这样点",
+        "sub": "荤素搭配，人均不超预算",
+        "nums": ["01", "02", "03", "04"],
+        "tail": "照着点，稳",
+        "foot": "牛气老火锅 · 聚餐首选"
+      },
+      "media": [
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173338_2805_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173339_2806_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173340_2807_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173341_2808_304.jpg"
+      ]
+    },
+    {
+      "shotgroup": "sg-fullbleed-caption",
+      "structure": "fullbleed",
+      "dur": 3.2,
+      "slots": {
+        "eyebrow": "锅底",
+        "title": "牛油红汤 · 微辣可调",
+        "sub": "怕辣也不怕，鸳鸯也有",
+        "chips": ["微辣", "中辣", "鸳鸯"]
+      },
+      "media": ["E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173342_2809_304.jpg"]
+    },
+    {
+      "shotgroup": "sg-works-wall",
+      "structure": "works-wall",
+      "dur": 4.2,
+      "slots": {
+        "title": "吃完不腻的搭配",
+        "sub": "一荤一素，热汤收尾",
+        "rows": ["毛肚配蒜泥", "肥牛配沙茶", "收尾配酸梅汤"],
+        "foot": "牛气老火锅 · 聚餐首选"
+      },
+      "media": [
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173343_2810_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173344_2811_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173345_2812_304.jpg"
+      ]
+    },
+    {
+      "shotgroup": "sg-fullbleed-caption",
+      "structure": "fullbleed",
+      "dur": 3.2,
+      "slots": {
+        "eyebrow": "实拍收尾",
+        "title": "没有一盘是凑数的",
+        "sub": "拍的什么，就上什么",
+        "chips": ["实拍", "当日", "现上"]
+      },
+      "media": ["E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173346_2813_304.jpg"]
+    },
+    {
+      "shotgroup": "sg-glass-cards",
+      "structure": "glass-product",
+      "dur": 3.5,
+      "slots": {
+        "eyebrow": "RESERVE",
+        "title": "今晚有位",
+        "sub": "四人桌 · 到店立减",
+        "value": "5",
+        "unit": "折起"
+      },
+      "media": []
+    }
+  ],
+  "total": 39,
+  "rationale": [
+    "用户反馈（2026-10-09）：分配可以、但风格不能是科技风；且不能全是小图，要有几个完整（满幅）的。",
+    "本版改动：① 风格包 reel-showcase → **paper-editorial**（米白纸感 + 衬线大标题，配食物）",
+    "② 满幅镜占多数：**6 镜满幅(fullbleed)** + 2 镜作品墙(3图) + 1 镜四宫格(4图) + 1 镜开场 + 1 镜到店卡",
+    "③ 17 张素材仍全部出镜；④ 不用数据大屏（避免结构自带示例数据）",
+    "时长仍按文案字数估（≈4.5 字/秒），共 ≈39 秒"
+  ]
+}

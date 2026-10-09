@@ -1,0 +1,224 @@
+{
+  "id": "hotpot-order-17",
+  "name": "火锅到店点单清单",
+  "pack": "paper-editorial",
+  "vertical": "ecommerce",
+  "fps": 25,
+  "scenes": [
+    {
+      "structure": "opening-hero",
+      "slots": {
+        "eyebrow": "火锅到店",
+        "title1": "点单清单",
+        "title2": "铜锅烫肉",
+        "sub": "肥牛毛肚小龙虾",
+        "foot": "按图点"
+      },
+      "media": [
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173343_2810_304.jpg"
+      ],
+      "voice": "到店吃火锅，照这份清单点，肥牛毛肚小龙虾都不踩雷。"
+    },
+    {
+      "structure": "fullbleed",
+      "slots": {
+        "eyebrow": "开场",
+        "title": "铜锅烫肉宴",
+        "sub": "肥牛毛肚都齐",
+        "chips": [
+          "铜锅",
+          "肥牛",
+          "毛肚"
+        ],
+        "foot": "热锅先上"
+      },
+      "media": [
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173330_2797_304.jpg"
+      ],
+      "voice": "铜锅先上桌，肥牛毛肚摆满，这锅看着就有食欲。"
+    },
+    {
+      "structure": "fullbleed",
+      "slots": {
+        "eyebrow": "配菜",
+        "title": "肥牛卷配啤酒",
+        "sub": "荤素都备好",
+        "chips": [
+          "肥牛",
+          "配菜",
+          "啤酒"
+        ],
+        "foot": "边烫边喝"
+      },
+      "media": [
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173331_2798_304.jpg"
+      ],
+      "voice": "肥牛卷和配菜都到位，啤酒开了，烫肉更痛快。"
+    },
+    {
+      "structure": "works-wall",
+      "slots": {
+        "title": "必点肉类",
+        "sub": "先拿这几盘",
+        "rows": [
+          "白盘毛肚配花草",
+          "雪花牛肉片",
+          "生牛肉片待烫"
+        ],
+        "foot": "烫肉主力"
+      },
+      "media": [
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173333_2800_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173334_2801_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173341_2808_304.jpg"
+      ],
+      "voice": "先点白盘毛肚和雪花牛肉，再补生牛肉，烫肉主力就齐了。"
+    },
+    {
+      "structure": "fullbleed",
+      "slots": {
+        "eyebrow": "蘸料",
+        "title": "黑毛肚配麻酱",
+        "sub": "红鼓盘有肉片",
+        "chips": [
+          "黑毛肚",
+          "麻酱",
+          "肉片"
+        ],
+        "foot": "裹酱更香"
+      },
+      "media": [
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173337_2804_304.jpg"
+      ],
+      "voice": "黑毛肚摆红鼓盘，麻酱蘸料裹上，肉香更浓。"
+    },
+    {
+      "structure": "fullbleed",
+      "slots": {
+        "eyebrow": "肉片",
+        "title": "生肉片待烫",
+        "sub": "圆桌摆好",
+        "chips": [
+          "生肉片",
+          "铜锅",
+          "圆桌"
+        ],
+        "foot": "先烫肉"
+      },
+      "media": [
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173338_2805_304.jpg"
+      ],
+      "voice": "圆桌摆好生肉片，铜锅热气上来，先烫肉最过瘾。"
+    },
+    {
+      "structure": "grid-2x2",
+      "slots": {
+        "title": "加菜清单",
+        "sub": "汤锅羊肉鲜虾鱼片",
+        "nums": [
+          "汤锅",
+          "羊肉",
+          "鲜虾",
+          "薯角"
+        ],
+        "tail": "鱼片也加",
+        "foot": "按口味加"
+      },
+      "media": [
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173339_2806_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173340_2807_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173342_2809_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173345_2812_304.jpg"
+      ],
+      "voice": "清汤锅、鲜切羊肉、冰镇虾和炸薯角，按口味再加，别点太多。"
+    },
+    {
+      "structure": "fullbleed",
+      "slots": {
+        "eyebrow": "门店",
+        "title": "百叶居门面",
+        "sub": "铜锅烫肉实拍",
+        "chips": [
+          "门面",
+          "铜锅",
+          "肉片"
+        ],
+        "foot": "到店先拍"
+      },
+      "media": [
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173336_2803_304.jpg"
+      ],
+      "voice": "百叶居门面先拍，铜锅烫肉肉片实拍，到店更有感觉。"
+    },
+    {
+      "structure": "grid-2x2",
+      "slots": {
+        "title": "重口收尾",
+        "sub": "小龙虾炸肉卷啤酒",
+        "nums": [
+          "麻辣",
+          "香辣",
+          "食材",
+          "炸肉"
+        ],
+        "tail": "最后加",
+        "foot": "按桌选"
+      },
+      "media": [
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173332_2799_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173335_2802_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173344_2811_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173346_2813_304.jpg"
+      ],
+      "voice": "麻辣和香辣小龙虾收尾，再上炸肉卷与啤酒，重口党别错过。"
+    },
+    {
+      "structure": "glass-product",
+      "slots": {
+        "eyebrow": "到店卡",
+        "title": "照图点单",
+        "sub": "铜锅烫肉配虾",
+        "value": "到店",
+        "unit": "自选",
+        "kpiTitle": "点单重点",
+        "kpi": [
+          [
+            "必点",
+            "肥牛"
+          ],
+          [
+            "解馋",
+            "毛肚"
+          ],
+          [
+            "加菜",
+            "虾"
+          ]
+        ],
+        "mini": [
+          [
+            "小食",
+            "薯角"
+          ],
+          [
+            "饮品",
+            "啤酒"
+          ],
+          [
+            "蘸料",
+            "麻酱"
+          ]
+        ],
+        "cta": "收藏再点"
+      },
+      "media": [],
+      "voice": "到店照这张清单点，肥牛毛肚小龙虾，小食啤酒别忘拿。"
+    }
+  ],
+  "generatedBy": {
+    "writer": "qwen3.8-flash",
+    "vision": "qwen3.8-max",
+    "at": "2026-10-09 07:56:03"
+  },
+  "rationale": []
+}

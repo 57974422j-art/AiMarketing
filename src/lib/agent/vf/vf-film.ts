@@ -97,7 +97,7 @@ export async function validate(orchestrationJson: string, opts: { materials: str
  *  失败语义：入库/签名失败**不判死出片** —— 回本地路径，前端如实提示（见 page.tsx 的 VF_FILM_DONE 卡）。 */
 export async function filmDoneProtocol(
   uid: number | string,
-  r: { mp4?: string; sheet?: string; pack?: string; vertical?: string },
+  r: { mp4?: string; sheet?: string; pack?: string; vertical?: string; voiced?: boolean; voiceErr?: string },
 ): Promise<string> {
   const { readFile } = await import('fs/promises')
   const { saveToPersonalRepo } = await import('@/lib/personal-storage')
@@ -117,9 +117,9 @@ export async function filmDoneProtocol(
         poster = await signedUrl(`storage/${uid}/${nS}`, 86400)
       } catch { /* 审片图失败不影响成片 */ }
     }
-    if (url) return `VF_FILM_DONE:${JSON.stringify({ url, poster, pack: r.pack || '', vertical: r.vertical || '' })}`
+    if (url) return `VF_FILM_DONE:${JSON.stringify({ url, poster, pack: r.pack || '', vertical: r.vertical || '', voiced: !!r.voiced, voiceErr: r.voiceErr || '' })}`
   } catch { /* 落到下面兜底 */ }
-  return `VF_FILM_DONE:${JSON.stringify({ url: '', poster: '', localMp4: r.mp4 || '', pack: r.pack || '', vertical: r.vertical || '' })}`
+  return `VF_FILM_DONE:${JSON.stringify({ url: '', poster: '', localMp4: r.mp4 || '', pack: r.pack || '', vertical: r.vertical || '', voiced: !!r.voiced, voiceErr: r.voiceErr || '' })}`
 }
 
 /** ③ 出片：三道闸门 → 渲染（失败返回 stage，调用方据此回退） */
@@ -161,19 +161,56 @@ export async function render(filmJson: string, outDir: string): Promise<{ ok: bo
   return { ok: false, stage, err: why || r.out.slice(-300) }
 }
 
-/** 端到端一步到位：素材 → 编排 → 出片（试点线用；AI 想自己编排时改用 orchestrate + validate） */
+/** ★VF_FILMVOICE_V1（2026-10-09 用户定案「先校准流程」）：**配音 + 字幕出口**。
+ *  实现口径：**只调 `tools/film-voice.mjs`**（audio-first 五步都在那个工具里）——
+ *  本文件**不重写一遍** TTS/字幕/混音（本项目教训：同一件事两处实现必然分叉）。
+ *  那个工具里的 TTS 默认走**纯 Node**（`tools/tts-node.mjs`，协议与 src/lib/ai-providers.ts 的
+ *  dashscopeTTS 逐字对齐）⇒ **生产服务器没有 python 也能配音**；口播没给时按"在屏文案"兜底。
+ *  ⚠️ 产物落位（与工具约定）：`<outDir>/<film.id>-voiced.mp4` + `<outDir>/render/sheet.jpg` */
+async function voiceFilm(
+  filmJsonRel: string, outDir: string, voice?: string,
+): Promise<{ ok: boolean; mp4?: string; sheet?: string; stage?: string; err?: string }> {
+  const args = [path.join('tools', 'film-voice.mjs'), filmJsonRel, '--outdir', outDir]
+  if (voice) args.push('--voice', voice)
+  const r = await runNode(args, 30 * 60 * 1000)
+  const dirAbs = path.isAbsolute(outDir) ? outDir : path.join(filmToolsDir(), outDir)
+  const src = path.isAbsolute(filmJsonRel) ? filmJsonRel : path.join(filmToolsDir(), filmJsonRel)
+  let id = ''
+  try { id = String(JSON.parse(fs.readFileSync(src, 'utf8')).id || '') } catch { /* ignore */ }
+  const cand = id ? path.join(dirAbs, id + '-voiced.mp4') : ''
+  if (r.code === 0 && cand && fs.existsSync(cand)) {
+    const sheet = path.join(dirAbs, 'render', 'sheet.jpg')
+    return { ok: true, mp4: cand, sheet: fs.existsSync(sheet) ? sheet : '' }
+  }
+  const stage = (r.out.match(/stage=(\w+)/) || [])[1] || 'voice'
+  const why = (r.out.split('\n').find((l) => l.includes('原因：')) || '').replace('原因：', '').trim()
+  return { ok: false, stage, err: why || r.out.slice(-300) }
+}
+
+/** 端到端一步到位：素材 → 编排 → 出片（试点线用；AI 想自己编排时改用 orchestrate + validate）
+ *  ★VF_FILMVOICE_V1：`voiced=true` ⇒ 走 audio-first（TTS 实测时长 + 字幕 + 混音 + 烧字幕）。
+ *  ⚠️ 配音失败**不判死出片**：回退"无声版"并在 `voiceErr` 里如实带原因（与"失败即回退"同口径）。 */
 export async function makeFilmFromMaterials(opts: {
   materials: string[]
   text?: string
   pack?: string
   variant?: number
   workDir: string
-}): Promise<{ ok: boolean; mp4?: string; sheet?: string; stage?: string; err?: string; vertical?: string; pack?: string }> {
+  voiced?: boolean
+  voice?: string
+}): Promise<{ ok: boolean; mp4?: string; sheet?: string; stage?: string; err?: string; vertical?: string; pack?: string; voiced?: boolean; voiceErr?: string }> {
   fs.mkdirSync(opts.workDir, { recursive: true })
   const filmJson = path.join(opts.workDir, 'film.json')
   const rel = path.relative(filmToolsDir(), filmJson).replace(/\\/g, '/')
   const o = await orchestrate({ materials: opts.materials, text: opts.text, pack: opts.pack, variant: opts.variant, id: 'vf-film', outJson: rel })
   if (!o.ok) return { ok: false, stage: 'orchestrate', err: o.note }
-  const r = await render(rel, path.join('out', 'film', path.basename(opts.workDir)))
+  const outDirRel = path.join('out', 'film', path.basename(opts.workDir))
+  if (opts.voiced) {
+    const v = await voiceFilm(rel, outDirRel, opts.voice)
+    if (v.ok) return { ...v, voiced: true, vertical: o.vertical, pack: o.pack }
+    const s = await render(rel, outDirRel)
+    return { ...s, vertical: o.vertical, pack: o.pack, voiceErr: String(v.err || v.stage || '配音失败').slice(0, 200) }
+  }
+  const r = await render(rel, outDirRel)
   return { ...r, vertical: o.vertical, pack: o.pack }
 }

@@ -80,6 +80,8 @@ export function filmCssFor(st) {
 .st-glass-product .mini span{position:absolute;left:22px;top:24px;font-size:19px;color:var(--dim)}
 .st-glass-product .mini b{position:absolute;left:22px;top:56px;font-size:36px;font-weight:900;color:var(--ink)}
 .st-glass-product .m1{left:56px;top:766px}.st-glass-product .m2{left:368px;top:766px}.st-glass-product .m3{left:56px;top:918px}
+/* ★VF_FILMGLASS_V1：调用方没给 kpi 时（主卡带 .noKpi）大数字居中，免得右边空一块 */
+.st-glass-product .main.noKpi .num{left:0;width:608px;text-align:center;top:104px;font-size:96px}
 .st-glass-product .cta{left:56px;top:1096px;width:608px;height:78px;border-radius:39px;overflow:hidden;
   background:linear-gradient(100deg,var(--accent),color-mix(in srgb,var(--accent) 40%,#8b7bff));
   display:flex;align-items:center;justify-content:center;font-size:27px;font-weight:800;color:#06101f;letter-spacing:3px}
@@ -140,21 +142,34 @@ function sceneBody(st, sc, i) {
     <div class="card cd c3">${mediaTag(md[2])}</div>
     ${s.rows.slice(0, 3).map((r, k) => `<div class="row r${k + 1}">${esc(r)}</div>`).join('')}
     <div class="foot">${esc(s.foot)}</div>`
-  if (st === 'glass-product') return `
+  if (st === 'glass-product') {
+    // ★VF_FILMGLASS_V1（2026-10-09 用户定案「反 AI 味 ②不许编造数据」时实测抓到）：
+    //   病灶：老版本**无条件**渲染「关键指标（曝光 12.4万 / 点击率 4.8% / 下单 3.2千）」+
+    //   三张**写死的迷你卡**（倍率 3 倍 / 耗时 6 分 / 成本 -62%）——
+    //   火锅店片子里冒出"成本 -62%"这种经营数据，属于典型的"AI 脑补数据"（用户实测定过不许）。
+    //   现口径：**只画调用方真的给了的**（给了才画，没给就不画；只做减法，绝不脑补）——
+    //     · kpi   给了（3 组）才画「关键指标」块，标题可用 slots.kpiTitle 改（默认"关键指标"）；
+    //     · mini  给了（3 组）才画三张迷你卡（老版本这三张是写死的）；
+    //     · value/unit 也**必须来自 slots**（不再吃默认值，避免漏成 78.5% 这种示例数据）；
+    //     · cta 给了才画（默认不再塞"立即体验"）。
+    //   ⚠️ 没给 kpi 时主卡加 `.noKpi`（大数字居中），免得右边空一大块。
+    const raw = sc.slots || {}
+    const kpi = Array.isArray(raw.kpi) && raw.kpi.length >= 3 ? raw.kpi.slice(0, 3) : null
+    const mini = Array.isArray(raw.mini) && raw.mini.length >= 3 ? raw.mini.slice(0, 3) : null
+    const cta = raw.cta ? String(raw.cta) : ''
+    const num = (raw.value !== undefined && raw.value !== null && String(raw.value) !== '')
+      ? `<div class="num">${esc(raw.value)}<span class="u">${esc(raw.unit || '')}</span></div>` : ''
+    return `
     <div class="eb">${esc(s.eyebrow)}</div>
     <div class="ttl ttl1">${esc(s.title)}</div>
     <div class="sub">${esc(s.sub)}</div>
-    <div class="glass main">
-      <div class="num">${esc(s.value)}<span class="u">${esc(s.unit)}</span></div>
-      <div class="kt">关键指标</div>
-      <div class="krow kr1"><span>${esc(s.kpi[0][0])}</span><b>${esc(s.kpi[0][1])}</b></div>
-      <div class="krow kr2"><span>${esc(s.kpi[1][0])}</span><b>${esc(s.kpi[1][1])}</b></div>
-      <div class="krow kr3"><span>${esc(s.kpi[2][0])}</span><b>${esc(s.kpi[2][1])}</b></div>
+    <div class="glass main${kpi ? '' : ' noKpi'}">
+      ${num}
+      ${kpi ? `<div class="kt">${esc(raw.kpiTitle || '关键指标')}</div>` + kpi.map((k, i) => `<div class="krow kr${i + 1}"><span>${esc(k[0])}</span><b>${esc(k[1])}</b></div>`).join('') : ''}
     </div>
-    <div class="glass mini m1"><span>倍率</span><b>3 倍</b></div>
-    <div class="glass mini m2"><span>耗时</span><b>6 分</b></div>
-    <div class="glass mini m3"><span>成本</span><b>-62%</b></div>
-    <div class="cta">立即体验<span class="shine"></span></div>`
+    ${mini ? mini.map((m, i) => `<div class="glass mini m${i + 1}"><span>${esc(m[0])}</span><b>${esc(m[1])}</b></div>`).join('') : ''}
+    ${cta ? `<div class="cta">${esc(cta)}<span class="shine"></span></div>` : ''}`
+  }
   if (st === 'data-dashboard') return `
     <div class="k">${esc(s.eyebrow)}</div>
     <div class="ttl t1">${esc(s.title)}</div>

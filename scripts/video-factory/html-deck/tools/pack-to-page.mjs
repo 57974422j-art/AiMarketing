@@ -15,6 +15,18 @@
  * 已实现结构（v0.1）：opening-hero / works-wall / glass-product / data-dashboard
  *   其余结构回落 opening-hero（stdout 会说明）。
  * ⚠ v0.1 试片统一渲 9:16 · 720×1280 · 3 秒。
+ *
+ * ★VF_PACK2PAGE_V2（2026-10-09 用户定案 C「不许静默回退」）：
+ *   病灶（实测核对过）：库里 11 套风格包**只有 5 套的 structure[0] 有页面实现**，
+ *   另外 6 套（paper-editorial / pipeline-green / neon-hud / mg-scatter / press-collage / from-video-w1c8）
+ *   走 `makeHtml` / `buildPage` 时会被**悄悄**换成 opening-hero —— 只有 CLI 分支会打印一句提示，
+ *   而**管理台 / 实验室是 `import` 本文件的**（走 buildPage）⇒ 用户在管理台点的"试片"其实是另一套页型，
+ *   界面上**毫无提示**（用户原话：会静默回退）。
+ *   现口径「回落必须可见」：
+ *     ① `buildPage` 返回 `{ requested, structure, fellBack }`，服务端把这三个字段回给前端 → 管理台显式提示；
+ *     ② 生成的 index.html 里也写明回落（拿到产物的人一眼能查）；
+ *     ③ `IMPL` 改为**导出**（build-studio 读它，给每套风格包标"可当页 / 仅镜头组"，别再让人猜）。
+ *   ⚠️ 渲染行为一字未改（回落结果与从前完全相同），只把"静默"改成"明说"。
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -25,7 +37,8 @@ const HERE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const RUNTIME = path.join(HERE, 'tools', 'runtime', 'app.js')
 const GSAP = path.join(HERE, 'masters', 'master-tech', 'assets', 'gsap.min.js')
 const FONTS = path.join(HERE, 'fonts')
-const IMPL = ['opening-hero', 'works-wall', 'glass-product', 'data-dashboard',
+/** 已实现的"页型"清单（★VF_PACK2PAGE_V2：导出给 build-studio / 管理台标注用） */
+export const IMPL = ['opening-hero', 'works-wall', 'glass-product', 'data-dashboard',
   // ★VF_CLOSEUPHUD_V1（2026-10-08 用户实测「你只换了一个颜色」）：
   //   按用户给的参考视频（w1__c829017b25e7.mp4）实现「左信息卡 + 右实拍窗 + 顶技术行 + 底字幕带」
   //   —— 结构 id 沿用库里已登记的 `closeup-hud`（structures.json 早就有这个名字，缺的是**页面实现**）。
@@ -262,7 +275,9 @@ export function makeHtml(pack) {
   return `<!doctype html>
 <html lang="zh-CN">
 <!-- 由 tools/pack-to-page.mjs 生成（风格包 id=${pack.id} · 结构 ${structure} · 3 秒试片）
-     ★ 试片是"看风格"用的：素材用占位块，零外部图片 ⇒ 任何风格包都能渲。 -->
+     ${structure !== want
+        ? '⚠️ 页型回落（★VF_PACK2PAGE_V2）：请求 "' + want + '" 没有页面实现 ⇒ 已回落 "' + structure + '"（已实现：' + IMPL.join(' / ') + '）'
+        : '★ 试片是"看风格"用的：素材用占位块，零外部图片 ⇒ 任何风格包都能渲。'} -->
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=720, height=1280" />
@@ -287,9 +302,13 @@ ${bodyFor(structure, T)}
 `
 }
 
-/** 写项目到磁盘（读盘只在这一步发生，且只用传入的对象） */
+/** 写项目到磁盘（读盘只在这一步发生，且只用传入的对象）
+ *  ★VF_PACK2PAGE_V2（2026-10-09 用户定案 C）：返回值多带 `requested` / `fellBack` ——
+ *  调用方（studio-server）据此**如实告诉用户**"你选的页型没实现、已回落"，不许静默。渲染行为一字未改。 */
 export function buildPage(pack, outDir) {
-  const structure = (() => { const w = (pack.structure || [])[0] || 'opening-hero'; return IMPL.includes(w) ? w : 'opening-hero' })()
+  const want = (pack.structure || [])[0] || 'opening-hero'
+  const structure = IMPL.includes(want) ? want : 'opening-hero'
+  const fellBack = structure !== want
   fs.mkdirSync(path.join(outDir, 'assets'), { recursive: true })
   fs.writeFileSync(path.join(outDir, 'hyperframes.json'), JSON.stringify({
     $schema: 'https://hyperframes.heygen.com/schema/hyperframes.json',
@@ -301,7 +320,7 @@ export function buildPage(pack, outDir) {
   fs.copyFileSync(RUNTIME, path.join(outDir, 'assets', 'app.js'))
   fs.copyFileSync(path.join(FONTS, 'NotoSansSC-sub.woff2'), path.join(outDir, 'assets', 'NotoSansSC-sub.woff2'))
   if ((pack.tokens || {}).font === 'serif-700') fs.copyFileSync(path.join(FONTS, 'NotoSerifSC-sub.woff2'), path.join(outDir, 'assets', 'NotoSerifSC-sub.woff2'))
-  return { file: path.join(outDir, 'index.html'), structure }
+  return { file: path.join(outDir, 'index.html'), structure, requested: want, fellBack }
 }
 
 /** 渲染 3 秒试片 + 抽缩略图 */

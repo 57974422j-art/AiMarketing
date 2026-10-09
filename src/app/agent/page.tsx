@@ -1945,6 +1945,9 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
   const [pack, setPack] = useState<string>(String(vj?.pack || ''))
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
+  // ★VF_FILMVOICE_V1（2026-10-09 用户定案「先校准流程」）：**本线默认配音 + 字幕**
+  //   （用户原话：「本次制作还是没有字幕 TTS 只有图片」⇒ 默认就该有声；想省时间可在这里关掉）
+  const [voice, setVoice] = useState(true)
   const fileRef = useRef<HTMLInputElement | null>(null)
 
   // 素材卡：没手动选过就默认勾最近 12 张（与服务端"不勾就用最近 12 张"同口径）
@@ -2059,12 +2062,17 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
             <div>风格包：{String(vj?.packName || '自动')}</div>
             <div>预计：约 {Number(vj?.estShots) || 6} 段 · {Number(vj?.estSec) || 30} 秒（编排器按风格包定段数）</div>
             <div className="text-emerald-300">点数：不额外扣点（本线用本机引擎逐帧渲染，不调 AI 生成画面）</div>
+            {/* ★VF_FILMVOICE_V1：配音开关（默认开）—— 关了就是原来那条"无声片" */}
+            <label className="flex items-center gap-2 mt-1 cursor-pointer select-none">
+              <input type="checkbox" checked={voice} onChange={(e) => setVoice(e.target.checked)} />
+              <span className="text-xs text-emerald-200">配音 + 字幕（按语音<b>实测时长</b>排镜头；约多 20~40 秒）</span>
+            </label>
           </div>
           <div className="flex gap-2">
             <button onClick={() => next('back_style')} className={btn + ' border-white/15 text-gray-300 hover:bg-white/[0.08]'}>← 换风格</button>
-            <button onClick={() => onSend('VF_FILM_GO:' + JSON.stringify({ pack: String(vj?.pack || '') }))}
+            <button onClick={() => onSend('VF_FILM_GO:' + JSON.stringify({ pack: String(vj?.pack || ''), voiced: voice }))}
               className="flex-1 px-4 py-2 rounded-lg bg-emerald-500/30 hover:bg-emerald-500/50 border border-emerald-400/50 text-emerald-50 text-sm font-medium">
-              🎬 出片（约 40~60 秒）
+              🎬 出片（约 {voice ? '60~120' : '40~60'} 秒）
             </button>
           </div>
         </>
@@ -4109,7 +4117,7 @@ function AgentPageInner() {
             {_head ? <div className="mb-2 whitespace-pre-wrap">{renderContent(_head)}</div> : null}
             <div className="mb-2 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06]">
               <div className="text-xs text-emerald-300 mb-2">
-                🎬 HTML成片 已完成{fd.pack ? `（风格包 ${fd.pack}${fd.vertical ? ' · ' + fd.vertical : ''}）` : ''}
+                🎬 HTML成片 已完成{fd.pack ? `（风格包 ${fd.pack}${fd.vertical ? ' · ' + fd.vertical : ''}）` : ''}{fd.voiced ? ' · 配音 + 字幕' : ''}
               </div>
               {src && isRealUrl ? (
                 <video src={src} controls playsInline preload="metadata" poster={fd.poster || undefined}
@@ -4121,6 +4129,12 @@ function AgentPageInner() {
               )}
               {fd.poster ? (
                 <img src={fd.poster} alt="审片图" className="mt-2 w-full rounded-lg border border-white/10" />
+              ) : null}
+              {/* ★VF_FILMVOICE_V1：配音失败**不判死出片**（回退无声版），但必须如实告诉用户 */}
+              {fd.voiceErr ? (
+                <div className="text-[11px] text-amber-300 mt-2">
+                  本次配音没成功（已出无声版）：{String(fd.voiceErr)}
+                </div>
               ) : null}
               <div className="text-[10px] text-gray-400 mt-2">
                 已存入个人仓库（在「个人仓库」里可查看/下载）。想换风格再来一次「HTML成片」并指定风格包即可。

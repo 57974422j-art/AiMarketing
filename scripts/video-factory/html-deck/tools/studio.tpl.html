@@ -76,7 +76,19 @@
 </header>
 
 <main>
-  <div class="col"><div class="list" id="list"></div></div>
+  <div class="col">
+    <div class="list" id="list"></div>
+    <!-- ★VF_LIBV2_V1（2026-10-09 用户定案 A）：**母版 / 皮肤**（masters/ 10 套）与风格包并列列出 ——
+         这批是 deck 线（PPT成片，**有配音**）用的资产，以前管理台看不到。只读：点一下看大图封面。 -->
+    <div class="list" id="deckBox" style="border-top:1px solid var(--line)">
+      <div class="row" style="margin:0 0 8px">
+        <b>🧩 母版 / 皮肤</b><span style="flex:1"></span>
+        <span class="badge" id="deckCnt">—</span>
+      </div>
+      <div class="note" style="margin:0 0 8px">deck 线（有配音）用的 10 套版式母版 · 只读 · 点一下看封面</div>
+      <div id="deckList"></div>
+    </div>
+  </div>
 
   <div class="col"><div class="edit" id="edit"></div></div>
 
@@ -149,6 +161,9 @@ function renderList(){
   document.getElementById('cnt').textContent = S.length + ' 张风格包';
   filtered().forEach(function(x){
     var p=x.p;
+    /* ★VF_PACK2PAGE_V2：这套风格包的"首页型"有没有页面实现（决定"可当页 / 仅镜头组"徽标） */
+    var want=(p.structure||[])[0]||'opening-hero';
+    var canPage=((window.DB&&window.DB.impl)||[]).indexOf(want)>=0;
     var img=el('img',{src:(p.thumb||''), alt:''});
     img.onerror=function(){ this.style.opacity=.25; };
     var it=el('div',{class:'item'+(x.i===cur?' on':'')},[
@@ -156,6 +171,12 @@ function renderList(){
       el('div',{class:'t'},[
         el('b',{text:p.name||p.id}),
         el('span',{html:esc(p.mood||'') + ' · ' + esc((p.vertical||[]).slice(0,2).join('/')) }),
+        /* ★VF_PACK2PAGE_V2（2026-10-09 用户定案 C「不许静默回退」）：把"能不能当页用"写在脸上 ——
+           structure[0] 没有页面实现时，当页/试片会回落成 opening-hero（老版本**一句提示都没有**）。 */
+        el('span',{class:'badge', style: canPage ? 'color:var(--ok);border-color:var(--ok)' : 'color:var(--warn);border-color:var(--warn)',
+          text: canPage ? '可当页' : '仅镜头组',
+          title: canPage ? ('页型 "' + want + '" 已实现')
+                        : ('页型 "' + want + '" 未实现 ⇒ 当页/试片会回落 opening-hero（出片仍可走镜头组路径）') }),
       ]),
     ]);
     it.onclick=function(){ cur=x.i; renderList(); renderEdit(); };
@@ -349,7 +370,13 @@ document.getElementById('btnPrev').onclick = function(){
       box.style.display = 'block';
       var v = document.getElementById('prevVid');
       v.src = j.mp4 + '?t=' + Date.now();
-      document.getElementById('prevNote').textContent = '试片：3 秒 / 9:16 / 720×1280（' + j.mp4 + '）';
+      // ★VF_PACK2PAGE_V2（2026-10-09 用户定案 C「不许静默回退」）：**回落必须明说**
+      //   以前：页型没实现 ⇒ 悄悄换成 opening-hero，用户以为看到的就是自己选的那套（界面零提示）。
+      document.getElementById('prevNote').innerHTML = (j.fellBack
+        ? '⚠️ <b>页型「' + esc(j.requested || '') + '」还没有页面实现</b> ⇒ 本次试片已回落成「' + esc(j.structure || '') + '」。'
+          + '<br>想让它真能当页用 = 补 <b>pack-to-page.mjs 的 IMPL</b>；只想出片的话，这条风格包照样能用（走镜头组路径 render-film）。'
+        : '试片：3 秒 / 9:16 / 720×1280')
+        + '（' + esc(j.mp4 || '') + '）';
       if(j.jpg){ var it=document.querySelectorAll('#list img')[cur]; if(it) it.src = j.jpg + '?t=' + Date.now(); }
     }).catch(function(e){ toast('试片失败：' + e.message); });
 };
@@ -412,6 +439,48 @@ function mergeRuntime(){
   }).catch(function(){});
 }
 mergeRuntime();
+/* ★VF_LIBV2_V1（2026-10-09 用户定案 A「把库资产都合并了」）：**母版 / 皮肤**（masters/ 10 套）列进本页。
+   这批是 deck 线（PPT成片 · **有配音**）用的版式母版 —— 以前只有代码知道（vf-deck-render.ts 的 DECK_SKINS），
+   管理台完全看不到，于是"库"被拆成两半（风格包 / 母版各一套认知）。
+   · 只读：母版改版 = 改 masters/<dir>/ 里的代码（不在这里编辑）；
+   · 点一下 = 在最右栏看**大图封面**（"封面预览"）；
+   · 数据来源：优先服务下发的实时清单（/api/list 的 masters），离线时退回构建时烤进来的 DB.masters。 */
+function renderDeckList(){
+  var box=document.getElementById('deckList'); if(!box) return;
+  var M=(window.DB&&window.DB.masters)||[];
+  var cnt=document.getElementById('deckCnt'); if(cnt) cnt.textContent = M.length + ' 套';
+  box.innerHTML='';
+  M.forEach(function(m){
+    var img=el('img',{src:(m.cover||''), alt:''});
+    img.onerror=function(){ this.style.opacity=.25; };
+    var it=el('div',{class:'item', title:(m.note||'') + (m.dir?('\n目录：masters/'+m.dir):'')},[
+      img,
+      el('div',{class:'t'},[
+        el('b',{text:m.name||m.id}),
+        el('span',{text:((m.vertical?'竖屏':'') + (m.vertical&&m.horizontal?' + ':'') + (m.horizontal?'横屏':'')) + ' · 配音版'}),
+        el('span',{class:'badge', text:(m.fonts&&m.fonts.length>2?'衬线/无衬线':'标准字体')}),
+      ]),
+    ]);
+    it.onclick=function(){
+      document.getElementById('bigThumb').src = m.cover || '';
+      document.getElementById('exNote').innerHTML = '母版：<b>' + esc(m.name||m.id) + '</b>'
+        + '（只读资产 · 目录 masters/' + esc(m.dir||'') + '）<br>'
+        + 'deck 线 = <b>有配音</b>那条（PPT成片）。要在实验室里用它出片，走"带配音出片"出口。';
+    };
+    box.appendChild(it);
+  });
+}
+renderDeckList();
+/* 服务在的时候用**实时清单**刷新母版（新增母版不必重新 build 页面） */
+function mergeMasters(){
+  fetch('/api/list').then(function(r){ return r.json(); }).then(function(j){
+    if(!j || !j.ok || !j.masters || !j.masters.length) return;
+    window.DB = window.DB || {}; window.DB.masters = j.masters;
+    if(j.impl && j.impl.length){ window.DB.impl = j.impl; renderList(); }
+    renderDeckList();
+  }).catch(function(){});
+}
+mergeMasters();
 </script>
 </body>
 </html>

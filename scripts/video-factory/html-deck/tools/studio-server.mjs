@@ -21,6 +21,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+// ★VF_LIBV2_V1 / ★VF_PACK2PAGE_V2（2026-10-09 用户定案 A + C）：
+//   · IMPL = 已实现的"页型"清单（判断风格包能不能"当页用"；/api/list 一并下发）
+//   · pack-to-page 顶层无副作用（只在 CLI 分支读 argv，见其文件头注释）⇒ 这里静态 import 安全
+import { IMPL } from './pack-to-page.mjs'
 
 const HERE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')   // html-deck/
 // ══════════════ ★VF_STUDIORUNTIME_V1（2026-10-08 用户定案 ②③④）══════════════
@@ -104,6 +108,29 @@ function rebuild() {
   return { ok: r.status === 0, out: String(r.stdout || '').trim().split('\n').slice(-3).join(' | '), err: String(r.stderr || '').slice(0, 300) }
 }
 
+/** ★VF_LIBV2_V1（2026-10-09 用户定案 A）：现读 deck 母版清单（masters/<dir>/master.json）。
+ *  形状与 build-studio.mjs 里那份**保持一致**（前端一份渲染代码吃两种来源）。
+ *  为什么服务里也读一遍：新增/改名母版不必重新 build 页面；前端 DB.masters 只是离线（file://）兜底。 */
+const MASTERS_LIB = path.join(HERE, 'masters')
+const readMasters = () => {
+  const out = []
+  let ds = []
+  try { ds = fs.readdirSync(MASTERS_LIB, { withFileTypes: true }) } catch { return out }
+  for (const d of ds) {
+    if (!d.isDirectory() || !d.name.startsWith('master-')) continue
+    let j = {}
+    try { j = JSON.parse(fs.readFileSync(path.join(MASTERS_LIB, d.name, 'master.json'), 'utf8')) } catch { continue }
+    const has = (f) => { try { return fs.existsSync(path.join(MASTERS_LIB, d.name, f)) } catch { return false } }
+    out.push({
+      id: j.id || d.name, name: j.name || d.name, dir: d.name,
+      cover: 'masters/' + d.name + '/' + (j.cover || 'cover.jpg'),
+      vertical: has('master-9x16.html'), horizontal: has('master-16x9.html'),
+      fonts: (j.fonts && j.fonts.files) || [], note: String(j._note || '').slice(0, 140),
+    })
+  }
+  return out.sort((a, b) => a.id.localeCompare(b.id))
+}
+
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://127.0.0.1')
   const p = decodeURIComponent(u.pathname)
@@ -117,13 +144,19 @@ const server = http.createServer(async (req, res) => {
   })
 
   // ★VF_STUDIORUNTIME_V1：清单 = **内置 + 运行时合并**（同名以运行时为准），带 source 标记
+  // ★VF_LIBV2_V1（2026-10-09 用户定案 A）：**同一次下发里也带上 deck 母版**（masters/ 10 套，只读）——
+  //   资产一处可见：风格包（HTML 逐帧短片用）+ 母版（PPT成片，有配音）。
+  //   母版**现读磁盘**（新增/改名母版不必重新 build 本页）；前端 DB.masters 是构建时的兜底（离线 file:// 也能列）。
   if (p === '/api/list') {
     const bi = readPacks(stylesDir).map((x) => ({ ...x, source: 'builtin' }))
     const rt = readPacks(runtimeStyles).map((x) => ({ ...x, source: 'runtime' }))
     const byId = new Map()
     for (const x of bi) byId.set(String(x.id), x)
     for (const x of rt) byId.set(String(x.id), x)
-    return send(res, 200, { ok: true, items: Array.from(byId.values()), builtinN: bi.length, runtimeN: rt.length })
+    return send(res, 200, {
+      ok: true, items: Array.from(byId.values()), builtinN: bi.length, runtimeN: rt.length,
+      impl: IMPL, masters: readMasters(),
+    })
   }
 
   if (p === '/api/save' && req.method === 'POST') {
@@ -156,13 +189,16 @@ const server = http.createServer(async (req, res) => {
     const outDir = path.join(outRoot, 'preview', safeId(use.id))   // ★VF_STUDIORUNTIME_V1：产物落运行时根
     const mod = await import('./pack-to-page.mjs')
     try {
-      mod.buildPage(use, outDir)
+      const pg = mod.buildPage(use, outDir)
       const r = mod.renderPreview(outDir)
       if (!r.ok) return send(res, 500, { ok: false, err: r.err })
       return send(res, 200, {
         ok: true,
         mp4: '/out/preview/' + safeId(use.id) + '/preview.mp4',
         jpg: r.jpg ? '/out/preview/' + safeId(use.id) + '/preview.jpg' : '',
+        // ★VF_PACK2PAGE_V2（用户定案 C）：把"页型回落"如实回给前端
+        //   （以前 render 是静默换页型：用户点了试片，看到的其实是 opening-hero，界面零提示）
+        structure: pg.structure, requested: pg.requested, fellBack: !!pg.fellBack,
       })
     } catch (e) { return send(res, 500, { ok: false, err: String(e.message).slice(0, 400) }) }
   }
@@ -229,27 +265,59 @@ const server = http.createServer(async (req, res) => {
       slots: body.slots || {},
     })
     fs.writeFileSync(path.join(dir, 'film.json'), JSON.stringify(film, null, 2) + '\n', 'utf8')
-    const st = { state: 'running', stage: '', err: '', log: '', mp4: '', sheet: '', startedAt: Date.now(), total: film.total, scenes: film.scenes.length, pack: film.pack }
+    // ★VF_LABVOICE_V1（2026-10-09 用户定案「先接入我再测试」）：实验室新增**配音 + 字幕出口**。
+    //   出片工具从 render-film.mjs 换成 tools/film-voice.mjs（audio-first 五步）：
+    //     逐镜 TTS → **实测时长**回填镜头 → SRT → 渲染 → 混音 + 烧字幕。
+    //   口播文案来源（三级兜底，绝不空着）：
+    //     ① body.lines（前端可编辑，一行一句）
+    //     ② 留空 ⇒ 用**在屏文案**（每镜 title/title1 + sub）—— 实验室是"给图就出片"，用户没写口播也得有声音
+    //   ⚠️ 配音要 DASHSCOPE_API_KEY（项目 .env.local 里有；tts.py 自己会去找）；30 秒片 TTS 约 20~30 秒。
+    const voiced = !!body.voiced
+    const lines = (Array.isArray(body.lines) && body.lines.some((x) => String(x || '').trim()))
+      ? body.lines.map((x) => String(x || '').trim())
+      : film.scenes.map((s) => {
+        const v = s.slots || {}
+        const t = String(v.title || v.title1 || '').trim()
+        const sub = String(v.sub || '').trim()
+        return t + (sub ? (t ? '，' : '') + sub : '')
+      })
+    if (voiced) {
+      fs.writeFileSync(path.join(dir, 'film.voice.json'),
+        JSON.stringify({ _note: '★VF_LABVOICE_V1：口播文案（逐镜一句；留空的镜 = 静音镜）', voice: lines }, null, 2) + '\n', 'utf8')
+    }
+    const st = { state: 'running', stage: '', err: '', log: '', mp4: '', sheet: '', voiced, startedAt: Date.now(), total: film.total, scenes: film.scenes.length, pack: film.pack }
     JOBS.set(jid, st)
-    const rf = path.join(HERE, 'tools', 'render-film.mjs')
     // ★VF_STUDIORUNTIME_V1：产物落运行时根；并把**运行时库**告诉引擎（VF_STYLES_EXTRA）
     //   —— 这样"刚在管理器里存的新风格"能立刻在实验室出片，而不必先固化进内置库。
-    const child = spawn(process.execPath, [rf, path.join(dir, 'film.json'), '--outdir', path.join(outRoot, 'workbench', jid, 'render')],
+    const toolArgs = voiced
+      ? [path.join(HERE, 'tools', 'film-voice.mjs'), path.join(dir, 'film.json'), '--outdir', path.join(outRoot, 'workbench', jid, 'voiced')]
+      : [path.join(HERE, 'tools', 'render-film.mjs'), path.join(dir, 'film.json'), '--outdir', path.join(outRoot, 'workbench', jid, 'render')]
+    const child = spawn(process.execPath, toolArgs,
       { cwd: HERE, env: { ...process.env, VF_STYLES_EXTRA: runtimeStyles } })
     let so = ''
     child.stdout.on('data', (d) => { so += d; st.log = so.slice(-400) })
     child.stderr.on('data', (d) => { so += d; st.log = so.slice(-400) })
     child.on('close', (code) => {
       st.finishedAt = Date.now()
-      const base = 'out/workbench/' + jid + '/render/' + film.id
-      if (code === 0) { st.state = 'done'; st.mp4 = '/' + base + '.mp4'; st.sheet = '/' + base.replace(/\/[^/]+$/, '') + '/sheet.jpg' }
-      else {
+      if (code === 0) {
+        st.state = 'done'
+        if (voiced) {
+          // film-voice 的产物：<outdir>/<film.id>-voiced.mp4 + <outdir>/render/sheet.jpg
+          const base = 'out/workbench/' + jid + '/voiced'
+          st.mp4 = '/' + base + '/' + film.id + '-voiced.mp4'
+          st.sheet = '/' + base + '/render/sheet.jpg'
+        } else {
+          const base = 'out/workbench/' + jid + '/render/' + film.id
+          st.mp4 = '/' + base + '.mp4'
+          st.sheet = '/' + base.replace(/\/[^/]+$/, '') + '/sheet.jpg'
+        }
+      } else {
         const stage = (so.match(/stage=(\w+)/) || [])[1] || 'unknown'
         const why = (so.split('\n').find((l) => l.includes('原因：')) || '').replace('原因：', '').trim()
         st.state = 'failed'; st.stage = stage; st.err = why || so.slice(-300)
       }
     })
-    return send(res, 200, { ok: true, job: jid, scenes: film.scenes.length, total: film.total })
+    return send(res, 200, { ok: true, job: jid, voiced, scenes: film.scenes.length, total: film.total })
   }
 
   if (p === '/api/film/status') {

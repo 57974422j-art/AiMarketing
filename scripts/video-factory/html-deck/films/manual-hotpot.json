@@ -1,0 +1,149 @@
+{
+  "id": "manual-hotpot",
+  "name": "手工样例 · 火锅到店（按你的新流程做的）",
+  "pack": "reel-showcase",
+  "vertical": "ecommerce",
+  "fps": 25,
+  "scenes": [
+    {
+      "shotgroup": "sg-opening-tiltcard",
+      "structure": "opening-hero",
+      "dur": 4,
+      "slots": {
+        "eyebrow": "到店必点 · 实拍",
+        "title1": "这桌火锅",
+        "title2": "点单不踩雷",
+        "sub": "17 张实拍，照着点就行",
+        "foot": "牛气老火锅 · 聚餐首选"
+      },
+      "media": ["E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173330_2797_304.jpg"]
+    },
+    {
+      "shotgroup": "sg-works-wall",
+      "structure": "works-wall",
+      "dur": 5,
+      "slots": {
+        "title": "先荤后素 · 顺序有讲究",
+        "sub": "同一桌，也能吃出层次",
+        "rows": ["1 毛肚：七上八下", "2 肥牛：烫八秒最嫩", "3 鱼片：最后下锅"],
+        "foot": "牛气老火锅 · 聚餐首选"
+      },
+      "media": [
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173331_2798_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173332_2799_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173333_2800_304.jpg"
+      ]
+    },
+    {
+      "shotgroup": "sg-grid-4",
+      "structure": "grid-2x2",
+      "dur": 5.5,
+      "slots": {
+        "title": "四样必点",
+        "sub": "少一样都差点意思",
+        "nums": ["01", "02", "03", "04"],
+        "tail": "照着点，稳",
+        "foot": "牛气老火锅 · 聚餐首选"
+      },
+      "media": [
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173334_2801_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173335_2802_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173336_2803_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173337_2804_304.jpg"
+      ]
+    },
+    {
+      "shotgroup": "sg-fullbleed-caption",
+      "structure": "fullbleed",
+      "dur": 4.5,
+      "slots": {
+        "eyebrow": "FRESH · 当日现切",
+        "title": "新鲜看得见",
+        "sub": "毛肚脆、肥牛嫩、虾滑弹",
+        "chips": ["毛肚", "肥牛", "虾滑", "鱼片"],
+        "foot": "现点现上 · 不隔夜"
+      },
+      "media": ["E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173338_2805_304.jpg"]
+    },
+    {
+      "shotgroup": "sg-works-wall",
+      "structure": "works-wall",
+      "dur": 5,
+      "slots": {
+        "title": "蘸料三件套",
+        "sub": "麻酱打底，蒜泥提香",
+        "rows": ["1 麻酱：香而不腻", "2 蒜泥：解腻提鲜", "3 香油：锁住肉汁"],
+        "foot": "牛气老火锅 · 聚餐首选"
+      },
+      "media": [
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173339_2806_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173340_2807_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173341_2808_304.jpg"
+      ]
+    },
+    {
+      "shotgroup": "sg-grid-4",
+      "structure": "grid-2x2",
+      "dur": 5.5,
+      "slots": {
+        "title": "四人份 · 这样点刚刚好",
+        "sub": "荤素搭配，人均不超预算",
+        "nums": ["01", "02", "03", "04"],
+        "tail": "打包带走也好吃",
+        "foot": "牛气老火锅 · 聚餐首选"
+      },
+      "media": [
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173342_2809_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173343_2810_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173344_2811_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173345_2812_304.jpg"
+      ]
+    },
+    {
+      "shotgroup": "sg-fullbleed-caption",
+      "structure": "fullbleed",
+      "dur": 3.5,
+      "slots": {
+        "eyebrow": "实拍 17 份",
+        "title": "没有一盘是凑数的",
+        "sub": "拍的什么，就上什么",
+        "chips": ["实拍", "当日", "现切", "现上"],
+        "foot": "牛气老火锅 · 聚餐首选"
+      },
+      "media": ["E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173346_2813_304.jpg"]
+    },
+    {
+      "shotgroup": "sg-dashboard",
+      "structure": "data-dashboard",
+      "dur": 4,
+      "slots": {
+        "eyebrow": "OUR MENU",
+        "title": "17 道招牌",
+        "sub": "从毛肚到甜品，一桌吃全",
+        "value": "17",
+        "unit": "道",
+        "foot": "牛气老火锅 · 聚餐首选"
+      },
+      "media": []
+    },
+    {
+      "shotgroup": "sg-glass-cards",
+      "structure": "glass-product",
+      "dur": 4,
+      "slots": {
+        "eyebrow": "RESERVE TODAY",
+        "title": "今晚有位",
+        "sub": "四人桌 · 到店立减",
+        "value": "5",
+        "unit": "折起"
+      },
+      "media": []
+    }
+  ],
+  "total": 41,
+  "rationale": [
+    "手工样例（按用户 2026-10-09 定下的流程）：① 先写分镜脚本 → ② 按分镜填文案 → ③ 每镜时长按文案字数估（≈4.5 字/秒）",
+    "→ ④ 校正：素材 17 张全部出镜（一镜 1~4 张）⇒ 不需要用信息卡填空；信息卡只留 2 张（17 道招牌 / 到店信息）做节奏调节",
+    "风格包：reel-showcase（素材展示型）；换风格只需改 pack 一个字段"
+  ]
+}
