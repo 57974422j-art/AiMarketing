@@ -25,6 +25,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { vfLog, vfStorageRoot, materialDir, listRepoMaterials, downloadMaterials } from '../video-material'
 import { filmToolsDir, planFilm, makeFilmFromMaterials, filmDoneProtocol } from './vf-film'
+// ★VF_CHARSET_V1（2026-10-09 用户实测「降级之后照样被 fonts 闸门拦」）：
+//   把文案压回字体子集内的**唯一实现**（涮→烫、其余表外字删掉；只做减法不编造）
+import { loadCharset, sanitizeText, sanitizeSlots } from './charset'
 
 const HTMLFILM_TAG = 'vf_draft_htmlfilm'
 const HTMLFILM_PREFIX = 'HTML成片草稿:'
@@ -171,15 +174,26 @@ function scanJson(text: string): any | null {
 
 /** ★VF_FILMCOPY_V2 降级用：用**读图总结**里的词直接拼一版文案（**取材于素材本身 ⇒ 不算编造、也不带数字**）。
  *  为什么要有它：AI 文案抽风时不能把整条线卡死（用户："为什么老是出错"）；但也不能编造 ⇒
- *  就从视觉模型对这批素材的真实描述里取词。 */
+ *  就从视觉模型对这批素材的真实描述里取词。
+ *  ★VF_CHARSET_V1（2026-10-09 用户实测「降级之后照样被 fonts 闸门拦」）修两处：
+ *    ① **取词后一律压回字表内** —— 老实现直接把总结里的词塞进文案，而总结里就可能有表外字
+ *       （本例：「涮羊肉片」的「涮」）⇒ 降级反而制造下一次失败（引擎 fonts 闸门拦死出片）。
+ *    ② **修"每条都一样"** —— 老实现 `lines[min(len-1, i)]` ⇒ 词用完后后面几镜全重复同一句
+ *       （用户截图就是"烤鸭肉 · 涮羊肉片 毛肚…"重复 5 次）；现在按镜号**轮着用**词，并优先取短词（菜名）。 */
 function deriveCopyFromSummary(summary: string, scenes: Array<{ structure: string; media: string[] }>): any[] {
-  const lines = String(summary || '')
-    .split(/[\n；;]+/).map((s) => s.replace(/^\s*[\d.、)）]+\s*/, '').trim()).filter((s) => s.length >= 2)
+  const set = loadCharset(path.join(filmToolsDir(), 'fonts', 'chars-cmn.txt'))
+  const raw = String(summary || '')
+    .split(/[\n；;，。,.、:：]+/).map((s) => s.replace(/^\s*[\d.、)）]+\s*/, '').trim())
+  const all = raw.filter((s) => s.length >= 2)
+  const shortWords = all.filter((s) => s.length <= 8)                 // 优先短词（菜名/场景名），别把整句塞进标题
+  const words = (shortWords.length >= 2 ? shortWords : all)
+    .map((w) => sanitizeText(w, set)[0]).filter((w) => w.length >= 2)  // ★压回字表内（删字不换词）
+  const pick = (i: number) => (words.length ? words[((i % words.length) + words.length) % words.length] : '')
   return scenes.map((sc, i) => {
-    const raw = lines[Math.min(lines.length - 1, i)] || ''
-    const parts = raw.replace(/[，。,.；;:：、]/g, ' ').trim().split(/\s+/).filter(Boolean)
-    const short = String(parts[0] || '').slice(0, 8)
-    const sub = String(parts.slice(1).join(' ')).slice(0, 16)
+    const a = pick(i)
+    const b = words.length > 1 ? pick(i + 1) : ''
+    const short = String(a || '').slice(0, 8)
+    const sub = (b && b !== a ? String(b) : '').slice(0, 16)
     const slots: any = {}
     const st = String(sc.structure || '')
     if (st === 'opening-hero') { slots.title1 = short; if (sub) slots.sub = sub }
@@ -296,17 +310,26 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
   try { charset = fs.readFileSync(path.join(filmToolsDir(), 'fonts', 'chars-cmn.txt'), 'utf8') } catch { charset = '' }
   const set = new Set(charset.split(''))
   const copy: any[] = []
+  // ★VF_CHARSET_V1（2026-10-09 用户实测连环坑）：表外字**不再整段作废、也不再触发降级** ——
+  //   老口径（"有字表外的字 ⇒ copy 清空 ⇒ 降级拼句"）会把 AI 写好的文案整批丢掉，
+  //   而降级拼句又可能从读图总结里取到表外字（本例「涮羊肉片」的「涮」）⇒ 最后还是出片失败。
+  //   现口径：**先把文案压回字表内**（charset.ts：涮→烫、其余表外字删掉，只做减法、不换词不编造），
+  //   再把"自动删/换了哪些字"如实告知（走 warn ⇒ 确认卡上那行提示）。
+  const fixed: string[] = []
   if (arr) {
     for (let i = 0; i < arr.length; i++) {
-      const slots: any = Object.assign({}, (arr[i] || {}).slots || {})
+      let slots: any = Object.assign({}, (arr[i] || {}).slots || {})
+      if (set.size) {
+        const r = sanitizeSlots(slots, set)
+        slots = r.slots
+        for (const d of r.drops) fixed.push('第 ' + i + ' 段 ' + d.k + '「' + d.from + '」→「' + d.to + '」')
+      }
       const all = JSON.stringify(slots)
       if (/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(all)) { why = '第 ' + i + ' 段带 emoji'; copy.length = 0; break }
       const n = ['eyebrow', 'title', 'title1', 'title2', 'sub', 'tail', 'foot'].reduce((a, k) => a + String(slots[k] || '').length, 0)
         + (Array.isArray(slots.rows) ? slots.rows.join('').length : 0)
         + (Array.isArray(slots.chips) ? slots.chips.join('').length : 0)
       if (n > 60) { why = '第 ' + i + ' 段 ' + n + ' 字（>60）'; copy.length = 0; break }
-      const bad = charset ? Array.from(new Set(Array.from(all).filter((c) => c.charCodeAt(0) > 127 && !set.has(c)))) : []
-      if (bad.length) { why = '第 ' + i + ' 段有字表外的字：' + bad.join(''); copy.length = 0; break }
       delete slots.value; delete slots.unit; delete slots.kpi; delete slots.kpiTitle
       copy.push({ slots })
     }
@@ -324,7 +347,12 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
     return { ok: true, summary, plan: planOut, copy: deriveCopyFromSummary(summary, pl.scenes),
       warn: '⚠️ 这版文案没过校验（' + why + '），已按**读图结果**自动拼了一版；建议点「← 换风格」重试一次。' }
   }
-  return { ok: true, summary, plan: planOut, copy }
+  // ★VF_CHARSET_V1：如实告知"哪几处被压回字表"（不悄悄改文案，也不因此卡住出片）
+  const warnFix = fixed.length
+    ? ('ℹ️ 有 ' + fixed.length + ' 处用字不在引擎字体子集内，已自动压回（涮→烫 / 表外字删掉，只做减法不换词）：'
+      + fixed.slice(0, 4).join('；') + (fixed.length > 4 ? ' …' : ''))
+    : ''
+  return { ok: true, summary, plan: planOut, copy, warn: warnFix }
 }
 
 /* ───────────────────────── 三张卡（都走 VF_JSON，客户端按 step 选组件）───────────────────────── */

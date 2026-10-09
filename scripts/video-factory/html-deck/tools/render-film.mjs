@@ -68,10 +68,29 @@ export function renderFilm(filmPath, opts = {}) {
   if (b.missing.length) return { ok: false, stage: 'media', err: '缺素材：' + b.missing.join(', '), dir: outDir }
 
   // ② 用字闸门
-  const fp = run(process.execPath, [path.join(HERE, 'check-page-fonts.mjs'), outDir])
+  const fp = run(process.execPath, [path.join(HERE, 'check-page-fonts.mjs'), outDir, '--json'])
   if (fp.status !== 0) {
-    const miss = String(fp.stdout || '').split('\n').filter((l) => l.trim().startsWith('') && /表外字/.test(l)).join(' ')
-    return { ok: false, stage: 'fonts', err: (miss || String(fp.stdout || '')).slice(0, 300), dir: outDir }
+    // ★VF_FONTMSG_V1（2026-10-09 用户实测「出片被拦（fonts）：**1 个表外字**：」后面是空的）：
+    //   病灶：老实现只抓"**N 个表外字**："那一行（`.filter(l => /表外字/.test(l))`），
+    //   而**到底是哪个字**在紧随其后的缩进行里（`      馐  ← index.html`）⇒ 全被过滤掉了
+    //   ⇒ 用户拿到一个"冒号后面什么都没有"的报错，根本没法改文案。
+    //   现口径：用 `--json` 拿结构化结果，把**字与所属文件一起**报出来。
+    let miss = ''
+    try {
+      const j = JSON.parse(String(fp.stdout || ''))
+      const hit = new Set()
+      for (const r of (j.results || [])) for (const m of (r.miss || [])) if (m && m.ch) hit.add(String(m.ch))
+      miss = Array.from(hit).join(' ')
+    } catch {
+      const ls = String(fp.stdout || '').split('\n')
+      const i = ls.findIndex((l) => /表外字/.test(l))
+      miss = i >= 0 ? ls.slice(i, i + 8).join(' ').replace(/\s+/g, ' ').trim() : String(fp.stdout || '')
+    }
+    return {
+      ok: false, stage: 'fonts',
+      err: ('字表外的字：' + (miss || '(未解析出)') + ' —— 改文案避开这些字即可（引擎字体是子集，缺字服务器上会渲成豆腐块）').slice(0, 300),
+      dir: outDir,
+    }
   }
 
   // ③ 引擎运行时校验（对比度 / 重叠 / 遮挡 / 资源）

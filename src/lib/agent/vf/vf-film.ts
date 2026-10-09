@@ -18,6 +18,8 @@ import { spawn } from 'node:child_process'
 import path from 'node:path'
 import fs from 'node:fs'
 import { vfRootDir } from '@/lib/agent/video-material'
+// ★VF_CHARSET_V1（2026-10-09 用户实测「出片被 fonts 闸门拦」）：文案压回字体子集内的唯一实现
+import { loadCharset, sanitizeSlots } from './charset'
 
 /** 引擎工具目录 */
 export function filmToolsDir(): string {
@@ -315,6 +317,30 @@ export async function makeFilmFromMaterials(opts: {
       //   最后只表现为"没字没声的哑片"，排查成本极高）。合并失败 = 直接不出片、如实报因。
       return { ok: false, stage: 'copy', err: '文案并进分镜失败：' + String(e?.message || e).slice(0, 160) }
     }
+  }
+  // ★VF_CHARSET_V1（2026-10-09 用户实测「动不动就出问题 · 出片被 fonts 闸门拦」）：**出片前的自净**。
+  //   引擎的 fonts 闸门（check-page-fonts.mjs）是"缺字就拦死"——它的存在是对的（缺字在服务器上
+  //   会渲成豆腐块），但对用户就是"出片失败"。凡可能往分镜里写文案的入口（AGENT 确认卡 / 实验室 /
+  //   别的调用方），到这一步都过一遍"压回字表内"（charset.ts：涮→烫、其余表外字删掉，只做减法
+  //   不换词不编造），并把改动**如实打出来**（不许静默改文案）。
+  try {
+    const j = JSON.parse(fs.readFileSync(filmJson, 'utf8'))
+    const set = loadCharset(path.join(filmToolsDir(), 'fonts', 'chars-cmn.txt'))
+    if (set.size) {
+      const log: string[] = []
+      j.scenes = (j.scenes || []).map((s: any, i: number) => {
+        const r = sanitizeSlots(s && s.slots, set)
+        for (const d of r.drops) log.push('第 ' + i + ' 镜 ' + d.k + '「' + d.from + '」→「' + d.to + '」')
+        return Object.assign({}, s, { slots: r.slots })
+      })
+      if (log.length) {
+        fs.writeFileSync(filmJson, JSON.stringify(j, null, 2) + '\n', 'utf8')
+        console.log('[film] 字表自净 ' + log.length + ' 处：' + log.slice(0, 4).join('；') + (log.length > 4 ? ' …' : ''))
+      }
+    }
+  } catch (e: any) {
+    // 不判死（引擎那道 fonts 闸门仍在，且现在会如实报"是哪个字"）；但绝不静默：
+    console.log('[film] 字表自净跳过：' + String(e?.message || e).slice(0, 120))
   }
   // ★VF_NOCOPY_V1（2026-10-09 用户定案「分镜没有任何文案就不许出片」）：
   //   配音模式下**每镜都必须有文案** —— 缺一镜就是 2.2s 静音快闪，整片就废了。
