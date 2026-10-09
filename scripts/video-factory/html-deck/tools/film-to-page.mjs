@@ -30,18 +30,16 @@ const GSAP = path.join(HERE, 'masters', 'master-tech', 'assets', 'gsap.min.js')
 const FONTS = path.join(HERE, 'fonts')
 export const FILM_STRUCTS = ['opening-hero', 'works-wall', 'glass-product', 'data-dashboard', 'fullbleed', 'grid-2x2']
 
+// ★VF_FILMNODEMO_V1（2026-10-09 用户实测：火锅素材的片子里出现
+//   「实时投放监控 / 45% / 12.4 万 / 4.8 % / 3.2 千」「数据驱动增长 / 78.5%」「一次成型」等）：
+//   根因 = **这里的内置示例数据在兜底**（编排器没填的镜，渲染层自己编了一套）。
+//   直接违反用户定过的反 AI 味规矩②「不许编造数据」。现口径：**只画调用方真的给了的**——
+//   文案类字段全清空（不再兜底产品自夸词/示例标题），数字类清空，
+//   唯一保留的是 `nums`（那是四宫格的**编号位次** 01~04，不是数据，缺了会让格子没有序号）。
 const D = {
-  eyebrow: 'SHOWREEL 2026',
-  title1: 'AI 营销', title2: '一次生成',
-  title: 'AI 营销一次生成',
-  sub: '素材进来，成片出去',
-  value: '78.5', unit: '%',
-  rows: ['素材不动 · 动效层加信息', '同一份文案 · 每次换风格', '逐帧可复现 · 可验收'],
-  kpi: [['曝光', '12.4 万'], ['点击率', '4.8 %'], ['下单', '3.2 千']],
-  chips: ['文案', '海报', '配音', '成片'],
-  nums: ['01', '02', '03', '04'],
-  tail: '一次生成，批量出片',
-  foot: 'AiMarketing 视频工厂 · 2026 年 10 月',
+  eyebrow: '', title1: '', title2: '', title: '', sub: '',
+  value: '', unit: '',
+  rows: [], kpi: [], chips: [], nums: ['01', '02', '03', '04'], tail: '', foot: '',
 }
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
 const mediaTag = (m) => m ? `<img class="fill" src="${esc(m)}" alt="" />` : `<div class="ph"><span>素材</span></div>`
@@ -170,20 +168,31 @@ function sceneBody(st, sc, i) {
     ${mini ? mini.map((m, i) => `<div class="glass mini m${i + 1}"><span>${esc(m[0])}</span><b>${esc(m[1])}</b></div>`).join('') : ''}
     ${cta ? `<div class="cta">${esc(cta)}<span class="shine"></span></div>` : ''}`
   }
-  if (st === 'data-dashboard') return `
-    <div class="k">${esc(s.eyebrow)}</div>
-    <div class="ttl t1">${esc(s.title)}</div>
-    <div class="sub ex">${esc(s.sub)}</div>
-    <div class="ring"><svg width="340" height="340" viewBox="0 0 340 340">
+  if (st === 'data-dashboard') {
+    // ★VF_FILMDASH_V1（2026-10-09 用户实测：火锅片里出现「实时投放监控 / 45% / 12.4万 / 4.8% / 3.2千」）：
+    //   与 glass-product 同一条红线（反 AI 味②不许编造数据）。旧实现**无条件**读 `s.kpi` / `s.value`，
+    //   而 `s` 会吃到上面 D 的示例数据 ⇒ 假数据必然出现（上次只修了 glass，**漏了这里**，这次补齐）。
+    //   现口径：**给了才画** —— kpi 给满 3 组才画指标条；value 给了才画大数字与圆环。
+    const raw = sc.slots || {}
+    const kpi = Array.isArray(raw.kpi) && raw.kpi.length >= 3 ? raw.kpi.slice(0, 3) : null
+    const hasNum = raw.value !== undefined && raw.value !== null && String(raw.value) !== ''
+    const num = hasNum
+      ? `<div class="num">${esc(raw.value)}<span class="u">${esc(raw.unit || '')}</span></div>` : ''
+    const ring = hasNum
+      ? `<div class="ring"><svg width="340" height="340" viewBox="0 0 340 340">
       <circle cx="170" cy="170" r="152" fill="none" stroke="rgba(150,185,215,.16)" stroke-width="13"/>
       <circle class="ringArc" cx="170" cy="170" r="152" fill="none" stroke="var(--accent)" stroke-width="13"
         stroke-linecap="round" stroke-dasharray="955" stroke-dashoffset="999" transform="rotate(-90 170 170)"/>
-    </svg></div>
-    <div class="num">${esc(s.value)}<span class="u">${esc(s.unit)}</span></div>
-    <div class="cd kpi kp1"><span>${esc(s.kpi[0][0])}</span><b>${esc(s.kpi[0][1])}</b></div>
-    <div class="cd kpi kp2"><span>${esc(s.kpi[1][0])}</span><b>${esc(s.kpi[1][1])}</b></div>
-    <div class="cd kpi kp3"><span>${esc(s.kpi[2][0])}</span><b>${esc(s.kpi[2][1])}</b></div>
+    </svg></div>` : ''
+    return `
+    <div class="k">${esc(s.eyebrow)}</div>
+    <div class="ttl t1">${esc(s.title)}</div>
+    <div class="sub ex">${esc(s.sub)}</div>
+    ${ring}
+    ${num}
+    ${kpi ? kpi.map((k, i) => `<div class="cd kpi kp${i + 1}"><span>${esc(k[0])}</span><b>${esc(k[1])}</b></div>`).join('') : ''}
     <div class="foot">${esc(s.foot)}</div>`
+  }
   if (st === 'fullbleed') return `
     <div class="full">${mediaTag(md[0])}</div>
     <div class="scrimT"></div><div class="scrimB"></div>

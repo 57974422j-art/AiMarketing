@@ -68,6 +68,11 @@ const SRC = path.resolve(filmPath)
 const SRC_DIR = path.dirname(SRC)
 const film = JSON.parse(fs.readFileSync(SRC, 'utf8'))
 const scenes = film.scenes || []
+// ★VF_FILMVOICE_V1d（2026-10-09 用户实测「明明渲染成功了却报失败」）：
+//   AGENT 侧编排器产出的 film.json **没有 id** ⇒ render-film 只好按**文件名**命名产物
+//   （`film.voiced.json` → `film.voiced.mp4`），而下面却按 `<film.id>.mp4` 去找 ⇒ **误报"渲染失败"**
+//   ⇒ 上层回退无声版、白跑一趟。这里补上 id（没有就用源文件名），并且**找成片改成按目录找**（见下）。
+if (!film.id) film.id = path.basename(SRC, '.json')
 // ★VF_FILMVOICE_V1c（2026-10-09 实验室配音自检实测踩到）：**素材路径必须先统一成绝对路径**。
 //   因为本工具把 film.voiced.json 写到 `build/` 子目录，而渲染器是按"film.json 所在目录"解析相对素材的
 //   ⇒ 实验室 workbench 的电影素材写的是 `media/xxx.jpg`，就会去 build/media/ 找 ⇒ 渲染闸门报"缺素材"整片失败。
@@ -139,8 +144,22 @@ const clips = []
 const srtRows = []
 let cur = 0
 let i = 0
+/** ★VF_VOICE_DERIVE_V1（2026-10-09 用户实测「TTS实测=0.00s + 字幕 0 条」）：
+ *  病灶：AGENT 侧走的是"**不带旁白文件**"的调用（`makeFilmFromMaterials({voiced:true})`）⇒
+ *  这里 `lines=[]`、`scene.voice` 也不存在 ⇒ 每镜文案为空 ⇒ **一次 TTS 都没调** ⇒
+ *  镜头时长全落到 2.2s 下限（17 镜就会得到一条 13.2s 的哑片）。
+ *  口径（与实验室 studio-server 那条路**统一**）：没给口播时，**按该镜的在屏文案兜底**
+ *  （`title1`/`title` + `sub`）—— 画面写什么就念什么，绝不编造。 */
+const deriveVoice = (sc) => {
+  const v = sc.slots || {}
+  const t = String(v.title || v.title1 || '').trim()
+  const sub = String(v.sub || '').trim()
+  return (t + (sub ? (t ? '，' : '') + sub : '')).trim()
+}
+
 for (const sc of scenes) {
-  const text = String(lines[i] || sc.voice || '').trim()
+  const hasLine = i < lines.length
+  const text = (hasLine ? String(lines[i] || '') : String(sc.voice || deriveVoice(sc))).trim()
   const mp3 = path.join(work, 's' + i + '.mp3')
   let audio = 0
   if (text) {
@@ -202,8 +221,19 @@ run('ffmpeg', ['-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', listFile
 const renderDir = path.join(outDir, 'render')
 console.log('  渲染中（用实测时长）…')
 const rr = run(process.execPath, [path.join(HERE, 'tools', 'render-film.mjs'), path.join(build, 'film.voiced.json'), '--outdir', renderDir], { cwd: HERE })
-const mp4 = path.join(renderDir, film.id + '.mp4')
-if (!fs.existsSync(mp4)) {
+// ★VF_FILMVOICE_V1d：**按目录找成片**（取最大的 .mp4）—— 不再猜文件名。
+//   实测踩到：AGENT 的 film.json 没 id ⇒ render-film 按文件名出品 `film.voiced.mp4`，
+//   旧实现却去找 `<film.id>.mp4` ⇒ 误报"渲染失败"（渲染其实成功了），上层白回退一次。
+const pickMp4 = () => {
+  try {
+    const a = fs.readdirSync(renderDir).filter((n) => /\.mp4$/i.test(n))
+      .map((n) => ({ p: path.join(renderDir, n), sz: fs.statSync(path.join(renderDir, n)).size }))
+      .sort((x, y) => y.sz - x.sz)
+    return a.length ? a[0].p : ''
+  } catch { return '' }
+}
+const mp4 = pickMp4()
+if (!mp4) {
   console.error('  ✗ 渲染失败：' + String(rr.stderr || rr.stdout || '').replace(/\s+/g, ' ').slice(-300))
   process.exit(1)
 }
@@ -216,7 +246,8 @@ const hasLibass = (() => {
 })()
 fs.copyFileSync(path.join(build, 'subs.srt'), path.join(renderDir, 'subs.srt'))
 const finalMp4 = path.join(outDir, film.id + '-voiced.mp4')
-const base = ['-y', '-v', 'error', '-i', film.id + '.mp4', '-i', voiceMp3]
+// ★VF_FILMVOICE_V1d：输入用**实际找到的那个 mp4**（cwd=renderDir ⇒ 取 basename），不写死名字
+const base = ['-y', '-v', 'error', '-i', path.basename(mp4), '-i', voiceMp3]
 const tail = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p',
   // ⚠️ 这里必须用**绝对路径**：ffmpeg 的 cwd 是 renderDir，写成 basename 会落到 render/ 子目录里
   //    （2026-10-09 实测踩到：第一次跑完产物在 render/xxx-voiced.mp4，而脚本按 outDir 去判存在 ⇒ 误报失败）
@@ -240,6 +271,8 @@ if (!fs.existsSync(finalMp4)) {
 const sz = Math.round(fs.statSync(finalMp4).size / 1024)
 console.log('  ✓ 成片（含配音' + (vvf ? ' + 烧字幕' : '，字幕为旁挂 SRT') + '）：'
   + path.relative(PROJECT, finalMp4).replace(/\\/g, '/') + '  ' + sz + ' KB  ' + film.total + 's')
+// ★VF_FILMVOICE_V1d：给调用方（vf-film.ts）一行**机器可读**的成片路径，别再靠猜文件名
+console.log('FINAL_MP4:' + finalMp4)
 if (!vvf) {
   console.log('    ⚠ 本机 ffmpeg 没有 libass（subtitles 滤镜）⇒ **没有烧字幕**，已把字幕留在：'
     + path.relative(PROJECT, path.join(build, 'subs.srt')).replace(/\\/g, '/') + '（可播放器外挂，或让带 libass 的机器再跑一次）')

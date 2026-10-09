@@ -19,53 +19,89 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 
+// ★VF_ARRANGE_V2（2026-10-09 用户实测两条硬伤，全部来自下面这个 DEF）：
+//   ① **文案全是产品自夸**（AI 营销系统 / 一次成型 / 数据驱动增长 / 实时投放监控 / 从文案到成片…）
+//      ⇒ 用户拍的火锅素材配上这套词，片子等于"文不对题"（用户原话："它做8个镜头，几个纯PPT"）。
+//   ② **写死的示例数字**（value 78.5 / 45、加上渲染层 kpi 12.4万/4.8%/3.2千）
+//      ⇒ 直接违反反 AI 味②「不许编造数据」。
+//   现口径：**DEF 全清空**（文案只来自调用方 `slots`，没给就留空 —— 空比编造好）；
+//   数字类一律不写默认。场景编排也改成**素材驱动**（见下面 arrange 里 VF_ARRANGE_V2 那段）：
+//   段数与结构按素材张数决定，**所有素材必须出镜**。
 const DEF = {
-  eyebrow: 'SHOWREEL 2026',
-  title1: 'AI 营销系统',
-  title2: '一次成型',
-  sub: '30 秒看完它能做什么',
-  wallTitle: '一次生成 · 全套素材',
-  wallSub: '海报、文案、成片，出自同一套系统',
-  rows: ['素材不动 · 动效层加信息', '同一份文案 · 每次换风格', '逐帧可复现 · 可验收'],
-  glassTitle: '数据驱动增长',
-  glassSub: '投放 · 素材 · 转化，一屏看清',
-  dashTitle: '实时投放监控',
-  dashSub: '每 5 分钟刷新一次',
-  fullTitle: '从文案到成片',
-  fullSub: '一句话，四步出片',
-  chips: ['文案', '海报', '配音', '成片'],
-  gridTitle: '四种风格 · 同一套流程',
-  gridSub: '同一份素材，也能换个样子',
-  tail: '一次生成，批量出片',
-  foot: 'AiMarketing 视频工厂 · 2026 年 10 月',
+  eyebrow: '', title1: '', title2: '', sub: '',
+  wallTitle: '', wallSub: '', rows: [],
+  glassTitle: '', glassSub: '',
+  dashTitle: '', dashSub: '',
+  fullTitle: '', fullSub: '', chips: [],
+  gridTitle: '', gridSub: '',
+  tail: '', foot: '',
 }
 
 /** 编排：media = 素材文件名数组（**相对 film.json 所在目录**，如 'media/a.jpg'） */
 export function arrange(opts = {}) {
   const o = Object.assign({}, DEF, opts.slots || {})
   const M = (opts.media || []).filter(Boolean)
-  const at = (i) => (M.length ? M[i % M.length] : '')
-  const take = (from, n) => { const out = []; for (let k = 0; k < n; k++) { const m = at(from + k); if (m) out.push(m) } return out }
   const on = opts.structures && opts.structures.length ? new Set(opts.structures) : null
   const want = (id) => !on || on.has(id)
 
+  // ══ ★VF_ARRANGE_V2（2026-10-09 用户实测「我选 17 个它做 8 个镜头」）══
+  //   旧实现**固定 6 段、只用 9 张**（take 分配 1+3+0+0+1+4，注释里写"多了会用完为止"但代码没实现）。
+  //   现口径：**素材驱动** —— 段数与结构按素材张数决定，**每张素材都必须出镜且只出一次**：
+  //     开场封面 ×1  →  满幅 ×2（气势段）  →  之后 四宫格(4) / 作品墙(3) 交替  →  不够再补满幅 ×1
+  //     结尾再加一张"无图结尾卡"（**不带任何编造数字**：value/kpi 一律不写）
+  //   实测 17 张 = 开场1 + 满幅2 + 墙3 + 格4 + 墙3 + 格4 + 结尾卡 = 8 段、17 张全部出镜 ✓
   const scenes = []
-  if (want('opening-hero')) scenes.push({ shotgroup: 'sg-opening-tiltcard', structure: 'opening-hero', dur: 4.0,
-    slots: { eyebrow: o.eyebrow, title1: o.title1, title2: o.title2, sub: o.sub, foot: o.foot }, media: take(0, 1) })
-  if (want('works-wall')) scenes.push({ shotgroup: 'sg-works-wall', structure: 'works-wall', dur: 5.0,
-    slots: { title: o.wallTitle, sub: o.wallSub, rows: o.rows, foot: o.foot }, media: take(1, 3) })
-  if (want('glass-product')) scenes.push({ shotgroup: 'sg-glass-cards', structure: 'glass-product', dur: 5.0,
-    slots: { eyebrow: 'PRODUCT ANALYTICS', title: o.glassTitle, sub: o.glassSub, value: o.value || '78.5', unit: o.unit || '%' }, media: [] })
-  if (want('data-dashboard')) scenes.push({ shotgroup: 'sg-dashboard', structure: 'data-dashboard', dur: 5.0,
-    slots: { eyebrow: 'LIVE DASHBOARD', title: o.dashTitle, sub: o.dashSub, value: o.dashValue || '45', unit: '%', foot: o.foot }, media: [] })
-  if (want('fullbleed')) scenes.push({ shotgroup: 'sg-fullbleed-caption', structure: 'fullbleed', dur: 5.5,
-    slots: { eyebrow: 'WORKFLOW', title: o.fullTitle, sub: o.fullSub, chips: o.chips, foot: o.foot }, media: take(4, 1) })
-  if (want('grid-2x2')) scenes.push({ shotgroup: 'sg-grid-4', structure: 'grid-2x2', dur: 5.5,
-    slots: { title: o.gridTitle, sub: o.gridSub, nums: ['01', '02', '03', '04'], tail: o.tail, foot: o.foot }, media: take(5, 4) })
+  let i = 0
+  if (i < M.length && want('opening-hero')) {
+    scenes.push({ shotgroup: 'sg-opening-tiltcard', structure: 'opening-hero', dur: 4.0,
+      slots: { eyebrow: o.eyebrow, title1: o.title1, title2: o.title2, sub: o.sub, foot: o.foot }, media: M.slice(i, i + 1) })
+    i += 1
+  }
+  let lead = 0   // 前两段做成满幅（开场后有气势；也保证"大图"占比）
+  while (i < M.length) {
+    const left = M.length - i
+    if (lead < 2 && want('fullbleed')) {
+      scenes.push({ shotgroup: 'sg-fullbleed-caption', structure: 'fullbleed', dur: 4.5,
+        slots: { eyebrow: o.eyebrow, title: o.fullTitle, sub: o.fullSub, chips: o.chips, foot: o.foot }, media: M.slice(i, i + 1) })
+      i += 1; lead += 1; continue
+    }
+    const useGrid = scenes.length % 2 === 0
+    if (left >= 4 && useGrid && want('grid-2x2')) {
+      scenes.push({ shotgroup: 'sg-grid-4', structure: 'grid-2x2', dur: 5.0,
+        slots: { title: o.gridTitle, sub: o.gridSub, nums: ['01', '02', '03', '04'], tail: o.tail, foot: o.foot }, media: M.slice(i, i + 4) })
+      i += 4; continue
+    }
+    if (left >= 3 && want('works-wall')) {
+      scenes.push({ shotgroup: 'sg-works-wall', structure: 'works-wall', dur: 4.5,
+        slots: { title: o.wallTitle, sub: o.wallSub, rows: o.rows, foot: o.foot }, media: M.slice(i, i + 3) })
+      i += 3; continue
+    }
+    if (left >= 4 && want('grid-2x2')) {
+      scenes.push({ shotgroup: 'sg-grid-4', structure: 'grid-2x2', dur: 5.0,
+        slots: { title: o.gridTitle, sub: o.gridSub, nums: ['01', '02', '03', '04'], tail: o.tail, foot: o.foot }, media: M.slice(i, i + 4) })
+      i += 4; continue
+    }
+    if (want('fullbleed')) {
+      scenes.push({ shotgroup: 'sg-fullbleed-caption', structure: 'fullbleed', dur: 4.0,
+        slots: { eyebrow: o.eyebrow, title: o.fullTitle, sub: o.fullSub, chips: o.chips, foot: o.foot }, media: M.slice(i, i + 1) })
+      i += 1; continue
+    }
+    break   // 结构被限死且排不下 ⇒ 停（绝不重复素材）
+  }
+  // 结尾卡：只有调用方给了文案才写；数字类一律不写（★不再 default 78.5%/45%）
+  if (want('glass-product')) {
+    const closeSlots = { eyebrow: o.eyebrow, title: o.glassTitle, sub: o.glassSub }
+    if (o.value) closeSlots.value = o.value
+    if (o.unit) closeSlots.unit = o.unit
+    if (Array.isArray(o.kpi) && o.kpi.length >= 3) closeSlots.kpi = o.kpi
+    scenes.push({ shotgroup: 'sg-glass-cards', structure: 'glass-product', dur: 4.0, slots: closeSlots, media: [] })
+  }
 
   const total = +scenes.reduce((a, s) => a + s.dur, 0).toFixed(2)
-  return { id: opts.id || 'auto-' + Date.now(), name: opts.name || '30 秒 HTML成片（自动编排）', pack: opts.pack || 'reel-showcase',
-    fps: 25, note: '由 tools/arrange.mjs 自动编排；可手工微调 scenes 顺序/时长/文案/素材。', total, scenes }
+  const used = scenes.reduce((a, s) => a + (s.media || []).length, 0)
+  return { id: opts.id || 'auto-' + Date.now(), name: opts.name || 'HTML成片（自动编排）', pack: opts.pack || 'reel-showcase',
+    fps: 25, note: '由 tools/arrange.mjs 自动编排（★VF_ARRANGE_V2：素材驱动，' + used + '/' + M.length + ' 张出镜）；可手工微调 scenes。',
+    total, scenes }
 }
 
 /* CLI */

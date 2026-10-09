@@ -4111,6 +4111,22 @@ function AgentPageInner() {
         const fd = JSON.parse(_mm[1])
         const src = fd.url || fd.mp4 || ''
         const isRealUrl = /^https?:\/\//.test(src)
+        // ══ ★VF_FILMLOCAL_V1（2026-10-09 用户定案：**成片的规则是"生成/上传都要双落地"**）══
+        //   用户原话：「你说片子只在个人仓库 这首先第一个生成和上传必须落库 就违反了。其它生成都落本地仓库。」
+        //   其他线（上传附件 / 图片成片完成卡）都在完成后由**客户端**调 `electronAPI.storageMirror` 镜像到
+        //   本地仓库；本线之前只落个人仓库 ⇒ 违反规则。这里补上，口径与「图片成片」那张卡**完全一致**：
+        //     ① 用**入库后的文件名**（服务端随协议串带回来的 `repoName`）拼 `/api/storage/file?...&persist=1`；
+        //     ② `MIRRORED_ONCE` 去重（同一文件只下一次，避免和正在播放的 <video> 抢带宽 —— 2026-09-22 实测过）；
+        //     ③ 浏览器里没有 electronAPI ⇒ **不假装成功**（★VF_MIRRORHONEST_V1 同规矩）。
+        const _apiSrc = fd.repoName
+          ? ('/api/storage/file?userId=' + (user?.id || '') + '&name=' + encodeURIComponent(String(fd.repoName)) + '&persist=1')
+          : ''
+        const _canMirror = typeof window !== 'undefined' && !!(window as any).electronAPI?.storageMirror
+        const _mk = String(fd.repoName || src || '')
+        if (_apiSrc && _canMirror && _mk && !MIRRORED_ONCE.has(_mk)) {
+          MIRRORED_ONCE.add(_mk)
+          try { (window as any).electronAPI.storageMirror(_apiSrc) } catch { /* 镜像失败不影响出片 */ }
+        }
         return (
           <div>
             {/* 模型写的人话照常显示（不因补卡而丢掉） */}

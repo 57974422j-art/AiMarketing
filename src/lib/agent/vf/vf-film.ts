@@ -105,19 +105,27 @@ export async function filmDoneProtocol(
   try {
     let url = ''
     let poster = ''
+    // ★VF_FILMLOCAL_V1（2026-10-09 用户定案：**成片必须"个人仓库 + 本地仓库"双落地**）：
+    //   其他线（上传/图片成片）完成后都会由**客户端**调 `electronAPI.storageMirror` 落本地仓库；
+    //   本线之前只落个人仓库 ⇒ 违反规则。这里把入库后的**文件名**一并带进协议串，
+    //   客户端就能用 `/api/storage/file?...&name=<repoName>&persist=1` 镜像到本地仓库（见 page.tsx）。
+    let repoName = ''
+    let repoPoster = ''
     if (r.mp4 && fs.existsSync(r.mp4)) {
       const buf = await readFile(r.mp4)
       const { name } = await saveToPersonalRepo({ userId: String(uid), buffer: buf, ext: 'mp4', mime: 'video/mp4' })
+      repoName = String(name || '')
       url = await signedUrl(`storage/${uid}/${name}`, 86400)
     }
     if (r.sheet && fs.existsSync(r.sheet)) {
       try {
         const bufS = await readFile(r.sheet)
         const { name: nS } = await saveToPersonalRepo({ userId: String(uid), buffer: bufS, ext: 'jpg', mime: 'image/jpeg' })
+        repoPoster = String(nS || '')
         poster = await signedUrl(`storage/${uid}/${nS}`, 86400)
       } catch { /* 审片图失败不影响成片 */ }
     }
-    if (url) return `VF_FILM_DONE:${JSON.stringify({ url, poster, pack: r.pack || '', vertical: r.vertical || '', voiced: !!r.voiced, voiceErr: r.voiceErr || '' })}`
+    if (url) return `VF_FILM_DONE:${JSON.stringify({ url, poster, repoName, repoPoster, pack: r.pack || '', vertical: r.vertical || '', voiced: !!r.voiced, voiceErr: r.voiceErr || '' })}`
   } catch { /* 落到下面兜底 */ }
   return `VF_FILM_DONE:${JSON.stringify({ url: '', poster: '', localMp4: r.mp4 || '', pack: r.pack || '', vertical: r.vertical || '', voiced: !!r.voiced, voiceErr: r.voiceErr || '' })}`
 }
@@ -174,17 +182,27 @@ async function voiceFilm(
   if (voice) args.push('--voice', voice)
   const r = await runNode(args, 30 * 60 * 1000)
   const dirAbs = path.isAbsolute(outDir) ? outDir : path.join(filmToolsDir(), outDir)
-  const src = path.isAbsolute(filmJsonRel) ? filmJsonRel : path.join(filmToolsDir(), filmJsonRel)
-  let id = ''
-  try { id = String(JSON.parse(fs.readFileSync(src, 'utf8')).id || '') } catch { /* ignore */ }
-  const cand = id ? path.join(dirAbs, id + '-voiced.mp4') : ''
-  if (r.code === 0 && cand && fs.existsSync(cand)) {
+  // ★VF_FILMVOICE_V1d（2026-10-09 用户实测「明明渲染成功了却报配音失败」）：
+  //   成片路径**只认工具自己打的那行** `FINAL_MP4:<绝对路径>`（最可靠）；拿不到再按目录兜底找
+  //   `*-voiced.mp4`（或最大的 mp4）。不再猜 `<id>-voiced.mp4` 这个名字 ——
+  //   旧实现在"源 film.json 没有 id"时**必然找不到** ⇒ 误报失败 ⇒ 白回退成无声版（就是这么踩的）。
+  const mFin = String(r.out || '').match(/FINAL_MP4:([^\r\n]+)/)
+  let mp4 = mFin ? mFin[1].trim() : ''
+  if (!mp4 || !fs.existsSync(mp4)) {
+    const scan = (re: RegExp) => {
+      try { return fs.readdirSync(dirAbs).filter((n) => re.test(n)).map((n) => path.join(dirAbs, n)) } catch { return [] as string[] }
+    }
+    const hit = scan(/-voiced\.mp4$/i)
+    const all = hit.length ? hit : scan(/\.mp4$/i)
+    mp4 = all.sort((a, b) => { try { return fs.statSync(b).size - fs.statSync(a).size } catch { return 0 } })[0] || ''
+  }
+  if (r.code === 0 && mp4 && fs.existsSync(mp4)) {
     const sheet = path.join(dirAbs, 'render', 'sheet.jpg')
-    return { ok: true, mp4: cand, sheet: fs.existsSync(sheet) ? sheet : '' }
+    return { ok: true, mp4, sheet: fs.existsSync(sheet) ? sheet : '' }
   }
   const stage = (r.out.match(/stage=(\w+)/) || [])[1] || 'voice'
   const why = (r.out.split('\n').find((l) => l.includes('原因：')) || '').replace('原因：', '').trim()
-  return { ok: false, stage, err: why || r.out.slice(-300) }
+  return { ok: false, stage, err: why || String(r.out).slice(-300) }
 }
 
 /** 端到端一步到位：素材 → 编排 → 出片（试点线用；AI 想自己编排时改用 orchestrate + validate）
