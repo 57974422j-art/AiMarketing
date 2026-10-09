@@ -205,6 +205,37 @@ async function voiceFilm(
   return { ok: false, stage, err: why || String(r.out).slice(-300) }
 }
 
+/** ★VF_FILMCOPY_V1（2026-10-09 用户定案「B该用模型就用模型 / 让 AI 先总结素材 / **不要乱出片**」）：
+ *  **只出骨架、不渲染** —— 先拿到"这条片会怎么排"（每段结构 + 该段素材），
+ *  好让 AI 按骨架写**逐镜文案**；用户看过确认卡、点「出片」之后再真出片（不再"直接乱出片"）。
+ *  ⚠️ arrange 是**确定性**的（同样素材+风格 ⇒ 同样骨架）⇒ 这里拿到的骨架与真正出片时一致，序号可对齐。 */
+export async function planFilm(opts: {
+  materials: string[]
+  text?: string
+  pack?: string
+  variant?: number
+  workDir: string
+}): Promise<{ ok: boolean; scenes?: Array<{ structure: string; media: string[]; dur: number }>; pack?: string; vertical?: string; err?: string }> {
+  fs.mkdirSync(opts.workDir, { recursive: true })
+  const filmJson = path.join(opts.workDir, 'film.json')
+  const rel = path.relative(filmToolsDir(), filmJson).replace(/\\/g, '/')
+  const o = await orchestrate({ materials: opts.materials, text: opts.text, pack: opts.pack, variant: opts.variant, id: 'vf-film', outJson: rel })
+  if (!o.ok) return { ok: false, err: o.note }
+  try {
+    const j = JSON.parse(fs.readFileSync(filmJson, 'utf8'))
+    return {
+      ok: true,
+      scenes: (j.scenes || []).map((s: any) => ({
+        structure: String(s.structure || ''),
+        media: (s.media || []).map((m: any) => path.basename(String(m))),
+        dur: Number(s.dur) || 0,
+      })),
+      pack: o.pack,
+      vertical: o.vertical,
+    }
+  } catch (e: any) { return { ok: false, err: '读骨架失败：' + String(e?.message || e).slice(0, 120) } }
+}
+
 /** 端到端一步到位：素材 → 编排 → 出片（试点线用；AI 想自己编排时改用 orchestrate + validate）
  *  ★VF_FILMVOICE_V1：`voiced=true` ⇒ 走 audio-first（TTS 实测时长 + 字幕 + 混音 + 烧字幕）。
  *  ⚠️ 配音失败**不判死出片**：回退"无声版"并在 `voiceErr` 里如实带原因（与"失败即回退"同口径）。 */
@@ -216,12 +247,33 @@ export async function makeFilmFromMaterials(opts: {
   workDir: string
   voiced?: boolean
   voice?: string
+  /** ★VF_FILMCOPY_V1：AI 写好的逐镜文案（与骨架同序；key 名按结构：title1/sub/chips/rows…） */
+  copy?: any[]
 }): Promise<{ ok: boolean; mp4?: string; sheet?: string; stage?: string; err?: string; vertical?: string; pack?: string; voiced?: boolean; voiceErr?: string }> {
   fs.mkdirSync(opts.workDir, { recursive: true })
   const filmJson = path.join(opts.workDir, 'film.json')
   const rel = path.relative(filmToolsDir(), filmJson).replace(/\\/g, '/')
   const o = await orchestrate({ materials: opts.materials, text: opts.text, pack: opts.pack, variant: opts.variant, id: 'vf-film', outJson: rel })
   if (!o.ok) return { ok: false, stage: 'orchestrate', err: o.note }
+  // ★VF_FILMCOPY_V1：把 AI 写好的**逐镜文案**按序号并进骨架（arrange 确定性 ⇒ 序号与确认卡上看到的一致）。
+  //   只在"该键有非空值"时覆盖 ⇒ 不会把骨架里该有的东西抹掉；空值一律不写（宁缺勿编）。
+  if (Array.isArray(opts.copy) && opts.copy.length) {
+    try {
+      const j = JSON.parse(fs.readFileSync(filmJson, 'utf8'))
+      j.scenes = (j.scenes || []).map((s: any, i: number) => {
+        const c: any = (opts.copy as any[])[i]
+        if (!c || typeof c !== 'object') return s
+        const slots: any = Object.assign({}, s.slots || {})
+        for (const k of Object.keys(c)) {
+          const v = c[k]
+          if (v === undefined || v === null || String(v) === '') continue
+          slots[k] = Array.isArray(v) ? v.map((x: any) => String(x)) : String(v)
+        }
+        return Object.assign({}, s, { slots })
+      })
+      fs.writeFileSync(filmJson, JSON.stringify(j, null, 2) + '\n', 'utf8')
+    } catch { /* 合并失败不判死：退化成"无文案骨架"，仍可出片（不产坏片） */ }
+  }
   const outDirRel = path.join('out', 'film', path.basename(opts.workDir))
   if (opts.voiced) {
     const v = await voiceFilm(rel, outDirRel, opts.voice)

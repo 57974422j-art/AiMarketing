@@ -4315,6 +4315,9 @@ PUBLISH_DRAFT.delete(uidW)
               prisma,
               // 只有"点/说了命令"才算入口（协议串来的时候不能当成新的一单，否则会清掉刚存的草稿）
               isEntry: !!stdCmdHit && stdCmdHit.id === 'film',
+              // ★VF_FILMCOPY_V1（2026-10-09 用户定案「B该用模型就用模型」）：把"写字用哪个模型"注入本线 ——
+              //   风格卡「下一步」时要**先让 AI 看图总结素材 + 按骨架写逐镜文案**，用的就是 writer 档位（与 PPT 线同一套）
+              generateText: genTextW,
             })
             if (_rHF) { wfEarlyReply = _rHF; finalResult = _rHF }
             else {

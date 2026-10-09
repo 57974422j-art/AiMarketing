@@ -2062,6 +2062,28 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
             <div>风格包：{String(vj?.packName || '自动')}</div>
             <div>预计：约 {Number(vj?.estShots) || 6} 段 · {Number(vj?.estSec) || 30} 秒（编排器按风格包定段数）</div>
             <div className="text-emerald-300">点数：不额外扣点（本线用本机引擎逐帧渲染，不调 AI 生成画面）</div>
+            {/* ══ ★VF_FILMCOPY_V1（2026-10-09 用户定案「让 AI 先总结素材。不要乱出片」）══
+                「下一步」时服务端已经**先让 AI 看了素材、并按骨架写好逐镜文案**；这里把它显示出来，
+                用户**看到文案再点出片** —— 不再出现"文案跑偏/编造数据"那种乱出片。 */}
+            {vj?.summary ? (
+              <div className="mt-2 p-2 rounded-lg bg-black/20 text-[11px] text-gray-200 whitespace-pre-wrap">
+                <div className="text-emerald-300 mb-1">
+                  🔍 AI 读图总结（骨架 {Number(vj?.estShots) || 0} 段 · 文案已按素材写好）
+                </div>
+                {String(vj.summary)}
+              </div>
+            ) : null}
+            {Array.isArray(vj?.copy) && vj.copy.length ? (
+              <div className="mt-2 max-h-40 overflow-y-auto text-[11px] leading-relaxed">
+                {vj.copy.map((c: any, i: number) => {
+                  const s = (c && c.slots) || {}
+                  const line = [s.eyebrow, s.title1, s.title2, s.title, s.sub, s.tail].filter(Boolean).join(' · ')
+                    + (Array.isArray(s.chips) && s.chips.length ? '  [' + s.chips.join('/') + ']' : '')
+                    + (Array.isArray(s.rows) && s.rows.length ? '  ｜' + s.rows.join('；') : '')
+                  return <div key={i} className="text-gray-300">{i + 1}. {line || '（无文案）'}</div>
+                })}
+              </div>
+            ) : null}
             {/* ★VF_FILMVOICE_V1：配音开关（默认开）—— 关了就是原来那条"无声片" */}
             <label className="flex items-center gap-2 mt-1 cursor-pointer select-none">
               <input type="checkbox" checked={voice} onChange={(e) => setVoice(e.target.checked)} />
