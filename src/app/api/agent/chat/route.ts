@@ -3457,7 +3457,15 @@ export async function POST(request: NextRequest) {
     //   ⚠️ 这已是同一族的**第 4 处漏点**（前 3 处：`stdHasAnyDraft` 漏 PPT 线、`isStdNoDraftAllowed`
     //   不放行本线协议串、分派块被排在四条线之后）—— 规律：**凡是"协议串白名单/名单式校验"，
     //   新线一上线就要在四处同步登记**（闸门放行 / 草稿名单 / 分派顺序 / 跳过 AI 的协议串白名单）。
-    const vfProtoWord = /^(VF_FORM|VF_PPT_FORM|VF_EDIT|VF_I2V_OFF|VF_BRIEF|VF_JSON|VF_MAT_SET|VF_MAT_SWAP|VF_DECK_CONFIRM|FRAMES_OK|MAKE_VIDEO_TASK|MAKE_VIDEO_COST|MAKE_VIDEO_FAIL|BROWSER_TASK|TOOL_REJECT|VIDEO_RESULT|LEAD_CFG)\s*[:{]/.test(userMessage.trim())
+    // ★VF_FILMPROTO_V1（2026-10-09 用户实测「HTML成片又漏了，AI 出来胡扯」）——**同一族的第 5 处漏点**：
+    //   HTML成片线的卡片协议串 `VF_FILM_FORM:` / `VF_FILM_GO:` **漏在这个白名单外** ⇒ `skipModelStep1=false`
+    //   ⇒ **AI 那一步照样跑**：模型直接开口聊天（不调工具）→ `normCalls=0` → **整个状态机块被跳过**
+    //   ⇒ 回复用的是 AI 的话；它还顺着历史里那句"状态机：素材卡→风格卡→确认卡"**自己编了一张卡**
+    //   （用户实测原话：`VF_JSON:{"step":"film_topic",…}[/SCENE_JSON]` —— step 名都是它编的，代码里没这个卡）。
+    //   ⇒ 与 3453 行 PPT 那次（VF_PPT_FORM）、3435 行 AI 制片那次**完全同因**。规律（写在上面那段注释里）：
+    //     **新线上线要在四处同步登记** —— ①闸门放行 isStdNoDraftAllowed ②草稿名单 stdHasAnyDraft
+    //     ③分派顺序（排前）④**本白名单**。我当时只登了 ①②③，漏了 ④。
+    const vfProtoWord = /^(VF_FORM|VF_PPT_FORM|VF_FILM_FORM|VF_FILM_GO|VF_EDIT|VF_I2V_OFF|VF_BRIEF|VF_JSON|VF_MAT_SET|VF_MAT_SWAP|VF_DECK_CONFIRM|FRAMES_OK|MAKE_VIDEO_TASK|MAKE_VIDEO_COST|MAKE_VIDEO_FAIL|BROWSER_TASK|TOOL_REJECT|VIDEO_RESULT|LEAD_CFG)\s*[:{]/.test(userMessage.trim())
     // ★STD_MODE_V1：命中 machine 命令（发布 / 三条成片线）→ 强制进状态机（跳过 AI 那一步）
     // ★VF_I2VDFLT_V1：再加 `stdSettingWord`（改设置的说法 / VF_I2V_OFF 协议串）→ 同样强制进状态机，
     //   由两条成片线在 step='script' 里改 i2v 并重出确认卡（不再落进 AI 自由发挥/锁死）。
