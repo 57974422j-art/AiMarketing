@@ -4296,6 +4296,10 @@ PUBLISH_DRAFT.delete(uidW)
           const { handleHtmlFilmLine } = await import('@/lib/agent/vf/vf-htmlfilm')
           const _msgHF = String(userMessage || '').trim()
           const _isHtmlFilm = (!!stdCmdHit && stdCmdHit.id === 'film') || /^VF_FILM_(FORM|GO)\s*[:{]/.test(_msgHF)
+          // ★VF_HTMLDIAG_V1（2026-10-09 用户实测「HTML成片又漏了，AI 出来胡扯」）：
+          //   PPT 线早有 `[PPT-DIAG]` 留痕，本线**没有** ⇒ 出事只能猜（这次就是）。
+          //   补齐：消息头 / 是否命中本线 / handler 结果，一次点击就能定案。
+          if (_isHtmlFilm) { try { vfLog(uidVF2, `[HTML成片-DIAG] msgHead=${_msgHF.slice(0, 26)} hit=true`) } catch { /* ignore */ } }
           if (_isHtmlFilm) {
             const _rHF = await handleHtmlFilmLine({
               uid: uidVF2,
@@ -4305,9 +4309,25 @@ PUBLISH_DRAFT.delete(uidW)
               isEntry: !!stdCmdHit && stdCmdHit.id === 'film',
             })
             if (_rHF) { wfEarlyReply = _rHF; finalResult = _rHF }
+            else {
+              // ★VF_NOLEAK_V1（用户实测「每次改都漏风 AI 出来胡扯」）：**本线协议串没被接管 ⇒ 绝不落到 AI**。
+              //   为什么必须这样：AI 会顺着系统提示里那句"状态机：素材卡→风格卡→确认卡"**自己编一张卡**出来
+              //   （实测：它回了"素材已选好，进入第 2 步 · 定主题"），用户以为"功能通了"，其实是我们漏了。
+              //   宁可明确报错 + 留痕，也不让 AI 在本线胡扯。
+              wfEarlyReply = '⚠️ HTML成片这一步没被服务端接管（临时故障）：请重新说一次「HTML成片」重开这一单。'
+                + '若反复出现，把这句发给开发者即可定位：`[HTML成片-DIAG] handler=null`'
+              finalResult = wfEarlyReply
+              try { vfLog(uidVF2, '[HTML成片-DIAG] handler 返回 null → 已拦截（不落 AI）') } catch { /* ignore */ }
+            }
           }
         } catch (eHF: any) {
-          try { vfLog(uidVF2, '[HTML成片] 分派异常: ' + String(eHF?.message || eHF).slice(0, 200)) } catch { /* ignore */ }
+          try { vfLog(uidVF2, '[HTML成片-DIAG] 分派异常: ' + String(eHF?.message || eHF).slice(0, 200)) } catch { /* ignore */ }
+          // ★VF_NOLEAK_V1：**异常也不许落到 AI**（原实现只记日志 ⇒ 用户看到的就是 AI 胡扯）
+          if (/^VF_FILM_(FORM|GO)\s*[:{]/.test(String(userMessage || '').trim())) {
+            wfEarlyReply = '⚠️ HTML成片这一步报错了（未完成）：' + String(eHF?.message || eHF).slice(0, 120)
+              + ' —— 请重说一次「HTML成片」重开这一单。'
+            finalResult = wfEarlyReply
+          }
         }
         let vfPptHandled = false
         try {
@@ -5634,12 +5654,36 @@ PUBLISH_DRAFT.delete(uidW)
           }
         }
       } catch (ePub2) { console.error('[发布工作流] 异常:', ePub2) }
+      // ══ ★VF_NOLEAK_V1（2026-10-09 用户实测「HTML成片又漏了，AI 出来胡扯」）——**通用防漏风** ══
+      //   凡是**我们自己卡片产生的协议串**，走到块尾还没有任何一条线接管（`wfEarlyReply` 空），
+      //   就**绝不落到 AI**：模型会顺着系统提示自己编一张卡出来（实测原话："素材已选好，进入 第 2 步 · 定主题"），
+      //   用户以为"功能通了"，其实是我们漏了 —— 这比直接报错更糟（浪费用户时间 + 让人以为能测）。
+      //   只兜**卡片协议串**（用户点按钮产生的），普通聊天照常走 AI（不误伤）。
+      if (!wfEarlyReply) {
+        const _leak = String(userMessage || '').trim()
+        if (/^(VF_FILM_(FORM|GO)|VF_PPT_FORM|VF_DECK_CONFIRM|VF_EDIT)\s*[:{]/.test(_leak)) {
+          finalResult = '⚠️ 这个按钮的消息没被服务端接管（临时故障）：请重新说一次对应命令（如「HTML成片」）重开这一单。'
+            + '若反复出现，把这行发给开发者即可一步定位：`[NOLEAK] ' + _leak.slice(0, 26) + '`'
+          wfEarlyReply = finalResult
+          try { vfLog(auth?.userId || 0, '[NOLEAK] 卡片协议串无任何线接管 → 已拦截（不落 AI）：' + _leak.slice(0, 26)) } catch { /* ignore */ }
+        }
+      }
       console.log('[状态机] 块尾——step=', (PUBLISH_DRAFT.get(auth?.userId || 0) as any)?.step, 'wfEarlyReply=', wfEarlyReply ? String(wfEarlyReply).slice(0, 60) : '(空——未设回复)', '消息=', String(userMessage).slice(0, 20))
  }
       const toolMsg = messages.filter(m => (m as any).role === 'tool').pop() as AgentChatMessage | undefined
       const toolRaw = toolMsg?.content
       const toolText = typeof toolRaw === 'string' ? toolRaw : (toolRaw ? JSON.stringify(toolRaw) : '')
 
+      // ══ ★VF_NOLEAK_V1b（2026-10-09 用户实测「每次改都漏风 AI 出来胡扯」）——**块外再兜一层** ══
+      //   为什么还要这一层：上面那层在"标准模式状态机块"**内部**；而**【自由模式】会整体跳过状态机**
+      //   （设计如此），卡片协议串于是直接落到 AI —— 模型会顺着历史里那句"状态机三张卡"自己编一张卡
+      //   （实测原话："素材已选好 ✅ 共 12 张，进入 第 2 步 / 共 3 步 · 定主题"）。
+      //   这里就在**回复生效前**（`let reply` 上一条）再判一次：是本线卡片协议串、又没人接管 ⇒ 明确报错。
+      if (!wfEarlyReply && /^(VF_FILM_(FORM|GO)|VF_PPT_FORM|VF_DECK_CONFIRM|VF_EDIT)\s*[:{]/.test(String(userMessage || '').trim())) {
+        wfEarlyReply = '⚠️ 这个按钮的消息没被服务端接管：请重新说一次对应命令（如「HTML成片」）重开这一单。'
+          + '若你此刻在**自由模式**，请切到标准模式再点这些卡片（自由模式不走状态机）。'
+        try { vfLog(auth?.userId || 0, '[NOLEAK-外] 卡片协议串未接管（可能自由模式/分派未跑到）→ 已拦截，不落 AI') } catch { /* ignore */ }
+      }
       let reply: string
       if (wfEarlyReply) { reply = wfEarlyReply; console.log('[状态机] wfEarlyReply 已设:', String(wfEarlyReply).slice(0, 60)) } else
       // 若模型在 Step2 又返回了 tool_calls（异常），忽略它，用工具结果兜底，避免死循环与脏输出
