@@ -2060,7 +2060,9 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
           <div className="text-[11px] text-gray-300 leading-relaxed mb-2">
             <div>素材：{vj?.n ? `${vj.n} 张（你勾选的）` : '个人仓库最近 12 张'}</div>
             <div>风格包：{String(vj?.packName || '自动')}</div>
-            <div>预计：约 {Number(vj?.estShots) || 6} 段 · {Number(vj?.estSec) || 30} 秒（编排器按风格包定段数）</div>
+            {/* ★VF_FILMEST_V2（2026-10-09 用户实测「卡上说约 35 秒、成片只有 24.6 秒」）：
+                口径写明白 —— 这个秒数是**按文案字数估**的，真正时长由 TTS 实测配音决定。 */}
+            <div>预计：约 {Number(vj?.estShots) || 6} 段 · {Number(vj?.estSec) || 30} 秒（按文案字数估，成片以实测配音时长为准）</div>
             <div className="text-emerald-300">点数：不额外扣点（本线用本机引擎逐帧渲染，不调 AI 生成画面）</div>
             {/* ══ ★VF_FILMCOPY_V1（2026-10-09 用户定案「让 AI 先总结素材。不要乱出片」）══
                 「下一步」时服务端已经**先让 AI 看了素材、并按骨架写好逐镜文案**；这里把它显示出来，

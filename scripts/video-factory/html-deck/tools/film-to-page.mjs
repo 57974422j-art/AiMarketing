@@ -22,6 +22,8 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
+// ★VF_FILMBLEEDFIX_V1：量"实拍在被压字那一条上的亮度"要用 ffmpeg（与渲染器钉同一个可执行文件的口径一致）
+import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 const HERE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -157,14 +159,19 @@ function sceneBody(st, sc, i) {
     const cta = raw.cta ? String(raw.cta) : ''
     const num = (raw.value !== undefined && raw.value !== null && String(raw.value) !== '')
       ? `<div class="num">${esc(raw.value)}<span class="u">${esc(raw.unit || '')}</span></div>` : ''
+    // ★VF_FILMGLASS_V2（2026-10-09 用户实测「结尾卡是个空白卡片框」）：
+    //   上一版（V1）只改了"没给就不画内容"，但**玻璃主卡那个框还是照画** ⇒ 结尾卡只剩一个
+    //   淡粉圆角空框（实测：最后 3 秒满屏就这一个空格子）。现口径：**框里啥都没有就整块不画**
+    //   （title/sub/eyebrow 照旧 —— 那是文案，不属于"编造数据"）。
+    const hasBox = !!(num || kpi)
     return `
     <div class="eb">${esc(s.eyebrow)}</div>
     <div class="ttl ttl1">${esc(s.title)}</div>
     <div class="sub">${esc(s.sub)}</div>
-    <div class="glass main${kpi ? '' : ' noKpi'}">
+    ${hasBox ? `<div class="glass main${kpi ? '' : ' noKpi'}">
       ${num}
       ${kpi ? `<div class="kt">${esc(raw.kpiTitle || '关键指标')}</div>` + kpi.map((k, i) => `<div class="krow kr${i + 1}"><span>${esc(k[0])}</span><b>${esc(k[1])}</b></div>`).join('') : ''}
-    </div>
+    </div>` : ''}
     ${mini ? mini.map((m, i) => `<div class="glass mini m${i + 1}"><span>${esc(m[0])}</span><b>${esc(m[1])}</b></div>`).join('') : ''}
     ${cta ? `<div class="cta">${esc(cta)}<span class="shine"></span></div>` : ''}`
   }
@@ -215,6 +222,58 @@ function sceneBody(st, sc, i) {
 
 const lum = (hex) => { const h = String(hex || '#000').replace('#', ''); const n = parseInt(h.length === 3 ? h[0] + h[0] + h[1] + h[1] + h[2] + h[2] : h, 16) || 0; return (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255 }
 
+/** ★VF_FILMBLEEDFIX_V1（2026-10-09 用户实测「全幅实拍上字看不见 / 深色渐变很丑」）用：
+ *  量一张图某个**横带**（y 用 0~1 比例）的平均亮度（0~255，ffmpeg signalstats 的 YAVG）。
+ *  · 失败返回 −1 ⇒ 调用方**一个字都不改**（量不出来就维持原样式，绝不瞎猜）。
+ *  · 按 文件+区间 缓存（同一张图常被多段复用）。 */
+const _lumaCache = new Map()
+function bandLuma(file, y0, y1) {
+  const key = file + '|' + y0 + '|' + y1
+  if (_lumaCache.has(key)) return _lumaCache.get(key)
+  let v = -1
+  try {
+    const r = spawnSync('ffmpeg', ['-v', 'error', '-i', file, '-vf',
+      `crop=iw:ih*${(y1 - y0).toFixed(4)}:0:ih*${y0.toFixed(4)},signalstats,metadata=print:file=-`,
+      '-f', 'null', '-'], { encoding: 'utf8', timeout: 20000 })
+    const m = /lavfi\.signalstats\.YAVG=([\d.]+)/.exec(String(r.stdout || ''))
+    if (m) v = parseFloat(m[1])
+  } catch { v = -1 }
+  _lumaCache.set(key, v)
+  return v
+}
+
+/** ★VF_FILMBLEEDFIX_V1：全幅实拍段（fullbleed）的"按**实测亮度**自动改字色 + 自动选遮罩"。
+ *  为什么要它（用户实拍的病）：这个 pack 的字色是**为浅色纸面**设计的（ink=深字、accent=暗红），
+ *  一旦 fullbleed 把**任意实拍**铺满整屏，就变成"深字压深图" ⇒ 看不见；而两条 scrim 又是**写死的深色**，
+ *  压到暗图上既没用、又把画面弄脏（用户原话："渐变效果怎么出现非常不好"）。
+ *  口径（对齐老引擎 ★VF_DECK_CONTRAST_V1：字色 vs 底的实际亮度 |Δ| ≥ 70）：
+ *   · 底暗（YAVG < 120）⇒ **亮字**（ink→白、dim→浅灰、accent 太暗就换白）+ 遮罩**减淡**（用户定过"餐饮要亮"）
+ *   · 底亮（YAVG ≥ 120）⇒ **深字** + **亮遮罩**（不把图压黑，自然也就"亮"）
+ *   · 量不到 ⇒ 返回空串（零回归）
+ *  ⚠️ 只动**这一段的字色 + 两条 scrim + chip 底色**；版式/位置/动效一律不动。 */
+function bleedCss(i, lm, T, AT) {
+  const bot = Number(lm && lm.bot)
+  if (!(bot >= 0)) return ''
+  const sel = '#sc' + i
+  const dark = bot < 120
+  const out = []
+  if (dark) {
+    if (lum(T.ink) < 0.6) out.push(`${sel}{--ink:#ffffff;--dim:#e9f0f8}`)
+    if (lum(AT) < 0.55) out.push(`${sel}{--at:#ffffff}`)
+    out.push(`${sel} .scrimT{background:linear-gradient(180deg,rgba(0,0,0,.55) 0%,rgba(0,0,0,.22) 60%,rgba(0,0,0,0) 100%)}`)
+    out.push(`${sel} .scrimB{background:linear-gradient(0deg,rgba(0,0,0,.62) 0%,rgba(0,0,0,.42) 42%,rgba(0,0,0,.12) 78%,rgba(0,0,0,0) 100%)}`)
+    out.push(`${sel} .ttl{text-shadow:0 2px 12px rgba(0,0,0,.6)}`)
+    out.push(`${sel} .chip{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.42);color:#fff}`)
+  } else {
+    if (lum(T.ink) > 0.35) out.push(`${sel}{--ink:#15181c;--dim:#3a4048}`)
+    if (lum(AT) > 0.5) out.push(`${sel}{--at:#2b2f36}`)
+    out.push(`${sel} .scrimT{background:linear-gradient(180deg,rgba(255,255,255,.78) 0%,rgba(255,255,255,.32) 60%,rgba(255,255,255,0) 100%)}`)
+    out.push(`${sel} .scrimB{background:linear-gradient(0deg,rgba(255,255,255,.95) 0%,rgba(255,255,255,.86) 42%,rgba(255,255,255,.42) 78%,rgba(255,255,255,0) 100%)}`)
+    out.push(`${sel} .chip{background:rgba(255,255,255,.9);border-color:rgba(0,0,0,.14);color:#1b1f24}`)
+  }
+  return out.join('\n')
+}
+
 /** film → index.html（纯函数，不读盘） */
 export function makeFilmHtml(film) {
   const pack = film.packObj || {}
@@ -232,6 +291,8 @@ export function makeFilmHtml(film) {
   const total = +t.toFixed(2)
   const body = scenes.map((x, i) => `<section class="sec clip st-${x.st}" id="sc${i}" data-start="${x.start.toFixed(2)}" data-duration="${x.dur.toFixed(2)}">\n${sceneBody(x.st, x.sc, i)}\n  </section>`).join('\n')
   const usedStructs = [...new Set(scenes.map((x) => x.st))]
+  // ★VF_FILMBLEEDFIX_V1：按"实测亮度"给全幅段做**局部**字色/遮罩修正（量不到的段一段都不改）
+  const bleedFix = scenes.map((x, i) => bleedCss(i, x.sc.__luma, T, AT)).filter(Boolean).join('\n')
 
   return `<!doctype html>
 <html lang="zh-CN">
@@ -273,6 +334,8 @@ export function makeFilmHtml(film) {
 
   /* ---------- 结构级（每个结构自带作用域 .st-xxx，多段共用不会串味） ---------- */
 ${usedStructs.map(filmCssFor).join('\n')}
+  /* ---------- ★VF_FILMBLEEDFIX_V1：全幅段按**实测亮度**局部改字色/遮罩（量不到的段没有这几行） ---------- */
+${bleedFix}
 </style>
 </head>
 <body>
@@ -305,6 +368,17 @@ export function buildFilm(film, outDir, filmDir) {
     })
     return { ...sc, media, __media: media.map((x) => (x ? 'assets/' + x : '')) }
   })
+  // ★VF_FILMBLEEDFIX_V1：给 fullbleed 段量"字压在什么亮度上"（上带 = eyebrow / 下带 = 标题·副题·chips）
+  //   —— 量的是**源图**；量不到就留 −1（makeFilmHtml 那边一个字都不改 ⇒ 零回归）
+  for (let i = 0; i < scenes.length; i++) {
+    const st = FILM_STRUCTS.includes(scenes[i].structure) ? scenes[i].structure : 'opening-hero'
+    if (st !== 'fullbleed') continue
+    const raw0 = String((((film.scenes || [])[i] || {}).media || [])[0] || '')
+    if (!raw0) continue
+    const src = path.resolve(filmDir || '.', raw0)
+    if (!fs.existsSync(src)) continue
+    scenes[i].__luma = { top: bandLuma(src, 0.03, 0.16), bot: bandLuma(src, 0.66, 0.95) }
+  }
   const f2 = { ...film, scenes }
   const assets = path.join(outDir, 'assets')
   fs.mkdirSync(assets, { recursive: true })

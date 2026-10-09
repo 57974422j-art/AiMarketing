@@ -272,7 +272,13 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
     + '2. 零 emoji、零符号图标；不要英文小字（结尾卡的 eyebrow 也写中文）。\n'
     + '3. 每段文案合计 ≤60 字；chips 每条 ≤3 字；rows 每条 ≤12 字。\n'
     + '4. **不许用「涮」字**（项目字体子集里没有，会上豆腐块）——火锅的动作写「烫 / 下锅 / 火锅」；别用生僻字。\n'
-    + '5. 只回一个 JSON 数组（长度 = 段数），元素形如 {"slots":{...}}；不要 markdown 围栏、不要解释。'
+    + '5. 只回一个 JSON 数组（长度 = 段数），元素形如 {"slots":{...}}；不要 markdown 围栏、不要解释。\n'
+    // ★VF_VOICE_SPOKEN_V1（2026-10-09 用户实测「字幕/配音 = 画面大字，音画完全重复」）：
+    //   **让模型多写一句"口播句"** —— 画面大字是"看"的（短、可断句、可横排），
+    //   口播是"听"的（成句、口语、念得顺）。给了它，配音和字幕就不再是"念画面字"了。
+    + '6. **每一段再多给一个 `voice`（口播句）**：一句自然口语（≤18 字、像人在说话、念得顺），'
+    + '**不要照抄画面大字**，也不许编造数据/品牌/门店名。写法：{"slots":{…,"voice":"…"}}'
+    + '（有 voice 就用 voice 配音；没给就退回念画面大字）。'
   // ★VF_FILMCOPY_V2（2026-10-09 用户实测「为什么老是出错」）：**最多两次尝试 + 三次降级，绝不卡死**。
   //   ① 宽容解析（scanJson 配对扫描：数组 / {scenes:[…]} / 带解释的尾巴 都能取到）；
   //   ② 解析不过 ⇒ 带"上次哪里错"**重试一次**；
@@ -385,13 +391,35 @@ function styleCard(vd: HtmlFilmDraft): string {
   return 'VF_JSON:' + JSON.stringify(body)
 }
 
+/** ★VF_FILMEST_V2（2026-10-09 用户实测「卡上说约 35 秒、成片只有 24.6 秒」）：
+ *  预估口径改成**按文案字数**算（口播语速实测 ~3.2 字/秒 + 每镜 0.5s 尾巴，
+ *  与 `tools/film-voice.mjs` 的实测口径同源）——
+ *  老口径是"骨架声明时长相加"（每镜 4~4.5s ⇒ 约 36s），而真实出片时长是**TTS 实测**决定的，
+ *  两者差 10 秒以上。⚠️ 这仍只是**预估**（卡片上要写明"以实测配音为准"）。
+ *  取词口径与 film-voice 的 deriveVoice **保持一处**：有 `voice` 用 voice，没有才用 title/title1/title2/sub。 */
+const VOICE_CPS = 3.2   // 字/秒（实测：本机 8 镜 25.44s、服务端 8 镜 24.57s，都在 3.0~3.6 之间）
+function estimateVoiceSec(copy: any[]): number {
+  if (!Array.isArray(copy) || !copy.length) return 0
+  let total = 0
+  for (const c of copy) {
+    const slots: any = (c && c.slots) || {}
+    const spoken = String(slots.voice || '').trim()
+    const text = spoken || [slots.title, slots.title1, slots.title2, slots.sub]
+      .map((x: any) => String(x || '').trim()).filter(Boolean).join('，')
+    total += Math.max(2.2, text.length / VOICE_CPS + 0.5)
+  }
+  return Math.round(total) || 0
+}
+
 function confirmCard(vd: HtmlFilmDraft): string {
   const packs = htmlFilmPacks()
   const pk = packs.find((p) => p.id === vd.pack)
   const n = vd.names.length || 12
   const plan = Array.isArray(vd.plan) ? vd.plan : []
   const copy = Array.isArray(vd.copy) ? vd.copy : []
-  const estSec = Math.round(plan.reduce((a: number, s: any) => a + (Number(s.dur) || 0), 0)) || 30
+  // ★VF_FILMEST_V2：先按"文案字数"估（贴近实测），估不出来才退回"骨架声明时长相加"
+  const estSec = estimateVoiceSec(copy)
+    || Math.round(plan.reduce((a: number, s: any) => a + (Number(s.dur) || 0), 0)) || 30
   const body = {
     step: 'film_confirm',
     // ★VF_FILMCOPY_V1：数字（段数/时长）改成**按真实骨架算**，不再写死 30 秒/6 段

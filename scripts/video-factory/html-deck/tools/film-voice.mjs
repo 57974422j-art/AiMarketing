@@ -62,6 +62,14 @@ const splitCues = (text, maxLen) => {
     if (buf && (buf + p).length > maxLen) { cues.push(buf); buf = p } else buf += p
   }
   if (buf) cues.push(buf)
+  // ★VF_SUBCUE_V2（2026-10-09 用户实测「一桌好菜，等你下锅，」—— 断句处把逗号留在行尾）：
+  //   字幕是**单行小字**，行尾/行首标点纯属噪声（切句时必然产生）⇒ 每条只保留正文；
+  //   清完只剩标点的 cue 直接丢掉（别烧出一行光秃秃的"，"）。
+  const clean = cues.map((c) => c
+    .replace(/^[\s，。、；！？：,.;!?·…—\-]+/, '')
+    .replace(/[\s，。、；！？：,.;!?·…—\-]+$/, '')
+    .trim()).filter((c) => c.length > 0)
+  if (clean.length) return clean
   return cues.length ? cues : [String(text)]
 }
 const SRC = path.resolve(filmPath)
@@ -177,6 +185,11 @@ let i = 0
  *  （`title1`/`title` + `sub`）—— 画面写什么就念什么，绝不编造。 */
 const deriveVoice = (sc) => {
   const v = sc.slots || {}
+  // ★VF_VOICE_SPOKEN_V1（2026-10-09 用户实测「字幕/配音=画面大字，音画完全重复」）：
+  //   **优先用"口播句"** —— AI 写文案时可以额外给一句 `slots.voice`（口语化、与画面大字不同）；
+  //   有它就用它，没有才退回"念画面字"（画面写什么就念什么，绝不编造）。
+  const spoken = String(v.voice || sc.voice || '').trim()
+  if (spoken) return spoken
   const pick = (...ks) => ks.map((k) => String(v[k] || '').trim()).filter(Boolean)
   const arr = (k) => (Array.isArray(v[k]) ? v[k].map((x) => String(x).trim()).filter(Boolean) : [])
   // 主口径：标题 + 副题（画面写什么就念什么，绝不编造）
