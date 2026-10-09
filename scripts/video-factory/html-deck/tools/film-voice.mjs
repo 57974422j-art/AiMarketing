@@ -251,7 +251,15 @@ const base = ['-y', '-v', 'error', '-i', path.basename(mp4), '-i', voiceMp3]
 const tail = ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p',
   // ⚠️ 这里必须用**绝对路径**：ffmpeg 的 cwd 是 renderDir，写成 basename 会落到 render/ 子目录里
   //    （2026-10-09 实测踩到：第一次跑完产物在 render/xxx-voiced.mp4，而脚本按 outDir 去判存在 ⇒ 误报失败）
-  '-c:a', 'aac', '-b:a', '192k', '-shortest', finalMp4]
+  '-c:a', 'aac', '-b:a', '192k', '-shortest',
+  // ★VF_FASTSTART_V1（2026-10-09 用户实测「视频根本打不开」）——**必须**加 faststart：
+  //   病灶铁证（本机比对了两个文件的文件头）：
+  //     · 引擎渲染出的静帧产物：`ftyp` 后紧接 **`moov`**（索引在头）⇒ 浏览器能秒开、能流式播；
+  //     · 我混音+烧字幕后的成片：`ftyp` 后是 `free`+`mdat`，**`moov` 被推到文件尾** ⇒
+  //       网页 `<video>` 必须先把整个文件（含末尾索引）拿到才能初始化 ⇒ 表现就是"转圈/根本打不开"；
+  //       而本地播放器能直接 seek 到文件尾拿索引 ⇒ 所以本机"解码校验"一切正常、看不出来。
+  //   ⇒ 混音这一步**一律要 +faststart**（把索引挪到文件头），与引擎产物保持同一口径。
+  '-movflags', '+faststart', finalMp4]
 let vvf = null
 if (!has('no-sub') && hasLibass) {
   // ★VF_SUBCUE_V1（用户实测「字幕太大压在上面」后定稿）：**小字号 + 贴底安全条**。
