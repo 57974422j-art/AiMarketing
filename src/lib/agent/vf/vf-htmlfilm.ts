@@ -362,10 +362,18 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
   let vlErr = ''
   try {
     const { signedUrl } = await import('@/lib/oss')
-    const { describeImagesWithVL } = await import('@/lib/ai-providers')
+    const { describeImagesWithVL, vlReady } = await import('@/lib/ai-providers')
     const batches = Math.max(1, Math.ceil(picked.length / VL_BATCH))
     const parts: string[] = []
-    for (let bi = 0; bi < batches; bi++) {
+    // ★VF_VLPROBE_V1（2026-10-10 用户日志实测「读图：0/17 张（分 3 批）」）：
+    //   `describeImagesWithVL` **没配 key 时是 `return null`（静默）** —— 我们只看到"返回空"，
+    //   最容易被误读成"模型故障/限流"，白花几轮（这次真因很可能就是服务端缺 DASHSCOPE_API_KEY）。
+    //   现口径：**先探针**，缺 key 就明说、并且**不再空打 3 批模型**（省时间也省日志噪声）。
+    if (!vlReady()) {
+      vlErr = '服务端未配置视觉模型 key（缺 DASHSCOPE_API_KEY）⇒ 读图未启用'
+      vfLog(uid, '[HTML成片] ⚠️ ' + vlErr)
+    }
+    for (let bi = 0; vlReady() && bi < batches; bi++) {
       const batch = picked.slice(bi * VL_BATCH, (bi + 1) * VL_BATCH)
       const urls: string[] = []
       for (const m of batch) {
@@ -390,6 +398,8 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
     }
     summary = parts.join('\n')
     vfLog(uid, `[HTML成片] 读图：${readN}/${picked.length} 张（分 ${batches} 批）· 素材 ${picked.length} 张（仓库候选 ${pick.pool.length}${pick.capped ? ' · 超上限砍 ' + pick.capped : ''}）`)
+    // ★VF_FILMCOPY_V5b：**读图 0 张必须留一条显眼的日志**（否则只能靠卡片上那句话猜）
+    if (!readN) vfLog(uid, '[HTML成片] ⚠️ 读图 0 张：' + (vlErr || '原因未记录') + ' ⇒ 文案没有素材依据（只能按骨架写，贴合度会明显变差）')
   } catch { /* ignore */ }
   // ③ 骨架（只出骨架、不渲染）——需要**本地文件**，先下载（与出片同一步）
   const workDir = path.join(vfStorageRoot(), String(uid), 'video-factory', 'film_' + Date.now())
@@ -619,7 +629,9 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
     warnParts.push('ℹ️ 有 ' + fixed.length + ' 处用字不在引擎字表内，已自动压回（表外字删掉，只做减法不换词）：'
       + fixed.slice(0, 4).join('；') + (fixed.length > 4 ? ' …' : ''))
   }
-  return { ok: true, summary, plan: planOut, copy, warn: [specNote, warnParts.join('\n')].filter(Boolean).join('\n'), spec, specNote }
+  // ⚠️ `warn` 只装"**降级/补齐**"这类**异常**信息（日志用 `prep.warn ? '（降级）'` 判断）；
+  //   `specNote`（AI 规划了什么）单独返回 —— 早先把它并进 warn 导致日志把"AI 规划成功"误标成"（降级）"。
+  return { ok: true, summary, plan: planOut, copy, warn: warnParts.join('\n'), spec, specNote }
 }
 
 /* ───────────────────────── 三张卡（都走 VF_JSON，客户端按 step 选组件）───────────────────────── */
@@ -800,7 +812,9 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
       if (prep.spec !== undefined) vd.spec = prep.spec
       vd.step = 'confirm'
       // ★VF_FILMCOPY_V2：降级时带一句"这版是自动拼的"（如实告知，别让用户以为 AI 正常工作了）
-      ;(vd as any).warn = String(prep.warn || '')
+      // ★VF_SPEC_V2b：卡片上**两样都要显示**（AI 规划了什么 + 降级/补齐提醒），
+      //   但日志那条"（降级）"只看 `prep.warn` —— 早先混在一起会把"AI 规划成功"误标成"降级"。
+      ;(vd as any).warn = [prep.warn, prep.specNote].filter(Boolean).join('\n')
       await saveHtmlFilmDraft(prisma, uid, vd)
       vfLog(uid, `[HTML成片] AI 已总结素材并写好 ${(prep.copy || []).length} 段文案${prep.warn ? '（降级）' : ''} → 出确认卡（等用户点出片）`)
       return confirmCard(vd)

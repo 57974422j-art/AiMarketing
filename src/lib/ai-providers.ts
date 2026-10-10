@@ -420,6 +420,18 @@ function getDashScopeKey(): string | null {
   return process.env.DASHSCOPE_API_KEY || readEnvFile('DASHSCOPE_API_KEY') || null;
 }
 
+/**
+ * ★VF_VLPROBE_V1（2026-10-10 用户实测「读图：0/17 张（分 3 批）」）：
+ *   成片线必须能**一眼看出"读图为什么 0 张"** —— `describeImagesWithVL` 在"没配 key"时是
+ *   `return null`（**静默**），调用方只看到"返回空"，排查时极易误读成"模型故障/限流"，
+ *   白花好几轮（这次就是：3 批全空，真因很可能是服务端没配 `DASHSCOPE_API_KEY`）。
+ *   这个探针让调用方把原因**说准**（缺 key ⇒ 明确告诉用户/日志），而不是继续猜。
+ *   纯新增，不改任何既有行为。
+ */
+export function vlReady(): boolean {
+  return !!getDashScopeKey();
+}
+
 const DASHSCOPE_CHAT_BASE = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 
 // ★VF_MODELSWITCH_V1（2026-09-30）：新增可选 model 参数 —— **不传 = 逐字保持现状**（旧调用方零回归）。

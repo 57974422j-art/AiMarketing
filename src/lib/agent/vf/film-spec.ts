@@ -78,5 +78,9 @@ export function specPrompt(summary: string, n: number, topic: string): string {
     + 'complete=true 表示"这套风格**保证图片完整**"（此时别选 fullbleed）；\n'
     + 'titleForm 标题形态；weight/tracking/scale = 标题字重 / 字距 / 字号倍率。\n'
     + '硬规矩：① 只回 JSON，不要解释、不要 markdown 围栏；② **拿不准的键就别写**（会退回默认，不会出错）；\n'
-    + '③ 不许编造数据/品牌；④ 自检"同一度"——别让每一页长得一样。'
+    + '③ 不许编造数据/品牌；④ 自检"同一度"——别让每一页长得一样；\n'
+    // ★VF_SPEC_V2b（2026-10-10 实测：AI 只填了 text 组 4 个键 ⇒ 版式/图片/动效全走默认）：
+    //   它把"拿不准就别写"执行得过于保守 ⇒ 明确点出"这三项最影响观感，尽量定下来"。
+    + '⑤ **尽量**把这三项也定下来（它们最影响观感）：`layout.system`、`image.place`、`motion.img`；\n'
+    + '   真拿不准才省略（省略 = 用引擎默认，不会出错）。'
 }
