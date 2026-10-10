@@ -99,6 +99,52 @@ export function renderFilm(filmPath, opts = {}) {
     }
   }
 
+  // ①②b ★VF_LAYOUTGATE_V1（2026-10-10 · P4）：**排版纪律也做成硬闸门**（不只完整大图配额）。
+  //   为什么：用户实测的病"每帧 3 个图去填充 / 前片一律 / 没有转场"，光靠"我口头说"不算落地 ——
+  //   凡是要它必然发生的，就得有一条**机器判据**。四条判据（都可计算，与 docs §二 写的一致）：
+  //     a. **不得连续 3 页同页型**（治"页页一个模子"；允许有意为之的两页同型）
+  //     b. 全片页型 ≥3 种
+  //     c. **图数 ≥2 种**（治"每帧固定几张去填充"）
+  //        ⚠️ 这里**故意不加"不得连续 3 页同图数"** —— 那与"每 10 张 3~4 张完整大图"是**互相矛盾**的
+  //        （完整大图页天然是一页一张）。第一版判据就是这么写错的，被本片的正例测试当场抓出来。
+  //     d. 转场 ≥2 种，且**不得连续 4 页同一转场**（治"全片一个转场"）
+  //   口径与配额一致：片子里声明 `requireLayout`（arrange 排的骨架会声明）才**硬拦**；
+  //   手写/历史片子只打印一行（不判死）。要改判据就改这一处。
+  {
+    const scenes = film.scenes || []
+    const imgOf = (s) => (s.media || []).length
+    const kinds = new Set(scenes.map((s) => String(s.structure || '')))
+    const imgKinds = new Set(scenes.map(imgOf))
+    const trs = scenes.map((s) => String(s.trans || ''))
+    const trKinds = new Set(trs.filter(Boolean))
+    console.log('排版: 页型 ' + kinds.size + ' 种 / 图数 ' + [...imgKinds].sort((a, b) => a - b).join(',')
+      + ' 张 / 转场 ' + (trKinds.size ? [...trKinds].join(',') : '（未声明）')
+      + (film.requireLayout ? ' · 硬口径' : ''))
+    if (film.requireLayout) {
+      const bad = []
+      for (let i = 2; i < scenes.length; i++) {
+        if (String(scenes[i].structure) === String(scenes[i - 1].structure)
+          && String(scenes[i].structure) === String(scenes[i - 2].structure)) {
+          bad.push('第 ' + (i - 1) + '~' + (i + 1) + ' 页连续 3 页同页型（' + scenes[i].structure + '）'); break
+        }
+      }
+      if (kinds.size < 3) bad.push('全片只有 ' + kinds.size + ' 种页型（要求 ≥3）')
+      if (imgKinds.size < 2) bad.push('全片图数只有 1 种（每页都 ' + [...imgKinds][0] + ' 张）⇒ 就是"每帧固定几张去填充"')
+      if (trKinds.size < 2) bad.push('转场只有 ' + trKinds.size + ' 种（要求 ≥2：fade / wipe / cut / push）')
+      let run = 1, maxRun = 1
+      for (let i = 1; i < trs.length; i++) { run = (trs[i] && trs[i] === trs[i - 1]) ? run + 1 : 1; maxRun = Math.max(maxRun, run) }
+      if (maxRun > 3) bad.push('连续 ' + maxRun + ' 页同一转场')
+      if (bad.length) {
+        return {
+          ok: false, stage: 'layout',
+          err: '排版纪律不达标：' + bad.join('；')
+            + '。修法：用 tools/arrange.mjs 排骨架（★VF_ARRANGE_V3 会保证页型/图数/转场都有变化），不要手写死结构。',
+          dir: outDir,
+        }
+      }
+    }
+  }
+
   // ② 用字闸门
   const fp = run(process.execPath, [path.join(HERE, 'check-page-fonts.mjs'), outDir, '--json'])
   if (fp.status !== 0) {

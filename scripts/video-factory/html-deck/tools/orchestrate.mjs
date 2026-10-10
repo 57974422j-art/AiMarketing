@@ -133,6 +133,8 @@ export function orchestrateRule(opts = {}) {
     requirePlate: !!film.requirePlate,
     plateCount: Number(film.plateCount) || 0,
     imageCount: Number(film.imageCount) || 0,
+    // ★VF_LAYOUTGATE_V1：排版纪律（页型/图数/转场要有变化）的硬口径也要带出去，否则同"被吞掉"
+    requireLayout: !!film.requireLayout,
     materials: mats.map((m) => ({ file: m.file, name: m.name, light: m.light })),
     rationale: [
       '赛道：' + vertical,
@@ -209,6 +211,7 @@ export function validateOrchestration(o, opts = {}) {
   out.imageCount = out.scenes.reduce((a, s) => a + ((s.media || []).length), 0)
   out.plateCount = out.scenes.filter((s) => /^plate-/.test(String(s.structure))).length
   out.requirePlate = out.imageCount >= 10
+  out.requireLayout = out.imageCount >= 8   // ★VF_LAYOUTGATE_V1：素材够多就该有排版变化（页型/图数/转场）
   return out
 }
 
@@ -245,6 +248,7 @@ if (isCli) {
       fs.writeFileSync(out, JSON.stringify({
         id, name: j.name || 'HTML成片', pack: v.pack, fps: 25,
         requirePlate: !!v.requirePlate, plateCount: v.plateCount, imageCount: v.imageCount,
+        requireLayout: !!v.requireLayout,
         scenes: v.scenes,
       }, null, 2) + '\n', 'utf8')
       console.log('已写：' + out)

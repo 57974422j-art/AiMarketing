@@ -16,6 +16,7 @@
   "vertical": "ecommerce",
   "fps": 25,
   "requirePlate": true,
+  "requireLayout": true,
   "scenes": [
     {
       "shotgroup": "sg-opening-tiltcard",

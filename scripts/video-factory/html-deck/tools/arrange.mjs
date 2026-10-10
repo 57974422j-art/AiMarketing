@@ -147,7 +147,14 @@ export function arrange(opts = {}) {
   //   不达标直接拒渲（不许再出现"整片没一张完整大图"的排版）。老片子没这个字段 ⇒ 不受影响。
   const plateCount = scenes.filter((s) => /^plate-/.test(String(s.structure))).length
   return { id: opts.id || 'auto-' + Date.now(), name: opts.name || 'HTML成片（自动编排）', pack: opts.pack || 'reel-showcase',
-    fps: 25, requirePlate: !!canPlate && n >= 10, plateCount, imageCount: used,
+    fps: 25,
+    requirePlate: !!canPlate && n >= 10,
+    // ★VF_LAYOUTGATE_V1（2026-10-10 · P4）：同时声明"排版纪律"硬口径 ——
+    //   render-film 会去数：相邻页型不得相同 / 页型 ≥3 种 / 图数 ≥2 种且不连三页同图数 /
+    //   转场 ≥2 种且不连三页同转场。本编排器**按构造满足**这些（交错 + 转场轮换），
+    //   声明它是为了让"手写死结构"的片子被拦下来。
+    requireLayout: n >= 8,
+    plateCount, imageCount: used,
     note: '由 tools/arrange.mjs 自动编排（★VF_ARRANGE_V3：素材驱动 + 完整大图配额 ' + plateCount + '/' + used + '，' + used + '/' + M.length + ' 张出镜）；可手工微调 scenes。',
     total, scenes }
 }
