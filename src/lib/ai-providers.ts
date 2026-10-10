@@ -20,6 +20,8 @@ import { existsSync } from 'fs'
 import { mkdir, writeFile, unlink } from 'fs/promises'
 import { execFile, execFileSync } from 'child_process'
 import { promisify } from 'util'
+// ★VF_VLMODEL_V2：读图模型名**不再写死**（模型 id 会随供应商改名 ⇒ 用户实测 qwen-vl-max 404）
+import { VL_FALLBACKS, pickVlModelFromList, vlEnvOverride, isVlModelMissing } from './vl-model'
 
 const execFileAsync = promisify(execFile)
 
@@ -441,27 +443,52 @@ export function vlReady(): boolean {
  *   现口径：**候选链 + 自愈**：按顺序试，遇 `model_not_found` 换下一个；成功就**记住**（进程内），
  *   并把"用的哪个模型"打出来；可用 `VF_VL_MODEL` 直接钉死（最高优先级）。
  */
-const VL_CANDIDATES = [
-  process.env.VF_VL_MODEL || '',
-  process.env.DASHSCOPE_VL_MODEL || '',
-  'qwen-vl-max',
-  'qwen-vl-max-latest',
-  'qwen3-vl-max',
-  'qwen3.8-vl-max',
-  'qwen-vl-plus',
-].filter(Boolean) as string[]
+// 候选链与排序口径搬到了 `src/lib/vl-model.ts`（纯函数 ⇒ 可拿真实 `/models` 返回做回归测试）
 
 let vlModelOk = ''
+let vlListAt = 0
+let vlListCache: string[] = []
 
-/** 当前实际用的读图模型（自愈锁定后 = 真正可用的那个） */
-export function vlModel(): string {
-  return vlModelOk || VL_CANDIDATES[0]
+/** 问 `/models` 列出该 key 可用的模型（缓存 10 分钟；失败返回空数组，不抛） */
+async function listDashScopeModels(): Promise<string[]> {
+  const key = getDashScopeKey()
+  if (!key) return []
+  if (vlListCache.length && Date.now() - vlListAt < 10 * 60 * 1000) return vlListCache
+  try {
+    const data: any = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/models`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${key}` },
+      timeoutMs: 20000,
+    }, 0)
+    const arr: any[] = Array.isArray(data) ? data : ((data && (data.data || data.models)) || [])
+    const ids = arr.map((x: any) => String((x && (x.id || x.model)) || '')).filter(Boolean)
+    if (ids.length) { vlListCache = ids; vlListAt = Date.now() }
+    return ids
+  } catch {
+    return []   // 拿不到列表 ⇒ 调用方退回静态候选链（绝不因为"列不出来"就不读图）
+  }
 }
 
-/** 判"模型不存在"这一类错误（只有这类才值得换名字重试） */
-function isVlModelMissing(e: any): boolean {
-  const s = String(e?.message || e)
-  return /model_not_found|Model not exist|does not exist|invalid.*model|模型不存在/i.test(s)
+/** 本次该按什么顺序试：已锁定 > env 指定 > 自动挑（/models）> 静态候选链 */
+async function vlCandidates(): Promise<string[]> {
+  if (vlModelOk) return [vlModelOk]
+  const env = vlEnvOverride()
+  if (env) return [env]
+  const picked = pickVlModelFromList(await listDashScopeModels())
+  const out: string[] = []
+  if (picked) out.push(picked)
+  for (const m of VL_FALLBACKS) if (!out.includes(m)) out.push(m)
+  return out
+}
+
+/** 当前实际用的读图模型（自愈锁定后 = 真正可用的那个；没锁定 = 准备试的第一个） */
+export function vlModel(): string {
+  return vlModelOk || vlEnvOverride() || VL_FALLBACKS[0]
+}
+
+/** 已锁定的读图模型（'' = 还没成功过一次） */
+export function vlModelLocked(): string {
+  return vlModelOk
 }
 
 const DASHSCOPE_CHAT_BASE = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
@@ -2493,8 +2520,8 @@ export async function describeImageWithVL(imageUrlOrBase64: string, prompt?: str
 export async function describeImagesWithVL(images: string[], prompt?: string, maxTokens = 800): Promise<string | null> {
   const key = getDashScopeKey()
   if (!key || !images?.length) return null
-  // ★VF_VLMODEL_V1：候选链 —— `model_not_found` 就换下一个；成功**记住**（进程内）
-  const cands = vlModelOk ? [vlModelOk] : VL_CANDIDATES
+  // ★VF_VLMODEL_V2：候选顺序 = 已锁定 > env > 自动挑(/models) > 静态链；`model_not_found` 就换下一个
+  const cands = await vlCandidates()
   let lastErr: any = null
   for (const model of cands) {
     try {
@@ -2514,7 +2541,7 @@ export async function describeImagesWithVL(images: string[], prompt?: string, ma
           temperature: 0.2,
           max_tokens: maxTokens,
         }),
-      })
+      }, 0)
       const text = data?.choices?.[0]?.message?.content
       if (!vlModelOk) { vlModelOk = model; console.log('[百炼VL] ✅ 读图模型锁定：' + model) }
       return typeof text === 'string' ? text.trim() : null
