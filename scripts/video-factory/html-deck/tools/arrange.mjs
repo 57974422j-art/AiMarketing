@@ -129,8 +129,10 @@ export function arrange(opts = {}) {
     }
   }
   // ★VF_FILMTRANS_V1：给每段定转场（4 种循环 ⇒ 相邻必然不同）
+  //   ⚠️ 必须**排在结尾卡之后**调用 —— 否则结尾卡（glass-product）没有 trans，
+  //   下游会打一行"有 1 段没带 trans"（用户实测看到过这行，会以为是故障）。
   const TRS = ['fade', 'wipe', 'cut', 'push']
-  scenes.forEach((s, k) => { s.trans = TRS[k % TRS.length] })
+  const applyTrans = () => { scenes.forEach((s, k) => { s.trans = s.trans || TRS[k % TRS.length] }) }
   // 结尾卡：只有调用方给了文案才写；数字类一律不写（★不再 default 78.5%/45%）
   if (want('glass-product')) {
     const closeSlots = { eyebrow: o.eyebrow, title: o.glassTitle, sub: o.glassSub }
@@ -139,6 +141,7 @@ export function arrange(opts = {}) {
     if (Array.isArray(o.kpi) && o.kpi.length >= 3) closeSlots.kpi = o.kpi
     scenes.push({ shotgroup: 'sg-glass-cards', structure: 'glass-product', dur: 4.0, slots: closeSlots, media: [] })
   }
+  applyTrans()   // ★VF_FILMTRANS_V1：**最后统一**给每一段（含结尾卡）定转场
 
   const total = +scenes.reduce((a, s) => a + s.dur, 0).toFixed(2)
   const used = scenes.reduce((a, s) => a + (s.media || []).length, 0)

@@ -246,8 +246,16 @@ for (const sc of scenes) {
       t += d
     }
   }
-  const d = (dur - oldDur)
-  console.log('  s' + String(i).padStart(2) + '  估=' + String(oldDur).padStart(5) + 's  TTS实测=' + audio.toFixed(2) + 's  定=' + String(dur).padStart(5) + 's  Δ=' + (d >= 0 ? '+' : '') + d.toFixed(2) + 's  ' + text.slice(0, 20))
+  // ★VF_FILMGEN_V6（2026-10-10）：这条线的分镜**按规矩不写 dur**（时长由 TTS 实测决定）
+  //   ⇒ 老打印会出现 `估=undefineds Δ=NaN`（看着像故障）。没有估算值就如实显示 "—"。
+  const hasEst = Number.isFinite(Number(oldDur)) && Number(oldDur) > 0
+  const d = hasEst ? (dur - oldDur) : null
+  console.log('  s' + String(i).padStart(2)
+    + '  估=' + (hasEst ? String(oldDur).padStart(5) : '   — ') + 's'
+    + '  TTS实测=' + audio.toFixed(2) + 's'
+    + '  定=' + String(dur).padStart(5) + 's'
+    + '  Δ=' + (d === null ? '   —  ' : (d >= 0 ? '+' : '') + d.toFixed(2)) + 's'
+    + '  ' + text.slice(0, 20))
   cur = +(cur + dur).toFixed(2)
   i++
 }

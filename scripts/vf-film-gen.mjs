@@ -187,7 +187,9 @@ if (descs && descs.length === media.length) {
 // ---------- ② 写分镜（文本模型） ----------
 const STRUCTS = [
   'opening-hero  开场封面：slots{eyebrow,title1,title2,sub,foot}   media=1 张',
-  'fullbleed     满幅实拍：slots{eyebrow,title,sub,chips[1~4],foot} media=1 张',
+  'plate-top     ★完整大图（整张不裁 · 标题在图**上方**）：slots{eyebrow,title,sub,chips[1~4],foot} media=1 张',
+  'plate-bottom  ★完整大图（整张不裁 · 文案在图下方）：slots{eyebrow,title,sub,chips[1~4],foot} media=1 张',
+  'fullbleed     满幅实拍（**铺满裁切**）：slots{eyebrow,title,sub,chips[1~4],foot} media=1 张',
   'works-wall    作品墙(3图)：slots{title,sub,rows[3],foot}        media=3 张',
   'grid-2x2      四宫格(4图)：slots{title,sub,nums[4],tail,foot}    media=4 张',
   'glass-product 到店/结尾卡：slots{eyebrow,title,sub,value,unit,kpiTitle,kpi[[标签,值]x3],mini[[标签,值]x3],cta}  media=0 张',
@@ -195,8 +197,12 @@ const STRUCTS = [
 const rules = [
   '【硬规矩 · 服务端会逐条校验，违反即返工】',
   '1. 素材共 ' + media.length + ' 张，**每一张都必须出镜、且每张只能用一次**（media 数组里填上面给的"编号"）。',
-  '2. 结构只能用这 5 种（不许自创）：\n  ' + STRUCTS,
-  '3. 首镜必须是 opening-hero，末镜必须是 glass-product；中间用 fullbleed / works-wall / grid-2x2 组合，总镜数 10~13。',
+  '2. 结构只能用这 7 种（不许自创）：\n  ' + STRUCTS,
+  '3. 首镜必须是 opening-hero，末镜必须是 glass-product；中间用 plate-top / plate-bottom / fullbleed / works-wall / grid-2x2 组合，**总镜数 = 由素材张数决定（' + media.length + ' 张 ⇒ 自己算，不许砍素材）**。',
+  // ★VF_FILMGEN_V6（2026-10-10 用户定案「每 10 张图必须有 3~4 张完整大图」+「完整还是铺满由 AI 按页决定」）：
+  '3b. **"完整"还是"铺满"由你按页决定**：`plate-top`/`plate-bottom` = 图**整张不裁**（横图配竖屏会上下留白，用同图模糊补满）；'
+    + '`fullbleed` = 铺满裁切（气势用）。**每 10 张素材里要有 3~4 张走 plate-***（这条会被闸门数）。',
+  '3c. **排版要有变化**：相邻两镜**不要用同一个结构**；页型至少 3 种；**不要每页都放同样张数的图**（那是"每帧固定几张去填充"）。',
   '4. **独立信息卡（media=0 的镜）最多 1 张**（就是末镜那张 glass-product；别再插别的无图卡）。',
   '5. 每镜的文案（title+sub+rows 或 chips 全部相加）**不超过 60 字**；chips 每条 ≤3 字；rows 每条 ≤12 字。',
   '6. 反 AI 味：**零 emoji、零符号图标**；**不许编造数据**——画面里出现的数字必须是这个主题里本来就有的（没有就一个数字都别写）；不要"紫粉渐变/渐变药丸标签"这类默认审美词。',
@@ -233,7 +239,11 @@ for (const s of film.scenes || []) { sceneOf(s).media.forEach((m) => used.push(m
 const uniq = Array.from(new Set(used))
 const missFiles = used.filter((m) => !fs.existsSync(m))
 const noCard = (film.scenes || []).filter((s) => !(s.media || []).length)
-const badStruct = Array.from(new Set((film.scenes || []).map((s) => s.structure).filter((st) => !['opening-hero', 'fullbleed', 'works-wall', 'grid-2x2', 'glass-product'].includes(st))))
+// ★VF_FILMGEN_V6（2026-10-10）：白名单必须**含两种"完整大图"页** ——
+//   以前白名单只有 5 种（opening/fullbleed/works-wall/grid-2x2/glass-product），
+//   模型**根本没法**用它排"完整大图" ⇒ 这条命令出的片永远没有"每 10 张 3~4 张完整大图"。
+const badStruct = Array.from(new Set((film.scenes || []).map((s) => s.structure)
+  .filter((st) => !['opening-hero', 'plate-top', 'plate-bottom', 'fullbleed', 'works-wall', 'grid-2x2', 'glass-product'].includes(st))))
 const longText = (film.scenes || []).map((s, i) => {
   const v = s.slots || {}
   const n = ['title', 'title1', 'title2', 'sub', 'tail', 'foot', 'eyebrow'].reduce((a, k) => a + String(v[k] || '').length, 0)
@@ -253,6 +263,17 @@ chk.push(['无 emoji', !emoji, emoji ? String(emoji).slice(0, 40) : 'ok'])
 let bad = 0
 for (const c of chk) { if (!c[1]) bad++; console.log('  ' + (c[1] ? '✓' : '✗') + ' ' + c[0].padEnd(18) + ' ' + c[2]) }
 if (bad) { console.log('  ⚠ 有 ' + bad + ' 条不达标 —— 分镜仍写出（便于你看模型差在哪），但**成片质量可能打折**') }
+
+// ★VF_FILMGEN_V6（2026-10-10）：给每镜补**转场** —— 模型不写 `trans`，老实现落盘时也不补，
+//   ⇒ 这条命令出的片转场**全是默认 fade**（用户实测"没有转场"）。这里按 4 种轮换补上（不静默：下面会打印）。
+const GEN_TRS = ['fade', 'wipe', 'cut', 'push']
+let genFilled = 0
+film.scenes = (film.scenes || []).map((s, i) => {
+  const t = String(s.trans || '')
+  if (!t) genFilled++
+  return Object.assign({}, s, { trans: t || GEN_TRS[i % GEN_TRS.length] })
+})
+if (genFilled) console.log('  · 转场：' + genFilled + ' 镜没写 trans ⇒ 按 fade/wipe/cut/push 轮换补上（不静默）')
 
 // ---------- ④ 落盘（film + voice 旁白两份） ----------
 // ★VF_FILMGEN_V3：落盘前**必须**把素材编号换成绝对路径（否则渲染器崩，见上面 --fix-media 那段注释）
