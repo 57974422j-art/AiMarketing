@@ -64,6 +64,12 @@ export async function orchestrate(opts: {
   variant?: number
   id?: string
   outJson: string
+  /** ★VF_RATIO_V1（2026-10-10）：**大图:填图 比例** 0~1（客户端比例条，默认 5:5）。
+   *  一路透传：卡片 → 草稿 → planFilm → 这里 → orchestrate.mjs → arrange.mjs。 */
+  plateRatio?: number
+  /** ★VF_SPEC_V1（2026-10-10 用户定案「四项全部让 AI 自己规划」）：**风格语法**（L1 构图/L2 动效/L3 文本形态）。
+   *  CLI 用**文件**传（实测：Windows PowerShell 传内联 JSON 会把双引号吃掉 ⇒ JSON.parse 失败）。 */
+  spec?: any
 }): Promise<{ ok: boolean; vertical?: string; pack?: string; scenes?: number; total?: number; note?: string }> {
   if (!opts.materials?.length) return { ok: false, note: '没有素材' }
   const args = [
@@ -75,6 +81,12 @@ export async function orchestrate(opts: {
     '--out', opts.outJson,
   ]
   if (opts.pack) args.push('--pack', opts.pack)
+  if (Number.isFinite(Number(opts.plateRatio))) args.push('--plate-ratio', String(Number(opts.plateRatio)))
+  if (opts.spec && typeof opts.spec === 'object') {
+    const specRel = opts.outJson.replace(/\.json$/, '') + '.spec.json'
+    fs.writeFileSync(path.join(filmToolsDir(), specRel), JSON.stringify(opts.spec, null, 2), 'utf8')
+    args.push('--spec', specRel)
+  }
   const r = await runNode(args, 120000)
   if (r.code !== 0 || !fs.existsSync(path.join(filmToolsDir(), opts.outJson))) return { ok: false, note: r.out.slice(-300) }
   try {
@@ -232,6 +244,10 @@ export async function planFilm(opts: {
   pack?: string
   variant?: number
   workDir: string
+  /** ★VF_RATIO_V1：大图:填图 比例（0~1，默认 5:5）——骨架按它排，并写进 film.json 供出片核对 */
+  plateRatio?: number
+  /** ★VF_SPEC_V1：风格语法（L1/L2/L3）——写进 film.json，由渲染器解释 */
+  spec?: any
 }): Promise<{ ok: boolean; scenes?: Array<{ structure: string; media: string[]; dur: number }>; pack?: string; vertical?: string; err?: string
   /** ★VF_FILMSRC_V1：**整份 film.json**（含 requirePlate/plateCount/total 等顶层字段）——
    *  调用方把它存进草稿，出片时原样复用 ⇒ 骨架**只编一次**，不可能与文案错位。 */
@@ -239,7 +255,7 @@ export async function planFilm(opts: {
   fs.mkdirSync(opts.workDir, { recursive: true })
   const filmJson = path.join(opts.workDir, 'film.json')
   const rel = path.relative(filmToolsDir(), filmJson).replace(/\\/g, '/')
-  const o = await orchestrate({ materials: opts.materials, text: opts.text, pack: opts.pack, variant: opts.variant, id: 'vf-film', outJson: rel })
+  const o = await orchestrate({ materials: opts.materials, text: opts.text, pack: opts.pack, variant: opts.variant, id: 'vf-film', outJson: rel, plateRatio: opts.plateRatio, spec: opts.spec })
   if (!o.ok) return { ok: false, err: o.note }
   try {
     const j = JSON.parse(fs.readFileSync(filmJson, 'utf8'))
@@ -283,6 +299,10 @@ export async function makeFilmFromMaterials(opts: {
   workDir: string
   voiced?: boolean
   voice?: string
+  /** ★VF_RATIO_V1：大图:填图 比例（0~1）——只在"没有定稿骨架、需要现场编排"时才用到 */
+  plateRatio?: number
+  /** ★VF_SPEC_V1：风格语法（L1/L2/L3）——同上，只在现场编排时用到 */
+  spec?: any
   /** ★VF_FILMCOPY_V1：AI 写好的逐镜文案（与骨架同序；key 名按结构：title1/sub/chips/rows…） */
   copy?: any[]
   /** ★VF_FILMSRC_V1：**写文案那一步编好的整份 film.json**（草稿里存的那份）。
@@ -322,7 +342,7 @@ export async function makeFilmFromMaterials(opts: {
     o = { ok: true, vertical: String(opts.vertical || ''), pack: String(j.pack || '') }
     console.log('[film] 沿用定稿骨架：' + scenes.length + ' 段（不重排）')
   } else {
-    o = await orchestrate({ materials: opts.materials, text: opts.text, pack: opts.pack, variant: opts.variant, id: 'vf-film', outJson: rel })
+    o = await orchestrate({ materials: opts.materials, text: opts.text, pack: opts.pack, variant: opts.variant, id: 'vf-film', outJson: rel, plateRatio: opts.plateRatio, spec: opts.spec })
   }
   if (!o.ok) return { ok: false, stage: 'orchestrate', err: o.note }
   // ★VF_FILMCOPY_V3（2026-10-09 用户实测「卡片上文案齐全、成片没字没声」· 根因，已确认）：

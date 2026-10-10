@@ -135,6 +135,9 @@ export function orchestrateRule(opts = {}) {
     name: opts.name || 'HTML成片（自动编排）',   // ★VF_HTMLCMD_V1：旧名「素材片」→「HTML成片」
     pack,
     media,
+    // ★VF_RATIO_V1：**大图:填图 比例** 一路透传（客户端比例条 → planFilm → 这里 → arrange）
+    plateRatio: opts.plateRatio,
+    spec: opts.spec,          // ★VF_SPEC_V1：风格语法（L1/L2/L3）也一并交给 arrange 带进 film.json
     slots: opts.slots || {},
   })
   return {
@@ -152,6 +155,10 @@ export function orchestrateRule(opts = {}) {
     requirePlate: !!film.requirePlate,
     plateCount: Number(film.plateCount) || 0,
     imageCount: Number(film.imageCount) || 0,
+    // ★VF_RATIO_V1：比例也要带出去（少了它 ⇒ render-film 退回旧区间 3~4/10 硬拦，5:5 会被误杀）
+    plateRatio: film.plateRatio,
+    // ★VF_SPEC_V1：语法层（L1/L2/L3）同样带出去（否则 spec 被吞 ⇒ 又变成"只有皮肤"）
+    spec: film.spec || undefined,
     // ★VF_LAYOUTGATE_V1：排版纪律（页型/图数/转场要有变化）的硬口径也要带出去，否则同"被吞掉"
     requireLayout: !!film.requireLayout,
     materials: mats.map((m) => ({ file: m.file, name: m.name, light: m.light })),
@@ -159,9 +166,11 @@ export function orchestrateRule(opts = {}) {
       '赛道：' + vertical,
       '风格包：' + pack,
       '编排：' + film.scenes.length + ' 段 / ' + film.total + 's（工具自动编排，素材不足的段留空）',
-      '完整大图配额：' + (Number(film.plateCount) || 0) + '/' + (Number(film.imageCount) || 0)
+      // ★VF_RATIO_V1：不再写"要求 3~4"（那条被比例条取代）—— 改成如实报"声明比例 + 实测"
+      '完整大图：' + (Number(film.plateCount) || 0) + '/' + (Number(film.imageCount) || 0)
         + ' = 每 10 张 ' + (((Number(film.plateCount) || 0) / Math.max(1, Number(film.imageCount) || 1)) * 10).toFixed(1)
-        + ' 张（要求 3~4）' + (film.requirePlate ? ' · 硬口径' : ''),
+        + ' 张 · 声明比例 ' + Math.round((Number(film.plateRatio) || 0) * 100) + '%'
+        + (film.requirePlate ? ' · 硬口径' : ''),
     ],
   }
 }
@@ -231,6 +240,11 @@ export function validateOrchestration(o, opts = {}) {
   //   段落数/图数只由素材张数决定，不封顶；完整大图占不到每 10 张 3~4 张 ⇒ 出片时会被 stage=plate 拒。
   out.imageCount = out.scenes.reduce((a, s) => a + ((s.media || []).length), 0)
   out.plateCount = out.scenes.filter((s) => /^plate-/.test(String(s.structure))).length
+  // ★VF_RATIO_V1：**AI 自己排的编排，比例就由编排本身表达**（声明 = 实测 ⇒ 不做区间硬拦，
+  //   但仍把这行打印出来，便于你看"这条片大图占多少"）。真正的排版纪律靠 requireLayout 那四条。
+  out.plateRatio = out.imageCount ? +(out.plateCount / out.imageCount).toFixed(4) : 0
+  // ★VF_SPEC_V1：AI 可以在编排 JSON 里直接声明风格语法（L1/L2/L3）——"全部让 AI 自己规划"
+  if (o && o.spec && typeof o.spec === 'object') out.spec = o.spec
   out.requirePlate = out.imageCount >= 10
   out.requireLayout = out.imageCount >= 8   // ★VF_LAYOUTGATE_V1：素材够多就该有排版变化（页型/图数/转场）
   return out
@@ -249,7 +263,24 @@ if (isCli) {
   const mats = analyzeMaterials(materials)
 
   if (cmd === 'rule') {
-    const o = orchestrateRule({ lib, mats, materials: materials, text, pack: arg('pack', ''), id: arg('id', 'orch'), variant: Number(arg('variant', '0')) || 0 })
+    // ★VF_RATIO_V1：--plate-ratio 0~1（大图:填图，默认 5:5）
+    // ★VF_SPEC_V1：--spec-json '{...}' 直接喂一份风格语法（L1/L2/L3）→ 写进 film.json
+    let specJson = null
+    const specFile = arg('spec', '')
+    const specArg = arg('spec-json', '')
+    try {
+      // 实测：Windows PowerShell `Set-Content -Encoding UTF8` 会写 **BOM**，JSON.parse 直接失败
+      //（同上族"靠环境细节坑人"的毛病）⇒ 读进来先剥 BOM。
+      if (specFile) specJson = JSON.parse(fs.readFileSync(specFile, 'utf8').replace(/^\uFEFF/, ''))
+      else if (specArg) specJson = JSON.parse(specArg)
+    } catch (e) {
+      // 实测：Windows PowerShell 传内联 JSON 会把双引号吃掉 ⇒ 优先用 --spec <文件>
+      console.error('✗ 读不出合法 spec JSON（--spec <文件> / --spec-json <内联>）：' + String(e.message).slice(0, 140))
+      process.exit(2)
+    }
+    const o = orchestrateRule({ lib, mats, materials: materials, text, pack: arg('pack', ''), id: arg('id', 'orch'), variant: Number(arg('variant', '0')) || 0,
+      plateRatio: arg('plate-ratio', '') === '' ? undefined : Number(arg('plate-ratio', '')),
+      spec: specJson || undefined })
     const out = arg('out', '')
     if (out) { fs.writeFileSync(out, JSON.stringify(o, null, 2) + '\n', 'utf8'); console.log('已写：' + out) }
     console.log(`赛道=${o.vertical} 风格包=${o.pack} ${o.scenes.length} 段 ${o.total}s`)
@@ -269,6 +300,8 @@ if (isCli) {
       fs.writeFileSync(out, JSON.stringify({
         id, name: j.name || 'HTML成片', pack: v.pack, fps: 25,
         requirePlate: !!v.requirePlate, plateCount: v.plateCount, imageCount: v.imageCount,
+        // ★VF_RATIO_V1 / ★VF_SPEC_V1：比例与语法**必须写进 film.json**，否则出片时被吞
+        plateRatio: v.plateRatio, spec: v.spec || undefined,
         requireLayout: !!v.requireLayout,
         scenes: v.scenes,
       }, null, 2) + '\n', 'utf8')

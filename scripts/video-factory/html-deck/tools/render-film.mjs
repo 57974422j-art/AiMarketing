@@ -85,18 +85,63 @@ export function renderFilm(filmPath, opts = {}) {
   const imgN = (film.scenes || []).reduce((a, s) => a + ((s.media || []).length), 0)
   const plN = (film.scenes || []).filter((s) => /^plate-/.test(String(s.structure))).length
   const per10 = imgN ? (plN / imgN) * 10 : 0
+  // ★VF_RATIO_V1（2026-10-10 用户定案「大图:填图 由用户/AI 定，默认 5:5 ⇒ 旧硬口径作废」）：
+  //   · 片子**声明了 plateRatio** ⇒ 校验"**声明 vs 实测**"（容差 ±1 张）—— 这才是"AI 自己规划 + 机器验收"；
+  //   · 没声明比例、但声明了 requirePlate（老片子）⇒ 退回旧区间 3~4/10（历史产物口径不变）；
+  //   · 两者都没有 ⇒ 只打印，不拦。
+  const decl = Number(film.plateRatio)
+  const hasDecl = Number.isFinite(decl)
+  // 容差：声明"图片保证完整"（spec.image.complete !== false）时，零头会被并入完整大图（+1~2 张）
+  //   ⇒ 容差放到 ±2；声明允许裁切（complete=false）⇒ 严格 ±1。**偏差原因打印清楚，不静默。**
+  const tol = (!(film.spec && film.spec.image && film.spec.image.complete === false)) ? 2 : 1
   if (imgN) {
-    console.log('完整大图: ' + plN + '/' + imgN + ' = 每 10 张 ' + per10.toFixed(1) + ' 张（要求 3~4）'
+    const want = hasDecl ? Math.round(imgN * decl) : 0
+    console.log('完整大图: ' + plN + '/' + imgN + ' = 每 10 张 ' + per10.toFixed(1) + ' 张'
+      + (hasDecl ? ' · 声明比例 ' + Math.round(decl * 100) + '%（期望 ' + want + ' 张 · 容差 ±' + tol + '）' : '（旧口径 3~4）')
       + (film.requirePlate ? ' · 硬口径' : ''))
-    if (film.requirePlate && (per10 < 3 || per10 > 4)) {
+    if (film.requirePlate && hasDecl && Math.abs(plN - want) > tol) {
       return {
         ok: false, stage: 'plate',
-        err: '完整大图配额不达标：' + plN + '/' + imgN + ' = 每 10 张 ' + per10.toFixed(1)
-          + ' 张（要求 3~4）。修法：让这段骨架用 plate-top / plate-bottom（整张不裁）替掉一部分满幅/小图页'
-          + ' —— 由 tools/arrange.mjs 自动排（★VF_ARRANGE_V3），不要手写死结构。',
+        err: '完整大图与**声明比例**不符：实测 ' + plN + '/' + imgN + '（每 10 张 ' + per10.toFixed(1) + '），'
+          + '声明 ' + Math.round(decl * 100) + '% ⇒ 期望约 ' + want + ' 张（容差 ±1）。'
+          + '修法：骨架按声明的比例排（tools/arrange.mjs 的 plateRatio / 客户端比例条），不要手写死结构。',
         dir: outDir,
       }
     }
+    if (film.requirePlate && !hasDecl && (per10 < 3 || per10 > 4)) {
+      return {
+        ok: false, stage: 'plate',
+        err: '完整大图配额不达标：' + plN + '/' + imgN + ' = 每 10 张 ' + per10.toFixed(1)
+          + ' 张（旧口径 3~4，且这单没声明 plateRatio）。修法：让这段骨架用 plate-top / plate-bottom'
+          + '（整张不裁）替掉一部分满幅/小图页 —— 由 tools/arrange.mjs 自动排（★VF_ARRANGE_V3）。',
+        dir: outDir,
+      }
+    }
+  }
+
+  // ★VF_SPEC_V1 的**声明式校验（declared vs actual）** —— 先落能静态判的那条：
+  //   `image.complete=true` = "此风格保证完整"，却又用了 fullbleed（满屏裁切）段 ⇒ 真矛盾，拦。
+  //   （另两条 pacing.minShotSec / gates.minImageWidth 需要在**实测时长/渲染结果**上核，
+  //     登记为待落 —— 出声版在 film-voice 的实测时长之后核，这里不假拦。）
+  const sp = film.spec || {}
+  const spComplete = (sp.image || {}).complete
+  if (spComplete === true) {
+    const fb = (film.scenes || []).filter((s) => s.structure === 'fullbleed').length
+    if (fb) {
+      return {
+        ok: false, stage: 'spec',
+        err: '规格自相矛盾：spec.image.complete=true（声明"图片保证完整"）却排了 ' + fb + ' 段 fullbleed（满屏裁切）。'
+          + '修法：要么把这几段换成 plate-top / plate-bottom（整张不裁），要么把 spec.image.complete 改成 false'
+          + '（声明"此风格固定裁切"）。',
+        dir: outDir,
+      }
+    }
+  }
+  if (sp.pacing && Number(sp.pacing.minShotSec) > 0) {
+    console.log('spec 声明 pacing.minShotSec=' + sp.pacing.minShotSec + '（在 film-voice 的**实测时长**之后核；此处只声明）')
+  }
+  if (sp.gates && Number(sp.gates.minImageWidth) > 0) {
+    console.log('spec 声明 gates.minImageWidth=' + sp.gates.minImageWidth + 'px（由 film-to-page 的语法层按 --matScale 落实）')
   }
 
   // ①②b ★VF_LAYOUTGATE_V1（2026-10-10 · P4）：**排版纪律也做成硬闸门**（不只完整大图配额）。

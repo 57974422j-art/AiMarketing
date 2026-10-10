@@ -1943,6 +1943,12 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
   const packs: any[] = Array.isArray(vj?.packs) ? vj.packs : []
   const [sel, setSel] = useState<string[]>(Array.isArray(vj?.names) && vj.names.length ? vj.names.map((x: any) => String(x)) : [])
   const [pack, setPack] = useState<string>(String(vj?.pack || ''))
+  // ★VF_RATIO_V1（2026-10-10 用户定案）：**大图 : 填图 比例条**（百分数，默认 50 = 5:5）
+  //   用户原话：「图片素材越多越能解决相似度，这样也能减少 AI 绘图的压力」——
+  //   往左 = 更多多图页（一张页塞 3~4 张素材，变化自然多）；往右 = 更多"整张不裁"的大图。
+  //   这个值是**声明**：排骨架时按它排，出片时机器按"声明 vs 实测"核对（不达标拒渲）。
+  const [plateRatio, setPlateRatio] = useState<number>(
+    typeof vj?.plateRatio === 'number' ? vj.plateRatio : 50)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   // ★VF_FILMVOICE_V1（2026-10-09 用户定案「先校准流程」）：**本线默认配音 + 字幕**
@@ -2047,9 +2053,28 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
               </button>
             ))}
           </div>
+          {/* ── ★VF_RATIO_V1：大图 : 填图 比例条（默认 5:5）── */}
+          <div className="rounded-xl border border-emerald-500/25 bg-black/20 px-3 py-2 mb-2">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] text-gray-300">大图 : 填图</span>
+              <span className="text-[11px] text-emerald-300 font-medium">
+                {(plateRatio / 10).toFixed(1)} : {((100 - plateRatio) / 10).toFixed(1)}
+              </span>
+            </div>
+            <input type="range" min={0} max={100} step={10} value={plateRatio}
+              onChange={(e) => setPlateRatio(Number(e.target.value) || 0)}
+              className="w-full accent-emerald-400" />
+            <div className="flex justify-between text-[9px] text-gray-500 mt-0.5">
+              <span>← 更多多图页（素材多 · 变化多）</span>
+              <span>更多整张不裁大图 →</span>
+            </div>
+            {String(vj?.plateRatioHint || '') ? (
+              <div className="text-[9px] text-gray-500 mt-1">{String(vj.plateRatioHint)}</div>
+            ) : null}
+          </div>
           <div className="flex gap-2">
             <button onClick={() => next('back_mat')} className={btn + ' border-white/15 text-gray-300 hover:bg-white/[0.08]'}>← 换素材</button>
-            <button onClick={() => next('style', { pack })}
+            <button onClick={() => next('style', { pack, plateRatio })}
               className="flex-1 px-4 py-2 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100 text-sm font-medium">
               下一步 → 确认出片
             </button>

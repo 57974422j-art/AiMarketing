@@ -52,6 +52,171 @@ const D = {
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))
 const mediaTag = (m) => m ? `<img class="fill" src="${esc(m)}" alt="" />` : `<div class="ph"><span>素材</span></div>`
 
+/* ═════════ ★VF_SPEC_V1：风格语法层（L1 构图 / L2 动效 / L3 文本形态）═════════
+   为什么有这一层（用户一句话点破的根因：「换了颜色，样式一模一样」）：
+     pack 只给 **L0 皮肤（tokens）**，而"怎么排 / 怎么动 / 字长什么样"被写死在结构 CSS 里
+     ⇒ 换 pack 只换色，样式必然一模一样。
+   实验证据：`docs/风格语法-实验记录.md` —— **tokens 完全相同**、只换 L1/L2/L3 出三条片，
+     肉眼就是三套，且**同一套闸门对三种语法都有效**（字表 ✓ / WCAG AA ✓）。
+   现口径（用户 2026-10-10 定案「这四项全部让 AI 自己规划」）：
+     · 规格优先级 **film.spec > pack.spec > 默认**；
+     · 引擎**不写死**任何风格阈值：越界只做两件事 —— ① 夹回合法区间并**如实打印**
+       ② 出片后校验"成片是否符合它自己声明的值"（declared vs actual，见 render-film 的
+       `image.complete` / `pacing.minShotSec` / `gates.minImageWidth` 三条声明式校验）。
+   字段（对齐实验记录 §⑧/§⑩ 草案）：
+     layout.system  axis|grid|free      中轴 / 严格网格 / 自由错位
+     layout.whitespace 0.08~0.55        留白档（越小越满）
+     image.place    mat|mat-tape|fullbleed  相纸 | 相纸+胶带 | 满幅裁切
+     image.complete true|false          是否保证整张不裁（声明式，AI 按风格定）
+     pacing.minShotSec number           单图最短可见时长（0 = 不声明）
+     motion.img     push|pop|fade
+     motion.ease    out|back|inout
+     motion.type    overlay|sticker|vertical
+     motion.cross   0.06~0.8            段间交叉时长
+     text.titleForm overlay|sticker|vertical
+     text.ornament  rule|tape|hairline|none
+     gates.minImageWidth number         最小图宽（0 = 不声明）
+   ⚠ 本文件是模板字符串：注释里不许出现反引号。 */
+export const SPEC_DEF = {
+  layout: { system: 'axis', whitespace: 0.20 },
+  image: { place: 'mat', complete: true },
+  pacing: { minShotSec: 0 },
+  motion: { img: 'push', ease: 'out', type: 'overlay', cross: 0.5 },
+  text: { titleForm: 'overlay', ornament: 'rule' },
+  gates: { minImageWidth: 0 },
+}
+const SPEC_ENUM = {
+  'layout.system': ['axis', 'grid', 'free'],
+  'image.place': ['mat', 'mat-tape', 'fullbleed'],
+  'motion.img': ['push', 'pop', 'fade'],
+  'motion.ease': ['out', 'back', 'inout'],
+  'motion.type': ['overlay', 'sticker', 'vertical'],
+  'text.titleForm': ['overlay', 'sticker', 'vertical'],
+  'text.ornament': ['rule', 'tape', 'hairline', 'none'],
+}
+const SPEC_RANGE = {
+  'layout.whitespace': [0.08, 0.55],
+  'motion.cross': [0.06, 0.8],
+  'pacing.minShotSec': [0, 9],
+  'gates.minImageWidth': [0, 720],
+}
+const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v)
+const getP = (o, p) => p.split('.').reduce((a, k) => (a == null ? undefined : a[k]), o)
+const setP = (o, p, v) => { const ks = p.split('.'); let a = o; for (let i = 0; i < ks.length - 1; i++) a = a[ks[i]]; a[ks[ks.length - 1]] = v }
+
+/** 归一化 spec：film.spec > pack.spec > 默认；非法枚举回默认、越界夹回区间 —— **都打印，不静默** */
+export function normSpec(filmSpec, packSpec) {
+  const warns = []
+  const out = JSON.parse(JSON.stringify(SPEC_DEF))
+  for (const p of [...Object.keys(SPEC_ENUM), ...Object.keys(SPEC_RANGE), 'image.complete']) {
+    const fv = getP(filmSpec, p), pv = getP(packSpec, p)
+    const hasF = fv !== undefined && fv !== null && fv !== ''
+    const hasP = pv !== undefined && pv !== null && pv !== ''
+    let v = hasF ? fv : hasP ? pv : getP(SPEC_DEF, p)
+    const from = hasF ? 'film.spec' : hasP ? 'pack.spec' : '默认'
+    if (SPEC_ENUM[p]) {
+      const s = String(v)
+      if (!SPEC_ENUM[p].includes(s)) {
+        warns.push(p + ' =「' + s + '」（' + from + '）不在 ' + SPEC_ENUM[p].join('/') + ' ⇒ 退回默认 ' + getP(SPEC_DEF, p))
+        v = getP(SPEC_DEF, p)
+      }
+    } else if (SPEC_RANGE[p]) {
+      const n = Number(v)
+      const [lo, hi] = SPEC_RANGE[p]
+      if (!Number.isFinite(n)) { warns.push(p + ' =「' + v + '」（' + from + '）不是数字 ⇒ 退回默认 ' + getP(SPEC_DEF, p)); v = getP(SPEC_DEF, p) }
+      else if (n < lo || n > hi) { const c = Math.min(hi, Math.max(lo, n)); warns.push(p + ' = ' + n + '（' + from + '）越界[' + lo + ',' + hi + '] ⇒ 夹回 ' + c); v = c }
+    } else {
+      v = !(v === false || v === 'false' || v === 0 || v === '0')
+    }
+    setP(out, p, v)
+  }
+  return { spec: out, warns }
+}
+
+/** L1/L2/L3 → CSS（放在结构级 CSS **之后** ⇒ 天然覆盖）。只动"能表达语法差异"的量，不重写结构。
+ *  ⚠️ 缩放/旋转**不能用 transform 写在 .plate/.ttl 上** —— 运行时 GSAP 会写同一属性（y/rotate），
+ *     CSS 的 transform 会被覆盖 ⇒ 所以这里一律用 width/left/top（尺寸与位置），
+ *     旋转交给运行时按 spec 一起补（见 runtime/film.js 的 plateRot）。 */
+export function specCss(spec) {
+  const ws = Number(spec.layout.whitespace)
+  const t = (ws - 0.08) / 0.47                       // 0（密）→ 1（疏）
+  const sys = spec.layout.system, place = spec.image.place, form = spec.text.titleForm, orn = spec.text.ornament
+  const base = 1 - t * 0.30                          // 密度 → 相纸占比：1.00 → 0.70
+  const sc = (sys === 'grid' ? base * 0.92 : sys === 'free' ? Math.min(1, base * 1.06) : base).toFixed(3)
+  const ctr = '(720px - 696px * var(--matScale)) / 2'
+  const needTape = place === 'mat-tape' || orn === 'tape'
+  const L = []
+  L.push('/* ---- ★VF_SPEC_V1 语法层（L1 构图 / L2 动效 / L3 文本形态）---- */')
+  L.push('.sec{--matScale:' + sc + ';--ws:' + ws + '}')
+  // ① L1：相纸尺寸随"留白档"变；文案跟着图走（plate-bottom 文在图下）
+  L.push('.st-plate-top .plate{width:calc(696px * var(--matScale));height:calc(522px * var(--matScale));'
+    + 'left:calc(' + ctr + ');top:calc(378px + (1 - var(--matScale)) * 96px)}')
+  L.push('.st-plate-bottom .plate{width:calc(696px * var(--matScale));height:calc(522px * var(--matScale));'
+    + 'left:calc(' + ctr + ');top:calc(154px + (1 - var(--matScale)) * 60px)}')
+  L.push('.st-plate-bottom .ttl{top:calc(726px + (1 - var(--matScale)) * 80px)}')
+  L.push('.st-plate-bottom .sub{top:calc(880px + (1 - var(--matScale)) * 80px)}')
+  // ② L1 image.complete=false ⇒ 声明"此风格固定裁切"：图改 cover（不保证完整）
+  if (!spec.image.complete) {
+    L.push('.sec .shot{object-fit:cover}')
+    L.push('.sec .pb{opacity:0}')
+  }
+  // ③ L1 image.place：满幅（铺满整页 + 暗场 + 亮字压图）
+  if (place === 'fullbleed') {
+    L.push('.sec .plate{left:0;top:0;width:720px;height:1280px;border-radius:0;background:#0b0d10;box-shadow:none}')
+    L.push('.sec .pb{opacity:0}')
+    L.push('.sec .shot{object-fit:cover}')
+    L.push('.sec .plate::after{content:"";position:absolute;left:0;top:0;width:100%;height:100%;'
+      + 'background:linear-gradient(180deg,rgba(0,0,0,.58) 0%,rgba(0,0,0,.12) 42%,rgba(0,0,0,.80) 100%)}')
+    L.push('.sec .eb,.sec .ttl,.sec .sub,.sec .foot,.sec .chips{z-index:4;color:#fff}')
+    L.push('.sec .eb{left:56px;top:96px;color:#fff;opacity:.94}')
+    L.push('.sec .ttl{left:56px;top:832px;width:608px;font-size:60px;text-shadow:0 2px 16px rgba(0,0,0,.55)}')
+    L.push('.sec .sub{left:56px;top:962px;width:608px;font-size:24px;color:#f2f6fa;text-shadow:0 2px 14px rgba(0,0,0,.5)}')
+    L.push('.sec .chips{left:56px;top:1044px}')
+    L.push('.sec .chip{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.42);color:#fff}')
+  }
+  // ④ L1 image.place=mat-tape / L3 ornament=tape：胶带（两角贴条）
+  if (needTape) {
+    L.push('.sec .plate::before,.sec .plate::after{content:"";position:absolute;width:104px;height:26px;'
+      + 'background:rgba(240,236,222,.86);border-left:1px solid rgba(0,0,0,.08);border-right:1px solid rgba(0,0,0,.08);'
+      + 'box-shadow:0 1px 3px rgba(0,0,0,.18);z-index:5}')
+    if (place === 'fullbleed') L.push('.sec .plate::before,.sec .plate::after{display:none}')
+    else {
+      L.push('.sec .plate::before{left:-26px;top:18px;transform:rotate(-38deg)}')
+      L.push('.sec .plate::after{right:-26px;bottom:22px;transform:rotate(-38deg)}')
+    }
+  }
+  // ⑤ L1 layout.system：grid（严格网格 + 细线 + 更大留白）/ free（错位）
+  if (sys === 'grid') {
+    L.push('.sec .ttl{letter-spacing:2.6px;font-weight:700}')
+    L.push('.sec .ttl::after{content:"";display:block;width:88px;height:2px;background:var(--accent);margin-top:16px}')
+    L.push('.sec .sub{letter-spacing:.6px}')
+  } else if (sys === 'free') {
+    L.push('.sec .ttl{left:44px}')
+    L.push('.st-plate-top .plate,.st-plate-bottom .plate{left:calc(' + ctr + ' + 12px)}')
+    L.push('.sec .chips{left:52px}')
+  }
+  // ⑥ L3 text.titleForm：sticker（色块贴纸）/ vertical（竖排）
+  if (form === 'sticker') {
+    L.push('.sec .ttl{display:inline-block;width:auto;max-width:600px;background:var(--accent);color:#fff;'
+      + 'padding:12px 20px 15px;border-radius:2px;box-shadow:0 10px 26px rgba(0,0,0,.22);letter-spacing:2px}')
+  } else if (form === 'vertical') {
+    // ★VF_SPEC_V1 实测（quiet 语法首渲就被引擎 check 拦下）：
+    //   只写 writing-mode 会**竖排成一根长柱** ⇒ 压到副标题/图（content_overlap：`ttl.t1` 压 `sub`）。
+    //   现口径：竖排**走右列**（标题在右上、副题在右下），并把相纸让到左侧 —— 竖排才不会与横排串味。
+    L.push('.sec .ttl{writing-mode:vertical-rl;letter-spacing:.16em;line-height:1.1;width:auto;max-height:620px;'
+      + 'left:auto;right:56px;top:110px}')
+    L.push('.sec .ttl.t2{right:206px}')                       // 开场两行：第二列再往左，避免两列互压
+    L.push('.sec .sub{writing-mode:vertical-rl;width:auto;max-height:470px;letter-spacing:.08em;font-size:21px;'
+      + 'left:auto;right:56px;top:770px}')
+    L.push('.sec .eb{left:auto;right:56px;top:56px}')
+    L.push('.sec .plate{left:24px;width:calc(560px * var(--matScale));height:calc(420px * var(--matScale))}')
+    L.push('.sec .chips{left:56px}')
+  }
+  // ⑦ L3 ornament：rule（细线）/ hairline（无装饰）
+  if (orn === 'none' || orn === 'hairline') L.push('.sec .ttl::after{display:none}')
+  return L.join('\n')
+}
+
 /** 每个结构的 **类名版** CSS（作用域 = .st-<structure>，可被所有段共用） */
 export function filmCssFor(st) {
   if (st === 'opening-hero') return `
@@ -326,6 +491,9 @@ export function makeFilmHtml(film) {
   const serif = T.font === 'serif-700'
   const AT = T.accentText || T.accent
   const LIGHT = lum(T.bg) > 0.6
+  // ★VF_SPEC_V1：语法层（film.spec > pack.spec > 默认）。越界/非法**打印出来**（不静默）
+  const { spec, warns } = normSpec(film.spec, pack.spec)
+  warns.forEach((w) => console.log('  ⚠ spec: ' + w))
 
   let t = 0
   const scenes = (film.scenes || []).map((sc, i) => {
@@ -340,7 +508,10 @@ export function makeFilmHtml(film) {
   //   4.0s 整页消失 ⇒ 中间空 0.5 秒。**任何转场都活不过这一掐**（叠化/擦除/推移全被掐成"黑一下"）。
   //   现口径：给每段窗口**多留 0.7s**（= 转场重叠区），段间由运行时按 trans 做真转场。
   const OVER = 0.7
-  const body = scenes.map((x, i) => `<section class="sec clip st-${x.st}" id="sc${i}" data-start="${x.start.toFixed(2)}" data-duration="${(x.dur + OVER).toFixed(2)}">\n${sceneBody(x.st, x.sc, i)}\n  </section>`).join('\n')
+  // ★VF_SPEC_V1：每段带上语法属性（CSS 靠 data-sys / data-place / data-form / data-complete 覆盖；
+  //   这样"同一套结构"在不同语法下长相不同 ⇒ 治"换了颜色、样式一模一样"）
+  const specAttr = `data-sys="${spec.layout.system}" data-place="${spec.image.place}" data-form="${spec.text.titleForm}" data-complete="${spec.image.complete ? 1 : 0}"`
+  const body = scenes.map((x, i) => `<section class="sec clip st-${x.st}" ${specAttr} id="sc${i}" data-start="${x.start.toFixed(2)}" data-duration="${(x.dur + OVER).toFixed(2)}">\n${sceneBody(x.st, x.sc, i)}\n  </section>`).join('\n')
   const usedStructs = [...new Set(scenes.map((x) => x.st))]
   // ★VF_FILMBLEEDFIX_V1：按"实测亮度"给全幅段做**局部**字色/遮罩修正（量不到的段一段都不改）
   const bleedFix = scenes.map((x, i) => bleedCss(i, x.sc.__luma, T, AT)).filter(Boolean).join('\n')
@@ -385,6 +556,8 @@ export function makeFilmHtml(film) {
 
   /* ---------- 结构级（每个结构自带作用域 .st-xxx，多段共用不会串味） ---------- */
 ${usedStructs.map(filmCssFor).join('\n')}
+  /* ---------- ★VF_SPEC_V1 语法层（放在结构级之后 ⇒ 天然覆盖；L1 构图 / L2 动效 / L3 文本形态） ---------- */
+${specCss(spec)}
   /* ---------- ★VF_FILMBLEEDFIX_V1：全幅段按**实测亮度**局部改字色/遮罩（量不到的段没有这几行） ---------- */
 ${bleedFix}
 </style>
@@ -396,7 +569,7 @@ ${bleedFix}
 ${body}
   <div id="bar" class="clip" data-start="0" data-duration="${total}" data-track-index="9"><i id="barIn"></i></div>
 </div>
-<script>window.__FILM__ = ${JSON.stringify({ tokens: T, total, scenes: scenes.map((x) => ({ structure: x.st, start: x.start, dur: x.dur, trans: String(x.sc.trans || '') })) })};</script>
+<script>window.__FILM__ = ${JSON.stringify({ tokens: T, total, spec, scenes: scenes.map((x) => ({ structure: x.st, start: x.start, dur: x.dur, trans: String(x.sc.trans || '') })) })};</script>
 <script>window.__timelines = window.__timelines || {}; window.__timelines["main"] = { seek: function () {}, duration: function () { return ${total}; }, pause: function () {}, play: function () {} };</script>
 <script src="assets/gsap.min.js"></script>
 <script src="assets/film.js"></script>

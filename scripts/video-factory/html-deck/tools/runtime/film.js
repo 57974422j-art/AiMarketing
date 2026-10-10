@@ -72,8 +72,21 @@
     var has = function (sel) { return !!document.querySelector('#sc' + i + ' ' + sel) }
     var E = function (sel, f, from, dur, ease) {
       if (!has(sel)) return
-      tl.from('#sc' + i + ' ' + sel, Object.assign({ duration: dur || 0.7, ease: ease || 'power3.out' }, from), at(f))
+      tl.from('#sc' + i + ' ' + sel, Object.assign({ duration: dur || 0.7, ease: ease || ES }, from), at(f))
     }
+    // ★VF_SPEC_V1（2026-10-10 用户定案「四项全部让 AI 自己规划」）：
+    //   L2 动效不再写死一套 —— 由 spec.motion 决定（img: push/pop/fade、ease、type、cross）。
+    //   旋转也不能靠 CSS（GSAP 会写同一 transform 属性）⇒ 由这里按语法补 rotate：
+    //     mat-tape（相纸+胶带）与 free（自由错位）都带轻微旋转，奇偶交替 ⇒ 不像同一张模板。
+    var SP = F.spec || {}
+    var M = Object.assign({ img: 'push', ease: 'out', type: 'overlay', cross: 0.5 }, SP.motion || {})
+    var PLACE = String((SP.image || {}).place || 'mat')
+    var SYS = String((SP.layout || {}).system || 'axis')
+    var ES = ({ out: 'power3.out', back: 'back.out(1.7)', inout: 'power2.inOut' })[String(M.ease)] || 'power3.out'
+    var CROSS = Math.max(0.06, Math.min(0.8, Number(M.cross) || 0.5))
+    var TRD = Math.max(0.24, CROSS)                                   // 转场时长（擦除/推移比叠化略长）
+    var placeRot = (PLACE === 'fullbleed') ? 0
+      : (PLACE === 'mat-tape' || SYS === 'free') ? (i % 2 ? 1.8 : -2.4) : 0
     // ★VF_FILMTRANS_V1（2026-10-10 用户定案「能有转场效果最好」）：
     //   老实现只有"淡入 0.4s + 淡出 0.45s"，而且**淡出走完了下一段才开始** ⇒ 中间有约 2 帧空白
     //   （等于"暗一下再出现"，不是转场）。现口径：**入场与出场重叠**，并按 `sc.trans` 给真转场：
@@ -85,9 +98,9 @@
     var nx = (F.scenes || [])[i + 1]
     var ntr = nx ? String(nx.trans || 'fade') : ''
     var myTr = String(sc.trans || 'fade')
-    if (!nx) tl.to('#sc' + i, { opacity: 0, duration: 0.5, ease: 'power2.in' }, S + D - 0.1)
+    if (!nx) tl.to('#sc' + i, { opacity: 0, duration: TRD, ease: 'power2.in' }, S + D - CROSS * 0.2)
     else if (ntr === 'cut') tl.set('#sc' + i, { opacity: 0 }, S + D)
-    else tl.to('#sc' + i, { opacity: 0, duration: 0.5, ease: 'power1.inOut' }, S + D - 0.15)
+    else tl.to('#sc' + i, { opacity: 0, duration: TRD, ease: 'power1.inOut' }, S + D - CROSS * 0.3)
     // 入场：**从本段起点开始**（不是提前）—— 因为上一段的窗口已被延长 0.7s（见 film-to-page 的 OVER），
     //   这段时间里上一段还在 ⇒ 出入场天然重叠 ~0.5s ⇒ 才是真叠化/真擦除。
     if (myTr === 'cut') {
@@ -95,11 +108,11 @@
       tl.set('#sc' + i, { opacity: 1 }, S)
     } else if (myTr === 'wipe') {
       tl.fromTo('#sc' + i, { clipPath: 'inset(0 100% 0 0)' },
-        { clipPath: 'inset(0 0% 0 0)', duration: 0.6, ease: 'power2.inOut', immediateRender: true }, S)
+        { clipPath: 'inset(0 0% 0 0)', duration: Math.min(0.8, TRD + 0.12), ease: 'power2.inOut', immediateRender: true }, S)
     } else if (myTr === 'push') {
-      tl.fromTo('#sc' + i, { x: 720 }, { x: 0, duration: 0.6, ease: 'power3.out', immediateRender: true }, S)
+      tl.fromTo('#sc' + i, { x: 720 }, { x: 0, duration: Math.min(0.8, TRD + 0.12), ease: 'power3.out', immediateRender: true }, S)
     } else {
-      tl.fromTo('#sc' + i, { opacity: 0 }, { opacity: 1, duration: 0.55, ease: 'power1.inOut', immediateRender: true }, S)
+      tl.fromTo('#sc' + i, { opacity: 0 }, { opacity: 1, duration: TRD, ease: 'power1.inOut', immediateRender: true }, S)
     }
 
     if (st === 'opening-hero') {
@@ -150,12 +163,38 @@
     } else if (st === 'plate-top' || st === 'plate-bottom') {
       // ★VF_PLATE_V1：完整大图的动效 —— **图绝不缩放**（一缩放就不是"完整"了），
       //   改用"整块照片轻微落定 + 极慢上浮"来给动感。
+      // ★VF_SPEC_V1（2026-10-10）：动效按 spec 语法分叉（不再一套打天下）：
+      //   · image.place=fullbleed ⇒ 满幅铺满整页，走**电影感缓慢推近**（cover 缩放，不是"完整"了）
+      //   · motion.img=pop      ⇒ 快弹入（拼贴手作）
+      //   · motion.img=fade     ⇒ 极慢淡入 + 微上浮（极简纸面）
+      //   · 否则 push           ⇒ 现状：轻微落定 + 极慢上浮
+      //   旋转（mat-tape / free）由 placeRot 一并补上 —— 与 y 同一属性，不会被覆盖。
       E('.eb', 0.03, { opacity: 0, y: -10 }, 0.5, 'power2.out')
       if (has('.plate')) {
-        tl.from('#sc' + i + ' .plate', { opacity: 0, y: 30, duration: 0.85, ease: 'power3.out' }, at(0.05))
-        tl.to('#sc' + i + ' .plate', { y: -10, duration: Math.max(1.2, D * 0.55), ease: 'sine.inOut' }, at(0.62))
+        if (PLACE === 'fullbleed') {
+          if (has('.shot')) tl.fromTo('#sc' + i + ' .shot', { scale: 1.02 }, { scale: 1.12, duration: D, ease: 'none', immediateRender: true }, S)
+          tl.from('#sc' + i + ' .plate', { opacity: 0, duration: Math.max(0.5, CROSS), ease: 'power1.inOut' }, S)
+        } else if (M.img === 'pop') {
+          tl.from('#sc' + i + ' .plate', { opacity: 0, y: 26, scale: 0.94, rotate: placeRot - 4,
+            duration: 0.72, ease: 'back.out(1.7)' }, at(0.05))
+          tl.to('#sc' + i + ' .plate', { rotate: placeRot, duration: Math.max(0.8, D * 0.3), ease: 'sine.inOut' }, at(0.5))
+        } else if (M.img === 'fade') {
+          tl.from('#sc' + i + ' .plate', { opacity: 0, y: 8, rotate: placeRot, duration: 1.05, ease: 'power2.inOut' }, at(0.06))
+          tl.to('#sc' + i + ' .plate', { y: -6, duration: Math.max(1.4, D * 0.6), ease: 'sine.inOut' }, at(0.66))
+        } else {
+          tl.from('#sc' + i + ' .plate', { opacity: 0, y: 30, rotate: placeRot, duration: 0.85, ease: ES }, at(0.05))
+          tl.to('#sc' + i + ' .plate', { y: -10, duration: Math.max(1.2, D * 0.55), ease: 'sine.inOut' }, at(0.62))
+        }
       }
-      E('.ttl', 0.14, { opacity: 0, y: 26 }, 0.75)
+      // L3 文本形态：overlay（上浮）/ sticker（弹入 + 微旋）/ vertical（自上而下揭示）
+      if (String(M.type) === 'sticker') {
+        tl.from('#sc' + i + ' .ttl', { opacity: 0, y: 24, rotate: -4.6, scale: 0.9, duration: 0.7, ease: 'back.out(1.7)' }, at(0.14))
+      } else if (String(M.type) === 'vertical') {
+        tl.fromTo('#sc' + i + ' .ttl', { clipPath: 'inset(0% 0% 100% 0%)' },
+          { clipPath: 'inset(0% 0% 0% 0%)', duration: 0.85, ease: 'power2.inOut', immediateRender: true }, at(0.14))
+      } else {
+        E('.ttl', 0.14, { opacity: 0, y: 26 }, 0.75)
+      }
       E('.sub', 0.24, { opacity: 0, y: 16 }, 0.6, 'power2.out')
       if (has('.chip')) tl.from('#sc' + i + ' .chip', { opacity: 0, y: 16, duration: 0.5, stagger: 0.09, ease: 'power2.out' }, at(0.32))
       E('.foot', 0.58, { opacity: 0 }, 0.6, 'power2.out')

@@ -38,7 +38,9 @@ const HTMLFILM_PREFIX = 'HTML成片草稿:'
  *  用户实测那次就是：卡片按 12 张排 8 段、出片按 17 张排 12 段，后 4 镜空、被 copy 闸门拦。
  *  口径：草案带版本；**出片前比对**，不一致 ⇒ **这一单作废**（明确让用户重走一遍），
  *  不猜、不合并、不"用旧文案配新骨架"。**改这里的值 = 让所有在飞草案失效**（部署即作废的实现）。 */
-export const FILM_LINE_VERSION = 'film-2026-10-10-p2'
+// ★VF_RATIO_V1（2026-10-10）：骨架算法改了（比例条取代写死 0.35）⇒ **版本戳必须升**，
+//   否则在飞草案（旧比例排的骨架）会与新码排出的骨架/文案错配 —— 这正是这条纪律存在的理由。
+export const FILM_LINE_VERSION = 'film-2026-10-10-ratio'
 
 export type HtmlFilmStep = 'mat' | 'style' | 'confirm'
 
@@ -76,6 +78,12 @@ export type HtmlFilmDraft = {
   vertical?: string
   /** ★VF_FILMSRC_V2：排这一单时的**代码版本**（出片前比对：不一致 ⇒ 这单作废、要求重来） */
   ver?: string
+  /** ★VF_RATIO_V1：**大图:填图 比例**（**百分数 0~100**，默认 50 = 5:5）。
+   *  为什么用百分数：卡片上显示/拖动就是"5 : 5"这种直观值；转成 0~1 只在传给引擎那一步做（一处）。 */
+  plateRatio?: number
+  /** ★VF_SPEC_V1：**风格语法**（L1 构图 / L2 动效 / L3 文本形态）——由 AI 声明（"四项全部让 AI 自己规划"），
+   *  写进 film.json，由渲染器的语法层解释。没声明 ⇒ 用 pack.spec / 引擎默认。 */
+  spec?: any
 }
 
 /** 进程内缓存（与 vf-ppt.ts 同形制：DB 是主，Map 是"这一回合的加速"） */
@@ -169,6 +177,11 @@ export async function loadHtmlFilmDraft(db: any, uid: number | string): Promise<
       vertical: String(j.vertical || ''),
       // ★VF_FILMSRC_V2：版本戳也要取回来（取不回来就当成"旧版本"⇒ 出片前作废要求重来，正好是想要的行为）
       ver: String(j.ver || ''),
+      // ★VF_RATIO_V1：比例也要取回来（漏了它 ⇒ 出片时按默认 5:5 重排，与卡片上显示的比例不符）
+      plateRatio: Number.isFinite(Number(j.plateRatio)) && j.plateRatio !== null && j.plateRatio !== undefined
+        ? Number(j.plateRatio) : undefined,
+      // ★VF_SPEC_V1：语法也一起取回（漏了它 ⇒ 出片时退回默认语法，与卡片上给用户看的风格不符）
+      spec: (j.spec && typeof j.spec === 'object') ? j.spec : undefined,
     }
   } catch { return null }
 }
@@ -365,7 +378,14 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
     }
   } catch { /* ignore */ }
   if (!files.length) return { ok: false, err: '素材下载失败（没拿到本地文件）' }
-  const pl = await planFilm({ materials: files, text: String(vd.topic || ''), pack: vd.pack || '', workDir })
+  // ★VF_RATIO_V1：**比例在这里生效**（骨架只编一次 ⇒ 必须是"排骨架"的这一步拿到它）。
+  //   草稿里存的是百分数（0~100），传给引擎时统一除 100（**只在这一处换算**，别处一律百分数）。
+  const pl = await planFilm({
+    materials: files, text: String(vd.topic || ''), pack: vd.pack || '', workDir,
+    plateRatio: (vd.plateRatio === undefined ? 50 : Number(vd.plateRatio)) / 100,
+    // ★VF_SPEC_V1：AI 声明的语法（没声明 ⇒ undefined ⇒ 由 pack/引擎默认兜底）
+    spec: vd.spec,
+  })
   if (!pl.ok || !pl.scenes || !pl.scenes.length) return { ok: false, err: '编排骨架失败：' + String(pl.err || '') }
   // ★VF_FILMSRC_V1：把**这份骨架本身**（整份 film.json）与素材名单一起固化 —— 出片直接用它，
   //   不再重新编排（老实现出片会再 orchestrate 一次；素材一变 ⇒ 段数一变 ⇒ 整片文案错位）。
@@ -529,6 +549,11 @@ function styleCard(vd: HtmlFilmDraft): string {
     pack: vd.pack,
     n: vd.names.length,
     names: vd.names,
+    // ★VF_RATIO_V1：**大图:填图 比例条**（默认 50 = 5:5）——整条链的口号是
+    //   「素材越多、越靠"多图页"消化，越不逼 AI 发明新版面」；这个值是**用户/AI 的声明**，
+    //   出片时机器按"声明 vs 实测"核对（render-film 的完整大图那一行）。
+    plateRatio: vd.plateRatio === undefined ? 50 : Number(vd.plateRatio),
+    plateRatioHint: '大图 : 填图 —— 往左=更多多图页（素材多、变化多）；往右=更多整张不裁的大图',
   }
   return 'VF_JSON:' + JSON.stringify(body)
 }
@@ -567,6 +592,8 @@ function confirmCard(vd: HtmlFilmDraft): string {
     // ★VF_FILMCOPY_V1：数字（段数/时长）改成**按真实骨架算**，不再写死 30 秒/6 段
     hint: '第 3 步 / 共 3 步 · 确认出片（文案已按素材写好，先看一眼；不满意可「← 换风格」重写）',
     names: vd.names,
+    // ★VF_RATIO_V1：把这一单用的比例回显到确认卡（用户能看见"这条片按几比几排的"）
+    plateRatio: vd.plateRatio === undefined ? 50 : Number(vd.plateRatio),
     // ★VF_FILMSRC_V1：卡片上写的张数 = **出片真正会用的张数**（vd.picked 定稿件）。
     //   老实现这里发的是"勾选名单长度"，而出片用的是另一份切片（12/40）⇒ 卡片与实际不符。
     n: picked.length || vd.names.length,
@@ -637,6 +664,15 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
     }
     if (at === 'style') {
       vd.pack = String(f.pack || '')
+      // ★VF_RATIO_V1：比例条的值（0~100）。越界夹回并如实打印（不静默）；
+      //   没带 ⇒ 保持原值（默认 50 = 5:5，由 planFilm 那一步统一兜底）。
+      if (f.plateRatio !== undefined && f.plateRatio !== null && f.plateRatio !== '') {
+        const rRaw = Number(f.plateRatio)
+        const r = Number.isFinite(rRaw) ? Math.min(100, Math.max(0, Math.round(rRaw))) : 50
+        if (Number.isFinite(rRaw) && rRaw !== r) vfLog(uid, '[HTML成片] plateRatio=' + rRaw + ' 越界 ⇒ 夹回 ' + r)
+        vd.plateRatio = r
+      }
+      if (vd.plateRatio === undefined) vd.plateRatio = 50
       if (f.topic !== undefined) vd.topic = String(f.topic || '').slice(0, 60)
       // ★VF_FILMCOPY_V1（用户原话：「B该用模型就用模型。还有让 AI 先总结素材。**不要乱出片**」）：
       //   「下一步」不再直接出确认卡 —— **先让 AI 看图总结素材 + 按骨架写逐镜文案**，连同确认卡一起给用户看，
@@ -682,6 +718,21 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
       vfLog(uid, '[HTML成片] 草案版本过期（' + (vd.ver || '无版本') + ' ≠ ' + FILM_LINE_VERSION + '）⇒ 已作废，要求重来一次')
       return 'HTML成片：这一单是**旧版本**排出来的（脚本/模板刚更新过），为避免"卡片上的文案与成片骨架对不上"，'
         + '**已把它作废、没有出片**。请重新说一次「HTML成片」重走一遍（素材还在个人仓库里，勾选约 1 分钟）。'
+    }
+
+    // ★VF_RATIO_V1：比例在"出确认卡"那一刻就已生效（**骨架与文案都按它排好了**）⇒
+    //   出片前改比例 = 必须重排 ⇒ 口径同"骨架只编一次、错位即作废"：**明确拒绝 + 让用户重走**，
+    //   绝不悄悄按新比例重排（那会让卡片上给用户看过的那份文案与成片对不上）。
+    if (goF.plateRatio !== undefined && goF.plateRatio !== null && goF.plateRatio !== ''
+      && Number.isFinite(Number(goF.plateRatio))) {
+      const wantP = Math.min(100, Math.max(0, Math.round(Number(goF.plateRatio))))
+      const curP = vd.plateRatio === undefined ? 50 : Number(vd.plateRatio)
+      if (wantP !== curP) {
+        vfLog(uid, '[HTML成片] 出片时比例被改（' + curP + ' → ' + wantP + '）⇒ 拒绝（骨架/文案已按旧比例排好）')
+        return 'HTML成片：这一单的**比例**在出片前不能改（骨架与文案都已按 '
+          + (curP / 10).toFixed(1) + ' : ' + ((100 - curP) / 10).toFixed(1)
+          + ' 排好）——想换比例请点「← 换风格」重走一次（约 1 分钟）。**没有出片**。'
+      }
     }
 
     // ★VF_FILMSRC_V1：**先判这单自不自洽，再去下载素材**（顺序有意提前：省一次下载；
@@ -740,6 +791,10 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
       copy: Array.isArray(vd.copy) && vd.copy.length ? vd.copy : undefined,
       // ★VF_FILMSRC_V1：**用定稿的那份骨架**（不再让出片重排一次）
       planJson: vd.filmJson || undefined,
+      // ★VF_RATIO_V1：比例也带上（只在"没有定稿骨架、需要现场编排"时才会用到；有定稿时以定稿为准）
+      plateRatio: (vd.plateRatio === undefined ? 50 : Number(vd.plateRatio)) / 100,
+      // ★VF_SPEC_V1：语法同上（有定稿骨架时以定稿里的 spec 为准）
+      spec: vd.spec,
       vertical: vd.vertical || '',
     })
     if (!r.ok) {

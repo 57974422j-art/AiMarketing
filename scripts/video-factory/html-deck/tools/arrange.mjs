@@ -44,6 +44,19 @@ export function arrange(opts = {}) {
   const M = (opts.media || []).filter(Boolean)
   const on = opts.structures && opts.structures.length ? new Set(opts.structures) : null
   const want = (id) => !on || on.has(id)
+  // ══ ★VF_RATIO_V1（2026-10-10 用户定案）：**大图 : 填图 比例**由用户/AI 给（默认 5:5）══
+  //   为什么要它：用户原话「图片素材越多，越能解决相似度；这样也能减少 AI 绘图的压力」
+  //     ⇒ 与其让 AI 不停发明新版面，不如**用更多素材填更多页**、并用比例条控制"完整大图页"的密度。
+  //   口径：`opts.plateRatio`（0~1）= 完整大图页占**素材张数**的比例；越界夹回并打印（不静默）。
+  //   ⚠️ 与旧硬口径（每 10 张 3~4 张）的关系：那条被这条**取代** —— 见 render-film 的
+  //      "声明比例 vs 实测"校验（AI/用户声明多少，机器就核对多少）。
+  const RATIO_RAW = Number(opts.plateRatio)
+  const RATIO = Number.isFinite(RATIO_RAW) ? Math.min(1, Math.max(0, RATIO_RAW)) : 0.5
+  if (Number.isFinite(RATIO_RAW) && RATIO_RAW !== RATIO) console.log('[arrange] plateRatio=' + RATIO_RAW + ' 越界 ⇒ 夹回 ' + RATIO)
+  // ★VF_SPEC_V1（声明驱动编排）：spec.image.complete=false 才允许用 fullbleed（满屏**裁切**）；
+  //   默认（true）= 声明"图片保证完整" ⇒ 剩 1~2 张的零头**并入完整大图**，不留裁切页。
+  //   为什么这么做而不是放宽闸门：**AI 声明了什么，编排就得照做**（这正是"AI 自己规划 + 机器验收"）。
+  const COMPLETE = !(opts.spec && opts.spec.image && opts.spec.image.complete === false)
 
   // ══ ★VF_ARRANGE_V2（2026-10-09 用户实测「我选 17 个它做 8 个镜头」）══
   //   旧实现**固定 6 段、只用 9 张**（take 分配 1+3+0+0+1+4，注释里写"多了会用完为止"但代码没实现）。
@@ -74,17 +87,35 @@ export function arrange(opts = {}) {
     i += 1
   }
   // ② 完整大图张数：把"1/2/5 这种排不满多图页"的零头并进完整大图（宁可多一张完整大图，也别留残页）
-  let p = canPlate ? Math.max(1, Math.round((n - i) * 0.35)) : 0
+  // ★VF_RATIO_V1：比例取代旧的写死 0.35（=每 10 张 3~4 张）；比例 0 ⇒ 真的 0 张（不硬塞）
+  let p = canPlate ? Math.max(RATIO > 0 ? 1 : 0, Math.round((n - i) * RATIO)) : 0
   if (canPlate) {
     let rest = (n - i) - p
     while (rest === 1 || rest === 2 || rest === 5) { p += 1; rest = (n - i) - p }
   }
-  // ③ 多图页清单（先 4 后 3；剩 1~2 张 → 满屏）
+  // ③ 多图页清单（★VF_RATIO_V1：**交替**吃 4 张/3 张/1 张 —— 不再"先排满四宫格"）
+  //   为什么改：比例条拖到 0（全填图）时，老写法会连排 4 页四宫格 ⇒ 被排版闸门判定
+  //   "连续 3 页同页型"而拒渲（闸门是对的：那正是"页页一个模子"）。交替后页型天然错开。
   const multi = []
   let left = (n - i) - p
-  while (left >= 4 && want('grid-2x2')) { multi.push({ structure: 'grid-2x2', take: 4 }); left -= 4 }
-  while (left >= 3 && want('works-wall')) { multi.push({ structure: 'works-wall', take: 3 }); left -= 3 }
-  while (left > 0 && want('fullbleed')) { multi.push({ structure: 'fullbleed', take: 1 }); left -= 1 }
+  while (left > 0) {
+    const last = multi.length ? multi[multi.length - 1].structure : ''
+    const canG = left >= 4 && want('grid-2x2')
+    const canW = left >= 3 && want('works-wall')
+    if (canG && last !== 'grid-2x2') { multi.push({ structure: 'grid-2x2', take: 4 }); left -= 4; continue }
+    if (canW && last !== 'works-wall') { multi.push({ structure: 'works-wall', take: 3 }); left -= 3; continue }
+    // ★VF_SPEC_V1：只有声明"允许裁切"（complete=false）才准走满屏；否则满屏**必裁**会与声明打架
+    if (left >= 1 && want('fullbleed') && !COMPLETE) { multi.push({ structure: 'fullbleed', take: 1 }); left -= 1; continue }
+    if (canG) { multi.push({ structure: 'grid-2x2', take: 4 }); left -= 4; continue }
+    if (canW) { multi.push({ structure: 'works-wall', take: 3 }); left -= 3; continue }
+    break   // 结构被限死且排不下 ⇒ 停（绝不重复素材）
+  }
+  // 零头（通常 1~2 张）：声明"保证完整"且有完整大图能力 ⇒ **并入完整大图**（不留填不满的残页，
+  //   也不出现裁切页）；否则退回满屏（声明允许裁切时才是正解）。
+  if (left > 0) {
+    if (canPlate && COMPLETE) { p += left; left = 0 }
+    else if (want('fullbleed')) { while (left > 0) { multi.push({ structure: 'fullbleed', take: 1 }); left -= 1 } }
+  }
   // ④ 交错：每个多图页后面跟 1~2 张完整大图（完整大图用完就把剩下的多图页接着排）
   const perMulti = multi.length ? Math.ceil(p / multi.length) : 0
   let pi = 0
@@ -158,7 +189,15 @@ export function arrange(opts = {}) {
     //   声明它是为了让"手写死结构"的片子被拦下来。
     requireLayout: n >= 8,
     plateCount, imageCount: used,
-    note: '由 tools/arrange.mjs 自动编排（★VF_ARRANGE_V3：素材驱动 + 完整大图配额 ' + plateCount + '/' + used + '，' + used + '/' + M.length + ' 张出镜）；可手工微调 scenes。',
+    // ★VF_RATIO_V1：**把"大图:填图"比例声明出去** —— 出片时 render-film 按"声明 vs 实测"核对
+    //   （容差 ±1 张），不再是旧的"每 10 张 3~4 张"写死区间。
+    plateRatio: RATIO,
+    // ★VF_SPEC_V1：风格语法（L1 构图 / L2 动效 / L3 文本形态）原样带进 film.json，
+    //   由 tools/film-to-page.mjs 的语法层解释（本文件只负责"排版纪律与配额"）。
+    spec: opts.spec || undefined,
+    note: '由 tools/arrange.mjs 自动编排（★VF_ARRANGE_V3 + ★VF_RATIO_V1：素材驱动 · 大图:填图 = '
+      + Math.round(RATIO * 10) + ':' + (10 - Math.round(RATIO * 10)) + ' · 完整大图 ' + plateCount + '/' + used
+      + '，' + used + '/' + M.length + ' 张出镜）；可手工微调 scenes。',
     total, scenes }
 }
 
@@ -172,6 +211,8 @@ if (isCli) {
     pack: arg('pack', 'reel-showcase'),
     id: arg('id', 'auto'),
     media,
+    // ★VF_RATIO_V1：--plate-ratio 0~1（大图:填图）；不给 ⇒ 默认 5:5
+    plateRatio: arg('plate-ratio', '') === '' ? undefined : Number(arg('plate-ratio', '')),
     slots: { title1: arg('title', DEF.title1), title2: arg('title2', DEF.title2), sub: arg('sub', DEF.sub) },
   })
   const out = arg('out', '')
