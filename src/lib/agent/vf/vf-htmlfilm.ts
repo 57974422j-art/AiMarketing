@@ -28,6 +28,8 @@ import { filmToolsDir, planFilm, makeFilmFromMaterials, filmDoneProtocol } from 
 // ★VF_CHARSET_V1（2026-10-09 用户实测「降级之后照样被 fonts 闸门拦」）：
 //   把文案压回字体子集内的**唯一实现**（涮→烫、其余表外字删掉；只做减法不编造）
 import { loadCharset, sanitizeText, sanitizeSlots } from './charset'
+// ★VF_FILMCOPY_V5：骨架 ↔ 文案的**唯一对齐口径**（按段号归位 + 只补缺口）—— 单列成模块便于单测
+import { alignCopy, mergeSlots } from './film-copy-align'
 
 const HTMLFILM_TAG = 'vf_draft_htmlfilm'
 const HTMLFILM_PREFIX = 'HTML成片草稿:'
@@ -341,6 +343,8 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
   //    读图失败**不判死**（少点信息也比卡住好；文案本身仍必须写出来）。
   let summary = ''
   let readN = 0
+  // ★VF_FILMCOPY_V5：读图失败的真因（老实现被 catch 吞掉 ⇒ 用户只看到"没有读图总结可兜底"）
+  let vlErr = ''
   try {
     const { signedUrl } = await import('@/lib/oss')
     const { describeImagesWithVL } = await import('@/lib/ai-providers')
@@ -352,14 +356,22 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
       for (const m of batch) {
         try { urls.push(await signedUrl('storage/' + uid + '/' + m.name, 3600)) } catch { /* 单张失败跳过 */ }
       }
-      if (!urls.length) continue
-      try {
-        const r = await describeImagesWithVL(urls,
-          '这是一组【餐饮/美食实拍】照片（第 ' + (bi + 1) + ' 批，共 ' + batches + ' 批）。'
-          + '只回两段：第一段一句话总结这批素材是什么（≤30 字）；第二段逐张一行说清每张拍的是什么（菜名/场景），不要编号、不要多余解释。', 700)
-        if (String(r || '').trim()) parts.push(String(r).trim())
-        readN += urls.length
-      } catch { /* 单批失败跳过，继续下一批（后面闸门会兜底） */ }
+      if (!urls.length) { if (!vlErr) vlErr = '素材签名 URL 拿不到（OSS 签名失败？）'; continue }
+      const ask = '这是一组【餐饮/美食实拍】照片（第 ' + (bi + 1) + ' 批，共 ' + batches + ' 批）。'
+        + '只回两段：第一段一句话总结这批素材是什么（≤30 字）；第二段逐张一行说清每张拍的是什么（菜名/场景），不要编号、不要多余解释。'
+      // ★VF_FILMCOPY_V5：读图失败**重试一次** —— 它不再只是"补充信息"，而是文案兜底的**唯一依据**；
+      //   而且失败原因必须**记下来**（老实现只 catch 掉 ⇒ 用户只看到"没有读图总结可兜底"，查不到真因）。
+      let okBatch = false
+      for (let tries = 1; tries <= 2 && !okBatch; tries++) {
+        try {
+          const r = await describeImagesWithVL(urls, ask, 700)
+          if (String(r || '').trim()) { parts.push(String(r).trim()); okBatch = true }
+          else if (!vlErr) vlErr = '视觉模型返回空'
+        } catch (e: any) {
+          if (!vlErr) vlErr = '视觉模型调用失败：' + String(e?.message || e).slice(0, 90)
+        }
+      }
+      if (okBatch) readN += urls.length
     }
     summary = parts.join('\n')
     vfLog(uid, `[HTML成片] 读图：${readN}/${picked.length} 张（分 ${batches} 批）· 素材 ${picked.length} 张（仓库候选 ${pick.pool.length}${pick.capped ? ' · 超上限砍 ' + pick.capped : ''}）`)
@@ -424,7 +436,12 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
     //   原来的"绝对不许写涮"改成软提示（否则 AI 会把正确菜名写成"烫"，反而更不像人话）。
     + '4. **用字**：写常用字即可（引擎字表覆盖 GB2312 全集 6763 字，「涮/糍/粑」这类都能写）；'
     + '尽量避开罕用字与异体字（真撞到表外字会被如实压回并告知，不会静默）。\n'
-    + '5. 只回一个 JSON 数组（长度 = 段数），元素形如 {"slots":{...}}；不要 markdown 围栏、不要解释。\n'
+    // ★VF_FILMCOPY_V5（2026-10-10 用户实测「段数 13 ≠ 14 ⇒ 整单不出片」）：
+    //   老要求是"数组长度 = 段数"——**让模型数够 N 个**，而 LLM 数数本来就不可靠（实测少回 1 段就整批作废）。
+    //   现口径：**每段带段号 `i`** ⇒ 服务端按 `i` 归位（错位风险=0），少哪段就只补哪段。
+    + '5. 只回一个 JSON 对象：{"scenes":[{"i":0,"slots":{…}},{"i":1,"slots":{…}},…]}；'
+    + '**每段一个、`i` 从 0 连续到 ' + (pl.scenes.length - 1) + '（绝不能漏段；宁可每段写短，也不要少一段）**；'
+    + '不要 markdown 围栏、不要解释。\n'
     // ★VF_VOICE_SPOKEN_V1（2026-10-09 用户实测「字幕/配音 = 画面大字，音画完全重复」）：
     //   **让模型多写一句"口播句"** —— 画面大字是"看"的（短、可断句、可横排），
     //   口播是"听"的（成句、口语、念得顺）。给了它，配音和字幕就不再是"念画面字"了。
@@ -454,23 +471,39 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
     return null
   }
   const planOut = pl.scenes.map((s) => ({ structure: s.structure, media: s.media, dur: s.dur }))
-  let arr: any[] | null = null
+  const N = pl.scenes.length
+  // ★VF_FILMCOPY_V5：不再"要一整批且长度全等"，而是**按段号归位 + 只补缺口**
+  let slotsArr: (any | null)[] | null = null
+  let missIdx: number[] = []
+  let extraN = 0
   let why = ''
-  for (let attempt = 1; attempt <= 2 && !arr; attempt++) {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const ask = attempt === 1
+      ? prompt
+      : (missIdx.length
+        // 第二轮**只补缺口**（补 1~2 段 ≫ 重写 N 段还要数对）
+        ? prompt + '\n\n⚠️ 上一次你漏了段。这次**只回这些段**（仍然要带 i）：'
+          + missIdx.map((k) => k + '（' + String((planOut[k] || {}).structure || '') + '）').join('、')
+          + '。格式：{"scenes":[{"i":<段号>,"slots":{…}}]} —— 不要解释、不要 markdown 围栏。'
+        : prompt + '\n\n⚠️ 上一次你的输出不合法（' + why + '）。这次**只回一个 JSON 对象**：'
+          + '{"scenes":[{"i":0,"slots":{…}},…]} —— i 从 0 连续到 ' + (N - 1) + '，不要解释、不要围栏。')
     let txt = ''
     try {
       // ★VF_FILMSRC_V2：注入的 genTextW 在模型不通时返回 null ⇒ 这里统一成字符串（下面 parseArr 已有兜底）
-      txt = String(await ctx.generateText(attempt === 1
-        ? prompt
-        : prompt + '\n\n⚠️ 上一次你的输出不合法（' + why + '）。这次**只回一个 JSON 对象**：{"scenes":[{"slots":{…}}]} —— 不要任何解释、不要 markdown 围栏、不要多余的数组。') || '')
+      txt = String(await ctx.generateText(ask) || '')
     } catch (e: any) {
       why = '模型调用失败：' + String(e?.message || e).slice(0, 80)
       break   // 模型都调不通 ⇒ 环境问题，走失败（不该硬造一条片）
     }
     const got = parseArr(txt)
     if (!got) { why = why || '不是合法 JSON'; continue }
-    if (got.length !== pl.scenes.length) { why = '段数 ' + got.length + ' ≠ ' + pl.scenes.length; continue }
-    arr = got
+    const al = alignCopy(got, N)
+    if (al.extra) extraN += al.extra
+    slotsArr = mergeSlots(slotsArr, al.slots)
+    missIdx = []
+    for (let k = 0; k < N; k++) if (!(slotsArr[k])) missIdx.push(k)
+    if (!missIdx.length) break
+    why = '缺 ' + missIdx.length + ' 段（第 ' + missIdx.slice(0, 6).map((k) => k + 1).join('、') + ' 段没写）'
   }
   // 校验（用字表 / 字数 / emoji）+ 剥数字卡字段
   let charset = ''
@@ -483,43 +516,59 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
   //   现口径：**先把文案压回字表内**（charset.ts：涮→烫、其余表外字删掉，只做减法、不换词不编造），
   //   再把"自动删/换了哪些字"如实告知（走 warn ⇒ 确认卡上那行提示）。
   const fixed: string[] = []
-  if (arr) {
-    for (let i = 0; i < arr.length; i++) {
-      let slots: any = Object.assign({}, (arr[i] || {}).slots || {})
+  // ★VF_FILMCOPY_V5：**兜底按段做**（老实现只在"整批为空"时才兜底 ⇒ 少一段就整单失败，用户实测翻车）
+  const filled: number[] = []
+  const derived = summary ? deriveCopyFromSummary(summary, pl.scenes) : null
+  let hardErr = ''
+  if (slotsArr) {
+    for (let i = 0; i < N; i++) {
+      const mine = slotsArr[i]
+      let slots: any = Object.assign({}, mine || (derived && derived[i] ? derived[i].slots : {}) || {})
+      if (!mine || !Object.keys(mine).length) filled.push(i)
       if (set.size) {
         const r = sanitizeSlots(slots, set)
         slots = r.slots
         for (const d of r.drops) fixed.push('第 ' + i + ' 段 ' + d.k + '「' + d.from + '」→「' + d.to + '」')
       }
       const all = JSON.stringify(slots)
-      if (/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(all)) { why = '第 ' + i + ' 段带 emoji'; copy.length = 0; break }
+      if (/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(all)) { hardErr = '第 ' + i + ' 段带 emoji'; break }
       const n = ['eyebrow', 'title', 'title1', 'title2', 'sub', 'tail', 'foot'].reduce((a, k) => a + String(slots[k] || '').length, 0)
         + (Array.isArray(slots.rows) ? slots.rows.join('').length : 0)
         + (Array.isArray(slots.chips) ? slots.chips.join('').length : 0)
-      if (n > 60) { why = '第 ' + i + ' 段 ' + n + ' 字（>60）'; copy.length = 0; break }
+      if (n > 60) { hardErr = '第 ' + i + ' 段 ' + n + ' 字（>60）'; break }
       delete slots.value; delete slots.unit; delete slots.kpi; delete slots.kpiTitle
       copy.push({ slots })
     }
   }
-  if (!copy.length && !arr) {
-    // ③ 降级：用读图总结拼一版（不卡死、也不编造）
-    if (!summary) return { ok: false, err: '文案模型没给出可用结果（' + why + '），且没有读图总结可兜底' }
-    vfLog(uid, '[HTML成片] AI 文案降级为"读图拼句"：' + why)
-    return { ok: true, summary, plan: planOut, copy: deriveCopyFromSummary(summary, pl.scenes),
-      warn: '⚠️ 这版文案没能由 AI 写好（' + why + '），已按**读图结果**自动拼了一版；建议点「← 换风格」重试一次。' }
-  }
+  if (hardErr) copy.length = 0   // 校验不过 ⇒ 整批不用（保持老口径：宁可降级，也不出违规文案）
   if (!copy.length) {
-    if (!summary) return { ok: false, err: 'AI 文案没过校验（' + why + '），且没有读图总结可兜底' }
-    vfLog(uid, '[HTML成片] AI 文案没过校验 → 降级为"读图拼句"：' + why)
-    return { ok: true, summary, plan: planOut, copy: deriveCopyFromSummary(summary, pl.scenes),
-      warn: '⚠️ 这版文案没过校验（' + why + '），已按**读图结果**自动拼了一版；建议点「← 换风格」重试一次。' }
+    // ③ 降级：用读图总结拼一版（不卡死、也不编造）。**失败时把真因说全**（模型 + 读图各一条）
+    const reason = '文案：' + (hardErr || why || '模型没给出可用结果')
+      + '；读图：' + (summary ? '有总结可用' : (vlErr || '没有成功读图（原因未记录）'))
+    if (!summary) return { ok: false, err: reason + ' —— **没有出片**。可稍后重试（读图/模型偶发失败），或回上一步换一批素材。' }
+    vfLog(uid, '[HTML成片] AI 文案降级为"读图拼句"：' + (hardErr || why))
+    return { ok: true, summary, plan: planOut, copy: derived || deriveCopyFromSummary(summary, pl.scenes),
+      warn: '⚠️ 这版文案没能由 AI 写好（' + (hardErr || why) + '），已按**读图结果**自动拼了一版；建议点「← 换风格」重试一次。' }
   }
-  // ★VF_CHARSET_V1：如实告知"哪几处被压回字表"（不悄悄改文案，也不因此卡住出片）
-  const warnFix = fixed.length
-    ? ('ℹ️ 有 ' + fixed.length + ' 处用字不在引擎字表内，已自动压回（表外字删掉，只做减法不换词）：'
+  // 兜底补完仍是空的段 ⇒ 明确失败（空文案页会被下游 no-copy 闸门拦，不如这里说清）
+  const emptyIdx: number[] = []
+  copy.forEach((c, i) => { if (!Object.keys((c && c.slots) || {}).length) emptyIdx.push(i) })
+  if (emptyIdx.length) {
+    return { ok: false, err: '第 ' + emptyIdx.slice(0, 6).map((k) => k + 1).join('、') + ' 段没有任何文案（模型漏写、读图词也不够补）'
+      + '（' + (why || '') + '）—— **没有出片**。可稍后重试，或回上一步换一批素材 / 换风格。' }
+  }
+  // 如实告知：① 哪几段是兜底补的（这版是拼的）② 哪几处用字被压回字表
+  const warnParts: string[] = []
+  if (filled.length) {
+    warnParts.push('⚠️ 第 ' + filled.slice(0, 6).map((k) => k + 1).join('、') + ' 段文案模型没写，已按**读图结果**补齐'
+      + (filled.length > 6 ? '（共 ' + filled.length + ' 段）' : '') + '；建议点「← 换风格」重试一次会更顺。')
+  }
+  if (extraN) warnParts.push('ℹ️ 模型多写了 ' + extraN + ' 段（已忽略，不会串页）')
+  if (fixed.length) {
+    warnParts.push('ℹ️ 有 ' + fixed.length + ' 处用字不在引擎字表内，已自动压回（表外字删掉，只做减法不换词）：'
       + fixed.slice(0, 4).join('；') + (fixed.length > 4 ? ' …' : ''))
-    : ''
-  return { ok: true, summary, plan: planOut, copy, warn: warnFix }
+  }
+  return { ok: true, summary, plan: planOut, copy, warn: warnParts.join('\n') }
 }
 
 /* ───────────────────────── 三张卡（都走 VF_JSON，客户端按 step 选组件）───────────────────────── */
