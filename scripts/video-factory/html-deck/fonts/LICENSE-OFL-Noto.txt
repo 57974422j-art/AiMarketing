@@ -1,0 +1,120 @@
+fonts/ 内嵌字体的许可 —— SIL Open Font License 1.1
+====================================================================
+本目录内的两个 woff2（NotoSansSC-sub.woff2 / NotoSerifSC-sub.woff2）是下面字体的
+**子集化派生版（Modified Version）**，由 fonts/make-fonts.py 从源 TTF 生成：
+
+  源字体 1 : Noto Sans SC    版本 2.04   (UniqueID 2.004;ADBO;NotoSansSC-Thin;ADOBE)
+  源字体 2 : Noto Serif SC   版本 2.02   (UniqueID 2.002;GOOG;NotoSerifSC-ExtraLight;ADOBE)
+  厂商     : Adobe
+  源文件   : C:\Windows\Fonts\NotoSansSC-VF.ttf / NotoSerifSC-VF.ttf（本机生成；服务器不跑生成器）
+
+字体自身声明的版权与许可（取自字体 name 表，**逐字**，未改写）：
+  Noto Sans SC  [0 Copyright]   © 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.
+  Noto Sans SC  [7 Trademark]   Source is a trademark of Adobe in the United States and/or other countries.
+  Noto Serif SC [0 Copyright]   © 2017-2023 Adobe (http://www.adobe.com/).
+  Noto Serif SC [7 Trademark]   Noto is a trademark of Google Inc.
+  两者 [13 LicenseDescription]  This Font Software is licensed under the SIL Open Font License, Version 1.1.
+                                This Font Software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+                                CONDITIONS OF ANY KIND, either express or implied. See the SIL Open Font
+                                License for the specific language, permissions and limitations governing your
+                                use of this Font Software.
+  两者 [14 LicenseURL]          http://scripts.sil.org/OFL
+
+我们的合规口径（逐条对照 OFL 1.1）：
+  · 第 2 条（随副本保留版权声明与本许可）：**本文件即为此用** —— 子集 woff2 与本文件同目录、随引擎一起分发。
+  · 第 3 条（保留字体名）：保留名是 'Source'（属 Adobe），我们的子集**没有**使用该名；
+    字体主名仍沿用 'Noto Sans SC' / 'Noto Serif SC'（'Noto' 是 Google 商标，OFL **不授予商标权**，此处仅作字体名沿用）。
+  · 第 5 条（不得换许可）：本目录 woff2 只以 OFL 1.1 分发；
+    但**用这些字体做出来的作品（成片 / 图片 / 文档）不受本许可约束**（第 5 条末句明确写着）。
+  · 第 1 条：不得**单独售卖**字体文件本身（随软件/服务分发不受限）。
+  · 结论：**免费商用**成立。⚠️ 但若要**新增/替换字体**，必须逐款核授权（商业字库需购买；「个人免费」≠ 商用免费）。
+
+官方全文镜像（校对用）：https://openfontlicense.org/documents/OFL.txt
+--------------------------------------------------------------------
+
+-----------------------------------------------------------
+SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
+-----------------------------------------------------------
+
+PREAMBLE
+The goals of the Open Font License (OFL) are to stimulate worldwide
+development of collaborative font projects, to support the font creation
+efforts of academic and linguistic communities, and to provide a free and
+open framework in which fonts may be shared and improved in partnership
+with others.
+
+The OFL allows the licensed fonts to be used, studied, modified and
+redistributed freely as long as they are not sold by themselves. The
+fonts, including any derivative works, can be bundled, embedded,
+redistributed and/or sold with any software provided that any reserved
+names are not used by derivative works. The fonts and derivatives,
+however, cannot be released under any other type of license. The
+requirement for fonts to remain under this license does not apply
+to any document created using the fonts or their derivatives.
+
+DEFINITIONS
+"Font Software" refers to the set of files released by the Copyright
+Holder(s) under this license and clearly marked as such. This may
+include source files, build scripts and documentation.
+
+"Reserved Font Name" refers to any names specified as such after the
+copyright statement(s).
+
+"Original Version" refers to the collection of Font Software components as
+distributed by the Copyright Holder(s).
+
+"Modified Version" refers to any derivative made by adding to, deleting,
+or substituting -- in part or in whole -- any of the components of the
+Original Version, by changing formats or by porting the Font Software to a
+new environment.
+
+"Author" refers to any designer, engineer, programmer, technical
+writer or other person who contributed to the Font Software.
+
+PERMISSION & CONDITIONS
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of the Font Software, to use, study, copy, merge, embed, modify,
+redistribute, and sell modified and unmodified copies of the Font
+Software, subject to the following conditions:
+
+1) Neither the Font Software nor any of its individual components,
+in Original or Modified Versions, may be sold by itself.
+
+2) Original or Modified Versions of the Font Software may be bundled,
+redistributed and/or sold with any software, provided that each copy
+contains the above copyright notice and this license. These can be
+included either as stand-alone text files, human-readable headers or
+in the appropriate machine-readable metadata fields within text or
+binary files as long as those fields can be easily viewed by the user.
+
+3) No Modified Version of the Font Software may use the Reserved Font
+Name(s) unless explicit written permission is granted by the corresponding
+Copyright Holder. This restriction only applies to the primary font name as
+presented to the users.
+
+4) The name(s) of the Copyright Holder(s) or the Author(s) of the Font
+Software shall not be used to promote, endorse or advertise any
+Modified Version, except to acknowledge the contribution(s) of the
+Copyright Holder(s) and the Author(s) or with their explicit written
+permission.
+
+5) The Font Software, modified or unmodified, in part or in whole,
+must be distributed entirely under this license, and must not be
+distributed under any other license. The requirement for fonts to
+remain under this license does not apply to any document created
+using the Font Software.
+
+TERMINATION
+This license becomes null and void if any of the above conditions are
+not met.
+
+DISCLAIMER
+THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT
+OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
+DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
+OTHER DEALINGS IN THE FONT SOFTWARE.

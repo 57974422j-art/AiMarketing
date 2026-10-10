@@ -7,8 +7,11 @@ fonts/make-fonts.py —— 内嵌字体（**两套母版共用的唯一一份**�
 旧做法只从"母版源码"收字（中文仅来自注释）⇒ 只覆盖 437 个码点，而 deck 实际文本有 250+ 常用字不在其中。
 
 本脚本的字符集（**方案 A：静态大子集**）：
-  1. **GB2312 一级字表 3755 字**（区 0xB0–0xD7 × 位 0xA1–0xFE，可由代码**确定性枚举**；
-     与《通用规范汉字表》一级字表 ≈3500 字的量级一致。若将来要换成官方字表，直接替换 chars-cmn.txt 即可）
+  1. **GB2312 全集汉字 6763 字**（一级 0xB0–0xD7 + 二级 0xD8–0xF7 × 位 0xA1–0xFE，由代码**确定性枚举**）
+     —— ★扩表 B（2026-10-10 用户定案）：原来是**一级 3755 字**，用户实测老被字表闸门拦
+     （「涮 / 糍 / 粑 / 檐」这类二级字都是正经菜名/地名词）⇒ 扩到**全集**。
+     实测体积代价：sans 1047→（见 README 表）；serif 1376→（见 README 表）。
+     若要换成《通用规范汉字表》等其它表，直接替换 chars-cmn.txt 后重跑本脚本即可。
   2. ASCII 可见字符（0x20–0x7E）
   3. 中英标点与常用符号（与旧 subset-fonts.py 的安全集一致，并补 ～ ° ⇒ ← → ↑ ↓ 等）
 
@@ -30,10 +33,10 @@ PUNCT = ('　、。，；：？！…—～·《》〈〉「」『』（）【�
          '·•‰′″№＆＊＋－＝／＼｜＠＃＆％±§¶†‡※○●△▲□■☆★')
 
 
-def gb2312_level1():
-    """GB2312 一级汉字（3755 字）：高字节 0xB0–0xD7，低字节 0xA1–0xFE"""
+def gb2312_full():
+    """GB2312 全集汉字 6763 字：一级 0xB0–0xD7 + 二级 0xD8–0xF7，低字节 0xA1–0xFE"""
     out = []
-    for hi in range(0xB0, 0xD8):
+    for hi in range(0xB0, 0xF8):
         for lo in range(0xA1, 0xFF):
             try:
                 out.append(bytes([hi, lo]).decode('gb2312'))
@@ -46,8 +49,8 @@ def collect():
     cs = set()
     cs.update(chr(c) for c in range(0x20, 0x7F))          # ASCII 可见
     cs.update(PUNCT)
-    lv1 = gb2312_level1()
-    cs.update(lv1)
+    han = gb2312_full()
+    cs.update(han)
     # ★ 再并上"我们自己全部资产的文本"（母版源码 + 全部 examples/*.json）：
     #   常用表之外的字（如"渲 / 浏 / ⇒"这类只在注释里出现的二级字）也一并纳入，
     #   这样"我们已有的东西"覆盖是**构造性 100%**，闸门就专治**新 deck 的文本**（那才是真正的风险源）。
@@ -56,7 +59,7 @@ def collect():
             with open(p, encoding='utf-8') as f:
                 cs.update(f.read())
     cs -= {'\n', '\r', '\t', '\x00'}
-    return cs, len(lv1)
+    return cs, len(han)
 
 
 def asset_texts():
@@ -73,13 +76,13 @@ def asset_texts():
 
 
 def main():
-    cs, n_lv1 = collect()
+    cs, n_han = collect()
     txt = ''.join(sorted(cs))
     tf = os.path.join(BASE, 'chars-cmn.txt')
     with open(tf, 'w', encoding='utf-8') as f:
         f.write(txt)
-    print('GB2312 一级字表: %d 字' % n_lv1)
-    print('字符集合计    : %d 个码点 → %s' % (len(cs), os.path.basename(tf)))
+    print('GB2312 汉字: %d 字' % n_han)
+    print('字符集合计 : %d 个码点 → %s' % (len(cs), os.path.basename(tf)))
 
     for src, out in SOURCES:
         if not os.path.exists(src):

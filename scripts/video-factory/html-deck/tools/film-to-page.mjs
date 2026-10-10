@@ -82,7 +82,11 @@ export const SPEC_DEF = {
   image: { place: 'mat', complete: true },
   pacing: { minShotSec: 0 },
   motion: { img: 'push', ease: 'out', type: 'overlay', cross: 0.5 },
-  text: { titleForm: 'overlay', ornament: 'rule' },
+  // ★VF_SPEC_V1b（2026-10-10 用户问"要不要加些字体让设计上档次"）：**不换字体**也能提档次的三条 ——
+  //   text.weight   标题字重（100~900；字体是可变字体，权重随便给）
+  //   text.tracking 标题**字距**（em；大标题收紧、小标签拉开 —— 最见效的一条）
+  //   text.scale    **字号倍率**（只动标题，副题不动 ⇒ 拉开"字号阶梯"）
+  text: { titleForm: 'overlay', ornament: 'rule', weight: 800, tracking: 0.02, scale: 1 },
   gates: { minImageWidth: 0 },
 }
 const SPEC_ENUM = {
@@ -99,6 +103,10 @@ const SPEC_RANGE = {
   'motion.cross': [0.06, 0.8],
   'pacing.minShotSec': [0, 9],
   'gates.minImageWidth': [0, 720],
+  // ★VF_SPEC_V1b：文字排版三档（范围给得宽，但**越界会夹回并打印**）
+  'text.weight': [100, 900],
+  'text.tracking': [-0.04, 0.2],
+  'text.scale': [0.7, 1.4],
 }
 const isObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v)
 const getP = (o, p) => p.split('.').reduce((a, k) => (a == null ? undefined : a[k]), o)
@@ -147,7 +155,35 @@ export function specCss(spec) {
   const needTape = place === 'mat-tape' || orn === 'tape'
   const L = []
   L.push('/* ---- ★VF_SPEC_V1 语法层（L1 构图 / L2 动效 / L3 文本形态）---- */')
-  L.push('.sec{--matScale:' + sc + ';--ws:' + ws + '}')
+  L.push('.sec{--matScale:' + sc + ';--ws:' + ws
+    + ';--ttlW:' + Number(spec.text.weight) + ';--ttlTrack:' + Number(spec.text.tracking)
+    + 'em;--ttlScale:' + Number(spec.text.scale) + '}')
+  // ★VF_SPEC_V1b：**不换字体**也能提档次的三条（字重 / 字距 / 字号阶梯）——
+  //   字距那条最见效：大标题**收紧**（-0.02em）会显得"贵"，小标签**拉开**（+0.08~0.15em）会显得"精致"。
+  L.push('.sec .ttl{font-weight:var(--ttlW);letter-spacing:var(--ttlTrack)}')
+  // 字号阶梯：只放大/缩小**标题**（副题不动 ⇒ 阶梯拉开）。各结构的标题基数见下表。
+  const TTL_PX = {
+    'opening-hero': [['.t1', 78], ['.t2', 78]], 'works-wall': [['.ttl', 46]], 'glass-product': [['.ttl', 46]],
+    'fullbleed': [['.ttl', 56]], 'plate-top': [['.ttl', 56]], 'plate-bottom': [['.ttl', 56]],
+    'grid-2x2': [['.ttl', 46]], 'data-dashboard': [['.t1', 64]],
+  }
+  Object.keys(TTL_PX).forEach((st) => TTL_PX[st].forEach(([sel, px]) => {
+    L.push('.st-' + st + ' ' + sel + '{font-size:calc(' + px + 'px * var(--ttlScale))}')
+  }))
+  // ⚠️ 实测（本机首渲就被引擎 check 拦下）：标题一放大（scale 1.15）就**压住副题**
+  //   （content_overlap）。这是"声明放大"的必然代价 ⇒ 语法层**自动给副题让位**：
+  //   副题下移 (scale-1) × K，K 取标题基数的 ≈1.3 倍（一行行高的余量）。
+  //   （标题排到两三行时仍可能压 ⇒ 引擎 check 仍是最后一道防线。）
+  const SUB_PX = {
+    'opening-hero': [['.sub', '436px', 101]], 'works-wall': [['.sub', '242px', 60]], 'glass-product': [['.sub', '242px', 60]],
+    'fullbleed': [['.sub', '962px', 73]], 'plate-top': [['.sub', '292px', 73]],
+    // plate-bottom 的副题位置**已经**吃 whitespace（见上面那两行）⇒ 这里必须把两项都写上，不能覆盖掉
+    'plate-bottom': [['.sub', 'calc(880px + (1 - var(--matScale)) * 80px)', 73]],
+    'grid-2x2': [['.sub', '240px', 60]], 'data-dashboard': [['.ex', '280px', 83]],
+  }
+  Object.keys(SUB_PX).forEach((st) => SUB_PX[st].forEach(([sel, base, k]) => {
+    L.push('.st-' + st + ' ' + sel + '{top:calc(' + base + ' + (var(--ttlScale) - 1) * ' + k + 'px)}')
+  }))
   // ① L1：相纸尺寸随"留白档"变；文案跟着图走（plate-bottom 文在图下）
   L.push('.st-plate-top .plate{width:calc(696px * var(--matScale));height:calc(522px * var(--matScale));'
     + 'left:calc(' + ctr + ');top:calc(378px + (1 - var(--matScale)) * 96px)}')
