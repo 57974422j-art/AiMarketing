@@ -32,6 +32,14 @@ import { loadCharset, sanitizeText, sanitizeSlots } from './charset'
 const HTMLFILM_TAG = 'vf_draft_htmlfilm'
 const HTMLFILM_PREFIX = 'HTML成片草稿:'
 
+/** ★VF_FILMSRC_V2（2026-10-10 · P1）本线**代码版本戳**。
+ *  为什么必须有：草案存在 DB 里、骨架是"当时代码"排的；一旦部署/改版（结构表、arrange 规则、
+ *  闸门都变了），旧草案的**文案**与新代码排出的**骨架**必然错配 ——
+ *  用户实测那次就是：卡片按 12 张排 8 段、出片按 17 张排 12 段，后 4 镜空、被 copy 闸门拦。
+ *  口径：草案带版本；**出片前比对**，不一致 ⇒ **这一单作废**（明确让用户重走一遍），
+ *  不猜、不合并、不"用旧文案配新骨架"。**改这里的值 = 让所有在飞草案失效**（部署即作废的实现）。 */
+export const FILM_LINE_VERSION = 'film-2026-10-10-p1'
+
 export type HtmlFilmStep = 'mat' | 'style' | 'confirm'
 
 export type HtmlFilmDraft = {
@@ -66,6 +74,8 @@ export type HtmlFilmDraft = {
   filmJson?: any
   /** 编排判出来的赛道（出片复用，避免第二处口径） */
   vertical?: string
+  /** ★VF_FILMSRC_V2：排这一单时的**代码版本**（出片前比对：不一致 ⇒ 这单作废、要求重来） */
+  ver?: string
 }
 
 /** 进程内缓存（与 vf-ppt.ts 同形制：DB 是主，Map 是"这一回合的加速"） */
@@ -157,6 +167,8 @@ export async function loadHtmlFilmDraft(db: any, uid: number | string): Promise<
       readN: Number(j.readN) || 0,
       filmJson: (j.filmJson && typeof j.filmJson === 'object') ? j.filmJson : null,
       vertical: String(j.vertical || ''),
+      // ★VF_FILMSRC_V2：版本戳也要取回来（取不回来就当成"旧版本"⇒ 出片前作废要求重来，正好是想要的行为）
+      ver: String(j.ver || ''),
     }
   } catch { return null }
 }
@@ -352,6 +364,7 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
   vd.readN = readN
   vd.filmJson = filmJson
   vd.vertical = vertical
+  vd.ver = FILM_LINE_VERSION   // ★VF_FILMSRC_V2：文案与骨架是"这一版代码"排的
   // ④ 让模型按骨架填文案
   const guide = [
     'opening-hero  开场封面：slots{eyebrow,title1,title2,sub,foot}        media=1 张',
@@ -584,7 +597,8 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
   // ── ① 入口：清草稿 → 落**第一步草稿** → 出素材卡（铁律①：第一步就落草稿）
   if (ctx.isEntry) {
     await clearHtmlFilmDraft(prisma, uid)
-    const vd: HtmlFilmDraft = { step: 'mat', names: [], pack: '', topic: '' }
+    // ★VF_FILMSRC_V2：进线即打上**当前代码版本**（后面出片要拿它与代码比对）
+    const vd: HtmlFilmDraft = { step: 'mat', names: [], pack: '', topic: '', ver: FILM_LINE_VERSION }
     await saveHtmlFilmDraft(prisma, uid, vd)
     vfLog(uid, '[HTML成片] 进线 → 出素材卡（状态机第 1/3 步）')
     return await matCard(uid, vd)
@@ -641,6 +655,17 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
     const wantVoice = goF.voiced === undefined ? true : !!goF.voiced
     const vd = await loadHtmlFilmDraft(prisma, uid)
     if (!vd) return 'HTML成片：这一单已经结束了（没有进行中的流程）——请重新说一次「HTML成片」。'
+
+    // ★VF_FILMSRC_V2（P1 · 2026-10-10）：**版本戳比对** —— 草案是"上一版代码"排的（可能刚部署过），
+    //   它的文案与本次代码排出的骨架必然错配（用户实测：卡片 8 段 / 出片 12 段 ⇒ 后 4 镜空）。
+    //   口径：**这一单作废、明确让用户重走一遍**（不猜、不合并、不用旧文案配新骨架）。
+    //   ⇒ 这就是"部署即作废在飞草案"的实现：改 FILM_LINE_VERSION 一处，所有在飞草案全部失效。
+    if (String(vd.ver || '') !== FILM_LINE_VERSION) {
+      await clearHtmlFilmDraft(prisma, uid)
+      vfLog(uid, '[HTML成片] 草案版本过期（' + (vd.ver || '无版本') + ' ≠ ' + FILM_LINE_VERSION + '）⇒ 已作废，要求重来一次')
+      return 'HTML成片：这一单是**旧版本**排出来的（脚本/模板刚更新过），为避免"卡片上的文案与成片骨架对不上"，'
+        + '**已把它作废、没有出片**。请重新说一次「HTML成片」重走一遍（素材还在个人仓库里，勾选约 1 分钟）。'
+    }
 
     // ★VF_FILMSRC_V1：**先判这单自不自洽，再去下载素材**（顺序有意提前：省一次下载；
     //   也让它离线可测）。骨架段数必须等于文案条数 —— 不一致就明确拒渲，

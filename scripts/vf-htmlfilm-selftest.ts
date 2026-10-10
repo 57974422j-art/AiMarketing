@@ -9,7 +9,7 @@
 // 说明：用**内存假 prisma**（只实现本线用到的 4 个方法）⇒ 不连数据库、不碰 OSS、不真出片、不花钱。
 import {
   handleHtmlFilmLine, htmlFilmPacks, saveHtmlFilmDraft, pickFilmMaterials,
-  FILM_MAT_MAX, FILM_POOL_MAX, FILM_DEFAULT_RECENT,
+  FILM_MAT_MAX, FILM_POOL_MAX, FILM_DEFAULT_RECENT, FILM_LINE_VERSION,
 } from '../src/lib/agent/vf/vf-htmlfilm'
 import { matchStdCommand } from '../src/lib/agent/standard-commands'
 
@@ -128,9 +128,18 @@ async function selftestFilmSrc(db: any, uid: number, ok: (c: boolean, l: string,
   ok(pMiss.missing.length === 1, '勾选的文件找不到 ⇒ 进 missing（**绝不静默换素材**，换了文案就张冠李戴）',
     `missing=${pMiss.missing.join(',')}`)
 
-  // 骨架 12 段 + 文案 8 条 ⇒ 必须拒渲（就是那次事故的形状）
+  // ★VF_FILMSRC_V2（P1）：**旧版本草案** ⇒ 出片前作废、明确要求重来（不做"旧文案配新骨架"）
   await saveHtmlFilmDraft(db, uid, {
     step: 'confirm', names: ['a.jpg'], pack: '',
+    copy: [{ slots: { title: 'x' } }],
+  } as any)   // ← 故意不带 ver（= 部署前留下的在飞草案）
+  const cOld = await handleHtmlFilmLine({ uid, userMessage: 'VF_FILM_GO:{"voiced":false}', prisma: db })
+  ok(String(cOld).includes('旧版本') && String(cOld).includes('已把它作废'),
+    '旧版本草案 ⇒ **作废并提示重走**（部署即作废在飞草案的实现）', String(cOld).slice(0, 30))
+
+  // 骨架 12 段 + 文案 8 条 ⇒ 必须拒渲（就是那次事故的形状；这次带上**当前版本**以绕过版本戳）
+  await saveHtmlFilmDraft(db, uid, {
+    step: 'confirm', names: ['a.jpg'], pack: '', ver: FILM_LINE_VERSION,
     filmJson: { scenes: new Array(12).fill({ structure: 'plate-top', media: ['a.jpg'] }) },
     copy: new Array(8).fill({ slots: { title: 'x' } }),
   } as any)
@@ -143,12 +152,18 @@ async function selftestFilmSrc(db: any, uid: number, ok: (c: boolean, l: string,
   // `fullbleed-kenburns`）⇒ 校验器把满屏段当非法结构**悄悄改成开场卡**（用户看到"某页莫名变封面"）。
   try {
     const fs = await import('node:fs')
-    const { FILM_STRUCTS } = await import('../scripts/video-factory/html-deck/tools/film-to-page.mjs')
+    // ⚠️ 刻意**不 import 引擎的 .mjs**（实测：tsx 下 import 它会让进程退出时踩 libuv 断言
+    //   `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)` ⇒ 断言全过却拿非 0 退出码，
+    //   CI/脚本会误判成失败）。改成**读源码文本取 FILM_STRUCTS**（一行正则，稳定且零副作用）。
+    const src = fs.readFileSync(new URL('../scripts/video-factory/html-deck/tools/film-to-page.mjs', import.meta.url), 'utf8')
+    const line = src.split(/\r?\n/).find((l: string) => /export const FILM_STRUCTS\s*=/.test(l)) || ''
+    const FILM_STRUCTS = (line.match(/'([a-z0-9-]+)'/g) || []).map((x: string) => x.replace(/'/g, ''))
     const sj = JSON.parse(fs.readFileSync(new URL('../scripts/video-factory/html-deck/elements/structures.json', import.meta.url), 'utf8'))
     const ids = new Set((sj.items || []).map((x: any) => String(x.id)))
-    const lack = (FILM_STRUCTS as string[]).filter((s) => !ids.has(s))
-    ok(lack.length === 0, '引擎实现的结构**都登记在** elements/structures.json（防"库里没有 ⇒ 被悄悄改掉"）',
-      `引擎 ${(FILM_STRUCTS as string[]).length} 种；缺登记：${lack.join('、') || '无'}`)
+    const lack = FILM_STRUCTS.filter((s) => !ids.has(s))
+    ok(FILM_STRUCTS.length > 0 && lack.length === 0,
+      '引擎实现的结构**都登记在** elements/structures.json（防"库里没有 ⇒ 被悄悄改掉"）',
+      `引擎 ${FILM_STRUCTS.length} 种；缺登记：${lack.join('、') || '无'}`)
   } catch (e: any) {
     ok(false, '结构表↔引擎一致性自检可运行', String(e?.message || e).slice(0, 80))
   }
