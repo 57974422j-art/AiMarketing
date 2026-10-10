@@ -197,6 +197,10 @@ const STRUCTS = [
 const rules = [
   '【硬规矩 · 服务端会逐条校验，违反即返工】',
   '1. 素材共 ' + media.length + ' 张，**每一张都必须出镜、且每张只能用一次**（media 数组里填上面给的"编号"）。',
+  // ★VF_FILMGEN_V7（2026-10-10 服务器实测：4 张猫照 + 主题"火锅店" ⇒ 模型干脆回了空分镜）：
+  //   明确"素材优先" —— 主题只影响用词/语气，**内容必须以画面事实为准**，不许因为"主题不符"就摆烂。
+  '1b. **素材优先**：如果素材与主题明显不是一回事（例如主题写"火锅店"但图里是别的东西），'
+    + '**照样按素材本身排**（写画面里真有的），主题只影响语气/用词。**不许因此返回空分镜或拒绝**。',
   '2. 结构只能用这 7 种（不许自创）：\n  ' + STRUCTS,
   '3. 首镜必须是 opening-hero，末镜必须是 glass-product；中间用 plate-top / plate-bottom / fullbleed / works-wall / grid-2x2 组合，**总镜数 = 由素材张数决定（' + media.length + ' 张 ⇒ 自己算，不许砍素材）**。',
   // ★VF_FILMGEN_V6（2026-10-10 用户定案「每 10 张图必须有 3~4 张完整大图」+「完整还是铺满由 AI 按页决定」）：
@@ -223,13 +227,64 @@ const prompt = '你是一位竖屏短视频（9:16）分镜师。主题：' + PI
   + '可用素材（编号. 画面内容）：\n' + imgList + '\n\n' + rules
 
 console.log('  ② 写分镜（' + writer + '）…')
+// ★VF_FILMGEN_V7（2026-10-10 用户服务器实测「0 镜 · 素材 0 张」+ 音轨 concat 报错）：
+//   老实现只校验"**能解析成 JSON**"，不校验**形状** —— 模型回 `{"scenes":[]}`（或别的对象）
+//   也被当成"成功" ⇒ 空分镜被写盘、还接着跑 `--render` ⇒ ffmpeg 拼空音轨 ⇒
+//   `concat.txt: Invalid data found when processing input`（用户看到的那个错，指不到真因）。
+//   现口径：① 形状校验（必须非空 scenes、每镜有 structure）；② 模型调用失败/两次都不合格 ⇒
+//   **把模型原文存下来 + 不出片**（不许静默产出空分镜）；③ 空分镜**不进 render**。
+const TEST = String(process.env.VF_FILMGEN_TEST || '')
+if (TEST) console.log('  ⚠ VF_FILMGEN_TEST=' + TEST + '（仅自检用：跳过真模型，注入固定分镜）')
+const rawLog = []
+const saveRaw = () => {
+  try {
+    fs.mkdirSync(path.dirname(outFile), { recursive: true })
+    fs.writeFileSync(outFile.replace(/\.json$/, '.raw.txt'), rawLog.join('\n\n===== 第 ' + '次 =====\n\n'), 'utf8')
+    console.log('     模型原文已存：' + path.relative(HERE, outFile.replace(/\.json$/, '.raw.txt')).replace(/\\/g, '/'))
+  } catch { /* 存不下来不影响主流程 */ }
+}
+const shapeOk = (j) => !!(j && Array.isArray(j.scenes) && j.scenes.length
+  && j.scenes.every((s) => s && typeof s === 'object' && s.structure))
+const fakeFilm = (kind) => (kind === 'empty-scenes'
+  ? { id: 't', name: 't', scenes: [] }
+  : { id: 't', name: 't', scenes: [{ structure: 'opening-hero', slots: { title1: '测试' }, media: [1], voice: '测试' }] })
 let film = null
+let why = ''
 for (let attempt = 1; attempt <= 2 && !film; attempt++) {
-  const txt = await chat(writer, [{ role: 'user', content: prompt }], 4000)
-  try { film = jsonOf(txt) } catch (e) {
-    console.log('    第 ' + attempt + ' 次解析失败：' + String(e.message).slice(0, 140))
-    if (attempt === 2) process.exit(1)
+  let txt = ''
+  try {
+    txt = TEST ? JSON.stringify(fakeFilm(TEST)) : await chat(writer, [{
+      role: 'user',
+      content: prompt + (attempt > 1
+        ? '\n\n⚠️ 上一次你的输出不合格（' + why + '）。这次**只回一个 JSON 对象**（不要 markdown 围栏、不要解释），'
+          + '且**必须含非空 scenes 数组**、每镜都要有 structure / media / voice。'
+        : ''),
+    }], 4000)
+    rawLog.push(txt)
+  } catch (e) {
+    why = '模型调用失败：' + String((e && e.message) || e).slice(0, 100)
+    console.log('    第 ' + attempt + ' 次 ' + why)
+    continue   // 交给循环条件决定是否重试；两次都失败 ⇒ 下面统一报错 + 不出片
   }
+  try { film = jsonOf(txt) } catch (e) {
+    why = 'JSON 解析失败：' + String(e.message).slice(0, 120)
+    console.log('    第 ' + attempt + ' 次 ' + why)
+    continue
+  }
+  if (!shapeOk(film)) {
+    why = '形状不合格（scenes ' + (Array.isArray(film && film.scenes) ? film.scenes.length + ' 镜' : '缺失') + '）'
+    console.log('    第 ' + attempt + ' 次 ' + why)
+    film = null
+    continue
+  }
+}
+// ★VF_FILMGEN_V7：两次都没拿到合格分镜 ⇒ **如实报因 + 存原文 + 不出片**（不写空分镜、不进 render）
+if (!film) {
+  saveRaw()
+  console.error('  ✗ 没能拿到合格分镜（' + (why || '未知') + '）⇒ **不出片**。'
+    + '常见原因：① 素材与 --pitch 明显不符（模型干脆不排）；② 素材太少或全是同一种画面；③ 模型返回了非 JSON / 空 scenes。'
+    + '请拿上面那份 .raw.txt 核对模型到底回了什么。')
+  process.exit(1)
 }
 
 // ---------- ③ 服务端校验（硬规矩，不靠模型自觉） ----------
@@ -253,7 +308,9 @@ const longText = (film.scenes || []).map((s, i) => {
 const noVoice = (film.scenes || []).map((s, i) => (String(s.voice || '').trim() ? '' : 's' + i)).filter(Boolean)
 const emoji = JSON.stringify(film).match(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu)
 const chk = []
-chk.push(['17 张全用且各一次', used.length === media.length && uniq.length === media.length, used.length + '/' + media.length + '（去重 ' + uniq.length + '）'])
+// ★VF_FILMGEN_V7：张数**按实际素材数**打印（老实现写死"17 张"，换素材后会误导 ——
+//   用户服务器上 4 张素材时那一行显示的就是"17 张全用且各一次 0/4"，看着像两回事）
+chk.push([media.length + ' 张全用且各一次', used.length === media.length && uniq.length === media.length, used.length + '/' + media.length + '（去重 ' + uniq.length + '）'])
 chk.push(['素材文件都存在', missFiles.length === 0, missFiles.length ? missFiles.length + ' 个缺失' : 'ok'])
 chk.push(['结构都在白名单', badStruct.length === 0, badStruct.length ? badStruct.join(',') : 'ok'])
 chk.push(['独立信息卡 ≤1', noCard.length <= 1, '无图镜 ' + noCard.length + ' 张'])
@@ -296,6 +353,21 @@ console.log('  ' + (bad ? '⚠' : '✓') + ' 分镜：' + path.relative(HERE, ou
 console.log('    旁白：' + path.relative(HERE, outFile.replace(/\.json$/, '.voice.json')).replace(/\\/g, '/'))
 
 // ---------- ⑤ 直接出片（audio-first：TTS 实测时长 + 字幕 + 混音 + 烧字幕） ----------
+// ★VF_FILMGEN_V7：**退化分镜不进 render** —— 空分镜/一图未用 ⇒ 明确报错停手
+//   （老实现照样往下跑 ⇒ ffmpeg 拼空音轨报 `concat.txt: Invalid data found…`，用户看到的那个错
+//    指不到真因，还会在 out/ 里留一个半成品目录）。
+{
+  const sceneN = (film.scenes || []).length
+  const usedN = (film.scenes || []).reduce((a, s) => a + ((s.media || []).length), 0)
+  if (!sceneN || !usedN) {
+    console.error('  ✗ 分镜退化（' + sceneN + ' 镜 / 用图 ' + usedN + ' 张）⇒ **不出片**。'
+      + '多半是模型没按 schema 回（看同目录的 .raw.txt），或素材与 --pitch 不符 / 素材太少。')
+    process.exit(1)
+  }
+  if (usedN < media.length) {
+    console.log('  ⚠ 素材只用了 ' + usedN + '/' + media.length + ' 张（上面那条检查不达标）⇒ 片子偏短，但仍会出片')
+  }
+}
 if (has('render')) {
   console.log('  ③ audio-first 出片（TTS → 实测时长 → 渲染 → 混音烧字幕）…')
   const r = spawnSync(process.execPath, [path.join(DECK, 'tools', 'film-voice.mjs'), outFile],
