@@ -8,7 +8,7 @@
 //
 // 说明：用**内存假 prisma**（只实现本线用到的 4 个方法）⇒ 不连数据库、不碰 OSS、不真出片、不花钱。
 import {
-  handleHtmlFilmLine, htmlFilmPacks, saveHtmlFilmDraft, pickFilmMaterials,
+  handleHtmlFilmLine, htmlFilmPacks, saveHtmlFilmDraft, pickFilmMaterials, deriveCopyFromSummary,
   FILM_MAT_MAX, FILM_POOL_MAX, FILM_DEFAULT_RECENT, FILM_LINE_VERSION,
 } from '../src/lib/agent/vf/vf-htmlfilm'
 import { matchStdCommand } from '../src/lib/agent/standard-commands'
@@ -146,6 +146,19 @@ async function selftestFilmSrc(db: any, uid: number, ok: (c: boolean, l: string,
   const cBad = await handleHtmlFilmLine({ uid, userMessage: 'VF_FILM_GO:{"voiced":false}', prisma: db })
   ok(String(cBad).startsWith('TOOL_REJECT') && String(cBad).includes('12 段') && String(cBad).includes('8 条'),
     '骨架 12 段 / 文案 8 条 ⇒ **拒渲**（不做"旧文案塞新骨架"的硬合并）', String(cBad).slice(0, 44))
+
+  // ★VF_FILMCOPY_V4（P2）：**降级拼句不许写"做法"** —— 视觉模型最容易猜错做法
+  //   （现场实例：把一盘生毛肚读成「烤制牛肚」）⇒ 含做法动词的读图词整条丢掉。
+  try {
+    const copy = deriveCopyFromSummary(
+      '这是一组火锅实拍。\n烤制牛肚\n冰镇虾滑\n肥牛卷摆盘\n墨鱼仔配酱料',
+      [{ structure: 'plate-top', media: ['a.jpg'] }, { structure: 'plate-bottom', media: ['b.jpg'] }] as any)
+    const txt = JSON.stringify(copy)
+    ok(copy.length === 2 && !/烤/.test(txt), '降级拼句：丢掉"做法"词（烤制牛肚），数量与骨架一致（2 段/2 条）',
+      txt.slice(0, 60))
+  } catch (e: any) {
+    ok(false, '降级拼句自检可运行', String(e?.message || e).slice(0, 80))
+  }
 
   // ★VF_FILMFORK_V1（2026-10-10）：**结构表 ↔ 引擎**一致性 —— 引擎实现的每个结构都必须在
   // `elements/structures.json` 里登记。为什么钉这条：库里少了 `fullbleed`（只写了原型名

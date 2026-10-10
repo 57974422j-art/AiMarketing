@@ -264,11 +264,25 @@ function scanJson(text: string): any | null {
  *       （本例：「涮羊肉片」的「涮」）⇒ 降级反而制造下一次失败（引擎 fonts 闸门拦死出片）。
  *    ② **修"每条都一样"** —— 老实现 `lines[min(len-1, i)]` ⇒ 词用完后后面几镜全重复同一句
  *       （用户截图就是"烤鸭肉 · 涮羊肉片 毛肚…"重复 5 次）；现在按镜号**轮着用**词，并优先取短词（菜名）。 */
-function deriveCopyFromSummary(summary: string, scenes: Array<{ structure: string; media: string[] }>): any[] {
+export function deriveCopyFromSummary(summary: string, scenes: Array<{ structure: string; media: string[] }>): any[] {
   const set = loadCharset(path.join(filmToolsDir(), 'fonts', 'chars-cmn.txt'))
   const raw = String(summary || '')
     .split(/[\n；;，。,.、:：]+/).map((s) => s.replace(/^\s*[\d.、)）]+\s*/, '').trim())
-  const all = raw.filter((s) => s.length >= 2)
+  const all0 = raw.filter((s) => s.length >= 2)
+  // ★VF_FILMCOPY_V4（2026-10-10 · P2）：**降级时不写"做法"** —— 视觉模型最爱把做法猜错
+  //   （用户现场实例：把一盘生毛肚读成「**烤制**牛肚」）。降级拼句本就是从读图词里取词，
+  //   一旦把猜错的做法词当标题写进画面，就是"拿错的东西当事实"。
+  //   口径：读图词里**含做法动词的整条丢掉**（烤/炸/卤/蒸/煮/炒/炖/焖/煎/拌/腌/熏/烧）；
+  //   只有"所有候选都带做法"时才退回去用（宁可少信息，也不能整片文案空着）。
+  const COOK = /[烤炸卤蒸煮炒炖焖煎拌腌熏烧]/
+  const all = (() => {
+    const clean = all0.filter((s) => !COOK.test(s))
+    if (clean.length >= 2) {
+      if (clean.length !== all0.length) console.log('[film] 降级拼句：丢掉 ' + (all0.length - clean.length) + ' 条含"做法"的读图词（做法容易认错）')
+      return clean
+    }
+    return all0
+  })()
   const shortWords = all.filter((s) => s.length <= 8)                 // 优先短词（菜名/场景名），别把整句塞进标题
   const words = (shortWords.length >= 2 ? shortWords : all)
     .map((w) => sanitizeText(w, set)[0]).filter((w) => w.length >= 2)  // ★压回字表内（删字不换词）
@@ -422,9 +436,10 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
   for (let attempt = 1; attempt <= 2 && !arr; attempt++) {
     let txt = ''
     try {
-      txt = await ctx.generateText(attempt === 1
+      // ★VF_FILMSRC_V2：注入的 genTextW 在模型不通时返回 null ⇒ 这里统一成字符串（下面 parseArr 已有兜底）
+      txt = String(await ctx.generateText(attempt === 1
         ? prompt
-        : prompt + '\n\n⚠️ 上一次你的输出不合法（' + why + '）。这次**只回一个 JSON 对象**：{"scenes":[{"slots":{…}}]} —— 不要任何解释、不要 markdown 围栏、不要多余的数组。')
+        : prompt + '\n\n⚠️ 上一次你的输出不合法（' + why + '）。这次**只回一个 JSON 对象**：{"scenes":[{"slots":{…}}]} —— 不要任何解释、不要 markdown 围栏、不要多余的数组。') || '')
     } catch (e: any) {
       why = '模型调用失败：' + String(e?.message || e).slice(0, 80)
       break   // 模型都调不通 ⇒ 环境问题，走失败（不该硬造一条片）
@@ -585,8 +600,10 @@ export type HtmlFilmCtx = {
   prisma: any
   /** 用户本次是**点/说了命令**（HTML成片）——入口，走"第三步卡"流程 */
   isEntry?: boolean
-  /** ★VF_FILMCOPY_V1：写字用的模型入口（route.ts 的 genTextW → writer 模型档位）；不注入就只能报错不写文案 */
-  generateText?: (p: string) => Promise<string>
+  /** ★VF_FILMCOPY_V1：写字用的模型入口（route.ts 的 genTextW → writer 模型档位）；不注入就只能报错不写文案
+   *  ★VF_FILMSRC_V2：类型放宽到 `string | null` —— 注入它的 `genTextW` 在模型不通时就返回 null，
+   *  写窄了会出现"类型对不上"的噪声（而且会让读代码的人以为它永不返回 null）。 */
+  generateText?: (p: string) => Promise<string | null>
 }
 
 /** 返回 string = 本线的回复（协议串/卡）；返回 null = 不是本线的话，交给后面的流程 */
