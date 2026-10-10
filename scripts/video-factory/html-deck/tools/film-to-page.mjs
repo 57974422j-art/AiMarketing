@@ -238,21 +238,29 @@ export function specCss(spec) {
     L.push('.sec .chips{left:52px}')
   }
   // ⑥ L3 text.titleForm：sticker（色块贴纸）/ vertical（竖排）
+  //   ★VF_SPEC_V3（2026-10-10 预防性收口 —— 与满幅那条是**同一类**问题）：
+  //     这两个形态会**改标题盒本身**（inline-block 撑高 / writing-mode 变竖柱）并把字挪到**右列**，
+  //     而 works-wall / grid-2x2 的标题下面紧贴卡片与网格（.c3{left:472,width:180}、.g2{left:368,width:296}
+  //     都伸到 x≈664 = 右列所在处）⇒ 竖排标题必然压上去（就是上一轮 content_overlap 那一类成因）。
+  //     同理 glass-product / data-dashboard 有自己的内容块（.main 宽 608px 也铺到 x=664）。
+  //   现口径：标题形态**只作用于"标题独占一条带"的结构**；密集页（works-wall / grid-2x2）
+  //     与有内容块的结构（glass-product / data-dashboard）保持自己排版。
+  const FORM_OK = ':is(.st-fullbleed,.st-plate-top,.st-plate-bottom,.st-opening-hero)'
   if (form === 'sticker') {
-    L.push('.sec .ttl{display:inline-block;width:auto;max-width:600px;background:var(--accent);color:#fff;'
+    L.push('.sec' + FORM_OK + ' .ttl{display:inline-block;width:auto;max-width:600px;background:var(--accent);color:#fff;'
       + 'padding:12px 20px 15px;border-radius:2px;box-shadow:0 10px 26px rgba(0,0,0,.22);letter-spacing:2px}')
   } else if (form === 'vertical') {
     // ★VF_SPEC_V1 实测（quiet 语法首渲就被引擎 check 拦下）：
-    //   只写 writing-mode 会**竖排成一根长柱** ⇒ 压到副标题/图（content_overlap：`ttl.t1` 压 `sub`）。
+    //   只写 writing-mode 会**竖排成一根长柱** ⇒ 压到副标题/图（content_overlap：ttl.t1 压 sub）。
     //   现口径：竖排**走右列**（标题在右上、副题在右下），并把相纸让到左侧 —— 竖排才不会与横排串味。
-    L.push('.sec .ttl{writing-mode:vertical-rl;letter-spacing:.16em;line-height:1.1;width:auto;max-height:620px;'
+    L.push('.sec' + FORM_OK + ' .ttl{writing-mode:vertical-rl;letter-spacing:.16em;line-height:1.1;width:auto;max-height:620px;'
       + 'left:auto;right:56px;top:110px}')
-    L.push('.sec .ttl.t2{right:206px}')                       // 开场两行：第二列再往左，避免两列互压
-    L.push('.sec .sub{writing-mode:vertical-rl;width:auto;max-height:470px;letter-spacing:.08em;font-size:21px;'
+    L.push('.sec' + FORM_OK + ' .ttl.t2{right:206px}')        // 开场两行：第二列再往左，避免两列互压
+    L.push('.sec' + FORM_OK + ' .sub{writing-mode:vertical-rl;width:auto;max-height:470px;letter-spacing:.08em;font-size:21px;'
       + 'left:auto;right:56px;top:770px}')
-    L.push('.sec .eb{left:auto;right:56px;top:56px}')
-    L.push('.sec .plate{left:24px;width:calc(560px * var(--matScale));height:calc(420px * var(--matScale))}')
-    L.push('.sec .chips{left:56px}')
+    L.push('.sec' + FORM_OK + ' .eb{left:auto;right:56px;top:56px}')
+    L.push('.sec' + FORM_OK + ' .plate{left:24px;width:calc(560px * var(--matScale));height:calc(420px * var(--matScale))}')
+    L.push('.sec' + FORM_OK + ' .chips{left:56px}')
   }
   // ⑦ L3 ornament：rule（细线）/ hairline（无装饰）
   if (orn === 'none' || orn === 'hairline') L.push('.sec .ttl::after{display:none}')
