@@ -1949,6 +1949,10 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
   //   这个值是**声明**：排骨架时按它排，出片时机器按"声明 vs 实测"核对（不达标拒渲）。
   const [plateRatio, setPlateRatio] = useState<number>(
     typeof vj?.plateRatio === 'number' ? vj.plateRatio : 50)
+  // ★VF_SPEC_V2：**让 AI 自己规划版式**的开关（第 2 步卡上，**默认不勾** ⇒ 不勾与老流程完全一致）。
+  //   服务端总闸 `VF_FILM_AI_SPEC=1` 打开时，卡片会显示"总闸已开"，默认值随之变 true（仍可取消）。
+  const [aiSpec, setAiSpec] = useState<boolean>(
+    vj?.aiSpec !== undefined ? !!vj.aiSpec : !!vj?.aiSpecForced)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
   // ★VF_FILMVOICE_V1（2026-10-09 用户定案「先校准流程」）：**本线默认配音 + 字幕**
@@ -2072,9 +2076,24 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
               <div className="text-[9px] text-gray-500 mt-1">{String(vj.plateRatioHint)}</div>
             ) : null}
           </div>
+          {/* ── ★VF_SPEC_V2：让 AI 自己规划版式（**默认不勾**；勾了才走，不勾 = 与老流程一模一样）── */}
+          <label className={`flex items-start gap-2 rounded-xl border px-3 py-2 mb-2 cursor-pointer select-none ${aiSpec ? 'border-emerald-400/60 bg-emerald-500/[0.10]' : 'border-white/10 bg-black/20 hover:bg-white/[0.04]'}`}>
+            <input type="checkbox" checked={aiSpec} onChange={(e) => setAiSpec(e.target.checked)}
+              className="mt-0.5 accent-emerald-400" />
+            <span className="flex-1">
+              <span className="text-[11px] text-gray-100">🎨 让 AI 自己规划版式</span>
+              <span className="block text-[9px] text-gray-500 mt-0.5">
+                开启后：AI 先按素材气质定「排版骨架 / 图片呈现 / 标题形态 / 字重字距」（不写文案，只定风格语法）。
+                不勾 = 用引擎默认（推荐先按默认跑通再试）
+              </span>
+              {vj?.aiSpecForced ? (
+                <span className="block text-[9px] text-amber-300 mt-0.5">服务端总闸已开（本线默认就规划；取消勾选可让这一单走默认）</span>
+              ) : null}
+            </span>
+          </label>
           <div className="flex gap-2">
             <button onClick={() => next('back_mat')} className={btn + ' border-white/15 text-gray-300 hover:bg-white/[0.08]'}>← 换素材</button>
-            <button onClick={() => next('style', { pack, plateRatio })}
+            <button onClick={() => next('style', { pack, plateRatio, aiSpec })}
               className="flex-1 px-4 py-2 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100 text-sm font-medium">
               下一步 → 确认出片
             </button>

@@ -88,6 +88,9 @@ export type HtmlFilmDraft = {
   /** ★VF_SPEC_V1：**风格语法**（L1 构图 / L2 动效 / L3 文本形态）——由 AI 声明（"四项全部让 AI 自己规划"），
    *  写进 film.json，由渲染器的语法层解释。没声明 ⇒ 用 pack.spec / 引擎默认。 */
   spec?: any
+  /** ★VF_SPEC_V2：**这一单是否让 AI 规划风格语法**（第 2 步卡上的开关，默认不勾）。
+   *  默认值由服务端总闸 `VF_FILM_AI_SPEC` 决定；用户可在卡上勾/取消 ⇒ 这里存**最终决定**。 */
+  aiSpec?: boolean
 }
 
 /** 进程内缓存（与 vf-ppt.ts 同形制：DB 是主，Map 是"这一回合的加速"） */
@@ -190,6 +193,8 @@ export async function loadHtmlFilmDraft(db: any, uid: number | string): Promise<
         ? Number(j.plateRatio) : undefined,
       // ★VF_SPEC_V1：语法也一起取回（漏了它 ⇒ 出片时退回默认语法，与卡片上给用户看的风格不符）
       spec: (j.spec && typeof j.spec === 'object') ? j.spec : undefined,
+      // ★VF_SPEC_V2：开关状态也要取回（漏了它 ⇒ "换风格"回来时开关会被重置成默认）
+      aiSpec: j.aiSpec === undefined ? undefined : !!j.aiSpec,
     }
   } catch { return null }
 }
@@ -404,7 +409,10 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
   //   关（默认）⇒ 这段完全不进 ⇒ 与今天之前的行为**一模一样**。
   let spec: any = vd.spec || undefined
   let specNote = ''
-  if (aiSpecEnabled() && !spec) {
+  // 这一单到底走不走"AI 规划"：**草稿里的开关优先**（用户在第 2 步卡上勾的），
+  //   草稿没存过才退回服务端总闸。默认（不勾 + 总闸未开）⇒ 整段不进 ⇒ 与老流程完全一致。
+  const wantSpec = vd.aiSpec === undefined ? aiSpecEnabled() : !!vd.aiSpec
+  if (wantSpec && !spec) {
     try {
       const spTxt = String(await ctx.generateText(
         specPrompt(summary, picked.length, String(vd.topic || ''))) || '')
@@ -637,6 +645,10 @@ function styleCard(vd: HtmlFilmDraft): string {
     //   出片时机器按"声明 vs 实测"核对（render-film 的完整大图那一行）。
     plateRatio: vd.plateRatio === undefined ? 50 : Number(vd.plateRatio),
     plateRatioHint: '大图 : 填图 —— 往左=更多多图页（素材多、变化多）；往右=更多整张不裁的大图',
+    // ★VF_SPEC_V2：开关下发给卡片 —— `aiSpec` 是**这一单的当前值**（默认 = 总闸），
+    //   `aiSpecForced` 只用来显示"服务端总闸已开"那句提示（用户仍可取消）。
+    aiSpec: vd.aiSpec === undefined ? aiSpecEnabled() : !!vd.aiSpec,
+    aiSpecForced: aiSpecEnabled(),
   }
   return 'VF_JSON:' + JSON.stringify(body)
 }
@@ -756,6 +768,9 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
         vd.plateRatio = r
       }
       if (vd.plateRatio === undefined) vd.plateRatio = 50
+      // ★VF_SPEC_V2：第 2 步卡上的"🎨 让 AI 自己规划版式"开关（**最终决定**就存这儿）
+      if (f.aiSpec !== undefined) vd.aiSpec = !!f.aiSpec
+      if (vd.aiSpec === undefined) vd.aiSpec = aiSpecEnabled()   // 没带 ⇒ 服务端总闸决定默认值
       if (f.topic !== undefined) vd.topic = String(f.topic || '').slice(0, 60)
       // ★VF_FILMCOPY_V1（用户原话：「B该用模型就用模型。还有让 AI 先总结素材。**不要乱出片**」）：
       //   「下一步」不再直接出确认卡 —— **先让 AI 看图总结素材 + 按骨架写逐镜文案**，连同确认卡一起给用户看，
