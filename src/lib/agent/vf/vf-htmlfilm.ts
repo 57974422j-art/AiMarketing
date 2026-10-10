@@ -30,6 +30,8 @@ import { filmToolsDir, planFilm, makeFilmFromMaterials, filmDoneProtocol } from 
 import { loadCharset, sanitizeText, sanitizeSlots } from './charset'
 // ★VF_FILMCOPY_V5：骨架 ↔ 文案的**唯一对齐口径**（按段号归位 + 只补缺口）—— 单列成模块便于单测
 import { alignCopy, mergeSlots } from './film-copy-align'
+// ★VF_SPEC_V2：AI 自规划风格语法（**开关默认关**；关掉 ⇒ 零行为变化）—— 单列成模块便于单测
+import { aiSpecEnabled, pickSpec, describeSpec, specPrompt } from './film-spec'
 
 const HTMLFILM_TAG = 'vf_draft_htmlfilm'
 const HTMLFILM_PREFIX = 'HTML成片草稿:'
@@ -107,6 +109,10 @@ export const FILM_POOL_MAX = Math.max(FILM_MAT_MAX, 200)
 export const FILM_DEFAULT_RECENT = 12
 /** AI 一次读图最多送几张（超过就**分批**，不再"只看前 8 张就写全片文案"） */
 const VL_BATCH = 8
+
+// ★VF_SPEC_V2（"让 AI 自己规划风格语法"，**开关默认关**）的实现全部在 `./film-spec`：
+//   开关 `aiSpecEnabled()` / 白名单 `pickSpec()` / 人话说明 `describeSpec()` / 一页纸 `specPrompt()`。
+//   单列成模块的理由：开关语义与白名单必须能**脱离模型单测**（见 temp/_spec/test.mjs）。
 
 export type FilmPick = { pool: any[]; picked: any[]; missing: string[]; capped: number }
 
@@ -326,7 +332,11 @@ export function deriveCopyFromSummary(summary: string, scenes: Array<{ structure
  *  ⚠️ 与 scripts/vf-film-gen.mjs 同一套硬规矩；区别：那边让模型**排分镜**，这里骨架已定、只让模型**填文案**。 */
 async function aiPrepareCopy(ctx: HtmlFilmCtx, uid: number | string, vd: HtmlFilmDraft):
 Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[]; warn?: string
-  picked?: string[]; readN?: number; filmJson?: any; vertical?: string }> {
+  picked?: string[]; readN?: number; filmJson?: any; vertical?: string
+  /** ★VF_SPEC_V2：AI 规划的风格语法（开关关闭 / 失败 ⇒ undefined = 用引擎默认） */
+  spec?: any
+  /** 给用户看的一句话（"AI 规划了什么" / "为什么没用上"） */
+  specNote?: string }> {
   if (!ctx.generateText) return { ok: false, err: '服务端没接上文案模型（generateText 未注入）' }
   // ① 素材（★VF_FILMSRC_V1：**唯一实现** pickFilmMaterials —— 与本线卡片、出片三处共用）
   let pick: FilmPick = { pool: [], picked: [], missing: [], capped: 0 }
@@ -390,13 +400,34 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
     }
   } catch { /* ignore */ }
   if (!files.length) return { ok: false, err: '素材下载失败（没拿到本地文件）' }
+  // ★VF_SPEC_V2：**开关打开时**，在排骨架**之前**让 AI 先定"风格语法"（理由见 AI_SPEC 注释）。
+  //   关（默认）⇒ 这段完全不进 ⇒ 与今天之前的行为**一模一样**。
+  let spec: any = vd.spec || undefined
+  let specNote = ''
+  if (aiSpecEnabled() && !spec) {
+    try {
+      const spTxt = String(await ctx.generateText(
+        specPrompt(summary, picked.length, String(vd.topic || ''))) || '')
+      const sp = pickSpec(scanJson(spTxt))
+      if (sp) {
+        spec = sp
+        specNote = '🎨 风格语法由 AI 规划：' + describeSpec(sp)
+        vfLog(uid, '[HTML成片] AI 规划风格语法：' + JSON.stringify(sp))
+      } else {
+        specNote = 'ℹ️ 这一步 AI 没给出风格语法，已用引擎默认（不影响出片）'
+      }
+    } catch (e: any) {
+      specNote = 'ℹ️ 风格语法规划失败（' + String(e?.message || e).slice(0, 60) + '），已用引擎默认'
+    }
+    if (specNote) vfLog(uid, '[HTML成片] ' + specNote)
+  }
   // ★VF_RATIO_V1：**比例在这里生效**（骨架只编一次 ⇒ 必须是"排骨架"的这一步拿到它）。
   //   草稿里存的是百分数（0~100），传给引擎时统一除 100（**只在这一处换算**，别处一律百分数）。
   const pl = await planFilm({
     materials: files, text: String(vd.topic || ''), pack: vd.pack || '', workDir,
     plateRatio: (vd.plateRatio === undefined ? 50 : Number(vd.plateRatio)) / 100,
-    // ★VF_SPEC_V1：AI 声明的语法（没声明 ⇒ undefined ⇒ 由 pack/引擎默认兜底）
-    spec: vd.spec,
+    // ★VF_SPEC_V1/V2：语法（AI 声明的 ⇒ 由引擎解释；没声明 ⇒ pack/引擎默认兜底）
+    spec,
   })
   if (!pl.ok || !pl.scenes || !pl.scenes.length) return { ok: false, err: '编排骨架失败：' + String(pl.err || '') }
   // ★VF_FILMSRC_V1：把**这份骨架本身**（整份 film.json）与素材名单一起固化 —— 出片直接用它，
@@ -547,7 +578,7 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
       + '；读图：' + (summary ? '有总结可用' : (vlErr || '没有成功读图（原因未记录）'))
     if (!summary) return { ok: false, err: reason + ' —— **没有出片**。可稍后重试（读图/模型偶发失败），或回上一步换一批素材。' }
     vfLog(uid, '[HTML成片] AI 文案降级为"读图拼句"：' + (hardErr || why))
-    return { ok: true, summary, plan: planOut, copy: derived || deriveCopyFromSummary(summary, pl.scenes),
+    return { ok: true, summary, plan: planOut, copy: derived || deriveCopyFromSummary(summary, pl.scenes), spec, specNote,
       warn: '⚠️ 这版文案没能由 AI 写好（' + (hardErr || why) + '），已按**读图结果**自动拼了一版；建议点「← 换风格」重试一次。' }
   }
   // 兜底补完仍是空的段 ⇒ 明确失败（空文案页会被下游 no-copy 闸门拦，不如这里说清）
@@ -568,7 +599,7 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
     warnParts.push('ℹ️ 有 ' + fixed.length + ' 处用字不在引擎字表内，已自动压回（表外字删掉，只做减法不换词）：'
       + fixed.slice(0, 4).join('；') + (fixed.length > 4 ? ' …' : ''))
   }
-  return { ok: true, summary, plan: planOut, copy, warn: warnParts.join('\n') }
+  return { ok: true, summary, plan: planOut, copy, warn: [specNote, warnParts.join('\n')].filter(Boolean).join('\n'), spec, specNote }
 }
 
 /* ───────────────────────── 三张卡（都走 VF_JSON，客户端按 step 选组件）───────────────────────── */
@@ -738,6 +769,8 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
       vd.summary = prep.summary
       vd.plan = prep.plan
       vd.copy = prep.copy
+      // ★VF_SPEC_V2：AI 规划的风格语法落进草稿（出片时以定稿骨架里的 spec 为准；这里兜底）
+      if (prep.spec !== undefined) vd.spec = prep.spec
       vd.step = 'confirm'
       // ★VF_FILMCOPY_V2：降级时带一句"这版是自动拼的"（如实告知，别让用户以为 AI 正常工作了）
       ;(vd as any).warn = String(prep.warn || '')
