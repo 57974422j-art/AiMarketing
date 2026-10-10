@@ -30,7 +30,13 @@ const HERE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const RUNTIME = path.join(HERE, 'tools', 'runtime', 'film.js')
 const GSAP = path.join(HERE, 'masters', 'master-tech', 'assets', 'gsap.min.js')
 const FONTS = path.join(HERE, 'fonts')
-export const FILM_STRUCTS = ['opening-hero', 'works-wall', 'glass-product', 'data-dashboard', 'fullbleed', 'grid-2x2']
+// ★VF_PLATE_V1（2026-10-10 用户定案「每 10 张图必须有 3~4 张**完整大图**」）：
+//   新增两种"完整大图"结构（实拍**整张不裁**且占满画幅 93% 宽）——
+//     · plate-top    大标题在上 · 完整大图在下
+//     · plate-bottom 完整大图在上 · 文案在下
+//   为什么是两种：用户实测「前片一律」（每页一个模子）就是"只有一个版式"害的；
+//   同一结构隔页交替 ⇒ 有大图占比、又不重复。
+export const FILM_STRUCTS = ['opening-hero', 'works-wall', 'glass-product', 'data-dashboard', 'fullbleed', 'grid-2x2', 'plate-top', 'plate-bottom']
 
 // ★VF_FILMNODEMO_V1（2026-10-09 用户实测：火锅素材的片子里出现
 //   「实时投放监控 / 45% / 12.4 万 / 4.8 % / 3.2 千」「数据驱动增长 / 78.5%」「一次成型」等）：
@@ -110,6 +116,28 @@ export function filmCssFor(st) {
 .st-fullbleed .ttl{left:56px;top:876px;width:608px;font-size:56px}
 .st-fullbleed .sub{left:56px;top:962px;width:608px;font-size:24px}
 .st-fullbleed .chips{left:56px;top:1044px}`.trim()
+  // ★VF_PLATE_V1：**完整大图**的 CSS。边缘处理口径（用户把"边缘怎么处理"交给实现）：
+  //   4:3 实拍放进 9:16 竖屏，四周必然留空 ⇒ 不留生硬黑边/白边，而是**同图放大模糊**补满图框，
+  //   外面再套一圈 8px 白边 + 极淡投影（像一张冲洗出来的照片压在纸上）⇒ 干净、不"AI 感"。
+  //   .shot 用 object-fit:contain ⇒ **整张不裁**（非 4:3 的素材也是"完整 + 两侧模糊补满"，不是硬裁）。
+  //   ⚠️ 图**永远不缩放**（不做 Ken Burns）：缩放会吃掉边缘 ⇒ 就不再是"完整"了。
+  if (st === 'plate-top' || st === 'plate-bottom') return `
+.st-plate-top .eb{left:56px;top:86px}
+.st-plate-top .ttl{left:56px;top:138px;width:608px;font-size:56px;line-height:1.16}
+.st-plate-top .sub{left:56px;top:292px;width:608px;font-size:26px;line-height:1.55}
+.st-plate-top .plate{left:12px;top:378px;width:696px;height:522px}
+.st-plate-top .chips{left:56px;top:994px}
+.st-plate-bottom .eb{left:56px;top:86px}
+.st-plate-bottom .plate{left:12px;top:154px;width:696px;height:522px}
+.st-plate-bottom .ttl{left:56px;top:726px;width:608px;font-size:56px;line-height:1.16}
+.st-plate-bottom .sub{left:56px;top:880px;width:608px;font-size:26px;line-height:1.55}
+.st-plate-bottom .chips{left:56px;top:994px}
+.st-plate-top .plate,.st-plate-bottom .plate{overflow:hidden;border-radius:3px;background:#fff;
+  box-shadow:0 0 0 8px #fff,0 0 0 9px rgba(16,20,24,.10),0 18px 42px rgba(16,20,24,.20)}
+.st-plate-top .pb,.st-plate-bottom .pb{position:absolute;left:0;top:0;width:100%;height:100%;
+  background-size:cover;background-position:center;background-repeat:no-repeat;
+  filter:blur(20px) saturate(.9) brightness(1.02);transform:scale(1.16)}
+.st-plate-top .shot,.st-plate-bottom .shot{position:relative;display:block;width:100%;height:100%;object-fit:contain}`.trim()
   return `
 .st-grid-2x2 .ttl{left:64px;top:168px;width:600px;font-size:46px}
 .st-grid-2x2 .sub{left:64px;top:240px;width:600px;font-size:24px}
@@ -208,6 +236,20 @@ function sceneBody(st, sc, i) {
     <div class="sub">${esc(s.sub)}</div>
     <div class="chips">${s.chips.slice(0, 4).map((c) => `<div class="chip">${esc(c)}</div>`).join('')}</div>
     <div class="foot">${esc(s.foot)}</div>`
+  // ★VF_PLATE_V1：完整大图段（同一份 DOM，靠 .st-plate-top / .st-plate-bottom 决定文在图下还是图上）
+  if (st === 'plate-top' || st === 'plate-bottom') {
+    const raw = md[0] || ''
+    const inner = raw
+      ? `<div class="pb" style="background-image:url('${esc(raw)}')"></div><img class="shot" src="${esc(raw)}" alt="" />`
+      : `<div class="ph"><span>素材</span></div>`
+    return `
+    <div class="eb">${esc(s.eyebrow)}</div>
+    <div class="ttl">${esc(s.title)}</div>
+    <div class="sub">${esc(s.sub)}</div>
+    <div class="plate">${inner}</div>
+    <div class="chips">${(s.chips || []).slice(0, 4).map((c) => `<div class="chip">${esc(c)}</div>`).join('')}</div>
+    <div class="foot">${esc(s.foot)}</div>`
+  }
   return `
     <div class="ttl ttl1">${esc(s.title)}</div>
     <div class="sub">${esc(s.sub)}</div>
@@ -266,8 +308,11 @@ function bleedCss(i, lm, T, AT) {
     out.push(`${sel} .chip{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.42);color:#fff}`)
   } else {
     if (lum(T.ink) > 0.35) out.push(`${sel}{--ink:#15181c;--dim:#3a4048}`)
-    if (lum(AT) > 0.5) out.push(`${sel}{--at:#2b2f36}`)
-    out.push(`${sel} .scrimT{background:linear-gradient(180deg,rgba(255,255,255,.78) 0%,rgba(255,255,255,.32) 60%,rgba(255,255,255,0) 100%)}`)
+    // ★VF_PLATE_V1（2026-10-10 实测：全幅页的 eyebrow 用**强调红字**压在实拍上只有 3.96:1
+    //   （need 4.5:1）被引擎闸门拦下。红字在照片上随像底起伏，压不住 ⇒ 亮底实拍一律改**深墨字**，
+    //   并刻意把顶部遮罩加厚一档（.95/.70）—— 这样照片还是亮的，字也稳过 4.5:1。）
+    out.push(`${sel}{--at:#15181c}`)
+    out.push(`${sel} .scrimT{background:linear-gradient(180deg,rgba(255,255,255,.95) 0%,rgba(255,255,255,.70) 55%,rgba(255,255,255,0) 100%)}`)
     out.push(`${sel} .scrimB{background:linear-gradient(0deg,rgba(255,255,255,.95) 0%,rgba(255,255,255,.86) 42%,rgba(255,255,255,.42) 78%,rgba(255,255,255,0) 100%)}`)
     out.push(`${sel} .chip{background:rgba(255,255,255,.9);border-color:rgba(0,0,0,.14);color:#1b1f24}`)
   }
@@ -289,7 +334,13 @@ export function makeFilmHtml(film) {
     return { st, start, dur: Number(sc.dur || 4), sc }
   })
   const total = +t.toFixed(2)
-  const body = scenes.map((x, i) => `<section class="sec clip st-${x.st}" id="sc${i}" data-start="${x.start.toFixed(2)}" data-duration="${x.dur.toFixed(2)}">\n${sceneBody(x.st, x.sc, i)}\n  </section>`).join('\n')
+  // ★VF_FILMTRANS_V1（2026-10-10 用户定案「能有转场效果最好」）：
+  //   实测病灶（本机逐帧看出来的）：渲染器**按每段的 data-start/data-duration 掐窗口** ——
+  //   上一段到 `S+D` 就被整段掐掉。于是「淡出还没走完/下一段还没铺上来」⇒ 3.9s 画面还在、
+  //   4.0s 整页消失 ⇒ 中间空 0.5 秒。**任何转场都活不过这一掐**（叠化/擦除/推移全被掐成"黑一下"）。
+  //   现口径：给每段窗口**多留 0.7s**（= 转场重叠区），段间由运行时按 trans 做真转场。
+  const OVER = 0.7
+  const body = scenes.map((x, i) => `<section class="sec clip st-${x.st}" id="sc${i}" data-start="${x.start.toFixed(2)}" data-duration="${(x.dur + OVER).toFixed(2)}">\n${sceneBody(x.st, x.sc, i)}\n  </section>`).join('\n')
   const usedStructs = [...new Set(scenes.map((x) => x.st))]
   // ★VF_FILMBLEEDFIX_V1：按"实测亮度"给全幅段做**局部**字色/遮罩修正（量不到的段一段都不改）
   const bleedFix = scenes.map((x, i) => bleedCss(i, x.sc.__luma, T, AT)).filter(Boolean).join('\n')
@@ -345,7 +396,7 @@ ${bleedFix}
 ${body}
   <div id="bar" class="clip" data-start="0" data-duration="${total}" data-track-index="9"><i id="barIn"></i></div>
 </div>
-<script>window.__FILM__ = ${JSON.stringify({ tokens: T, total, scenes: scenes.map((x) => ({ structure: x.st, start: x.start, dur: x.dur })) })};</script>
+<script>window.__FILM__ = ${JSON.stringify({ tokens: T, total, scenes: scenes.map((x) => ({ structure: x.st, start: x.start, dur: x.dur, trans: String(x.sc.trans || '') })) })};</script>
 <script>window.__timelines = window.__timelines || {}; window.__timelines["main"] = { seek: function () {}, duration: function () { return ${total}; }, pause: function () {}, play: function () {} };</script>
 <script src="assets/gsap.min.js"></script>
 <script src="assets/film.js"></script>

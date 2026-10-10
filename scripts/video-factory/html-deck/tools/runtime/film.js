@@ -74,9 +74,33 @@
       if (!has(sel)) return
       tl.from('#sc' + i + ' ' + sel, Object.assign({ duration: dur || 0.7, ease: ease || 'power3.out' }, from), at(f))
     }
-    // 段间交叉淡出（不是硬切）
-    tl.fromTo('#sc' + i, { opacity: 0 }, { opacity: 1, duration: 0.4, ease: 'power2.out', immediateRender: true }, S + 0.03)
-    tl.to('#sc' + i, { opacity: 0, duration: 0.45, ease: 'power2.in' }, S + D - 0.5)
+    // ★VF_FILMTRANS_V1（2026-10-10 用户定案「能有转场效果最好」）：
+    //   老实现只有"淡入 0.4s + 淡出 0.45s"，而且**淡出走完了下一段才开始** ⇒ 中间有约 2 帧空白
+    //   （等于"暗一下再出现"，不是转场）。现口径：**入场与出场重叠**，并按 `sc.trans` 给真转场：
+    //     · fade 叠化 ：出入场交叉 0.4s（两页同时可见 ⇒ 真叠化）
+    //     · wipe 擦除 ：本段用 clip-path 从左往右推过来盖住上页
+    //     · push 推移 ：本段整体从右侧滑入盖住上页
+    //     · cut  硬切 ：上页到点立刻消失、本段立刻出现（换场景/换主体的正解）
+    //   出场由**下一段的类型**决定：cut ⇒ 到点消失；fade ⇒ 交叉淡出；wipe/push ⇒ 本段不动（等被盖住）。
+    var nx = (F.scenes || [])[i + 1]
+    var ntr = nx ? String(nx.trans || 'fade') : ''
+    var myTr = String(sc.trans || 'fade')
+    if (!nx) tl.to('#sc' + i, { opacity: 0, duration: 0.5, ease: 'power2.in' }, S + D - 0.1)
+    else if (ntr === 'cut') tl.set('#sc' + i, { opacity: 0 }, S + D)
+    else tl.to('#sc' + i, { opacity: 0, duration: 0.5, ease: 'power1.inOut' }, S + D - 0.15)
+    // 入场：**从本段起点开始**（不是提前）—— 因为上一段的窗口已被延长 0.7s（见 film-to-page 的 OVER），
+    //   这段时间里上一段还在 ⇒ 出入场天然重叠 ~0.5s ⇒ 才是真叠化/真擦除。
+    if (myTr === 'cut') {
+      tl.set('#sc' + i, { opacity: 0 }, 0)
+      tl.set('#sc' + i, { opacity: 1 }, S)
+    } else if (myTr === 'wipe') {
+      tl.fromTo('#sc' + i, { clipPath: 'inset(0 100% 0 0)' },
+        { clipPath: 'inset(0 0% 0 0)', duration: 0.6, ease: 'power2.inOut', immediateRender: true }, S)
+    } else if (myTr === 'push') {
+      tl.fromTo('#sc' + i, { x: 720 }, { x: 0, duration: 0.6, ease: 'power3.out', immediateRender: true }, S)
+    } else {
+      tl.fromTo('#sc' + i, { opacity: 0 }, { opacity: 1, duration: 0.55, ease: 'power1.inOut', immediateRender: true }, S)
+    }
 
     if (st === 'opening-hero') {
       E('.eb', 0.03, { opacity: 0, y: -10 }, 0.5, 'power2.out')
@@ -99,10 +123,13 @@
       E('.eb', 0.03, { opacity: 0, y: -10 }, 0.5, 'power2.out')
       E('.ttl1', 0.07, { opacity: 0, y: 24 }, 0.7)
       E('.sub', 0.15, { opacity: 0, y: 16 }, 0.6, 'power2.out')
-      tl.from('#sc' + i + ' .main', { opacity: 0, y: 40, scale: 0.98, duration: 0.8, ease: 'power3.out' }, at(0.22))
+      // ★VF_PLATE_V1（2026-10-10）：这几条**必须判存在** —— 结尾卡只给 title/sub（不给 value/kpi）时
+      //   没有 .main / .mini / .cta，老写法直接 gsap 目标不存在 ⇒ 每次出片刷 6 条 console_warning
+      //   （引擎 check 里看得见，等于噪声掩盖真问题）。
+      if (has('.main')) tl.from('#sc' + i + ' .main', { opacity: 0, y: 40, scale: 0.98, duration: 0.8, ease: 'power3.out' }, at(0.22))
       E('.num', 0.38, { opacity: 0, y: 26 }, 0.7)
-      tl.from('#sc' + i + ' .mini', { opacity: 0, y: 30, duration: 0.7, stagger: 0.12, ease: 'power3.out' }, at(0.44))
-      tl.from('#sc' + i + ' .cta', { opacity: 0, y: 24, duration: 0.7, ease: 'power3.out' }, at(0.58))
+      if (has('.mini')) tl.from('#sc' + i + ' .mini', { opacity: 0, y: 30, duration: 0.7, stagger: 0.12, ease: 'power3.out' }, at(0.44))
+      if (has('.cta')) tl.from('#sc' + i + ' .cta', { opacity: 0, y: 24, duration: 0.7, ease: 'power3.out' }, at(0.58))
       if (has('.shine')) tl.fromTo('#sc' + i + ' .shine', { x: -180 }, { x: 620, duration: 1.2, ease: 'power2.inOut', repeat: -1, repeatDelay: 0.7, immediateRender: true }, at(0.7))
     } else if (st === 'data-dashboard') {
       E('.k', 0.03, { opacity: 0, y: -10 }, 0.5, 'power2.out')
@@ -120,6 +147,18 @@
       E('.sub', 0.25, { opacity: 0, y: 18 }, 0.65, 'power2.out')
       tl.from('#sc' + i + ' .chip', { opacity: 0, y: 18, duration: 0.55, stagger: 0.1, ease: 'power2.out' }, at(0.34))
       E('.foot', 0.6, { opacity: 0 }, 0.6, 'power2.out')
+    } else if (st === 'plate-top' || st === 'plate-bottom') {
+      // ★VF_PLATE_V1：完整大图的动效 —— **图绝不缩放**（一缩放就不是"完整"了），
+      //   改用"整块照片轻微落定 + 极慢上浮"来给动感。
+      E('.eb', 0.03, { opacity: 0, y: -10 }, 0.5, 'power2.out')
+      if (has('.plate')) {
+        tl.from('#sc' + i + ' .plate', { opacity: 0, y: 30, duration: 0.85, ease: 'power3.out' }, at(0.05))
+        tl.to('#sc' + i + ' .plate', { y: -10, duration: Math.max(1.2, D * 0.55), ease: 'sine.inOut' }, at(0.62))
+      }
+      E('.ttl', 0.14, { opacity: 0, y: 26 }, 0.75)
+      E('.sub', 0.24, { opacity: 0, y: 16 }, 0.6, 'power2.out')
+      if (has('.chip')) tl.from('#sc' + i + ' .chip', { opacity: 0, y: 16, duration: 0.5, stagger: 0.09, ease: 'power2.out' }, at(0.32))
+      E('.foot', 0.58, { opacity: 0 }, 0.6, 'power2.out')
     } else {   // grid-2x2
       E('.ttl1', 0.04, { opacity: 0, y: 22 }, 0.65)
       E('.sub', 0.10, { opacity: 0, y: 16 }, 0.6, 'power2.out')

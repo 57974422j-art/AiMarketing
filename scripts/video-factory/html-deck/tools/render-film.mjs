@@ -67,6 +67,27 @@ export function renderFilm(filmPath, opts = {}) {
   // ① 素材齐全
   if (b.missing.length) return { ok: false, stage: 'media', err: '缺素材：' + b.missing.join(', '), dir: outDir }
 
+  // ①② 完整大图配额（★VF_PLATE_V1，2026-10-10 用户定案「每 10 张图必须出现 3~4 张完整大图」）
+  //   数的是**素材张数**与**完整大图页**（plate-top / plate-bottom：图整张不裁、占满画幅 93% 宽）。
+  //   · 片子声明了 requirePlate（arrange 排的骨架会声明）⇒ **不达标直接拒渲**（stage=plate）；
+  //   · 没声明的老片子 ⇒ 只打印一行，不拦（避免把历史产物全判死）。
+  const imgN = (film.scenes || []).reduce((a, s) => a + ((s.media || []).length), 0)
+  const plN = (film.scenes || []).filter((s) => /^plate-/.test(String(s.structure))).length
+  const per10 = imgN ? (plN / imgN) * 10 : 0
+  if (imgN) {
+    console.log('完整大图: ' + plN + '/' + imgN + ' = 每 10 张 ' + per10.toFixed(1) + ' 张（要求 3~4）'
+      + (film.requirePlate ? ' · 硬口径' : ''))
+    if (film.requirePlate && (per10 < 3 || per10 > 4)) {
+      return {
+        ok: false, stage: 'plate',
+        err: '完整大图配额不达标：' + plN + '/' + imgN + ' = 每 10 张 ' + per10.toFixed(1)
+          + ' 张（要求 3~4）。修法：让这段骨架用 plate-top / plate-bottom（整张不裁）替掉一部分满幅/小图页'
+          + ' —— 由 tools/arrange.mjs 自动排（★VF_ARRANGE_V3），不要手写死结构。',
+        dir: outDir,
+      }
+    }
+  }
+
   // ② 用字闸门
   const fp = run(process.execPath, [path.join(HERE, 'check-page-fonts.mjs'), outDir, '--json'])
   if (fp.status !== 0) {

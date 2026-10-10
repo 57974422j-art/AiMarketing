@@ -256,7 +256,9 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
   // ④ 让模型按骨架填文案
   const guide = [
     'opening-hero  开场封面：slots{eyebrow,title1,title2,sub,foot}        media=1 张',
-    'fullbleed     满幅实拍：slots{eyebrow,title,sub,chips[1~4],foot}     media=1 张',
+    'plate-top     ★完整大图（图整张不裁 · 标题在图**上方**）：slots{eyebrow,title,sub,chips[1~4],foot} media=1 张',
+    'plate-bottom  ★完整大图（图整张不裁 · 文案在图下方）：slots{eyebrow,title,sub,chips[1~4],foot} media=1 张',
+    'fullbleed     满幅实拍（**裁切**满屏）：slots{eyebrow,title,sub,chips[1~4],foot}  media=1 张',
     'works-wall    作品墙(3图)：slots{title,sub,rows[3],foot}             media=3 张',
     'grid-2x2      四宫格(4图)：slots{title,sub,nums[4],tail,foot}         media=4 张',
     'glass-product 结尾卡(无图)：slots{eyebrow,title,sub}（**不要写 value/unit/kpi**）media=0',
@@ -278,7 +280,15 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
     //   口播是"听"的（成句、口语、念得顺）。给了它，配音和字幕就不再是"念画面字"了。
     + '6. **每一段再多给一个 `voice`（口播句）**：一句自然口语（≤18 字、像人在说话、念得顺），'
     + '**不要照抄画面大字**，也不许编造数据/品牌/门店名。写法：{"slots":{…,"voice":"…"}}'
-    + '（有 voice 就用 voice 配音；没给就退回念画面大字）。'
+    + '（有 voice 就用 voice 配音；没给就退回念画面大字）。\n'
+    // ★VF_PLATE_V1（2026-10-10 用户定案「每 10 张图必须出现 3~4 张**完整大图**」）：
+    //   完整大图=实拍**整张不裁**、占满画幅 93% 宽（plate-top / plate-bottom 两种构图交替）。
+    //   为什么写进提示词：用户实测"前片一律、每帧 3 个图去填充"就是**排得太平**害的；
+    //   骨架已由 arrange 排好配额（每 10 张 3~4 张），模型**只填文案、不许改结构/挪素材**。
+    + '7. **排版纪律（用户点名的硬要求）**：骨架里的 `plate-top` / `plate-bottom` 是"**完整大图**"页'
+    + '（每 10 张素材 3~4 张，已经排好）——**不要改结构、不要挪素材、不要合并段落**。'
+    + '这两页的文案只写"这一张里真有的东西"（是什么菜、什么做法、看到什么），'
+    + '不许写"满汉全席 / 超值套餐 / 一口上瘾"这类空话套话。'
   // ★VF_FILMCOPY_V2（2026-10-09 用户实测「为什么老是出错」）：**最多两次尝试 + 三次降级，绝不卡死**。
   //   ① 宽容解析（scanJson 配对扫描：数组 / {scenes:[…]} / 带解释的尾巴 都能取到）；
   //   ② 解析不过 ⇒ 带"上次哪里错"**重试一次**；

@@ -1,0 +1,211 @@
+{
+  "id": "food-plate-v1",
+  "name": "火锅实拍 · 完整大图版（17 张全出镜 / 每 10 张 3~4 张完整大图）",
+  "pack": {
+    "id": "plate-warm",
+    "name": "暖白纸质 · 实拍大图",
+    "desc": "暖白纸底 + 衬线大标题 + 实拍完整大图（照片压纸）",
+    "aspect": "9:16",
+    "tokens": {
+      "bg": "#f7f4ef", "bg2": "#efe9df",
+      "ink": "#141210", "dim": "#5c554c", "faint": "#6b6459",
+      "accent": "#c8102e", "accentText": "#a50d26",
+      "font": "serif-700", "radius": 4, "density": "airy", "grain": 0.03
+    }
+  },
+  "vertical": "ecommerce",
+  "fps": 25,
+  "requirePlate": true,
+  "scenes": [
+    {
+      "shotgroup": "sg-opening-tiltcard",
+      "structure": "opening-hero",
+      "dur": 4.0,
+      "trans": "fade",
+      "slots": {
+        "eyebrow": "到店实拍 · 上菜顺序",
+        "title1": "一桌菜",
+        "title2": "从头看到尾",
+        "sub": "按上菜顺序排的，一张一张看"
+      },
+      "media": ["E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173330_2797_304.jpg"]
+    },
+    {
+      "shotgroup": "sg-plate-top",
+      "structure": "plate-top",
+      "dur": 4.6,
+      "trans": "wipe",
+      "slots": {
+        "eyebrow": "01 · 全桌",
+        "title": "菜齐了才动筷",
+        "sub": "肉片、毛肚、丸子、蘸料，都摆好了",
+        "chips": ["肉片", "毛肚", "丸子"]
+      },
+      "media": ["E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173331_2798_304.jpg"]
+    },
+    {
+      "shotgroup": "sg-fullbleed-caption",
+      "structure": "fullbleed",
+      "dur": 3.4,
+      "trans": "cut",
+      "slots": {
+        "eyebrow": "02 · 香辣虾",
+        "title": "这一碗用手剥",
+        "sub": "红油裹得厚，趁热吃",
+        "chips": ["辣", "鲜", "下饭"]
+      },
+      "media": ["E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173332_2799_304.jpg"]
+    },
+    {
+      "shotgroup": "sg-plate-bottom",
+      "structure": "plate-bottom",
+      "dur": 4.4,
+      "trans": "fade",
+      "slots": {
+        "eyebrow": "03 · 毛肚",
+        "title": "毛肚切得厚",
+        "sub": "八秒就脆，煮久了咬不动",
+        "chips": ["厚切", "八秒", "脆"]
+      },
+      "media": ["E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173333_2800_304.jpg"]
+    },
+    {
+      "shotgroup": "sg-works-wall",
+      "structure": "works-wall",
+      "dur": 6.2,
+      "trans": "push",
+      "slots": {
+        "eyebrow": "04 · 三样",
+        "title": "先看这三样",
+        "sub": "肉卷、辣菜、还有门口的招牌",
+        "rows": ["肉卷：摊开是一整片", "辣菜：青红椒炒得油亮", "门面：招牌亮着，好认"],
+        "foot": "拍到哪页说哪页"
+      },
+      "media": [
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173334_2801_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173335_2802_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173336_2803_304.jpg"
+      ]
+    },
+    {
+      "shotgroup": "sg-plate-top",
+      "structure": "plate-top",
+      "dur": 4.2,
+      "trans": "wipe",
+      "slots": {
+        "eyebrow": "05 · 锅底",
+        "title": "锅底要的清汤",
+        "sub": "菌菇先下，汤才鲜",
+        "chips": ["清汤", "菌菇", "先下锅"]
+      },
+      "media": ["E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173337_2804_304.jpg"]
+    },
+    {
+      "shotgroup": "sg-fullbleed-caption",
+      "structure": "fullbleed",
+      "dur": 3.4,
+      "trans": "fade",
+      "slots": {
+        "eyebrow": "06 · 摆盘",
+        "title": "毛肚摆成一朵花",
+        "sub": "端上来先拍一张",
+        "chips": ["摆盘", "大片", "好拍"]
+      },
+      "media": ["E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173340_2807_304.jpg"]
+    },
+    {
+      "shotgroup": "sg-plate-bottom",
+      "structure": "plate-bottom",
+      "dur": 2.6,
+      "trans": "cut",
+      "slots": {
+        "eyebrow": "07 · 开锅",
+        "title": "锅开了，先下肉",
+        "sub": "等到翻滚再下，肉不老"
+      },
+      "media": ["E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173339_2806_304.jpg"]
+    },
+    {
+      "shotgroup": "sg-grid-4",
+      "structure": "grid-2x2",
+      "dur": 6.4,
+      "trans": "push",
+      "slots": {
+        "eyebrow": "08 · 四盘",
+        "title": "肉片都是薄切",
+        "sub": "三盘肉，一盘炸的",
+        "nums": ["01", "02", "03", "04"],
+        "tail": "下锅两下就变色，别烫老"
+      },
+      "media": [
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173338_2805_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173341_2808_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173342_2809_304.jpg",
+        "E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173345_2812_304.jpg"
+      ]
+    },
+    {
+      "shotgroup": "sg-plate-top",
+      "structure": "plate-top",
+      "dur": 4.2,
+      "trans": "wipe",
+      "slots": {
+        "eyebrow": "09 · 上人",
+        "title": "人多了才热闹",
+        "sub": "桌子小，盘子摆两层",
+        "chips": ["四人桌", "摆满", "加菜"]
+      },
+      "media": ["E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173343_2810_304.jpg"]
+    },
+    {
+      "shotgroup": "sg-fullbleed-caption",
+      "structure": "fullbleed",
+      "dur": 3.0,
+      "trans": "fade",
+      "slots": {
+        "eyebrow": "10 · 俯拍",
+        "title": "从上往下看",
+        "sub": "一盘挨着一盘",
+        "chips": ["俯拍", "整桌", "全上齐"]
+      },
+      "media": ["E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173344_2811_304.jpg"]
+    },
+    {
+      "shotgroup": "sg-plate-bottom",
+      "structure": "plate-bottom",
+      "dur": 4.4,
+      "trans": "cut",
+      "slots": {
+        "eyebrow": "11 · 收尾",
+        "title": "最后来一盘炸的",
+        "sub": "外脆里嫩，蘸料更香",
+        "chips": ["现炸", "蘸料", "收尾"]
+      },
+      "media": ["E:\\ai-marketing\\storage\\1\\餐饮素材\\微信图片_20261008173346_2813_304.jpg"]
+    },
+    {
+      "shotgroup": "sg-glass-cards",
+      "structure": "glass-product",
+      "dur": 3.6,
+      "trans": "fade",
+      "slots": {
+        "eyebrow": "吃完",
+        "title": "这顿就到这儿",
+        "sub": "想看哪一盘，说一声"
+      },
+      "media": []
+    }
+  ],
+  "total": 52.4,
+  "rationale": [
+    "★本版是用户 2026-10-10 定案的重排：只谈排版，但把『每 10 张图必须出现 3~4 张完整大图』写成硬口径。",
+    "① 17 张素材全部出镜、每张只用一次：开场1 + plate-top3 + plate-bottom3 + fullbleed3 + works-wall(3) + grid-2x2(4) = 17。",
+    "   ⇒ **完整大图 6/17 = 每 10 张 3.5 张**（落在用户要求的 3~4 之间）。",
+    "② 页型序列 O,P,F,P,W,P,F,P,G,P,F,P + 结尾卡 —— **相邻两页页型一律不同**（治用户实测的『前片一律』）。",
+    "③ 图数序列 1,1,1,1,3,1,1,1,4,1,1,1 —— 有单图页也有三图/四图页（治『每帧 3 个图去填充』）。",
+    "④ 转场四种混用：叠化 fade / 擦除 wipe / 推移 push / 硬切 cut（相邻不重样）。",
+    "⑤ 文案：全部写『照片里真有的东西』（肉片、毛肚、虾、炸物、门面、满桌），零 emoji、零编造数据、零产品自夸；",
+    "   口播另写一层（.voice.json），**不照抄画面字**。",
+    "⑥ 时长交给 TTS 实测（本文件里的 dur 只是没配音时的兜底估算）。"
+  ]
+}
