@@ -74,21 +74,32 @@ export async function saveToPersonalRepo(opts: SaveToRepoOptions): Promise<{ nam
   const now = new Date()
   const datePrefix = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
   let todaySeq = 1
+  // ★VF_NAMESEQ_V2（2026-10-10 用户服务器实测：仓库里有 0 字节半成品、当天还缺号）：
+  //   老写法 `catch {}` 会把**列目录失败吞掉**，todaySeq 停在 1 ⇒ 算出"当天第一张"的名字 ⇒
+  //   putObject **覆盖已有素材**（用户现象"传上去显示的和下载的不一样"里就有这条：
+  //   显示命中 24h 旧缓存、下载拿到被覆盖后的新内容）。
+  //   现口径：列目录失败 ⇒ **宁可这次保存失败并明确告知**，也不覆盖已有素材。
+  let existing: Array<{ name: string }> = []
   try {
-    const existing = (await listObjects(`storage/${uid}/${datePrefix}`)).filter(
-      o => !o.name.includes('/.thumbs/')
-    )
-    // ★VF_NAMESEQ_V1（2026-10-05 用户实测「删了 001 后新片又占 001 → 客户端按文件名判重跳过同步，
-    //   本地永远看不到新片」）：序号取【当天已有最大序号 + 1】，不复用被删掉的空号
-    //   （原逻辑 existing.length+1：001、003 在、002 被删时会撞 003）。
-    for (const o of existing) {
-      const m = /_(\d{3})\.[A-Za-z0-9]+$/.exec(String(o.name || ''))
-      if (m) todaySeq = Math.max(todaySeq, Number(m[1]) + 1)
-    }
-    // 兜底：当天文件都不带序号（命名规范外）→ 保持 count+1 老口径
-    if (todaySeq === 1 && existing.length) todaySeq = existing.length + 1
-  } catch {}
-  const name = `${datePrefix}_${String(todaySeq).padStart(3, '0')}.${ext}`
+    existing = (await listObjects(`storage/${uid}/${datePrefix}`)).filter((o) => !o.name.includes('/.thumbs/'))
+  } catch {
+    throw new Error('无法确认当天序号（列目录失败）——为避免覆盖已有素材，这次没有保存，请重试')
+  }
+  // ★VF_NAMESEQ_V1（2026-10-05 用户实测「删了 001 后新片又占 001 → 客户端按文件名判重跳过同步，
+  //   本地永远看不到新片」）：序号取【当天已有最大序号 + 1】，不复用被删掉的空号
+  //   （原逻辑 existing.length+1：001、003 在、002 被删时会撞 003）。
+  for (const o of existing) {
+    const m = /_(\d{3})\.[A-Za-z0-9]+$/.exec(String(o.name || ''))
+    if (m) todaySeq = Math.max(todaySeq, Number(m[1]) + 1)
+  }
+  // 兜底：当天文件都不带序号（命名规范外）→ 保持 count+1 老口径
+  if (todaySeq === 1 && existing.length) todaySeq = existing.length + 1
+  // ★VF_NAMESEQ_V2：落盘**之前**再做一次存在性校验（并发两人同时上传、命名规范外的遗留都能兜住）
+  let name = `${datePrefix}_${String(todaySeq).padStart(3, '0')}.${ext}`
+  for (let i = 0; i < 50 && (await objectExists(`storage/${uid}/${name}`)); i++) {
+    todaySeq++
+    name = `${datePrefix}_${String(todaySeq).padStart(3, '0')}.${ext}`
+  }
   const key = `storage/${uid}/${name}`
 
   // 上传主文件

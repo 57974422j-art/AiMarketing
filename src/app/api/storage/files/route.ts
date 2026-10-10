@@ -99,8 +99,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, message: `存储空间不足（已用 ${(used / 1024 / 1024).toFixed(1)}MB / 500MB）` }, { status: 413 })
   }
 
-  const ext = file.name.split('.').pop() || 'mp4'
+  // ★VF_UPLOADGUARD_V1（2026-10-10 用户服务器实测：仓库里躺着 `20261009_021.mp4` = **0 字节**，
+  //   而且它没有缩略图 ⇒ 这是**上传中途断**留下的半成品：列表里看得见、点开是坏的）。
+  //   病灶：这里对扩展名与内容长度**没有任何校验** ⇒ 空内容、怪扩展名也照进仓库（"逻辑混乱"的来源之一）。
+  const ALLOWED_EXT = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'jpg', 'jpeg', 'png', 'gif', 'webp']
+  const ext = String(file.name.split('.').pop() || '').toLowerCase()
+  if (!ALLOWED_EXT.includes(ext)) {
+    return NextResponse.json({ success: false, message: '不支持的文件类型：' + (ext || '(无扩展名)') }, { status: 400 })
+  }
   const buffer = Buffer.from(await file.arrayBuffer())
+  if (!buffer.length) {
+    return NextResponse.json({
+      success: false,
+      message: '上传内容为空（0 字节）——上传可能中断了，请重试；服务端没有保存任何东西',
+    }, { status: 400 })
+  }
 
   // 根据扩展名设置 MIME 类型
   const mimeMap: Record<string, string> = { mp4: 'video/mp4', mov: 'video/quicktime', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp' }

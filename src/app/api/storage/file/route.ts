@@ -6,7 +6,8 @@ const MIME_MAP: Record<string, string> = {
   mp4: 'video/mp4', mov: 'video/quicktime', avi: 'video/x-msvideo',
   mkv: 'video/x-matroska', webm: 'video/webm',
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
-  gif: 'image/gif', webp: 'image/webm',
+  // ★修（2026-10-10）：原来是 'image/webm'（webm 是**视频**容器）⇒ webp 会被浏览器当视频播放/直接下载
+  gif: 'image/gif', webp: 'image/webp',
 }
 
 export async function GET(request: NextRequest) {
