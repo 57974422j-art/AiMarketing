@@ -79,14 +79,23 @@ function kindOf(name: string): MaterialKind {
 
 /**
  * ★VF_LOG_V1（2026-09-19）：成片调试日志（服务器侧）
- *   位置：`<storage>/<userId>/video-factory/vf_debug.log`
+ *   位置：**`<vfStorageRoot()>/<userId>/video-factory/vf_debug.log`**（与素材/产物同根）
  *   用途：和客户端的 `bu_debug.log`（发布用）对应，但成片跑在【服务器】，所以日志在服务器侧。
  *   记：状态机每步（入口/素材来源/起草/入队）、素材下载、视觉理解结果、make.py 的 tail。
+ *
+ * ★VF_LOG_V2（2026-10-10 用户实测「日志文件找不到：/root/AiMarketing/storage/1/video-factory/vf_debug.log 不存在」）：
+ *   老实现用 `process.env.LOCAL_STORAGE || path.join(process.cwd(), 'storage')` —— 而 pm2 跑的是
+ *   `.next/standalone/server.js` ⇒ `process.cwd()` 指向**构建产物目录**，日志实际落到
+ *   `.next/standalone/storage/<uid>/video-factory/vf_debug.log`（用户现场 `find` 找到的就是这份）。
+ *   两处坏处：① 与素材/产物**不是一个地方**（排查时按约定路径找不到，白白多花一轮）；
+ *   ② **每次部署重建 `.next` 就丢一次日志**。
+ *   现口径：与素材同根 —— 直接复用 `vfStorageRoot()`（它已经处理过 standalone 的坑，见 VF_ROOT_V1），
+ *   全项目只保留这一个"storage 在哪"的口径。
  */
 export function vfLog(userId: string | number, msg: string): void {
   const line = `[${new Date().toISOString()}] ${msg}`
   try {
-    const dir = path.join(process.env.LOCAL_STORAGE || path.join(process.cwd(), 'storage'), String(userId), 'video-factory')
+    const dir = path.join(vfStorageRoot(), String(userId), 'video-factory')
     fs.mkdirSync(dir, { recursive: true })
     fs.appendFileSync(path.join(dir, 'vf_debug.log'), line + '\n')
   } catch { /* 日志失败不影响主流程 */ }
