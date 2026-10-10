@@ -432,6 +432,38 @@ export function vlReady(): boolean {
   return !!getDashScopeKey();
 }
 
+/**
+ * ★VF_VLMODEL_V1（2026-10-10 用户实测「HTTP 404 Model not exist」）：
+ *   病灶：`qwen-vl-max` 在该账号 / 该区域**不存在** ⇒ 读图 6 次全 404（3 批 × 重试 1 次）⇒
+ *   成片线"读图 0/17 张"，文案只能按骨架瞎猜（用户看到的"文案很泛"就是这么来的）。
+ *   为什么不能只改成一个新名字：模型 id 会随供应商改名/下线 —— 本仓库里 `qwen-vl-max` 写死在十几处
+ *   （读图 / 抖音自动化 / 定位器…），改一处漏一处就是老毛病。
+ *   现口径：**候选链 + 自愈**：按顺序试，遇 `model_not_found` 换下一个；成功就**记住**（进程内），
+ *   并把"用的哪个模型"打出来；可用 `VF_VL_MODEL` 直接钉死（最高优先级）。
+ */
+const VL_CANDIDATES = [
+  process.env.VF_VL_MODEL || '',
+  process.env.DASHSCOPE_VL_MODEL || '',
+  'qwen-vl-max',
+  'qwen-vl-max-latest',
+  'qwen3-vl-max',
+  'qwen3.8-vl-max',
+  'qwen-vl-plus',
+].filter(Boolean) as string[]
+
+let vlModelOk = ''
+
+/** 当前实际用的读图模型（自愈锁定后 = 真正可用的那个） */
+export function vlModel(): string {
+  return vlModelOk || VL_CANDIDATES[0]
+}
+
+/** 判"模型不存在"这一类错误（只有这类才值得换名字重试） */
+function isVlModelMissing(e: any): boolean {
+  const s = String(e?.message || e)
+  return /model_not_found|Model not exist|does not exist|invalid.*model|模型不存在/i.test(s)
+}
+
 const DASHSCOPE_CHAT_BASE = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 
 // ★VF_MODELSWITCH_V1（2026-09-30）：新增可选 model 参数 —— **不传 = 逐字保持现状**（旧调用方零回归）。
@@ -2461,30 +2493,45 @@ export async function describeImageWithVL(imageUrlOrBase64: string, prompt?: str
 export async function describeImagesWithVL(images: string[], prompt?: string, maxTokens = 800): Promise<string | null> {
   const key = getDashScopeKey()
   if (!key || !images?.length) return null
-  try {
-    const data = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-      body: JSON.stringify({
-        model: 'qwen-vl-max',
-        messages: [{
-          role: 'user',
-          // 图在前、问题在后（模型对"紧接着的问题"注意力更好）
-          content: [
-            ...images.map((u) => ({ type: 'image_url', image_url: { url: u } })),
-            { type: 'text', text: prompt || '请用中文描述这些图片。' },
-          ],
-        }],
-        temperature: 0.2,
-        max_tokens: maxTokens,
-      }),
-    })
-    const text = data?.choices?.[0]?.message?.content
-    return typeof text === 'string' ? text.trim() : null
-  } catch (e: any) {
-    console.error('[百炼VL] 多图读图失败:', e?.message || e)
-    return null
+  // ★VF_VLMODEL_V1：候选链 —— `model_not_found` 就换下一个；成功**记住**（进程内）
+  const cands = vlModelOk ? [vlModelOk] : VL_CANDIDATES
+  let lastErr: any = null
+  for (const model of cands) {
+    try {
+      const data = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+        body: JSON.stringify({
+          model,
+          messages: [{
+            role: 'user',
+            // 图在前、问题在后（模型对"紧接着的问题"注意力更好）
+            content: [
+              ...images.map((u) => ({ type: 'image_url', image_url: { url: u } })),
+              { type: 'text', text: prompt || '请用中文描述这些图片。' },
+            ],
+          }],
+          temperature: 0.2,
+          max_tokens: maxTokens,
+        }),
+      })
+      const text = data?.choices?.[0]?.message?.content
+      if (!vlModelOk) { vlModelOk = model; console.log('[百炼VL] ✅ 读图模型锁定：' + model) }
+      return typeof text === 'string' ? text.trim() : null
+    } catch (e: any) {
+      lastErr = e
+      if (isVlModelMissing(e)) {
+        console.warn('[百炼VL] 模型「' + model + '」不存在（model_not_found）⇒ 试下一个候选')
+        continue
+      }
+      // 非"模型不存在"（额度/网络/内容审核/参数）⇒ 换名也没用，直接如实报出
+      console.error('[百炼VL] 多图读图失败（model=' + model + '）:', e?.message || e)
+      return null
+    }
   }
+  console.error('[百炼VL] 多图读图失败：候选模型全都不存在（' + cands.join(' / ') + '）。'
+    + '请用环境变量 VF_VL_MODEL 指定正确模型名。原始错误：' + String(lastErr?.message || lastErr).slice(0, 240))
+  return null
 }
 
 export async function isAIConfigured(): Promise<boolean> {

@@ -362,7 +362,7 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
   let vlErr = ''
   try {
     const { signedUrl } = await import('@/lib/oss')
-    const { describeImagesWithVL, vlReady } = await import('@/lib/ai-providers')
+    const { describeImagesWithVL, vlReady, vlModel } = await import('@/lib/ai-providers')
     const batches = Math.max(1, Math.ceil(picked.length / VL_BATCH))
     const parts: string[] = []
     // ★VF_VLPROBE_V1（2026-10-10 用户日志实测「读图：0/17 张（分 3 批）」）：
@@ -389,7 +389,9 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
         try {
           const r = await describeImagesWithVL(urls, ask, 700)
           if (String(r || '').trim()) { parts.push(String(r).trim()); okBatch = true }
-          else if (!vlErr) vlErr = '视觉模型返回空'
+          // ★VF_VLMODEL_V1：把"用的哪个模型"写进原因 —— 用户实测真因就是 `qwen-vl-max` 不存在（404）
+          else if (!vlErr) vlErr = '视觉模型未返回内容（当前模型 ' + vlModel() + '）'
+            + '—— 若服务端日志里出现 model_not_found，请用环境变量 VF_VL_MODEL 指定可用模型名'
         } catch (e: any) {
           if (!vlErr) vlErr = '视觉模型调用失败：' + String(e?.message || e).slice(0, 90)
         }
