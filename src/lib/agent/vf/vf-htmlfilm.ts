@@ -38,7 +38,7 @@ const HTMLFILM_PREFIX = 'HTML成片草稿:'
  *  用户实测那次就是：卡片按 12 张排 8 段、出片按 17 张排 12 段，后 4 镜空、被 copy 闸门拦。
  *  口径：草案带版本；**出片前比对**，不一致 ⇒ **这一单作废**（明确让用户重走一遍），
  *  不猜、不合并、不"用旧文案配新骨架"。**改这里的值 = 让所有在飞草案失效**（部署即作废的实现）。 */
-export const FILM_LINE_VERSION = 'film-2026-10-10-p1'
+export const FILM_LINE_VERSION = 'film-2026-10-10-p2'
 
 export type HtmlFilmStep = 'mat' | 'style' | 'confirm'
 

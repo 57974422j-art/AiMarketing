@@ -106,6 +106,24 @@ export function pickPack(lib, { vertical, text = '', prefer, variant = 0 } = {})
 }
 
 /* ---------------- ④ 规则版编排（离线保底，永不失败） ---------------- */
+// ★VF_FILMFORK_V2（2026-10-10 用户实测「出片被拦（layout）：转场只有 0 种」）：
+//   病灶 = **同一个"吞字段"老毛病又犯一次** —— arrange 给每段算好了 `trans`（fade/wipe/cut/push 轮换），
+//   而这里重拼 scenes 时只挑了 shotgroup/structure/dur/slots/media ⇒ `trans` 被丢掉 ⇒
+//   render-film 数出"转场 0 种" ⇒ 被排版闸门拒渲（闸门是对的，是我喂给它的数据缺字段）。
+//   现口径：转场字段**在这里统一兜底**（缺了就按同一张表轮换补上，并打日志），
+//   避免"编排器算了、导出时丢了"这类事再发生。
+const ORCH_TRS = ['fade', 'wipe', 'cut', 'push']
+function withTrans(scenes) {
+  let filled = 0
+  const out = (scenes || []).map((s, i) => {
+    const t = String((s && s.trans) || '')
+    if (!t) filled++
+    return Object.assign({}, s, { trans: t || ORCH_TRS[i % ORCH_TRS.length] })
+  })
+  if (filled) console.log('[orchestrate] 有 ' + filled + ' 段没带 trans ⇒ 按 fade/wipe/cut/push 轮换补上（不静默）')
+  return out
+}
+
 export function orchestrateRule(opts = {}) {
   const lib = opts.lib || loadLibrary()
   const mats = opts.mats || analyzeMaterials(opts.materials || [])
@@ -123,7 +141,8 @@ export function orchestrateRule(opts = {}) {
     source: 'rule',
     vertical,
     pack,
-    scenes: film.scenes.map((s) => ({ shotgroup: s.shotgroup, structure: s.structure, dur: s.dur, slots: s.slots, media: s.media })),
+    // ★VF_FILMFORK_V2：`trans` 必须带出去（少了它，排版闸门会数出"转场 0 种"而拒渲）
+    scenes: withTrans(film.scenes.map((s) => ({ shotgroup: s.shotgroup, structure: s.structure, dur: s.dur, slots: s.slots, media: s.media, trans: s.trans }))),
     total: film.total,
     // ★VF_FILMSRC_V1（2026-10-10）：**这几个字段必须带出去** —— arrange 已经算好了
     //   "完整大图配额"（requirePlate / plateCount / imageCount），而这里原来只挑了
@@ -203,8 +222,10 @@ export function validateOrchestration(o, opts = {}) {
       if (!ok) fb.push('media:' + m + ' → 丢弃（文件不存在）')
       return ok
     })
-    out.scenes.push({ shotgroup: sg, structure: st, dur, slots: sc.slots || {}, media })
+    // ★VF_FILMFORK_V2：AI 编排通常不写 trans ⇒ 先原样带上，循环结束后统一兜底补（见 withTrans）
+    out.scenes.push({ shotgroup: sg, structure: st, dur, slots: sc.slots || {}, media, trans: String(sc.trans || '') })
   }
+  out.scenes = withTrans(out.scenes)   // ★VF_FILMFORK_V2：缺 trans 的段统一补上（AI 编排常常不写）
   out.total = +out.scenes.reduce((a, s) => a + s.dur, 0).toFixed(2)
   // ★VF_FILMSRC_V1：配额声明按**最终 scenes 现算**（AI 自己排的也算数）——
   //   段落数/图数只由素材张数决定，不封顶；完整大图占不到每 10 张 3~4 张 ⇒ 出片时会被 stage=plate 拒。

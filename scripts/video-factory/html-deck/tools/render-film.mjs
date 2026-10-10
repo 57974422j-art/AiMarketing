@@ -130,7 +130,12 @@ export function renderFilm(filmPath, opts = {}) {
       }
       if (kinds.size < 3) bad.push('全片只有 ' + kinds.size + ' 种页型（要求 ≥3）')
       if (imgKinds.size < 2) bad.push('全片图数只有 1 种（每页都 ' + [...imgKinds][0] + ' 张）⇒ 就是"每帧固定几张去填充"')
-      if (trKinds.size < 2) bad.push('转场只有 ' + trKinds.size + ' 种（要求 ≥2：fade / wipe / cut / push）')
+      if (trKinds.size < 2) {
+        bad.push('转场只有 ' + trKinds.size + ' 种（要求 ≥2：fade / wipe / cut / push）'
+          // ★VF_FILMFORK_V2：0 种几乎一定是"字段在传递链上被吞了"（编排器算了 trans、导出时没带），
+          //   而不是"用户没选转场" —— 把这条线索直接写进报错，省得下次又从头查。
+          + (trKinds.size === 0 ? '；⚠️ 0 种多半是**字段被吞**（编排器算了、导出没带）⇒ 先查 tools/orchestrate.mjs 的 scenes 映射' : ''))
+      }
       let run = 1, maxRun = 1
       for (let i = 1; i < trs.length; i++) { run = (trs[i] && trs[i] === trs[i - 1]) ? run + 1 : 1; maxRun = Math.max(maxRun, run) }
       if (maxRun > 3) bad.push('连续 ' + maxRun + ' 页同一转场')
