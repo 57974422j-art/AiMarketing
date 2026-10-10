@@ -56,3 +56,19 @@ export function mergeSlots(a: SlotsArr | null, b: SlotsArr): SlotsArr {
   if (!a) return b
   return a.map((v, k) => v || b[k] || null)
 }
+
+/** ★VF_FILMCOPY_V6（2026-10-10 用户实测「文案：不是合法 JSON」）：
+ *  段数一多（14~18 段），**一整份 JSON 的输出很长** ⇒ 很可能被**输出上限截断**，
+ *  截断后括号不闭合 ⇒ `scanJson` 判"不是合法 JSON"（老实现整批作废）。
+ *  现口径：**分批请求**（每批 ≤ `size` 段），每批独立重试 —— 单次输出短了，截断风险≈0，
+ *  且"一批失败"不再拖垮其他批。返回每批的**段号**（不是数量），便于按 i 归位。 */
+export function batchRanges(n: number, size = 6): number[][] {
+  const out: number[][] = []
+  const step = Math.max(1, Math.floor(size))
+  for (let k = 0; k < n; k += step) {
+    const b: number[] = []
+    for (let j = k; j < Math.min(k + step, n); j++) b.push(j)
+    out.push(b)
+  }
+  return out
+}

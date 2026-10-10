@@ -28,8 +28,8 @@ import { filmToolsDir, planFilm, makeFilmFromMaterials, filmDoneProtocol } from 
 // ★VF_CHARSET_V1（2026-10-09 用户实测「降级之后照样被 fonts 闸门拦」）：
 //   把文案压回字体子集内的**唯一实现**（涮→烫、其余表外字删掉；只做减法不编造）
 import { loadCharset, sanitizeText, sanitizeSlots } from './charset'
-// ★VF_FILMCOPY_V5：骨架 ↔ 文案的**唯一对齐口径**（按段号归位 + 只补缺口）—— 单列成模块便于单测
-import { alignCopy, mergeSlots } from './film-copy-align'
+// ★VF_FILMCOPY_V5/V6：骨架 ↔ 文案的**唯一对齐口径**（按段号归位 + 分批 + 只补缺口）—— 单列成模块便于单测
+import { alignCopy, mergeSlots, batchRanges } from './film-copy-align'
 // ★VF_SPEC_V2：AI 自规划风格语法（**开关默认关**；关掉 ⇒ 零行为变化）—— 单列成模块便于单测
 import { aiSpecEnabled, pickSpec, describeSpec, specPrompt } from './film-spec'
 
@@ -511,38 +511,50 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
   }
   const planOut = pl.scenes.map((s) => ({ structure: s.structure, media: s.media, dur: s.dur }))
   const N = pl.scenes.length
-  // ★VF_FILMCOPY_V5：不再"要一整批且长度全等"，而是**按段号归位 + 只补缺口**
+  // ★VF_FILMCOPY_V5/V6：不再"要一整批且长度全等"，而是**按段号归位 + 分批请求 + 只补缺口**
+  //   （V6 的起因：14 段整份 JSON 太长 ⇒ 大概率被输出截断 ⇒ "不是合法 JSON"）。
   let slotsArr: (any | null)[] | null = null
-  let missIdx: number[] = []
   let extraN = 0
   let why = ''
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    const ask = attempt === 1
-      ? prompt
-      : (missIdx.length
-        // 第二轮**只补缺口**（补 1~2 段 ≫ 重写 N 段还要数对）
-        ? prompt + '\n\n⚠️ 上一次你漏了段。这次**只回这些段**（仍然要带 i）：'
-          + missIdx.map((k) => k + '（' + String((planOut[k] || {}).structure || '') + '）').join('、')
-          + '。格式：{"scenes":[{"i":<段号>,"slots":{…}}]} —— 不要解释、不要 markdown 围栏。'
-        : prompt + '\n\n⚠️ 上一次你的输出不合法（' + why + '）。这次**只回一个 JSON 对象**：'
-          + '{"scenes":[{"i":0,"slots":{…}},…]} —— i 从 0 连续到 ' + (N - 1) + '，不要解释、不要围栏。')
-    let txt = ''
-    try {
-      // ★VF_FILMSRC_V2：注入的 genTextW 在模型不通时返回 null ⇒ 这里统一成字符串（下面 parseArr 已有兜底）
-      txt = String(await ctx.generateText(ask) || '')
-    } catch (e: any) {
-      why = '模型调用失败：' + String(e?.message || e).slice(0, 80)
-      break   // 模型都调不通 ⇒ 环境问题，走失败（不该硬造一条片）
+  let snip = ''
+  const snippet = (t: string) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, 160)
+  const segLine = (k: number) => '  ' + k + '. ' + String((planOut[k] || {}).structure || '')
+    + '（素材 ' + (((planOut[k] || {}).media) || []).length + ' 张）'
+  const askFor = (idxs: number[], retry: boolean) => prompt + '\n\n【这次只要写这些段】\n'
+    + idxs.map(segLine).join('\n')
+    + '\n只回 {"scenes":[{"i":<段号>,"slots":{…}}]} —— **`i` 必须就是上面这些段号**；'
+    + (retry ? '（上一次这批不是合法 JSON 或漏了段，这次务必只回 JSON、不要任何解释）' : '不要解释、不要 markdown 围栏。')
+  const batches = batchRanges(N, 6)
+  for (const idxs of batches) {
+    let miss = idxs.slice()
+    for (let attempt = 1; attempt <= 2 && miss.length; attempt++) {
+      let txt = ''
+      try {
+        // ★VF_FILMSRC_V2：注入的 genTextW 在模型不通时返回 null ⇒ 这里统一成字符串（下面 parseArr 已有兜底）
+        txt = String(await ctx.generateText(askFor(miss, attempt > 1)) || '')
+      } catch (e: any) {
+        why = '模型调用失败：' + String(e?.message || e).slice(0, 80)
+        miss = []   // 模型调不通 ⇒ 环境问题：这批判死（整批兜底会处理），别再连打模型
+        break
+      }
+      const got = parseArr(txt)
+      if (!got) {
+        // ★VF_FILMCOPY_V6：**把模型原文片段留下来** —— 否则永远分不清"被截断"“模型在说人话”还是"空返回"
+        snip = snippet(txt)
+        why = '不是合法 JSON' + (snip ? '（原文片段：' + snip + '）' : '（返回是空的）')
+        continue
+      }
+      let al = alignCopy(got, N)
+      if (!al.byIndex) {
+        // 这批没带段号 ⇒ 按"**我问的顺序**"归位（只当数量不超过所问段数时才敢这么映射，绝不越界）
+        const remapped = got.slice(0, idxs.length).map((x: any, j: number) => ({ i: idxs[j], slots: (x && x.slots) || {} }))
+        al = alignCopy(remapped, N)
+      }
+      if (al.extra) extraN += al.extra
+      slotsArr = mergeSlots(slotsArr, al.slots)
+      miss = miss.filter((k) => !(slotsArr && slotsArr[k]))
     }
-    const got = parseArr(txt)
-    if (!got) { why = why || '不是合法 JSON'; continue }
-    const al = alignCopy(got, N)
-    if (al.extra) extraN += al.extra
-    slotsArr = mergeSlots(slotsArr, al.slots)
-    missIdx = []
-    for (let k = 0; k < N; k++) if (!(slotsArr[k])) missIdx.push(k)
-    if (!missIdx.length) break
-    why = '缺 ' + missIdx.length + ' 段（第 ' + missIdx.slice(0, 6).map((k) => k + 1).join('、') + ' 段没写）'
+    if (miss.length) why = why || ('第 ' + miss.slice(0, 6).map((k) => k + 1).join('、') + ' 段没写')
   }
   // 校验（用字表 / 字数 / emoji）+ 剥数字卡字段
   let charset = ''
