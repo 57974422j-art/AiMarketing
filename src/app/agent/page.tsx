@@ -1950,13 +1950,16 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
   const [voice, setVoice] = useState(true)
   const fileRef = useRef<HTMLInputElement | null>(null)
 
-  // 素材卡：没手动选过就默认勾最近 12 张（与服务端"不勾就用最近 12 张"同口径）
+  // 素材卡：没手动选过就默认勾最近 N 张（★VF_FILMSRC_V1：N 由**服务端**下发 `defRecent`，
+  //   前端不再自己写一个 12 —— 上限也由服务端 `max` 下发，避免"前端 40 / 服务端 12"这种两处口径）
+  const matMax = Number(vj?.max) || 60
+  const defRecent = Number(vj?.defRecent) || 12
   useEffect(() => {
-    if (step === 'film_mat' && !sel.length && images.length) setSel(images.slice(0, 12).map((x: any) => String(x.name)))
+    if (step === 'film_mat' && !sel.length && images.length) setSel(images.slice(0, defRecent).map((x: any) => String(x.name)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, images.length])
 
-  const toggle = (n: string) => setSel((p) => (p.includes(n) ? p.filter((x) => x !== n) : (p.length >= 40 ? p : p.concat(n))))
+  const toggle = (n: string) => setSel((p) => (p.includes(n) ? p.filter((x) => x !== n) : (p.length >= matMax ? p : p.concat(n))))
 
   const doUpload = async (fs: FileList | null) => {
     if (!fs || !fs.length) return
@@ -2058,11 +2061,20 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
       {step === 'film_confirm' ? (
         <>
           <div className="text-[11px] text-gray-300 leading-relaxed mb-2">
-            <div>素材：{vj?.n ? `${vj.n} 张（你勾选的）` : '个人仓库最近 12 张'}</div>
+            {/* ★VF_FILMSRC_V1（2026-10-10 用户实测「17 张勾选、卡片按 12 张排」）：
+                卡片必须写**出片真正会用的张数**（服务端定稿 `pickedN`），不是"勾选名单长度"；
+                顺带把"AI 读了几张图 / 单条上限"也写出来 —— 上限要看得见，不做隐藏天花板。 */}
+            <div>
+              素材：{Number(vj?.pickedN) || Number(vj?.n) ? `${Number(vj?.pickedN) || Number(vj?.n)} 张（出片就用这些）` : `个人仓库最近 ${Number(vj?.defRecent) || 12} 张`}
+              {Number(vj?.readN) ? ` · AI 已读图 ${Number(vj.readN)} 张` : ''}
+              {Number(vj?.matMax) ? ` · 单条上限 ${Number(vj.matMax)} 张` : ''}
+            </div>
             <div>风格包：{String(vj?.packName || '自动')}</div>
             {/* ★VF_FILMEST_V2（2026-10-09 用户实测「卡上说约 35 秒、成片只有 24.6 秒」）：
-                口径写明白 —— 这个秒数是**按文案字数估**的，真正时长由 TTS 实测配音决定。 */}
-            <div>预计：约 {Number(vj?.estShots) || 6} 段 · {Number(vj?.estSec) || 30} 秒（按文案字数估，成片以实测配音时长为准）</div>
+                口径写明白 —— 这个秒数是**按文案字数估**的，真正时长由 TTS 实测配音决定。
+                ★VF_FILMSRC_V1：段数**不再兜底成 6**（老代码 `|| 6` 会在骨架缺失时显示一个假数）——
+                段数只由素材张数决定；取不到就显示「—」，让异常看得见。 */}
+            <div>预计：约 {Number(vj?.estShots) || '—'} 段 · {Number(vj?.estSec) || 30} 秒（段数由素材张数决定；秒数按文案字数估，成片以实测配音时长为准）</div>
             <div className="text-emerald-300">点数：不额外扣点（本线用本机引擎逐帧渲染，不调 AI 生成画面）</div>
             {/* ══ ★VF_FILMCOPY_V1（2026-10-09 用户定案「让 AI 先总结素材。不要乱出片」）══
                 「下一步」时服务端已经**先让 AI 看了素材、并按骨架写好逐镜文案**；这里把它显示出来，

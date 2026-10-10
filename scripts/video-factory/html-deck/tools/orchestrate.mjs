@@ -125,11 +125,22 @@ export function orchestrateRule(opts = {}) {
     pack,
     scenes: film.scenes.map((s) => ({ shotgroup: s.shotgroup, structure: s.structure, dur: s.dur, slots: s.slots, media: s.media })),
     total: film.total,
+    // ★VF_FILMSRC_V1（2026-10-10）：**这几个字段必须带出去** —— arrange 已经算好了
+    //   "完整大图配额"（requirePlate / plateCount / imageCount），而这里原来只挑了
+    //   source/vertical/pack/scenes/total/materials/rationale ⇒ **requirePlate 被丢掉**
+    //   ⇒ 出片时 render-film 那条 `stage=plate` 硬闸门**根本不会跑**。
+    //   （这就是"改了一半"的典型：闸门加了、但传参链上被吞掉。）
+    requirePlate: !!film.requirePlate,
+    plateCount: Number(film.plateCount) || 0,
+    imageCount: Number(film.imageCount) || 0,
     materials: mats.map((m) => ({ file: m.file, name: m.name, light: m.light })),
     rationale: [
       '赛道：' + vertical,
       '风格包：' + pack,
       '编排：' + film.scenes.length + ' 段 / ' + film.total + 's（工具自动编排，素材不足的段留空）',
+      '完整大图配额：' + (Number(film.plateCount) || 0) + '/' + (Number(film.imageCount) || 0)
+        + ' = 每 10 张 ' + (((Number(film.plateCount) || 0) / Math.max(1, Number(film.imageCount) || 1)) * 10).toFixed(1)
+        + ' 张（要求 3~4）' + (film.requirePlate ? ' · 硬口径' : ''),
     ],
   }
 }
@@ -172,7 +183,13 @@ export function validateOrchestration(o, opts = {}) {
   const scenes = Array.isArray(o.scenes) && o.scenes.length ? o.scenes : def.scenes
   const fileNames = (opts.materials || []).map((f) => (typeof f === 'string' ? f : f.file))
   const base = path.dirname(opts.filmPath || path.join(HERE, 'x.json'))
-  for (const sc of scenes.slice(0, 12)) {
+  // ★VF_FILMSRC_V1（2026-10-10 用户定案「我给 50 张图你也做 8 个镜头？」）：
+  //   段数**只由素材张数决定**（arrange 的规则算出来），这里原来 `slice(0, 12)` 会把
+  //   大素材量的片砍到 12 段 ⇒ 素材没出全、文案也对不上。现在只留一个**保护性**上限（60 段，
+  //   防的是异常输入，不是"限制用户素材"），要改请改这里一处。
+  const SCENE_MAX = Math.max(12, Number(process.env.VF_FILM_SCENE_MAX || 60) || 60)
+  if (scenes.length > SCENE_MAX) fb.push('scenes:' + scenes.length + ' 段 → 截到 ' + SCENE_MAX + ' 段（保护性上限）')
+  for (const sc of scenes.slice(0, SCENE_MAX)) {
     const st = lib.ids.structure.has(sc.structure) ? sc.structure : 'opening-hero'
     if (st !== sc.structure) fb.push('structure:' + sc.structure + ' → ' + st)
     const sg = lib.ids.shotgroup.has(sc.shotgroup) ? sc.shotgroup : (lib.shotgroups.find((x) => x.structure === st) || {}).id || ''
@@ -187,6 +204,11 @@ export function validateOrchestration(o, opts = {}) {
     out.scenes.push({ shotgroup: sg, structure: st, dur, slots: sc.slots || {}, media })
   }
   out.total = +out.scenes.reduce((a, s) => a + s.dur, 0).toFixed(2)
+  // ★VF_FILMSRC_V1：配额声明按**最终 scenes 现算**（AI 自己排的也算数）——
+  //   段落数/图数只由素材张数决定，不封顶；完整大图占不到每 10 张 3~4 张 ⇒ 出片时会被 stage=plate 拒。
+  out.imageCount = out.scenes.reduce((a, s) => a + ((s.media || []).length), 0)
+  out.plateCount = out.scenes.filter((s) => /^plate-/.test(String(s.structure))).length
+  out.requirePlate = out.imageCount >= 10
   return out
 }
 
@@ -219,7 +241,12 @@ if (isCli) {
     if (out) {
       // id 取**输出文件名**（否则成片会都叫 orch.mp4，现场分不清哪条是哪条 —— 实测踩过）
       const id = j.id || path.basename(out, '.json')
-      fs.writeFileSync(out, JSON.stringify({ id, name: j.name || 'HTML成片', pack: v.pack, fps: 25, scenes: v.scenes }, null, 2) + '\n', 'utf8')
+      // ★VF_FILMSRC_V1：**必须把配额声明写进 film.json**，否则出片时 `stage=plate` 那条硬闸门不跑
+      fs.writeFileSync(out, JSON.stringify({
+        id, name: j.name || 'HTML成片', pack: v.pack, fps: 25,
+        requirePlate: !!v.requirePlate, plateCount: v.plateCount, imageCount: v.imageCount,
+        scenes: v.scenes,
+      }, null, 2) + '\n', 'utf8')
       console.log('已写：' + out)
     }
     console.log('fallback ' + v.fallbacks.length + ' 处' + (v.fallbacks.length ? '：\n  ' + v.fallbacks.join('\n  ') : ''))

@@ -447,7 +447,20 @@ export function buildFilm(film, outDir, filmDir) {
   //   实测踩过：一处按原名拷、一处按改名引用 ⇒ 素材全丢，页面只剩占位块。
   for (const x of picked) fs.copyFileSync(x.src, path.join(assets, x.name))
   const total = scenes.reduce((a, s) => a + Number(s.dur || 4), 0)
-  return { dir: outDir, file: path.join(outDir, 'index.html'), total: +total.toFixed(2), structs: scenes.map((s) => FILM_STRUCTS.includes(s.structure) ? s.structure : 'opening-hero'), missing }
+  // ★VF_FILMFORK_V1（2026-10-10）：**不许静默降级** —— 引擎只实现 FILM_STRUCTS 这 8 种结构，
+  //   喂进来一个没实现的结构（例如库里名叫 `fullbleed-kenburns`、而引擎只认 `fullbleed`），
+  //   老实现会**悄悄把它渲成开场卡**（用户就会看到"某一页莫名其妙变成封面"，且没有任何报错）。
+  //   现口径：把没实现的结构**列出来**交给调用方（render-film 会据此拒渲并报 stage=structure）。
+  const unknown = [...new Set((film.scenes || []).map((s) => String(s.structure || ''))
+    .filter((s) => s && !FILM_STRUCTS.includes(s)))]
+  return {
+    dir: outDir,
+    file: path.join(outDir, 'index.html'),
+    total: +total.toFixed(2),
+    structs: scenes.map((s) => FILM_STRUCTS.includes(s.structure) ? s.structure : 'opening-hero'),
+    unknown,   // ← 非空即"有结构没实现"，调用方应拒渲（可用结构见 FILM_STRUCTS）
+    missing,
+  }
 }
 
 /* CLI */
@@ -463,4 +476,5 @@ if (isCli) {
   const r = buildFilm(film, outDir, path.dirname(path.resolve(filmPath)))
   console.log(`生成：${path.relative(HERE, r.file)}（${r.structs.length} 段 · ${r.total}s · 结构 ${r.structs.join('/')}）`)
   if (r.missing.length) console.log('  ⚠ 缺素材：' + r.missing.join(', '))
+  if (r.unknown && r.unknown.length) console.log('  ✗ 引擎没实现这些结构（会被 render-film 拒渲）：' + r.unknown.join('、'))
 }

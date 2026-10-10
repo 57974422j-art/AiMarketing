@@ -117,7 +117,9 @@ export async function filmDoneProtocol(
     //   服务端混音失败时 ffmpeg 会**留下 0 字节文件**，老代码只判 `existsSync` ⇒ 当成功 ⇒
     //   把 0 字节 buffer 传上 OSS ⇒ 客户端镜像到本地就是 0.0MB 文件（本地/网页都打不开）。
     //   现口径：**空文件一律不入库**（宁可不给地址，也不给一个坏文件）。
-    const mp4Sz = (() => { try { return fs.statSync(r.mp4).size } catch { return -1 } })()
+    // （顺手修掉上次留的类型错：`r.mp4` 是 `string | undefined`，直接 statSync 过不了 TS；
+    //   运行时本来就有 try/catch 兜住，这里只是把类型写对）
+    const mp4Sz = (() => { try { return r.mp4 ? fs.statSync(r.mp4).size : -1 } catch { return -1 } })()
     if (r.mp4 && mp4Sz > 0) {
       const buf = await readFile(r.mp4)
       const { name } = await saveToPersonalRepo({ userId: String(uid), buffer: buf, ext: 'mp4', mime: 'video/mp4' })
@@ -230,7 +232,10 @@ export async function planFilm(opts: {
   pack?: string
   variant?: number
   workDir: string
-}): Promise<{ ok: boolean; scenes?: Array<{ structure: string; media: string[]; dur: number }>; pack?: string; vertical?: string; err?: string }> {
+}): Promise<{ ok: boolean; scenes?: Array<{ structure: string; media: string[]; dur: number }>; pack?: string; vertical?: string; err?: string
+  /** ★VF_FILMSRC_V1：**整份 film.json**（含 requirePlate/plateCount/total 等顶层字段）——
+   *  调用方把它存进草稿，出片时原样复用 ⇒ 骨架**只编一次**，不可能与文案错位。 */
+  film?: any }> {
   fs.mkdirSync(opts.workDir, { recursive: true })
   const filmJson = path.join(opts.workDir, 'film.json')
   const rel = path.relative(filmToolsDir(), filmJson).replace(/\\/g, '/')
@@ -240,6 +245,7 @@ export async function planFilm(opts: {
     const j = JSON.parse(fs.readFileSync(filmJson, 'utf8'))
     return {
       ok: true,
+      film: j,   // ★VF_FILMSRC_V1：整份带回去（顶层 requirePlate 等也一起，出片复用不丢闸门）
       scenes: (j.scenes || []).map((s: any) => ({
         structure: String(s.structure || ''),
         media: (s.media || []).map((m: any) => path.basename(String(m))),
@@ -279,11 +285,45 @@ export async function makeFilmFromMaterials(opts: {
   voice?: string
   /** ★VF_FILMCOPY_V1：AI 写好的逐镜文案（与骨架同序；key 名按结构：title1/sub/chips/rows…） */
   copy?: any[]
+  /** ★VF_FILMSRC_V1：**写文案那一步编好的整份 film.json**（草稿里存的那份）。
+   *  给了它 ⇒ **不再重新编排**，只把每段的素材名换成这次工作目录里的真实绝对路径
+   *  （老实现出片会再 orchestrate 一次；素材一变 ⇒ 段数一变 ⇒ 整片文案错位）。 */
+  planJson?: any
+  /** 与 planJson 配套：赛道（老实现从 orchestrate 的返回里拿） */
+  vertical?: string
 }): Promise<{ ok: boolean; mp4?: string; sheet?: string; stage?: string; err?: string; vertical?: string; pack?: string; voiced?: boolean; voiceErr?: string }> {
   fs.mkdirSync(opts.workDir, { recursive: true })
   const filmJson = path.join(opts.workDir, 'film.json')
   const rel = path.relative(filmToolsDir(), filmJson).replace(/\\/g, '/')
-  const o = await orchestrate({ materials: opts.materials, text: opts.text, pack: opts.pack, variant: opts.variant, id: 'vf-film', outJson: rel })
+  // ★VF_FILMSRC_V1：**骨架只有一个真源** —— 有定稿就用定稿（只重绑素材路径），没有才现场编排。
+  let o: { ok: boolean; vertical?: string; pack?: string; note?: string }
+  if (opts.planJson && Array.isArray(opts.planJson.scenes) && opts.planJson.scenes.length) {
+    const byName = new Map<string, string>()
+    for (const f of opts.materials) byName.set(path.basename(String(f)), String(f))
+    const miss: string[] = []
+    const scenes = (opts.planJson.scenes as any[]).map((s: any) => {
+      const media = (s.media || []).map((m: any) => {
+        const abs = byName.get(path.basename(String(m)))
+        if (!abs) { miss.push(path.basename(String(m))); return '' }
+        return abs
+      }).filter(Boolean)
+      return Object.assign({}, s, { media })
+    })
+    // 素材对不上就**明确报错**（绝不静默换图：换了图，文案就张冠李戴）
+    if (miss.length) {
+      return { ok: false, stage: 'media', err: '定稿骨架里的素材在本次工作目录里找不到：' + miss.slice(0, 3).join('、') }
+    }
+    const j = Object.assign({}, opts.planJson, {
+      id: opts.planJson.id || 'vf-film',
+      fps: Number(opts.planJson.fps) || 25,
+      scenes,
+    })
+    fs.writeFileSync(filmJson, JSON.stringify(j, null, 2) + '\n', 'utf8')
+    o = { ok: true, vertical: String(opts.vertical || ''), pack: String(j.pack || '') }
+    console.log('[film] 沿用定稿骨架：' + scenes.length + ' 段（不重排）')
+  } else {
+    o = await orchestrate({ materials: opts.materials, text: opts.text, pack: opts.pack, variant: opts.variant, id: 'vf-film', outJson: rel })
+  }
   if (!o.ok) return { ok: false, stage: 'orchestrate', err: o.note }
   // ★VF_FILMCOPY_V3（2026-10-09 用户实测「卡片上文案齐全、成片没字没声」· 根因，已确认）：
   //   **形状分叉** —— 服务端生成的 copy 是 `{ slots: {...} }`

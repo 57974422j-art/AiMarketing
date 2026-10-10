@@ -67,6 +67,17 @@ export function renderFilm(filmPath, opts = {}) {
   // ① 素材齐全
   if (b.missing.length) return { ok: false, stage: 'media', err: '缺素材：' + b.missing.join(', '), dir: outDir }
 
+  // ①b ★VF_FILMFORK_V1：结构必须都是**引擎实现过的** —— 老实现会把没实现的结构悄悄渲成开场卡
+  //   （库里 id 与引擎 id 分叉时的典型事故：`fullbleed-kenburns` vs `fullbleed`）⇒ 现口径拒渲并列出可用结构。
+  if (b.unknown && b.unknown.length) {
+    return {
+      ok: false, stage: 'structure',
+      err: '引擎没实现这些结构：' + b.unknown.join('、') + '（可能原因：结构表里的 id 与引擎 FILM_STRUCTS 分叉）。'
+        + '引擎可用的结构只有：opening-hero / plate-top / plate-bottom / fullbleed / works-wall / grid-2x2 / glass-product / data-dashboard',
+      dir: outDir,
+    }
+  }
+
   // ①② 完整大图配额（★VF_PLATE_V1，2026-10-10 用户定案「每 10 张图必须出现 3~4 张完整大图」）
   //   数的是**素材张数**与**完整大图页**（plate-top / plate-bottom：图整张不裁、占满画幅 93% 宽）。
   //   · 片子声明了 requirePlate（arrange 排的骨架会声明）⇒ **不达标直接拒渲**（stage=plate）；

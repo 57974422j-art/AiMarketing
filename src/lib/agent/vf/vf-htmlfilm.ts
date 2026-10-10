@@ -36,7 +36,7 @@ export type HtmlFilmStep = 'mat' | 'style' | 'confirm'
 
 export type HtmlFilmDraft = {
   step: HtmlFilmStep
-  /** 用户勾选的**个人仓库文件名**（空数组 = 用最近 12 张） */
+  /** 用户勾选的**个人仓库文件名**（空数组 = 用最近 FILM_DEFAULT_RECENT 张） */
   names: string[]
   /** 风格包 id（空 = 编排器按赛道自己挑） */
   pack: string
@@ -49,10 +49,68 @@ export type HtmlFilmDraft = {
   plan?: Array<{ structure: string; media: string[] }>
   /** AI 按骨架写的**逐镜文案**（下标 = 骨架序号；key 按结构：title1/sub/chips/rows…） */
   copy?: any[]
+  // ══ ★VF_FILMSRC_V1（2026-10-10 用户定案）════════════════════════════════════
+  //   用户原话：「我不是给你一个比例（每 10 张 3~4 张完整大图）吗，多少帧多少镜不要做什么约束，
+  //             那我给你 50 张图你也做 8 个镜头不肯定出问题吗？」
+  //   病灶（本机核对出来的铁证）：这条线**在四处各算了一遍"这次用哪些素材"**，且各有固定上限
+  //     · 卡片展示 40 张（repoImages）      · AI 写文案处 `.slice(0,12)` ← 只按 12 张排骨架
+  //     · 出片处同一段逻辑但保留勾选的 17 张 ⇒ **同一条单卡片排 8 段、出片排 12 段**
+  //     · 看图 `picked.slice(0,8)` ⇒ 50 张里 42 张 AI 从没见过
+  //   ⇒ 文案按下标合并到分镜时就错位（后 4 镜空，被 copy 闸门拦）。
+  //   现口径：**素材集合与骨架都只有一个真源** —— 写文案那一步定稿，出片只认这一份。
+  /** ✅本次**实际用到的素材文件名**（写文案那一步定稿；出片**只认它**，不再重取/重切） */
+  picked?: string[]
+  /** 写文案那一步**真正读懂的图片张数**（分批读图的总数，给用户看，不藏） */
+  readN?: number
+  /** 写文案那一步编好的**整份 film.json**（出片直接用它 ⇒ 骨架不可能与文案错位） */
+  filmJson?: any
+  /** 编排判出来的赛道（出片复用，避免第二处口径） */
+  vertical?: string
 }
 
 /** 进程内缓存（与 vf-ppt.ts 同形制：DB 是主，Map 是"这一回合的加速"） */
 const HTMLFILM_DRAFT = new Map<number, HtmlFilmDraft>()
+
+/* ═══════════════ ★VF_FILMSRC_V1：素材集合 —— 全链**只有这一处** ═══════════════
+   为什么单列（用户实测踩出来的）：同一条单，"卡片/看图/出片"三处各写了一份取素材逻辑，
+   而且各有固定上限（12 / 8 / 40）⇒ 卡片按 12 张排 8 段、出片按 17 张排 12 段 ⇒
+   文案按下标合进分镜就错位（后 4 镜空 ⇒ 被 copy 闸门拦）。
+   现口径：
+     · 上限**只有一个**（FILM_MAT_MAX），且**写进卡片让用户看得见**，不再是隐藏天花板；
+     · 看图片数 = 用到的图片数（分批读，不再"只看前 8 张"）；
+     · 定稿写进草案（vd.picked / vd.filmJson），出片**只认草案**。
+   ⚠️ 要改上限请改环境变量 `VF_FILM_MAT_MAX`，**不要**再去别处写 slice(0,N)。 */
+export const FILM_MAT_MAX = Math.max(20, Number(process.env.VF_FILM_MAT_MAX || 60) || 60)
+/** 从个人仓库最多拉多少张**候选**（列表上限，不是使用上限） */
+export const FILM_POOL_MAX = Math.max(FILM_MAT_MAX, 200)
+/** 用户没勾选时的默认：最近 N 张（卡片上写着这句话，前端同口径） */
+export const FILM_DEFAULT_RECENT = 12
+/** AI 一次读图最多送几张（超过就**分批**，不再"只看前 8 张就写全片文案"） */
+const VL_BATCH = 8
+
+export type FilmPick = { pool: any[]; picked: any[]; missing: string[]; capped: number }
+
+/** 取素材（**卡片展示 / 写文案 / 出片 三处共用**：唯一实现）。
+ *  · `names` 非空 ⇒ 严格按用户勾选的**顺序**与名单取（顺序 = 出片顺序）；
+ *    找不到的名字进 `missing`（调用方**必须如实报错**，绝不静默换素材）。
+ *  · `names` 空 ⇒ 最近 FILM_DEFAULT_RECENT 张（与卡片提示同口径）。 */
+export async function pickFilmMaterials(uid: number | string, names: string[]): Promise<FilmPick> {
+  const repo = await listRepoMaterials(uid, FILM_POOL_MAX, 'recent')
+  const pool = (repo || []).filter((m: any) => m?.kind === 'image')
+  const want = (names || []).map((x) => String(x)).filter(Boolean)
+  const picked: any[] = []
+  const missing: string[] = []
+  if (want.length) {
+    for (const n of want) {
+      const m = pool.find((x: any) => String(x.name) === n)
+      if (m) picked.push(m); else missing.push(n)
+    }
+  } else {
+    picked.push(...pool.slice(0, FILM_DEFAULT_RECENT))
+  }
+  const capped = Math.max(0, picked.length - FILM_MAT_MAX)
+  return { pool, picked: capped ? picked.slice(0, FILM_MAT_MAX) : picked, missing, capped }
+}
 
 export async function saveHtmlFilmDraft(db: any, uid: number | string, d: HtmlFilmDraft): Promise<void> {
   HTMLFILM_DRAFT.set(Number(uid), d)
@@ -64,7 +122,13 @@ export async function saveHtmlFilmDraft(db: any, uid: number | string, d: HtmlFi
     })
     if (ex) await db.agentMemory.update({ where: { id: ex.id }, data: { content, updatedAt: new Date() } })
     else await db.agentMemory.create({ data: { userId: String(uid), content, tags: HTMLFILM_TAG, salience: 0.5 } })
-  } catch { /* 存储失败不影响本次流程（内存 Map 仍在） */ }
+  } catch (e: any) {
+    // ★VF_FILMSRC_V1（2026-10-10 用户实测「点出片说：这一单已经结束了」）：
+    //   老代码这里是 `catch { /* 忽略 */ }` ⇒ **草案只存在内存里**、DB 写失败没人知道；
+    //   一旦进程重启（部署/崩），这一单就"凭空消失"，用户只看到"没有进行中的流程"。
+    //   现口径：**如实打日志**（内存 Map 仍在，本次流程照常；但重启后会丢，日志里能查到原因）。
+    vfLog(uid, '[HTML成片] ⚠ 草案落库失败（重启后这一单会丢）：' + String(e?.message || e).slice(0, 160))
+  }
 }
 
 export async function loadHtmlFilmDraft(db: any, uid: number | string): Promise<HtmlFilmDraft | null> {
@@ -87,6 +151,12 @@ export async function loadHtmlFilmDraft(db: any, uid: number | string): Promise<
       summary: String(j.summary || ''),
       plan: Array.isArray(j.plan) ? j.plan : [],
       copy: Array.isArray(j.copy) ? j.copy : [],
+      // ★VF_FILMSRC_V1：**单一真源字段也必须一起取回来** —— 漏了 picked/filmJson，
+      //   重启后出片就会退回"重新取素材 + 重新编排"⇒ 又回到"卡片 8 段 / 出片 12 段"那个坑。
+      picked: Array.isArray(j.picked) ? j.picked.map((x: any) => String(x)) : [],
+      readN: Number(j.readN) || 0,
+      filmJson: (j.filmJson && typeof j.filmJson === 'object') ? j.filmJson : null,
+      vertical: String(j.vertical || ''),
     }
   } catch { return null }
 }
@@ -125,11 +195,13 @@ export function htmlFilmPacks(): Array<{ id: string; name: string; mood: string;
   } catch { return [] }
 }
 
-/** 个人仓库里的图片（含 24h 签名缩略图）——素材卡用 */
+/** 个人仓库里的图片（含 24h 签名缩略图）——素材卡用
+ *  ★VF_FILMSRC_V1：这里的 40 也是"天花板"之一（用户有 50 张时后 10 张根本勾不到）
+ *  ⇒ 统一到 FILM_POOL_MAX（候选池上限，与 pickFilmMaterials 同源）。 */
 async function repoImages(uid: number | string): Promise<Array<{ name: string; url: string }>> {
   try {
-    const items = await listRepoMaterials(uid, 40, 'recent')
-    const imgs = (items || []).filter((m: any) => m?.kind === 'image').slice(0, 40)
+    const items = await listRepoMaterials(uid, FILM_POOL_MAX, 'recent')
+    const imgs = (items || []).filter((m: any) => m?.kind === 'image').slice(0, FILM_POOL_MAX)
     const { signedUrl } = await import('@/lib/oss')
     const out: Array<{ name: string; url: string }> = []
     for (const m of imgs) {
@@ -212,30 +284,46 @@ function deriveCopyFromSummary(summary: string, scenes: Array<{ structure: strin
  *   ④ 服务端校验：解析 + 每镜 ≤60 字 + 用字在字表内 + 无 emoji + **剥掉任何数字卡字段**（红线：不许编造数据）。
  *  ⚠️ 与 scripts/vf-film-gen.mjs 同一套硬规矩；区别：那边让模型**排分镜**，这里骨架已定、只让模型**填文案**。 */
 async function aiPrepareCopy(ctx: HtmlFilmCtx, uid: number | string, vd: HtmlFilmDraft):
-Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[]; warn?: string }> {
+Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[]; warn?: string
+  picked?: string[]; readN?: number; filmJson?: any; vertical?: string }> {
   if (!ctx.generateText) return { ok: false, err: '服务端没接上文案模型（generateText 未注入）' }
-  // ① 素材（勾选的优先，没勾用最近 12 张 —— 与真正出片同一口径）
-  let picked: any[] = []
-  try {
-    const repo = await listRepoMaterials(uid, 40, 'recent')
-    const pool = (repo || []).filter((m: any) => m?.kind === 'image')
-    picked = (vd.names.length ? pool.filter((m: any) => vd.names.includes(String(m.name))) : pool.slice(0, 12)).slice(0, 12)
-  } catch { /* ignore */ }
+  // ① 素材（★VF_FILMSRC_V1：**唯一实现** pickFilmMaterials —— 与本线卡片、出片三处共用）
+  let pick: FilmPick = { pool: [], picked: [], missing: [], capped: 0 }
+  try { pick = await pickFilmMaterials(uid, vd.names) } catch { /* 取不到就走下面"没有可用图片" */ }
+  const picked = pick.picked
   if (!picked.length) return { ok: false, err: '个人仓库里没有可用图片' }
-  // ② 看图总结（读图失败**不判死**：少点信息也比卡住好；文案本身仍必须写出来）
+  // 勾选的图被删/被移出候选池 ⇒ **如实报错**（绝不静默换素材：换了素材，文案与分镜就必然错位）
+  if (pick.missing.length) {
+    return { ok: false, err: '有 ' + pick.missing.length + ' 张勾选的图片在个人仓库里找不到了（'
+      + pick.missing.slice(0, 3).join('、') + (pick.missing.length > 3 ? ' …' : '') + '）——请回上一步「刷新列表」后重新勾选' }
+  }
+  // ② 看图总结（★VF_FILMSRC_V1：**分批读完所有要用的图** —— 老实现只看前 8 张，
+  //    50 张素材里 42 张 AI 从没见过 ⇒ 写出来的文案自然对不上后面那些张）。
+  //    读图失败**不判死**（少点信息也比卡住好；文案本身仍必须写出来）。
   let summary = ''
+  let readN = 0
   try {
     const { signedUrl } = await import('@/lib/oss')
     const { describeImagesWithVL } = await import('@/lib/ai-providers')
-    const urls: string[] = []
-    for (const m of picked.slice(0, 8)) {
-      try { urls.push(await signedUrl('storage/' + uid + '/' + m.name, 3600)) } catch { /* 单张失败跳过 */ }
+    const batches = Math.max(1, Math.ceil(picked.length / VL_BATCH))
+    const parts: string[] = []
+    for (let bi = 0; bi < batches; bi++) {
+      const batch = picked.slice(bi * VL_BATCH, (bi + 1) * VL_BATCH)
+      const urls: string[] = []
+      for (const m of batch) {
+        try { urls.push(await signedUrl('storage/' + uid + '/' + m.name, 3600)) } catch { /* 单张失败跳过 */ }
+      }
+      if (!urls.length) continue
+      try {
+        const r = await describeImagesWithVL(urls,
+          '这是一组【餐饮/美食实拍】照片（第 ' + (bi + 1) + ' 批，共 ' + batches + ' 批）。'
+          + '只回两段：第一段一句话总结这批素材是什么（≤30 字）；第二段逐张一行说清每张拍的是什么（菜名/场景），不要编号、不要多余解释。', 700)
+        if (String(r || '').trim()) parts.push(String(r).trim())
+        readN += urls.length
+      } catch { /* 单批失败跳过，继续下一批（后面闸门会兜底） */ }
     }
-    if (urls.length) {
-      const r = await describeImagesWithVL(urls,
-        '这是一组【餐饮/美食实拍】照片。只回两段：第一段一句话总结这组素材是什么（≤30 字）；第二段逐张一行说清每张拍的是什么（菜名/场景），不要编号、不要多余解释。', 700)
-      summary = String(r || '').trim()
-    }
+    summary = parts.join('\n')
+    vfLog(uid, `[HTML成片] 读图：${readN}/${picked.length} 张（分 ${batches} 批）· 素材 ${picked.length} 张（仓库候选 ${pick.pool.length}${pick.capped ? ' · 超上限砍 ' + pick.capped : ''}）`)
   } catch { /* ignore */ }
   // ③ 骨架（只出骨架、不渲染）——需要**本地文件**，先下载（与出片同一步）
   const workDir = path.join(vfStorageRoot(), String(uid), 'video-factory', 'film_' + Date.now())
@@ -253,6 +341,17 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
   if (!files.length) return { ok: false, err: '素材下载失败（没拿到本地文件）' }
   const pl = await planFilm({ materials: files, text: String(vd.topic || ''), pack: vd.pack || '', workDir })
   if (!pl.ok || !pl.scenes || !pl.scenes.length) return { ok: false, err: '编排骨架失败：' + String(pl.err || '') }
+  // ★VF_FILMSRC_V1：把**这份骨架本身**（整份 film.json）与素材名单一起固化 —— 出片直接用它，
+  //   不再重新编排（老实现出片会再 orchestrate 一次；素材一变 ⇒ 段数一变 ⇒ 整片文案错位）。
+  const filmJson = pl.film
+  const vertical = String(pl.vertical || '')
+  // ★VF_FILMSRC_V1：**直接写进草稿**（调用方随后 save 的就是这个对象）——
+  //   刻意不在三个 return 分支里各写一遍：那又是"同一件事多处实现"，正是本线的老毛病。
+  //   出片（VF_FILM_GO）只认这四个字段：素材名单 / 读图数 / 整份骨架 / 赛道。
+  vd.picked = picked.map((m: any) => String(m.name))
+  vd.readN = readN
+  vd.filmJson = filmJson
+  vd.vertical = vertical
   // ④ 让模型按骨架填文案
   const guide = [
     'opening-hero  开场封面：slots{eyebrow,title1,title2,sub,foot}        media=1 张',
@@ -264,6 +363,7 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
     'glass-product 结尾卡(无图)：slots{eyebrow,title,sub}（**不要写 value/unit/kpi**）media=0',
   ].join('\n  ')
   const planTxt = pl.scenes.map((s, i) => '  ' + i + '. ' + s.structure + '（素材 ' + s.media.length + ' 张）').join('\n')
+    + '\n  ⇒ **这条片一共 ' + pl.scenes.length + ' 段，你必须回 ' + pl.scenes.length + ' 个元素**（少一个多一个都算错，会直接退回重写）'
   const prompt = '你是一位竖屏短视频（9:16）的文案。素材是一组餐饮/美食实拍。\n'
     + (vd.topic ? '主题/卖点：' + vd.topic + '\n' : '（用户没给主题：请**只依据素材**写，不要自创品牌、不要编数据）\n')
     + (summary ? '【素材总结（视觉模型读图所得）】\n' + summary + '\n' : '')
@@ -378,11 +478,15 @@ async function matCard(uid: number | string, vd: HtmlFilmDraft): Promise<string>
   const body = {
     step: 'film_mat',
     hint: images.length
-      ? '第 1 步 / 共 3 步 · 选素材（个人仓库里的图片；不勾就默认用最近 12 张）'
+      ? '第 1 步 / 共 3 步 · 选素材（个人仓库里的图片；不勾就默认用最近 ' + FILM_DEFAULT_RECENT + ' 张）'
       : '第 1 步 / 共 3 步 · 个人仓库里还没有图片 —— 先上传几张，或点「下一步」由系统用最近素材',
     images,
     names: vd.names,
-    max: 40,
+    // ★VF_FILMSRC_V1：上限**只有一个**且下发到前端（不再各写 40/12/8）——
+    //   用户看得见"最多 N 张"，要改就改 VF_FILM_MAT_MAX。
+    max: FILM_MAT_MAX,
+    poolMax: FILM_POOL_MAX,
+    defRecent: FILM_DEFAULT_RECENT,   // ★VF_FILMSRC_V1：前端默认勾选数也由服务端下发（不让前端再写一个 12）
     pack: vd.pack,
   }
   return 'VF_JSON:' + JSON.stringify(body)
@@ -424,9 +528,9 @@ function estimateVoiceSec(copy: any[]): number {
 function confirmCard(vd: HtmlFilmDraft): string {
   const packs = htmlFilmPacks()
   const pk = packs.find((p) => p.id === vd.pack)
-  const n = vd.names.length || 12
   const plan = Array.isArray(vd.plan) ? vd.plan : []
   const copy = Array.isArray(vd.copy) ? vd.copy : []
+  const picked = Array.isArray(vd.picked) ? vd.picked : []
   // ★VF_FILMEST_V2：先按"文案字数"估（贴近实测），估不出来才退回"骨架声明时长相加"
   const estSec = estimateVoiceSec(copy)
     || Math.round(plan.reduce((a: number, s: any) => a + (Number(s.dur) || 0), 0)) || 30
@@ -435,11 +539,19 @@ function confirmCard(vd: HtmlFilmDraft): string {
     // ★VF_FILMCOPY_V1：数字（段数/时长）改成**按真实骨架算**，不再写死 30 秒/6 段
     hint: '第 3 步 / 共 3 步 · 确认出片（文案已按素材写好，先看一眼；不满意可「← 换风格」重写）',
     names: vd.names,
-    n: vd.names.length,
+    // ★VF_FILMSRC_V1：卡片上写的张数 = **出片真正会用的张数**（vd.picked 定稿件）。
+    //   老实现这里发的是"勾选名单长度"，而出片用的是另一份切片（12/40）⇒ 卡片与实际不符。
+    n: picked.length || vd.names.length,
+    pickedN: picked.length,
+    readN: Number(vd.readN) || 0,
+    matMax: FILM_MAT_MAX,
     pack: vd.pack,
     packName: pk ? pk.name : '（自动按赛道挑）',
     estSec,
-    estShots: plan.length || Math.max(4, Math.min(8, Math.ceil(Math.max(1, n) / 1.5))),
+    // ★VF_FILMSRC_V1（用户原话「我给你 50 张图你也做 8 个镜头？」）：
+    //   **段数不再有兜底上限**（老代码 `plan.length || Math.min(8, …)` 会给一个假的 8）。
+    //   段数只由骨架决定，骨架由素材张数决定 —— 取不到就如实显示 0，让用户看见异常。
+    estShots: plan.length,
     cost: 0,
     topic: String(vd.topic || ''),
     // ★VF_FILMCOPY_V1：把「AI 素材总结 + 逐镜文案」一起下发 —— 用户**看过再点出片**（不再"乱出片"）
@@ -485,7 +597,8 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
     const vd = (await loadHtmlFilmDraft(prisma, uid)) || { step: 'mat', names: [], pack: '', topic: '' } as HtmlFilmDraft
     const at = String(f.at || '')
     if (at === 'mat') {
-      vd.names = Array.isArray(f.names) ? f.names.map((x: any) => String(x)).slice(0, 40) : []
+      // ★VF_FILMSRC_V1：上限只用 FILM_MAT_MAX 这一个（老实现这里是 40、写文案处是 12、出片是 40）
+      vd.names = Array.isArray(f.names) ? f.names.map((x: any) => String(x)).slice(0, FILM_MAT_MAX) : []
       if (f.topic !== undefined) vd.topic = String(f.topic || '').slice(0, 60)
       vd.step = 'style'
       await saveHtmlFilmDraft(prisma, uid, vd)
@@ -529,15 +642,34 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
     const vd = await loadHtmlFilmDraft(prisma, uid)
     if (!vd) return 'HTML成片：这一单已经结束了（没有进行中的流程）——请重新说一次「HTML成片」。'
 
-    // 素材解析：勾选的 → 本地；没勾 → 个人仓库最近 12 张；再不行 → 老的 material/ 目录（兼容旧路径）
+    // ★VF_FILMSRC_V1：**先判这单自不自洽，再去下载素材**（顺序有意提前：省一次下载；
+    //   也让它离线可测）。骨架段数必须等于文案条数 —— 不一致就明确拒渲，
+    //   绝不把旧文案硬合并到新骨架（那次 8 条文案塞进 12 段骨架，后 4 镜空 ⇒ 被 copy 闸门拦）。
+    const planScenes: any[] = Array.isArray(vd.filmJson?.scenes) ? vd.filmJson.scenes : []
+    const copyArr: any[] = Array.isArray(vd.copy) ? vd.copy : []
+    if (planScenes.length && copyArr.length && planScenes.length !== copyArr.length) {
+      vfLog(uid, `[HTML成片] ★骨架/文案不一致：骨架 ${planScenes.length} 段 vs 文案 ${copyArr.length} 条 ⇒ 拒渲（要求重排）`)
+      return 'TOOL_REJECT:HTML成片：这一单的骨架（' + planScenes.length + ' 段）与文案（' + copyArr.length
+        + ' 条）不一致 —— **没有出片**（不做"旧文案塞新骨架"这种硬合并）。请重新说一次「HTML成片」，让它按当前素材重排一次。'
+    }
+
+    // ══ ★VF_FILMSRC_V1：出片**只认写文案那一步的定稿** ══
+    //   用户实测的病灶：老实现这里**再取一次仓库、再切一次张数**（卡片按 12 张排 8 段、
+    //   这里按勾选的 17 张排 12 段）⇒ 同一单两个骨架 ⇒ 文案按下标合并就错位（后 4 镜空）。
+    //   现口径：素材名单 = `vd.picked`（定稿），骨架 = `vd.filmJson`（定稿），一个都不重算。
+    const pickNames = (Array.isArray(vd.picked) && vd.picked.length) ? vd.picked : vd.names
     let files: string[] = []
     try {
-      const repo = await listRepoMaterials(uid, 40, 'recent')
-      const pool = (repo || []).filter((m: any) => m?.kind === 'image')
-      const picked = vd.names.length ? pool.filter((m: any) => vd.names.includes(String(m.name))) : pool.slice(0, 12)
-      const dl = await downloadMaterials(uid, picked)
+      const pick = await pickFilmMaterials(uid, pickNames)
+      if (pick.missing.length) {
+        return 'TOOL_REJECT:HTML成片：这一单定稿的素材里有 ' + pick.missing.length + ' 张在个人仓库找不到了（'
+          + pick.missing.slice(0, 3).join('、') + '）——请重新说一次「HTML成片」并刷新列表重勾（**没有自动换素材**）。'
+      }
+      const dl = await downloadMaterials(uid, pick.picked)
       files = (dl || []).map((m: any) => String(m.localPath || '')).filter(Boolean)
-      if (files.length) vfLog(uid, `[HTML成片] 素材：${files.length} 张（勾选 ${vd.names.length || 0} / 仓库图片 ${pool.length}）`)
+      if (files.length) {
+        vfLog(uid, `[HTML成片] 出片素材：${files.length} 张（定稿 ${pickNames.length || 0} 张 / 仓库候选 ${pick.pool.length}${pick.capped ? ' · 超上限砍 ' + pick.capped : ''}）`)
+      }
     } catch (e: any) {
       vfLog(uid, '[HTML成片] 取仓库图片失败：' + String(e?.message || e).slice(0, 120))
     }
@@ -548,10 +680,12 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
       } catch { files = [] }
     }
     if (!files.length) return 'TOOL_REJECT:没有找到素材（个人仓库里没有图片）——请先上传几张图片，再说一次「HTML成片」。'
-    files = files.slice(0, 40)   // ★与"上传多少用多少"同口径（上限 40）
+    // ★VF_FILMSRC_V1：**不再** files.slice(0,40) —— 上限只在 pickFilmMaterials 一处（FILM_MAT_MAX）
+
+    // （★VF_FILMSRC_V1 的"骨架/文案一致性校验"已在上面、下载素材**之前**做过）
 
     const workDir = path.join(vfStorageRoot(), String(uid), 'video-factory', 'film_' + Date.now())
-    vfLog(uid, `[HTML成片] 开始：${files.length} 张素材 → 编排 + 出片（风格包=${vd.pack || '自动'}${wantVoice ? ' · 配音+字幕' : ' · 无声'}）`)
+    vfLog(uid, `[HTML成片] 开始：${files.length} 张素材 → 出片（骨架 ${planScenes.length || '现排'} 段 · 风格包=${vd.pack || '自动'}${wantVoice ? ' · 配音+字幕' : ' · 无声'}）`)
     const r = await makeFilmFromMaterials({
       materials: files,
       text: String(vd.topic || ''),
@@ -562,6 +696,9 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
       voice: goF.voice ? String(goF.voice) : undefined,
       // ★VF_FILMCOPY_V1：把确认卡上那份 AI 文案**按序号**并进骨架（用户看过的那一版，出片必须与之一致）
       copy: Array.isArray(vd.copy) && vd.copy.length ? vd.copy : undefined,
+      // ★VF_FILMSRC_V1：**用定稿的那份骨架**（不再让出片重排一次）
+      planJson: vd.filmJson || undefined,
+      vertical: vd.vertical || '',
     })
     if (!r.ok) {
       vfLog(uid, `[HTML成片] 被闸门拦下：stage=${r.stage} ${String(r.err || '').slice(0, 160)}`)

@@ -1372,6 +1372,14 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
     case 'make_material_film': {
       const uidFilm = auth?.userId || 0
       const mdir = materialDir(uidFilm)
+      // ★VF_FILMSRC_V1（2026-10-10 用户定案「不要固定上限」）：这条一键路径原来写死
+      //   "回退最多 8 张 + 最终取**最后 8 张**"（`slice(0,8)` / `slice(-8)`）⇒ 与状态机那条线
+      //   又不是同一个口径。现在统一用 vf-htmlfilm.ts 里的**唯一上限** FILM_MAT_MAX。
+      let FILM_MAT_MAX = 60, FILM_POOL_MAX = 200
+      try {
+        const m = await import('@/lib/agent/vf/vf-htmlfilm')
+        FILM_MAT_MAX = m.FILM_MAT_MAX; FILM_POOL_MAX = m.FILM_POOL_MAX
+      } catch { /* 取不到就用默认（不阻塞） */ }
       let files: string[] = []
       try {
         const only: string[] = Array.isArray(args.materials) ? args.materials.map((x: any) => String(x)) : []
@@ -1387,17 +1395,21 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       //   **回退用个人仓库最近的图片**（下载到本地再编排出片，最多 8 张）。
       if (!files.length) {
         try {
-          const _repo = await listRepoMaterials(uidFilm, 40, 'recent')
-          const _imgs = (_repo || []).filter((m: any) => m.kind === 'image').slice(0, 8)
+          const _repo = await listRepoMaterials(uidFilm, FILM_POOL_MAX, 'recent')
+          const _imgs = (_repo || []).filter((m: any) => m.kind === 'image').slice(0, FILM_MAT_MAX)
           if (_imgs.length) {
             const _dl = await downloadMaterials(uidFilm, _imgs)
             files = (_dl || []).map((m: any) => String(m.localPath || '')).filter(Boolean)
-            if (files.length) vfLog(uidFilm, `[HTML成片] material/ 为空 → 回退用个人仓库图片 ${files.length} 张`)
+            if (files.length) vfLog(uidFilm, `[HTML成片] material/ 为空 → 回退用个人仓库图片 ${files.length} 张（上限 ${FILM_MAT_MAX}）`)
           }
         } catch (eR: any) { vfLog(uidFilm, '[HTML成片] 回退取仓库图片失败: ' + String(eR?.message || eR).slice(0, 120)) }
       }
       if (!files.length) return 'TOOL_REJECT:没有找到素材（请先上传图片到素材库，或在参数里指定 materials 文件名）'
-      files = files.slice(-8)
+      // ★VF_FILMSRC_V1：原来这里是 `slice(-8)`（**取最后 8 张**，等于把前面的素材全丢掉）
+      if (files.length > FILM_MAT_MAX) {
+        vfLog(uidFilm, `[HTML成片] 素材 ${files.length} 张超过上限 ${FILM_MAT_MAX} ⇒ 只取前 ${FILM_MAT_MAX} 张`)
+        files = files.slice(0, FILM_MAT_MAX)
+      }
       const workDir = path.join(vfStorageRoot(), String(uidFilm), 'video-factory', 'film_' + Date.now())
       vfLog(uidFilm, `[HTML成片] 开始：${files.length} 张素材 → 编排 + 出片`)
       const r = await makeFilmFromMaterials({
