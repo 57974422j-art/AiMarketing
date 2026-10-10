@@ -21,7 +21,10 @@ import { mkdir, writeFile, unlink } from 'fs/promises'
 import { execFile, execFileSync } from 'child_process'
 import { promisify } from 'util'
 // ★VF_VLMODEL_V2：读图模型名**不再写死**（模型 id 会随供应商改名 ⇒ 用户实测 qwen-vl-max 404）
-import { VL_FALLBACKS, pickVlModelFromList, vlEnvOverride, isVlModelMissing } from './vl-model'
+// ★VF_TEXTHEAL_V1：写字模型同理（用户实测 书写=deepseek-v4-flash 在本账号不存在 ⇒ 文案只写一半）
+import { VL_FALLBACKS, pickVlModelFromList, vlEnvOverride, isVlModelMissing, isModelMissing, pickTextModelFromList } from './vl-model'
+// ★VF_MSGCLAMP_V1：发出前清洗历史消息（空的 tool_calls ⇒ 两家都 400）
+import { clampMessages } from './ai-messages'
 
 const execFileAsync = promisify(execFile)
 
@@ -491,6 +494,61 @@ export function vlModelLocked(): string {
   return vlModelOk
 }
 
+/* ═════════ ★VF_TEXTHEAL_V1（2026-10-10 用户线上实测：文案「第四张 · 第五张」的真因）═════════
+   病灶链（pm2 日志逐行对得上）：
+     [模型] 大脑=qwen3.8-flash ｜ 书写=deepseek-v4-flash
+     [DashScope] 对话失败: HTTP 404 Model not exist        ← 书写调的就是这个名字
+     [DashScope FC] 调用失败: HTTP 404 Model not exist
+     [qwen3.8] 调用异常: HTTP 400 Empty tool_calls is not supported in message
+     [deepseek] 异常降级百炼: HTTP 400 Invalid 'messages[12].tool_calls': empty array
+   ⇒ **这个账号的百炼里没有 deepseek-v4-flash**（列表里只有 deepseek-r1-distill-qwen-1.5b）
+     ⇒ 书写模型整个 404 ⇒ 文案只写出一半 ⇒ 降级拼句。
+   口径（与读图同一套自愈，但**只在自己说"模型不存在"时才换**）：
+     · 不做"列表里没有就先换" —— 百炼 /models 未必列全，那样可能把**能用的**模型换掉；
+     · 撞过一次 404 就记住，换成本账号确实存在的（问 /models + 纯函数排序），并且只重试一次。
+   ⚠️ 另一处独立 bug 见 clampMessages（空的 tool_calls 数组会让两家都 400）。 */
+const deadChatModels = new Set<string>()
+const chatModelFix = new Map<string, string>()
+
+/** 记一个"本账号不存在"的文本模型名（各通道 catch 里调；不改变返回值，只记账） */
+function noteDeadModel(model: string, e: any): void {
+  const m = String(model || '').trim()
+  if (!m || !isModelMissing(e)) return
+  if (!deadChatModels.has(m)) {
+    deadChatModels.add(m)
+    console.error('[模型] ⚠️ ' + m + ' 在本账号不存在（' + String((e && e.message) || e).slice(0, 90)
+      + '）→ 下一步会自动换一个存在的')
+  }
+}
+
+/** 给一个"不存在"的模型名找一个能用的替代（问 /models；挑不到 / 就是它自己 ⇒ ''） */
+async function healChatModel(dead: string): Promise<string> {
+  const cached = chatModelFix.get(dead)
+  if (cached) return cached
+  const ids = await listDashScopeModels()
+  const picked = pickTextModelFromList(ids, dead)
+  if (picked && picked !== dead) {
+    chatModelFix.set(dead, picked)
+    console.log('[模型自愈] ' + dead + ' 不可用 ⇒ 改用 ' + picked + '（本账号确实有）')
+    return picked
+  }
+  return ''
+}
+
+/** ★VF_TEXTHEAL_V1：兜底链里那个写死的 deepseek-v4-flash 也可能不存在（本账号就是）
+ *  ⇒ 只在"已经知道它是死的"时才去问一次替代（不预判、不额外请求） */
+async function fallbackChatModel(): Promise<string> {
+  const dead = 'deepseek-v4-flash'
+  if (deadChatModels.has(dead)) {
+    const alt = await healChatModel(dead)
+    if (alt) return alt
+  }
+  return dead
+}
+
+/** ★VF_MSGCLAMP_V1：空的 tool_calls 会让百炼与 DeepSeek **都** 400（"文案只写一半"的另一半原因）
+ *  ⇒ 清洗逻辑单独放 `./ai-messages`（那里有完整病灶记录，且能脱离本文件单测）。 */
+
 const DASHSCOPE_CHAT_BASE = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 
 // ★VF_MODELSWITCH_V1（2026-09-30）：新增可选 model 参数 —— **不传 = 逐字保持现状**（旧调用方零回归）。
@@ -511,6 +569,8 @@ async function dashscopeChat(prompt: string, maxTokens = 2000, model?: string): 
     });
     return data.choices?.[0]?.message?.content?.trim() || null;
   } catch (e) {
+    // ★VF_TEXTHEAL_V1：把"这个名字在本账号不存在"记下来 ⇒ callChatModel 会换一个存在的再试
+    noteDeadModel(String(model || 'deepseek-v4-flash'), e)
     console.error('[DashScope] 对话失败:', e);
     return null;
   }
@@ -1220,6 +1280,8 @@ export async function deepSeekChat(prompt: string, maxTokens = 1000, model?: str
     });
     return data.choices?.[0]?.message?.content?.trim() || null;
   } catch (e) {
+    // ★VF_TEXTHEAL_V1：DeepSeek 官方这边也记账（两边的错都要能被 callChatModel 看见）
+    noteDeadModel(String(model || 'deepseek-chat'), e)
     console.error('[DeepSeek] 对话失败:', e);
     return null;
   }
@@ -1311,6 +1373,9 @@ export async function dashscopeFunctionCall(
   const key = getDashScopeKey()
   if (!key) return { content: null }
 
+  // ★VF_MSGCLAMP_V1：发出去之前清洗历史消息（空的 tool_calls 会让两家都 400 —— 见 clampMessages 注释）
+  messages = clampMessages(messages) as any
+
   // 2026-08-30 定案：AGENT 统一 qwen3.8-flash（百炼——工具稳定）→ 失败 DeepSeek V4 兜底——去掉 qwen-plus 降级
   const dsKey = process.env.DEEPSEEK_API_KEY || readEnvFile('DEEPSEEK_API_KEY')
   const qwKey = getDashScopeKey()
@@ -1318,7 +1383,9 @@ export async function dashscopeFunctionCall(
   const hasImg = messages.some((m) => Array.isArray(m.content) && m.content.some((b: any) => b?.type === 'image_url'))
   const useVL = forceVL || hasImg
   // ★VF_MODELSWITCH_V1：用户显式选了 brain 模型就用它；没选 = 现状（有图 qwen3-max / 无图 qwen3.8-flash）
-  const primaryModel = model || (useVL ? 'qwen3-max' : 'qwen3.8-flash')
+  // ★VF_TEXTHEAL_V1：这个名字若撞过"本账号不存在"，直接用换好的那个（换过就记住，不再白撞）
+  const primaryModelRaw = model || (useVL ? 'qwen3-max' : 'qwen3.8-flash')
+  const primaryModel = chatModelFix.get(primaryModelRaw) || primaryModelRaw
   try {
     // ① 主模型（百炼 OpenAI 兼容——支持 function calling）
     const qwBody: any = { model: primaryModel, messages, max_tokens: maxTokens, temperature, stream: false }
@@ -1327,7 +1394,11 @@ export async function dashscopeFunctionCall(
       method: 'POST', body: JSON.stringify(qwBody),
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + qwKey },
       timeoutMs: 60000,
-    }).catch((eQw: any) => { console.error('[qwen3.8] 调用异常:', eQw?.message || eQw); return null })
+    }).catch((eQw: any) => {
+      // ★VF_TEXTHEAL_V1：主模型若"在本账号不存在" ⇒ 记账 ⇒ 下一次进来直接用替代名（不再白撞）
+      noteDeadModel(primaryModel, eQw)
+      console.error('[qwen3.8] 调用异常:', eQw?.message || eQw); return null
+    })
     const qwChoice = qwRes?.choices?.[0]
     if (qwChoice?.message) {
       return { content: qwChoice.message?.content || null, toolCalls: qwChoice.message?.tool_calls || undefined, model: primaryModel }
@@ -1354,7 +1425,9 @@ export async function dashscopeFunctionCall(
 
   try {
     const body: Record<string, any> = {
-      model: 'deepseek-v4-flash', // 2026-08-30: 兜底用 V4（不再 qwen-plus）
+      // 2026-08-30: 兜底用 V4（不再 qwen-plus）
+      // ★VF_TEXTHEAL_V1：这个兜底名在本账号**是死的**（百炼 404）⇒ 已知死就换一个存在的
+      model: await fallbackChatModel(),
       messages,
       temperature,
       max_tokens: maxTokens,
@@ -1751,13 +1824,30 @@ export async function locateElement(base64Image: string, elementDesc: string): P
 //   · 未知 id / 两条都不通 → 返回 null，由调用方走【原有兜底链】
 //     —— 铁律：绝不因为切模型让功能挂掉。
 export async function callChatModel(modelId: string, prompt: string, maxTokens = 2000): Promise<string | null> {
-  const id = String(modelId || '').trim()
+  let id = String(modelId || '').trim()
   if (!id) return null
-  if (id.startsWith('qwen')) return await dashscopeChat(prompt, maxTokens, id)
-  if (id.startsWith('deepseek')) {
-    const viaDash = getDashScopeKey() ? await dashscopeChat(prompt, maxTokens, id) : null
-    if (viaDash) return viaDash
-    return await deepSeekChat(prompt, maxTokens, id)
+  // ★VF_TEXTHEAL_V1：这个名字撞过"不存在" ⇒ 直接用换好的那个（进程内记住，不再重复撞）
+  const fixed = chatModelFix.get(id)
+  if (fixed) id = fixed
+  const via = async (m: string): Promise<string | null> => {
+    if (m.startsWith('qwen')) return await dashscopeChat(prompt, maxTokens, m)
+    if (m.startsWith('deepseek')) {
+      const viaDash = getDashScopeKey() ? await dashscopeChat(prompt, maxTokens, m) : null
+      if (viaDash) return viaDash
+      return await deepSeekChat(prompt, maxTokens, m)
+    }
+    return null
+  }
+  const first = await via(id)
+  if (first) return first
+  // 两条通道都没出结果、且原因是"这个模型不存在" ⇒ 换一个本账号存在的，再试**一次**
+  if (deadChatModels.has(id)) {
+    const alt = await healChatModel(id)
+    if (alt) {
+      const second = await via(alt)
+      if (second) return second
+      deadChatModels.add(alt)   // 换过的也不行 ⇒ 别再试它（避免每次都白撞）
+    }
   }
   return null
 }

@@ -74,3 +74,55 @@ export function isVlModelMissing(e: any): boolean {
   const s = String((e && e.message) || e)
   return /model_not_found|Model not exist|does not exist|invalid.*model|模型不存在/i.test(s)
 }
+
+/** 同 isVlModelMissing —— 名字更中性（**写字/工具调用**那条线也用同一个判据，别再抄一遍正则） */
+export function isModelMissing(e: any): boolean {
+  return isVlModelMissing(e)
+}
+
+/* ═════════ ★VF_TEXTHEAL_V1（2026-10-10 用户线上实测）═════════
+   病灶：`[模型] 大脑=qwen3.8-flash ｜ 书写=deepseek-v4-flash` —— 而
+     **本账号百炼里没有 deepseek-v4-flash**（列表里只有 deepseek-r1-distill-qwen-1.5b）
+     ⇒ [DashScope] 404 model_not_found + [DashScope FC] 404 + [deepseek] 400
+     ⇒ 文案只写出一半 ⇒ 卡片上出现「第四张 · 第五张」这种降级拼句。
+   口径：**文本书写模型也要能"缺失即换"** —— 换的规则写在这里（纯函数，可单测）。 */
+
+/** 明确不能拿来"写文案"的模型（图/音/嵌/检索/翻译/代码/实时/超长上下文专用） */
+const TEXT_EXCLUDE = /ocr|-vl-|omni|embedding|rerank|tts|asr|livetranslate|realtime|image|mt-|coder|math|longcontext|qwen-long|character|deep-research|deep-search|audio/i
+
+/** 参数规模型开源 id（qwen2-7b / qwen3.5-35b-a3b / deepseek-r1-distill-qwen-1.5b）——
+ *  这些是"小/开源档"，**不拿它当文案书写**（质量差、还会写跑偏） */
+const TEXT_SMALL_OPEN = /distill|-\d+(\.\d+)?b($|-)|-\d+b-a\d+b/i
+
+/** 首选顺序（都是纯文本对话模型；**只在"目标名字不存在"时才用它挑**） */
+export const TEXT_MODEL_PREF = [
+  'qwen3.8-flash', 'qwen3.8-plus', 'qwen3.8-max',
+  'qwen3.7-flash', 'qwen3.7-plus', 'qwen3.7-max',
+  'qwen3.6-flash', 'qwen3.6-plus', 'qwen3.5-flash', 'qwen3.5-plus',
+  'qwen-max', 'qwen-plus', 'qwen-flash',
+]
+
+/** 给一个模型 id 打分（越高越适合"写文案"）；-1 = 不能当书写模型 */
+export function rankTextModel(id: string): number {
+  const s = String(id || '').trim()
+  if (!s) return -1
+  if (TEXT_EXCLUDE.test(s) || TEXT_SMALL_OPEN.test(s)) return -1
+  const i = TEXT_MODEL_PREF.indexOf(s)
+  if (i >= 0) return 1000 - i                     // 首选表内：越靠前越高
+  if (/^deepseek/i.test(s)) return 500            // 表外但同族（若账号真托管 deepseek 文本模型，优先它）
+  if (/^qwen/i.test(s)) return 200                // 其它 qwen 文本模型
+  return 50
+}
+
+/** 从 `/models` 列表里挑一个能写文案的;`prefer` 真在列表里 ⇒ 原样返回（不自作主张换掉能用的） */
+export function pickTextModelFromList(ids: string[], prefer = ''): string {
+  const want = String(prefer || '').trim()
+  const list = Array.isArray(ids) ? ids : []
+  if (want && list.includes(want)) return want
+  let best = '', bestScore = 0
+  for (const id of list) {
+    const sc = rankTextModel(id)
+    if (sc > bestScore) { bestScore = sc; best = String(id) }
+  }
+  return best
+}
