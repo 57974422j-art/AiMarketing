@@ -196,30 +196,36 @@ export function specCss(spec) {
     L.push('.sec .shot{object-fit:cover}')
     L.push('.sec .pb{opacity:0}')
   }
-  // ③ L1 image.place：满幅（铺满整页 + 暗场 + 亮字压图）
+  // ③ L1 image.place：满幅（**只作用于"整页单图"那三类结构**）
+  //   ★VF_SPEC_V2 修（2026-10-10 用户线上实测：出片被引擎 check 拦下 ——
+  //     #sc5 > div:nth-of-type(1) inside div.row.r1 "作品展示" — Two text blocks overlap）：
+  //     老写法把 .sec .ttl{top:832px;font-size:60px} 这类**满幅重定位**应用到**所有结构** ⇒
+  //     第 6 段（works-wall「作品展示」）的标题被搬到 832px，正好压在它自己的 .row.r1{top:820px} 上
+  //     ⇒ 必然重叠 ⇒ 拒渲。**根因：满幅只对"整页单图"成立；多图页（works-wall / grid-2x2 /
+  //     data-dashboard）本来就该保持网格** —— place 不该跨结构乱搬字。
+  //   现口径：满幅只做三件事（图铺满整页 + 压一层暗场 + 字转白加投影），
+  //     **文案位置一律沿用该结构自己的排版**（沿用 = 上次能过闸门的坐标，不再自造重叠），
+  //     并用 :is(...) 限定在三类整页单图结构上。
+  const FB = '.sec[data-place="fullbleed"]:is(.st-fullbleed,.st-plate-top,.st-plate-bottom)'
   if (place === 'fullbleed') {
-    L.push('.sec .plate{left:0;top:0;width:720px;height:1280px;border-radius:0;background:#0b0d10;box-shadow:none}')
-    L.push('.sec .pb{opacity:0}')
-    L.push('.sec .shot{object-fit:cover}')
-    L.push('.sec .plate::after{content:"";position:absolute;left:0;top:0;width:100%;height:100%;'
-      + 'background:linear-gradient(180deg,rgba(0,0,0,.58) 0%,rgba(0,0,0,.12) 42%,rgba(0,0,0,.80) 100%)}')
-    L.push('.sec .eb,.sec .ttl,.sec .sub,.sec .foot,.sec .chips{z-index:4;color:#fff}')
-    L.push('.sec .eb{left:56px;top:96px;color:#fff;opacity:.94}')
-    L.push('.sec .ttl{left:56px;top:832px;width:608px;font-size:60px;text-shadow:0 2px 16px rgba(0,0,0,.55)}')
-    L.push('.sec .sub{left:56px;top:962px;width:608px;font-size:24px;color:#f2f6fa;text-shadow:0 2px 14px rgba(0,0,0,.5)}')
-    L.push('.sec .chips{left:56px;top:1044px}')
-    L.push('.sec .chip{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.42);color:#fff}')
+    L.push(FB + ' .plate{left:0;top:0;width:720px;height:1280px;border-radius:0;background:#0b0d10;box-shadow:none}')
+    L.push(FB + ' .pb{opacity:0}')
+    L.push(FB + ' .shot{object-fit:cover}')
+    L.push(FB + ' .plate::after{content:"";position:absolute;left:0;top:0;width:100%;height:100%;'
+      + 'background:linear-gradient(180deg,rgba(0,0,0,.52) 0%,rgba(0,0,0,.10) 40%,rgba(0,0,0,.78) 100%)}')
+    L.push(FB + ' .eb,' + FB + ' .ttl,' + FB + ' .sub,' + FB + ' .foot,' + FB + ' .chips{'
+      + 'z-index:4;color:#fff;text-shadow:0 2px 14px rgba(0,0,0,.5)}')
+    L.push(FB + ' .chip{background:rgba(255,255,255,.16);border-color:rgba(255,255,255,.42);color:#fff}')
   }
   // ④ L1 image.place=mat-tape / L3 ornament=tape：胶带（两角贴条）
-  if (needTape) {
+  //   ★VF_SPEC_V2：与满幅**互斥**（胶带属"相纸感"、满幅属"电影感"，而且两者都要占 .plate 的伪元素）
+  //     ⇒ 满幅时**整体不生成胶带规则**（老写法是先压一条 display:none，会把满幅的暗场 ::after 一起灭掉）。
+  if (needTape && place !== 'fullbleed') {
     L.push('.sec .plate::before,.sec .plate::after{content:"";position:absolute;width:104px;height:26px;'
       + 'background:rgba(240,236,222,.86);border-left:1px solid rgba(0,0,0,.08);border-right:1px solid rgba(0,0,0,.08);'
       + 'box-shadow:0 1px 3px rgba(0,0,0,.18);z-index:5}')
-    if (place === 'fullbleed') L.push('.sec .plate::before,.sec .plate::after{display:none}')
-    else {
-      L.push('.sec .plate::before{left:-26px;top:18px;transform:rotate(-38deg)}')
-      L.push('.sec .plate::after{right:-26px;bottom:22px;transform:rotate(-38deg)}')
-    }
+    L.push('.sec .plate::before{left:-26px;top:18px;transform:rotate(-38deg)}')
+    L.push('.sec .plate::after{right:-26px;bottom:22px;transform:rotate(-38deg)}')
   }
   // ⑤ L1 layout.system：grid（严格网格 + 细线 + 更大留白）/ free（错位）
   if (sys === 'grid') {
