@@ -14,6 +14,9 @@ import { putObject, listObjects, getObject, objectExists } from '@/lib/oss'
 import { runFFmpeg } from '@/lib/ffmpeg'
 // ★VF_QUOTA_V2（2026-10-11 用户定案「到 450 就不给传」）：配额唯一真源（排除 .thumbs/ 与 _gen/）
 import { quotaUsed, quotaCheck as quotaMsg } from '@/lib/storage-quota'
+// ★VF_REPOSPLIT_V1（2026-10-11 用户定案「在个人仓库内分 原始素材 / 生成素材，时间编码也分开」）：
+//   命名与序号的**唯一真源**（纯函数，可单测）。素材 `20261011_001.jpg` ｜ 生成物 `gen_20261011_001.mp4`
+import { datePrefixOf, buildRepoName, nextSeq, listPrefix } from '@/lib/repo-naming'
 
 const VIDEO_RE = /\.(mp4|mov|avi|mkv|webm)$/i
 
@@ -45,6 +48,11 @@ export interface SaveToRepoOptions {
   mime: string
   /** 是否做 500MB 配额检查，默认 true */
   quotaCheck?: boolean
+  /** ★VF_REPOSPLIT_V1（2026-10-11 用户定案「在个人仓库内分 原始素材 和 生成素材，时间编码也分开」）：
+   *  `true` = 这是**系统生成物**（成片/审片图/预览/数字人…）⇒ 文件名 `gen_日期_序号.ext`，
+   *  **与原始素材各自计数**（两个序号空间，互不占号），前端按前缀分组显示。
+   *  为什么用文件名前缀而不是子目录 `_gen/`：见 `src/lib/repo-naming.ts` 文件头（读/删/镜像三处都禁 `/`）。 */
+  gen?: boolean
 }
 
 /**
@@ -66,9 +74,11 @@ export async function saveToPersonalRepo(opts: SaveToRepoOptions): Promise<{ nam
     if (msg) throw new Error(msg)
   }
 
-  // 日期序命名：YYYYMMDD_NNN.ext
+  // 日期序命名：素材 `YYYYMMDD_NNN.ext` ｜ 生成物 `gen_YYYYMMDD_NNN.ext`
+  //   ★VF_REPOSPLIT_V1（2026-10-11 用户定案）：命名拼装统一到 lib/repo-naming（纯函数 ⇒ 可单测）。
+  const gen = !!opts.gen
   const now = new Date()
-  const datePrefix = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
+  const datePrefix = datePrefixOf(now)
   let todaySeq = 1
   // ★VF_NAMESEQ_V2（2026-10-10 用户服务器实测：仓库里有 0 字节半成品、当天还缺号）：
   //   老写法 `catch {}` 会把**列目录失败吞掉**，todaySeq 停在 1 ⇒ 算出"当天第一张"的名字 ⇒
@@ -77,24 +87,23 @@ export async function saveToPersonalRepo(opts: SaveToRepoOptions): Promise<{ nam
   //   现口径：列目录失败 ⇒ **宁可这次保存失败并明确告知**，也不覆盖已有素材。
   let existing: Array<{ name: string }> = []
   try {
-    existing = (await listObjects(`storage/${uid}/${datePrefix}`)).filter((o) => !o.name.includes('/.thumbs/'))
+    // ★VF_REPOSPLIT_V1：列表前缀分两类 —— 素材 `storage/{uid}/{日期}` ｜ 生成物 `storage/{uid}/gen_{日期}`
+    //   ⇒ 两类**天然不在同一前缀下**，序号各算各的（用户要的"时间编码也分开"就是这一行）
+    existing = (await listObjects(listPrefix({ uid, datePrefix, gen }))).filter((o) => !o.name.includes('/.thumbs/'))
   } catch {
     throw new Error('无法确认当天序号（列目录失败）——为避免覆盖已有素材，这次没有保存，请重试')
   }
   // ★VF_NAMESEQ_V1（2026-10-05 用户实测「删了 001 后新片又占 001 → 客户端按文件名判重跳过同步，
   //   本地永远看不到新片」）：序号取【当天已有最大序号 + 1】，不复用被删掉的空号
   //   （原逻辑 existing.length+1：001、003 在、002 被删时会撞 003）。
-  for (const o of existing) {
-    const m = /_(\d{3})\.[A-Za-z0-9]+$/.exec(String(o.name || ''))
-    if (m) todaySeq = Math.max(todaySeq, Number(m[1]) + 1)
-  }
-  // 兜底：当天文件都不带序号（命名规范外）→ 保持 count+1 老口径
-  if (todaySeq === 1 && existing.length) todaySeq = existing.length + 1
+  // ★VF_NAMESEQ_V1 的"取最大 +1、不复用空号"与"命名规范外兜底 count+1"，已**整体搬进** repo-naming.nextSeq
+  //   ★VF_REPOSPLIT_V1：序号与命名统一走纯函数（同类计数、gen 独立序号空间）
+  todaySeq = nextSeq(existing.map((o) => String(o.name || '')), { datePrefix, gen })
   // ★VF_NAMESEQ_V2：落盘**之前**再做一次存在性校验（并发两人同时上传、命名规范外的遗留都能兜住）
-  let name = `${datePrefix}_${String(todaySeq).padStart(3, '0')}.${ext}`
+  let name = buildRepoName({ datePrefix, seq: todaySeq, ext, gen })
   for (let i = 0; i < 50 && (await objectExists(`storage/${uid}/${name}`)); i++) {
     todaySeq++
-    name = `${datePrefix}_${String(todaySeq).padStart(3, '0')}.${ext}`
+    name = buildRepoName({ datePrefix, seq: todaySeq, ext, gen })
   }
   const key = `storage/${uid}/${name}`
 

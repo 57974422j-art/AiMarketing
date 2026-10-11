@@ -512,7 +512,7 @@ export async function runDeckVideoTask({ uid, draft, skin, ori, deckMd, db, log 
       const { saveToPersonalRepo } = await import('@/lib/personal-storage')
       const { signedUrl } = await import('@/lib/oss')
       const buf = await readFile(mp4)
-      const { name } = await saveToPersonalRepo({ userId: uidS, buffer: buf, ext: 'mp4', mime: 'video/mp4' })
+      const { name } = await saveToPersonalRepo({ userId: uidS, buffer: buf, ext: 'mp4', mime: 'video/mp4', gen: true })
       const url = await signedUrl(`storage/${uidS}/${name}`, 86400)
       writeTask({ status: 'done', finishedAt, out: mp4, repoName: name, url, pages: pagesN, tail: so.split('\n').filter(Boolean).slice(-40) })
       // 扣费：渲染成功入库后才扣（失败不扣）

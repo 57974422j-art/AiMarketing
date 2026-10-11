@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
 
     // 统一写入个人仓库（日期序命名 + 自动缩略图）
     try {
-      const res = await saveToPersonalRepo({ userId: auth.userId, buffer, ext: 'mp4', mime: 'video/mp4', quotaCheck: false })
+      const res = await saveToPersonalRepo({ userId: auth.userId, buffer, ext: 'mp4', mime: 'video/mp4', quotaCheck: false, gen: true })
       addLog(`[STORAGE] 保存成功: ${res.name} (${Math.round(fileSize / 1024 / 1024)}MB)`)
       return NextResponse.json({
         success: true,

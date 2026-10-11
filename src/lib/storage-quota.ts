@@ -18,8 +18,8 @@
 export const QUOTA_TOTAL = 500 * 1024 * 1024   // 500MB —— 展示用
 export const QUOTA_REJECT = 450 * 1024 * 1024  // 450MB —— 到这个值就不给传（用户定案）
 
-/** 不计入用户配额的前缀：缩略图（系统产生）与生成物（下一步会迁到 _gen/） */
-const NOT_USAGE = /\/\.thumbs\/|\/_gen\//
+/** 不计入用户配额的三类：缩略图（系统产生）、历史 `_gen/` 目录、**生成物**（`gen_日期_序号.ext`） */
+const NOT_USAGE = /\/\.thumbs\/|\/_gen\/|\/gen_\d{8}_/
 
 export const mb = (n: number): number => Math.round((n / 1024 / 1024) * 10) / 10
 

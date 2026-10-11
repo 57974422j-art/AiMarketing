@@ -4,7 +4,11 @@ import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/app/providers'
 import { showToast } from '@/components/Toast'
 
-interface FileInfo { name: string; size: number; mtime: string; isVideo?: boolean; thumbUrl?: string | null }
+interface FileInfo {
+  name: string; size: number; mtime: string; isVideo?: boolean; thumbUrl?: string | null
+  /** ★VF_REPOSPLIT_V1：`gen` = 系统生成物（`gen_日期_序号.ext`）｜`asset` = 用户原始素材（列表接口下发） */
+  kind?: 'gen' | 'asset'
+}
 interface Quota { used: number; total: number }
 
 export default function StoragePage() {
@@ -192,7 +196,20 @@ export default function StoragePage() {
           <p className="text-gray-500 text-xs text-center py-10">暂无文件，上传你的第一个素材吧</p>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {files.map(f => (
+            {/* ★VF_REPOSPLIT_V1（2026-10-11 用户定案「在个人仓库内分 原始素材 和 生成素材」）：
+                按文件名前缀分组显示 —— 生成物是 `gen_日期_序号.ext`（独立序号、不占配额、不进素材池）。 */}
+            {[{ k: 'asset' as const, t: '原始素材 · 你上传的图片 / 视频', s: '' },
+              { k: 'gen' as const, t: '生成素材 · 系统产出（成片 / 审片图 / 预览）', s: '不占配额' }]
+              .flatMap(g => {
+                const list = files.filter(f => (f.kind === 'gen' ? 'gen' : 'asset') === g.k)
+                if (!list.length) return []
+                return [
+                  <div key={'hd-' + g.k} className="col-span-2 sm:col-span-3 md:col-span-4 flex items-center gap-2 mt-2 mb-1">
+                    <span className="text-[11px] text-gray-200 font-mono tracking-wide">{g.t}</span>
+                    <span className="text-[10px] text-gray-500">{list.length} 个{g.s ? ' · ' + g.s : ''}</span>
+                    <span className="flex-1 border-t border-white/10" />
+                  </div>,
+                  ...list.map(f => (
               <div key={f.name} className="card-glass p-2 rounded-lg relative group">
                 {/* 缩略图 */}
                 <div className="aspect-video bg-white/5 rounded mb-1 overflow-hidden flex items-center justify-center">
@@ -230,7 +247,9 @@ export default function StoragePage() {
                   <button onClick={() => del(f.name)} className="w-6 h-6 bg-red-500/80 text-white rounded-full text-[10px] opacity-0 group-hover:opacity-100 transition" title="删除">×</button>
                 </div>
               </div>
-            ))}
+                  )),
+                ]
+              })}
           </div>
         )}
 

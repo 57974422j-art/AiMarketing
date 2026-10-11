@@ -138,7 +138,7 @@ export async function filmDoneProtocol(
     const mp4Sz = (() => { try { return r.mp4 ? fs.statSync(r.mp4).size : -1 } catch { return -1 } })()
     if (r.mp4 && mp4Sz > 0) {
       const buf = await readFile(r.mp4)
-      const { name } = await saveToPersonalRepo({ userId: String(uid), buffer: buf, ext: 'mp4', mime: 'video/mp4' })
+      const { name } = await saveToPersonalRepo({ userId: String(uid), buffer: buf, ext: 'mp4', mime: 'video/mp4', gen: true })
       repoName = String(name || '')
       url = await signedUrl(`storage/${uid}/${name}`, 86400)
     } else if (r.mp4) {
@@ -147,7 +147,7 @@ export async function filmDoneProtocol(
     if (r.sheet && fs.existsSync(r.sheet)) {
       try {
         const bufS = await readFile(r.sheet)
-        const { name: nS } = await saveToPersonalRepo({ userId: String(uid), buffer: bufS, ext: 'jpg', mime: 'image/jpeg' })
+        const { name: nS } = await saveToPersonalRepo({ userId: String(uid), buffer: bufS, ext: 'jpg', mime: 'image/jpeg', gen: true })
         repoPoster = String(nS || '')
         poster = await signedUrl(`storage/${uid}/${nS}`, 86400)
       } catch { /* 审片图失败不影响成片 */ }

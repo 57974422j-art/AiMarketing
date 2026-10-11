@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
     const { saveToPersonalRepo } = await import('@/lib/personal-storage')
     const { signedUrl } = await import('@/lib/oss')
     const buf = await readFile(mp4s[0])
-    const { name } = await saveToPersonalRepo({ userId: uid, buffer: buf, ext: 'mp4', mime: 'video/mp4', quotaCheck: false })
+    const { name } = await saveToPersonalRepo({ userId: uid, buffer: buf, ext: 'mp4', mime: 'video/mp4', quotaCheck: false, gen: true })
     const url = await signedUrl(`storage/${uid}/${name}`, 86400)
 
     // 报告侧读回页数/时长（不信任内存变量 —— 读引擎自己写的 make-report.json）

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import { listObjects, putObject } from '@/lib/oss'
 import { saveToPersonalRepo, ensureThumb } from '@/lib/personal-storage'
+// ★VF_REPOSPLIT_V1：分类（`gen_` 前缀 = 生成物）只认 lib/repo-naming 一处口径
+import { repoKind } from '@/lib/repo-naming'
 
 // ★VF_QUOTA_V2（2026-10-11 用户定案「到 450 就不给传」）：配额常量与判定**只认 lib/storage-quota**（一处真源）
 import { QUOTA_TOTAL, QUOTA_REJECT, quotaUsed, quotaCheck } from '@/lib/storage-quota'
@@ -46,8 +48,10 @@ export async function GET(request: NextRequest) {
     )
 
     // 过滤掉 .thumbs 子目录的文件，只返回用户上传的文件
+    // ★VF_REPOSPLIT_V1：顺手排除历史/规划中的 `_gen/` 目录项（那类 key 读/删/镜像三处都进不去，
+    //   列出来只会让人点了没反应）——现在生成物走**平铺前缀** `gen_日期_序号.ext`，见 lib/repo-naming。
     const files = objects
-      .filter(o => !o.name.includes('/.thumbs/'))
+      .filter(o => !o.name.includes('/.thumbs/') && !o.name.includes('/_gen/'))
       .map(o => {
         const name = o.name.replace(prefix, '')
         const isVideo = /\.(mp4|mov|avi|mkv|webm)$/i.test(name)
@@ -62,6 +66,9 @@ export async function GET(request: NextRequest) {
         if (isVideo && !thumbExists) scheduleThumb(auth!.userId, name)
         return {
           name,
+          // ★VF_REPOSPLIT_V1：`gen` = 系统生成物（`gen_日期_序号.ext`），`asset` = 用户原始素材。
+          //   前端按它分两组显示（个人仓库里"原始素材 / 生成素材"分开），并据此决定是否放进出片素材池。
+          kind: repoKind(name),
           size: o.size,
           mtime: o.lastModified.toISOString(),
           isVideo,

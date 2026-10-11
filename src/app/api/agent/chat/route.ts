@@ -1008,7 +1008,7 @@ async function saveGeneratedVideoToRepo(userId: number | string, srcUrl: string)
     if (!vr.ok) return srcUrl
     const buf = Buffer.from(await vr.arrayBuffer())
     const { saveToPersonalRepo } = await import('@/lib/personal-storage')
-    const saved = await saveToPersonalRepo({ userId: String(userId), buffer: buf, ext: 'mp4', mime: 'video/mp4' })
+    const saved = await saveToPersonalRepo({ userId: String(userId), buffer: buf, ext: 'mp4', mime: 'video/mp4', gen: true })
     // ★2026-09-22（用户实测「播放 3~4 秒必卡一下」）：
     //   原来返回 `/api/storage/file?name=…`：该接口"播放"分支每次请求都**重新签一个 OSS URL 并 302**，
     //   而 302 响应既无缓存头也无 Accept-Ranges → Chromium 媒体元素每次续传都被打断 → 固定间隔卡顿。
@@ -1713,7 +1713,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
               const { signedUrl } = await import('@/lib/oss')
               const buf = await readFile(vfOut)
               const { name } = await saveToPersonalRepo({
-                userId: String(uidVF), buffer: buf, ext: 'mp4', mime: 'video/mp4',
+                userId: String(uidVF), buffer: buf, ext: 'mp4', mime: 'video/mp4', gen: true,
               })
               repoExtra = { repoName: name, url: await signedUrl(`storage/${uidVF}/${name}`, 86400) }
             } catch (e: any) {
@@ -1817,7 +1817,7 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
         const { saveToPersonalRepo } = await import('@/lib/personal-storage')
         const { signedUrl } = await import('@/lib/oss')
         const bufP = await readFile(outP)
-        const { name } = await saveToPersonalRepo({ userId: String(uidP), buffer: bufP, ext: 'mp4', mime: 'video/mp4' })
+        const { name } = await saveToPersonalRepo({ userId: String(uidP), buffer: bufP, ext: 'mp4', mime: 'video/mp4', gen: true })
         const urlP = await signedUrl(`storage/${uidP}/${name}`, 86400)
         return `VF_PREVIEW_DONE:${JSON.stringify({ url: urlP, sec: Math.round(accP * 10) / 10, shots: pickP.length })}`
       } catch (e: any) {

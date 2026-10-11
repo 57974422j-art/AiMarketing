@@ -20,7 +20,7 @@ export async function POST(request: NextRequest) {
   const srcBuf = fs.readFileSync(src)
 
   try {
-    const res = await saveToPersonalRepo({ userId: auth.userId, buffer: srcBuf, ext: 'mp4', mime: 'video/mp4' })
+    const res = await saveToPersonalRepo({ userId: auth.userId, buffer: srcBuf, ext: 'mp4', mime: 'video/mp4', gen: true })
     return NextResponse.json({ success: true, data: { name: res.name } })
   } catch (e) {
     const message = e instanceof Error ? e.message : '保存失败'

@@ -196,7 +196,7 @@ export async function POST(request: NextRequest) {
       try {
         const buf = await readFile(p)
         // quotaCheck=false：审核用的小 PNG 不该被"仓库已满"挡掉（与数字人入库同一做法）
-        const { name } = await saveToPersonalRepo({ userId: uid, buffer: buf, ext: 'png', mime: 'image/png', quotaCheck: false })
+        const { name } = await saveToPersonalRepo({ userId: uid, buffer: buf, ext: 'png', mime: 'image/png', quotaCheck: false, gen: true })
         const url = await signedUrl(`storage/${uid}/${name}`, 86400)
         images.push({
           // ★VF_PPTBADGE_V1 补丁（2026-10-07 用户实测「共 7 页（其中 0 页 = 新引擎整页）」）：

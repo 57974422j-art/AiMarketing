@@ -236,7 +236,7 @@ async function startWork(uid: string, srcTask: any, work: string, revoice: boole
           const { signedUrl } = await import('@/lib/oss')
           const buf = await readFile(newOut)
           const { name } = await saveToPersonalRepo({
-            userId: String(uid), buffer: buf, ext: 'mp4', mime: 'video/mp4',
+            userId: String(uid), buffer: buf, ext: 'mp4', mime: 'video/mp4', gen: true,
           })
           extra = { repoName: name, url: await signedUrl(`storage/${uid}/${name}`, 86400) }
         } catch (e: any) {

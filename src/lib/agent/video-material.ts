@@ -12,6 +12,9 @@ import { describeImageWithVL, describeImagesWithVL } from '@/lib/ai-providers'
 // ★VF_POOL_V1（2026-09-30）：成片素材池治理的**纯函数**（判定"本系统出片产物" / 视觉摘要缓存键）。
 //   逻辑在 material-pool.ts（零依赖、可单测），本文件只负责 IO（读任务文件、读写缓存文件）。
 import { selectMaterialPool, cacheGet, cacheSet, cacheGetRaw, cacheSetRaw, vlClipCacheKey } from './vf/material-pool'
+// ★VF_REPOSPLIT_V1（2026-10-11 用户定案「生成素材与原始素材分开」）：**生成物不进素材池**
+//   （成片/审片图/预览是系统产物，拿它们当素材 = 自我循环；用户实测过这个现象）
+import { isGeneratedName } from '@/lib/repo-naming'
 
 /**
  * ★VF_VIDGUARD_V1（2026-09-24 用户实测：「素材库里有 3 分钟多的视频」）：
@@ -338,7 +341,9 @@ export async function listRepoMaterials(
   try {
     const objs = await listObjects(`storage/${uid}/`, 1000)
     const all = objs
-      .filter((o) => !o.name.includes('/.thumbs/') && !o.name.endsWith('/'))
+      // ★VF_REPOSPLIT_V1：**生成物不进素材池**（`gen_日期_序号.ext`：成片/审片图/预览/数字人）
+      //   与 VF_POOL_V1（按出片记录排除）互补：这条是**硬的**，不看有没有出片记录。
+      .filter((o) => !o.name.includes('/.thumbs/') && !o.name.endsWith('/') && !isGeneratedName(o.name))
       .map((o) => {
         const name = o.name.split('/').pop() || o.name
         return {
