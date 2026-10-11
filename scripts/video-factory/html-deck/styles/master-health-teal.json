@@ -1,0 +1,50 @@
+{
+  "id": "master-health-teal",
+  "name": "医疗健康（清透青绿） · teal",
+  "desc": "PPT 母版「医疗健康（清透青绿）」的 teal 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+  "aspect": "both",
+  "speed": "normal",
+  "mood": "高级",
+  "vertical": [
+    "b2b"
+  ],
+  "tokens": {
+    "bg": "#f8fbfb",
+    "bg2": "#f8fbfb",
+    "ink": "#12262b",
+    "dim": "#637174",
+    "faint": "#919b9d",
+    "accent": "#0e8f8a",
+    "accentText": "#0b7571",
+    "font": "sans-900",
+    "radius": 0,
+    "density": "normal",
+    "grain": 0.02
+  },
+  "structure": [
+    "pipeline-process"
+  ],
+  "elements": [
+    "bg-gradient-linear",
+    "grid-fine",
+    "title-duo",
+    "eyebrow-en",
+    "caption-bottom-big",
+    "caption-pill"
+  ],
+  "motion": {
+    "enter": "wipe-in",
+    "emphasis": "sweep",
+    "exit": "crossfade-out",
+    "pace": 1
+  },
+  "prompt": "医疗健康（清透青绿）（teal）配色：底色 #f8fbfb / 文字 #12262b / 强调 #0e8f8a。",
+  "refs": [],
+  "createdBy": "master",
+  "srcMaster": "master-health",
+  "srcPalette": "teal",
+  "srcAspect": [
+    "16:9",
+    "9:16"
+  ]
+}

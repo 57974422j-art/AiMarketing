@@ -1,0 +1,50 @@
+{
+  "id": "master-festive-jade",
+  "name": "红金庆典风 · jade",
+  "desc": "PPT 母版「红金庆典风」的 jade 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+  "aspect": "both",
+  "speed": "normal",
+  "mood": "科技",
+  "vertical": [
+    "b2b"
+  ],
+  "tokens": {
+    "bg": "#1a0b0e",
+    "bg2": "#180a0d",
+    "ink": "#f7ece0",
+    "dim": "#aa9d97",
+    "faint": "#7d706c",
+    "accent": "#4aa88a",
+    "accentText": "#6bb89f",
+    "font": "sans-900",
+    "radius": 0,
+    "density": "normal",
+    "grain": 0.02
+  },
+  "structure": [
+    "pipeline-process"
+  ],
+  "elements": [
+    "bg-gradient-linear",
+    "grid-fine",
+    "title-duo",
+    "eyebrow-en",
+    "caption-bottom-big",
+    "caption-pill"
+  ],
+  "motion": {
+    "enter": "wipe-in",
+    "emphasis": "sweep",
+    "exit": "crossfade-out",
+    "pace": 1
+  },
+  "prompt": "红金庆典风（jade）配色：底色 #1a0b0e / 文字 #f7ece0 / 强调 #4aa88a。",
+  "refs": [],
+  "createdBy": "master",
+  "srcMaster": "master-festive",
+  "srcPalette": "jade",
+  "srcAspect": [
+    "16:9",
+    "9:16"
+  ]
+}

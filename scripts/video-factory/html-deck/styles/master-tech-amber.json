@@ -1,0 +1,50 @@
+{
+  "id": "master-tech-amber",
+  "name": "深青科技风 · amber",
+  "desc": "PPT 母版「深青科技风」的 amber 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+  "aspect": "both",
+  "speed": "normal",
+  "mood": "科技",
+  "vertical": [
+    "b2b"
+  ],
+  "tokens": {
+    "bg": "#0b1220",
+    "bg2": "#0a111e",
+    "ink": "#e6f0f5",
+    "dim": "#99a2aa",
+    "faint": "#6e7680",
+    "accent": "#f0a83c",
+    "accentText": "#f3b85f",
+    "font": "sans-900",
+    "radius": 0,
+    "density": "normal",
+    "grain": 0.02
+  },
+  "structure": [
+    "pipeline-process"
+  ],
+  "elements": [
+    "bg-gradient-linear",
+    "grid-fine",
+    "title-duo",
+    "eyebrow-en",
+    "caption-bottom-big",
+    "caption-pill"
+  ],
+  "motion": {
+    "enter": "wipe-in",
+    "emphasis": "sweep",
+    "exit": "crossfade-out",
+    "pace": 1
+  },
+  "prompt": "深青科技风（amber）配色：底色 #0b1220 / 文字 #e6f0f5 / 强调 #f0a83c。",
+  "refs": [],
+  "createdBy": "master",
+  "srcMaster": "master-tech",
+  "srcPalette": "amber",
+  "srcAspect": [
+    "16:9",
+    "9:16"
+  ]
+}

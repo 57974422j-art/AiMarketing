@@ -1,0 +1,50 @@
+{
+  "id": "master-formal-p4",
+  "name": "正式庄重（象牙墨绿） · 焦棕",
+  "desc": "PPT 母版「正式庄重（象牙墨绿）」的 焦棕 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+  "aspect": "both",
+  "speed": "normal",
+  "mood": "高级",
+  "vertical": [
+    "b2b"
+  ],
+  "tokens": {
+    "bg": "#f7f5ef",
+    "bg2": "#f7f6f0",
+    "ink": "#1b2621",
+    "dim": "#686e69",
+    "faint": "#949892",
+    "accent": "#7a5a2f",
+    "accentText": "#644a27",
+    "font": "sans-900",
+    "radius": 0,
+    "density": "normal",
+    "grain": 0.02
+  },
+  "structure": [
+    "pipeline-process"
+  ],
+  "elements": [
+    "bg-gradient-linear",
+    "grid-fine",
+    "title-duo",
+    "eyebrow-en",
+    "caption-bottom-big",
+    "caption-pill"
+  ],
+  "motion": {
+    "enter": "wipe-in",
+    "emphasis": "sweep",
+    "exit": "crossfade-out",
+    "pace": 1
+  },
+  "prompt": "正式庄重（象牙墨绿）（焦棕）配色：底色 #f7f5ef / 文字 #1b2621 / 强调 #7a5a2f。",
+  "refs": [],
+  "createdBy": "master",
+  "srcMaster": "master-formal",
+  "srcPalette": "焦棕",
+  "srcAspect": [
+    "16:9",
+    "9:16"
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "id": "master-v2-steel",
+  "name": "浅色商务（v2） · steel",
+  "desc": "PPT 母版「浅色商务（v2）」的 steel 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+  "aspect": "both",
+  "speed": "normal",
+  "mood": "高级",
+  "vertical": [
+    "b2b"
+  ],
+  "tokens": {
+    "bg": "#f5f6f8",
+    "bg2": "#f6f7f8",
+    "ink": "#1b2430",
+    "dim": "#676e76",
+    "faint": "#93989e",
+    "accent": "#6b8fb5",
+    "accentText": "#86a3c2",
+    "font": "sans-900",
+    "radius": 0,
+    "density": "normal",
+    "grain": 0.02
+  },
+  "structure": [
+    "pipeline-process"
+  ],
+  "elements": [
+    "bg-gradient-linear",
+    "grid-fine",
+    "title-duo",
+    "eyebrow-en",
+    "caption-bottom-big",
+    "caption-pill"
+  ],
+  "motion": {
+    "enter": "wipe-in",
+    "emphasis": "sweep",
+    "exit": "crossfade-out",
+    "pace": 1
+  },
+  "prompt": "浅色商务（v2）（steel）配色：底色 #f5f6f8 / 文字 #1b2430 / 强调 #6b8fb5。",
+  "refs": [],
+  "createdBy": "master",
+  "srcMaster": "master-v2",
+  "srcPalette": "steel",
+  "srcAspect": [
+    "16:9",
+    "9:16"
+  ]
+}

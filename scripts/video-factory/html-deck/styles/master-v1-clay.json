@@ -1,0 +1,50 @@
+{
+  "id": "master-v1-clay",
+  "name": "暗色暖金（v1） · clay",
+  "desc": "PPT 母版「暗色暖金（v1）」的 clay 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+  "aspect": "both",
+  "speed": "normal",
+  "mood": "科技",
+  "vertical": [
+    "b2b"
+  ],
+  "tokens": {
+    "bg": "#14161a",
+    "bg2": "#131518",
+    "ink": "#e9e7e2",
+    "dim": "#9e9e9c",
+    "faint": "#747474",
+    "accent": "#8f4a2e",
+    "accentText": "#753d26",
+    "font": "sans-900",
+    "radius": 0,
+    "density": "normal",
+    "grain": 0.02
+  },
+  "structure": [
+    "pipeline-process"
+  ],
+  "elements": [
+    "bg-gradient-linear",
+    "grid-fine",
+    "title-duo",
+    "eyebrow-en",
+    "caption-bottom-big",
+    "caption-pill"
+  ],
+  "motion": {
+    "enter": "wipe-in",
+    "emphasis": "sweep",
+    "exit": "crossfade-out",
+    "pace": 1
+  },
+  "prompt": "暗色暖金（v1）（clay）配色：底色 #14161a / 文字 #e9e7e2 / 强调 #8f4a2e。",
+  "refs": [],
+  "createdBy": "master",
+  "srcMaster": "master-v1",
+  "srcPalette": "clay",
+  "srcAspect": [
+    "16:9",
+    "9:16"
+  ]
+}

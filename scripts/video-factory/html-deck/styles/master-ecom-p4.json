@@ -1,0 +1,50 @@
+{
+  "id": "master-ecom-p4",
+  "name": "电商高饱和 · 蜜绿",
+  "desc": "PPT 母版「电商高饱和」的 蜜绿 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+  "aspect": "both",
+  "speed": "normal",
+  "mood": "高级",
+  "vertical": [
+    "b2b"
+  ],
+  "tokens": {
+    "bg": "#fff7f1",
+    "bg2": "#fff7f2",
+    "ink": "#1f1410",
+    "dim": "#6d635f",
+    "faint": "#9a918c",
+    "accent": "#12b76a",
+    "accentText": "#3dc485",
+    "font": "sans-900",
+    "radius": 0,
+    "density": "normal",
+    "grain": 0.02
+  },
+  "structure": [
+    "pipeline-process"
+  ],
+  "elements": [
+    "bg-gradient-linear",
+    "grid-fine",
+    "title-duo",
+    "eyebrow-en",
+    "caption-bottom-big",
+    "caption-pill"
+  ],
+  "motion": {
+    "enter": "wipe-in",
+    "emphasis": "sweep",
+    "exit": "crossfade-out",
+    "pace": 1
+  },
+  "prompt": "电商高饱和（蜜绿）配色：底色 #fff7f1 / 文字 #1f1410 / 强调 #12b76a。",
+  "refs": [],
+  "createdBy": "master",
+  "srcMaster": "master-ecom",
+  "srcPalette": "蜜绿",
+  "srcAspect": [
+    "16:9",
+    "9:16"
+  ]
+}

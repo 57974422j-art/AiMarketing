@@ -1,0 +1,50 @@
+{
+  "id": "master-editorial-moss",
+  "name": "纸感编辑风（亮底)  · moss",
+  "desc": "PPT 母版「纸感编辑风（亮底) 」的 moss 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+  "aspect": "both",
+  "speed": "normal",
+  "mood": "高级",
+  "vertical": [
+    "b2b"
+  ],
+  "tokens": {
+    "bg": "#f5f2ec",
+    "bg2": "#f6f3ed",
+    "ink": "#191817",
+    "dim": "#666462",
+    "faint": "#92908c",
+    "accent": "#5c6b46",
+    "accentText": "#4b5839",
+    "font": "sans-900",
+    "radius": 0,
+    "density": "normal",
+    "grain": 0.02
+  },
+  "structure": [
+    "pipeline-process"
+  ],
+  "elements": [
+    "bg-gradient-linear",
+    "grid-fine",
+    "title-duo",
+    "eyebrow-en",
+    "caption-bottom-big",
+    "caption-pill"
+  ],
+  "motion": {
+    "enter": "wipe-in",
+    "emphasis": "sweep",
+    "exit": "crossfade-out",
+    "pace": 1
+  },
+  "prompt": "纸感编辑风（亮底) （moss）配色：底色 #f5f2ec / 文字 #191817 / 强调 #5c6b46。",
+  "refs": [],
+  "createdBy": "master",
+  "srcMaster": "master-editorial",
+  "srcPalette": "moss",
+  "srcAspect": [
+    "16:9",
+    "9:16"
+  ]
+}

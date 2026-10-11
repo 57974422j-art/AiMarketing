@@ -1,0 +1,50 @@
+{
+  "id": "master-edu-plum",
+  "name": "教育培训（暖乳白课堂蓝） · plum",
+  "desc": "PPT 母版「教育培训（暖乳白课堂蓝）」的 plum 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+  "aspect": "both",
+  "speed": "normal",
+  "mood": "高级",
+  "vertical": [
+    "b2b"
+  ],
+  "tokens": {
+    "bg": "#fffdf6",
+    "bg2": "#fffdf7",
+    "ink": "#241d12",
+    "dim": "#716b62",
+    "faint": "#9c988f",
+    "accent": "#8a3f9e",
+    "accentText": "#713482",
+    "font": "sans-900",
+    "radius": 0,
+    "density": "normal",
+    "grain": 0.02
+  },
+  "structure": [
+    "pipeline-process"
+  ],
+  "elements": [
+    "bg-gradient-linear",
+    "grid-fine",
+    "title-duo",
+    "eyebrow-en",
+    "caption-bottom-big",
+    "caption-pill"
+  ],
+  "motion": {
+    "enter": "wipe-in",
+    "emphasis": "sweep",
+    "exit": "crossfade-out",
+    "pace": 1
+  },
+  "prompt": "教育培训（暖乳白课堂蓝）（plum）配色：底色 #fffdf6 / 文字 #241d12 / 强调 #8a3f9e。",
+  "refs": [],
+  "createdBy": "master",
+  "srcMaster": "master-edu",
+  "srcPalette": "plum",
+  "srcAspect": [
+    "16:9",
+    "9:16"
+  ]
+}

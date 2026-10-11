@@ -1,0 +1,50 @@
+{
+  "id": "master-health-coral",
+  "name": "医疗健康（清透青绿） · coral",
+  "desc": "PPT 母版「医疗健康（清透青绿）」的 coral 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+  "aspect": "both",
+  "speed": "normal",
+  "mood": "高级",
+  "vertical": [
+    "b2b"
+  ],
+  "tokens": {
+    "bg": "#f8fbfb",
+    "bg2": "#f8fbfb",
+    "ink": "#12262b",
+    "dim": "#637174",
+    "faint": "#919b9d",
+    "accent": "#cf5f3f",
+    "accentText": "#aa4e34",
+    "font": "sans-900",
+    "radius": 0,
+    "density": "normal",
+    "grain": 0.02
+  },
+  "structure": [
+    "pipeline-process"
+  ],
+  "elements": [
+    "bg-gradient-linear",
+    "grid-fine",
+    "title-duo",
+    "eyebrow-en",
+    "caption-bottom-big",
+    "caption-pill"
+  ],
+  "motion": {
+    "enter": "wipe-in",
+    "emphasis": "sweep",
+    "exit": "crossfade-out",
+    "pace": 1
+  },
+  "prompt": "医疗健康（清透青绿）（coral）配色：底色 #f8fbfb / 文字 #12262b / 强调 #cf5f3f。",
+  "refs": [],
+  "createdBy": "master",
+  "srcMaster": "master-health",
+  "srcPalette": "coral",
+  "srcAspect": [
+    "16:9",
+    "9:16"
+  ]
+}

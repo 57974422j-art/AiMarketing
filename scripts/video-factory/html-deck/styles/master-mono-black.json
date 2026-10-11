@@ -1,0 +1,50 @@
+{
+  "id": "master-mono-black",
+  "name": "极简黑白杂志 · black",
+  "desc": "PPT 母版「极简黑白杂志」的 black 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+  "aspect": "both",
+  "speed": "normal",
+  "mood": "高级",
+  "vertical": [
+    "b2b"
+  ],
+  "tokens": {
+    "bg": "#fbfbfa",
+    "bg2": "#fbfbfa",
+    "ink": "#111111",
+    "dim": "#636363",
+    "faint": "#929291",
+    "accent": "#111111",
+    "accentText": "#0e0e0e",
+    "font": "sans-900",
+    "radius": 0,
+    "density": "normal",
+    "grain": 0.02
+  },
+  "structure": [
+    "pipeline-process"
+  ],
+  "elements": [
+    "bg-gradient-linear",
+    "grid-fine",
+    "title-duo",
+    "eyebrow-en",
+    "caption-bottom-big",
+    "caption-pill"
+  ],
+  "motion": {
+    "enter": "wipe-in",
+    "emphasis": "sweep",
+    "exit": "crossfade-out",
+    "pace": 1
+  },
+  "prompt": "极简黑白杂志（black）配色：底色 #fbfbfa / 文字 #111111 / 强调 #111111。",
+  "refs": [],
+  "createdBy": "master",
+  "srcMaster": "master-mono",
+  "srcPalette": "black",
+  "srcAspect": [
+    "16:9",
+    "9:16"
+  ]
+}

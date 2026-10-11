@@ -3,13 +3,14 @@
   "builtAt": "2026-10-09 08:08:48",
   "note": "风格包清单（由 tools/build-studio.mjs 生成；管理器页面读内嵌数据，这个文件给 AGENT/其它工具读）",
   "counts": {
-    "styles": 11,
+    "styles": 51,
     "masters": 10,
     "elements": 50,
     "structures": 13,
     "motions": 19,
     "shotgroups": 12,
-    "verticals": 25
+    "verticals": 25,
+    "masterDerived": 40
   },
   "impl": [
     "opening-hero",
@@ -265,6 +266,366 @@
       "example": "out/sr30/showreel30.mp4#6.2s",
       "createdBy": "builtin",
       "canPage": true
+    },
+    {
+      "id": "master-ecom-p1",
+      "name": "电商高饱和 · 橙红",
+      "mood": "高级",
+      "desc": "PPT 母版「电商高饱和」的 橙红 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-ecom",
+      "srcPalette": "橙红"
+    },
+    {
+      "id": "master-ecom-p2",
+      "name": "电商高饱和 · 品红",
+      "mood": "高级",
+      "desc": "PPT 母版「电商高饱和」的 品红 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-ecom",
+      "srcPalette": "品红"
+    },
+    {
+      "id": "master-ecom-p3",
+      "name": "电商高饱和 · 电蓝",
+      "mood": "高级",
+      "desc": "PPT 母版「电商高饱和」的 电蓝 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-ecom",
+      "srcPalette": "电蓝"
+    },
+    {
+      "id": "master-ecom-p4",
+      "name": "电商高饱和 · 蜜绿",
+      "mood": "高级",
+      "desc": "PPT 母版「电商高饱和」的 蜜绿 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-ecom",
+      "srcPalette": "蜜绿"
+    },
+    {
+      "id": "master-editorial-vermilion",
+      "name": "纸感编辑风（亮底)  · vermilion",
+      "mood": "高级",
+      "desc": "PPT 母版「纸感编辑风（亮底) 」的 vermilion 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-editorial",
+      "srcPalette": "vermilion"
+    },
+    {
+      "id": "master-editorial-inkblue",
+      "name": "纸感编辑风（亮底)  · inkblue",
+      "mood": "高级",
+      "desc": "PPT 母版「纸感编辑风（亮底) 」的 inkblue 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-editorial",
+      "srcPalette": "inkblue"
+    },
+    {
+      "id": "master-editorial-moss",
+      "name": "纸感编辑风（亮底)  · moss",
+      "mood": "高级",
+      "desc": "PPT 母版「纸感编辑风（亮底) 」的 moss 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-editorial",
+      "srcPalette": "moss"
+    },
+    {
+      "id": "master-editorial-plum",
+      "name": "纸感编辑风（亮底)  · plum",
+      "mood": "高级",
+      "desc": "PPT 母版「纸感编辑风（亮底) 」的 plum 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-editorial",
+      "srcPalette": "plum"
+    },
+    {
+      "id": "master-edu-blue",
+      "name": "教育培训（暖乳白课堂蓝） · blue",
+      "mood": "高级",
+      "desc": "PPT 母版「教育培训（暖乳白课堂蓝）」的 blue 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-edu",
+      "srcPalette": "blue"
+    },
+    {
+      "id": "master-edu-sun",
+      "name": "教育培训（暖乳白课堂蓝） · sun",
+      "mood": "高级",
+      "desc": "PPT 母版「教育培训（暖乳白课堂蓝）」的 sun 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-edu",
+      "srcPalette": "sun"
+    },
+    {
+      "id": "master-edu-leaf",
+      "name": "教育培训（暖乳白课堂蓝） · leaf",
+      "mood": "高级",
+      "desc": "PPT 母版「教育培训（暖乳白课堂蓝）」的 leaf 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-edu",
+      "srcPalette": "leaf"
+    },
+    {
+      "id": "master-edu-plum",
+      "name": "教育培训（暖乳白课堂蓝） · plum",
+      "mood": "高级",
+      "desc": "PPT 母版「教育培训（暖乳白课堂蓝）」的 plum 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-edu",
+      "srcPalette": "plum"
+    },
+    {
+      "id": "master-festive-gold",
+      "name": "红金庆典风 · gold",
+      "mood": "科技",
+      "desc": "PPT 母版「红金庆典风」的 gold 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-festive",
+      "srcPalette": "gold"
+    },
+    {
+      "id": "master-festive-cinnabar",
+      "name": "红金庆典风 · cinnabar",
+      "mood": "科技",
+      "desc": "PPT 母版「红金庆典风」的 cinnabar 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-festive",
+      "srcPalette": "cinnabar"
+    },
+    {
+      "id": "master-festive-jade",
+      "name": "红金庆典风 · jade",
+      "mood": "科技",
+      "desc": "PPT 母版「红金庆典风」的 jade 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-festive",
+      "srcPalette": "jade"
+    },
+    {
+      "id": "master-festive-copper",
+      "name": "红金庆典风 · copper",
+      "mood": "科技",
+      "desc": "PPT 母版「红金庆典风」的 copper 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-festive",
+      "srcPalette": "copper"
+    },
+    {
+      "id": "master-formal-p1",
+      "name": "正式庄重（象牙墨绿） · 松绿",
+      "mood": "高级",
+      "desc": "PPT 母版「正式庄重（象牙墨绿）」的 松绿 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-formal",
+      "srcPalette": "松绿"
+    },
+    {
+      "id": "master-formal-p2",
+      "name": "正式庄重（象牙墨绿） · 墨蓝",
+      "mood": "高级",
+      "desc": "PPT 母版「正式庄重（象牙墨绿）」的 墨蓝 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-formal",
+      "srcPalette": "墨蓝"
+    },
+    {
+      "id": "master-formal-p3",
+      "name": "正式庄重（象牙墨绿） · 绛红",
+      "mood": "高级",
+      "desc": "PPT 母版「正式庄重（象牙墨绿）」的 绛红 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-formal",
+      "srcPalette": "绛红"
+    },
+    {
+      "id": "master-formal-p4",
+      "name": "正式庄重（象牙墨绿） · 焦棕",
+      "mood": "高级",
+      "desc": "PPT 母版「正式庄重（象牙墨绿）」的 焦棕 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-formal",
+      "srcPalette": "焦棕"
+    },
+    {
+      "id": "master-health-teal",
+      "name": "医疗健康（清透青绿） · teal",
+      "mood": "高级",
+      "desc": "PPT 母版「医疗健康（清透青绿）」的 teal 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-health",
+      "srcPalette": "teal"
+    },
+    {
+      "id": "master-health-indigo",
+      "name": "医疗健康（清透青绿） · indigo",
+      "mood": "高级",
+      "desc": "PPT 母版「医疗健康（清透青绿）」的 indigo 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-health",
+      "srcPalette": "indigo"
+    },
+    {
+      "id": "master-health-coral",
+      "name": "医疗健康（清透青绿） · coral",
+      "mood": "高级",
+      "desc": "PPT 母版「医疗健康（清透青绿）」的 coral 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-health",
+      "srcPalette": "coral"
+    },
+    {
+      "id": "master-health-forest",
+      "name": "医疗健康（清透青绿） · forest",
+      "mood": "高级",
+      "desc": "PPT 母版「医疗健康（清透青绿）」的 forest 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-health",
+      "srcPalette": "forest"
+    },
+    {
+      "id": "master-mono-black",
+      "name": "极简黑白杂志 · black",
+      "mood": "高级",
+      "desc": "PPT 母版「极简黑白杂志」的 black 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-mono",
+      "srcPalette": "black"
+    },
+    {
+      "id": "master-mono-graphite",
+      "name": "极简黑白杂志 · graphite",
+      "mood": "高级",
+      "desc": "PPT 母版「极简黑白杂志」的 graphite 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-mono",
+      "srcPalette": "graphite"
+    },
+    {
+      "id": "master-mono-oxblood",
+      "name": "极简黑白杂志 · oxblood",
+      "mood": "高级",
+      "desc": "PPT 母版「极简黑白杂志」的 oxblood 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-mono",
+      "srcPalette": "oxblood"
+    },
+    {
+      "id": "master-mono-inkblue",
+      "name": "极简黑白杂志 · inkblue",
+      "mood": "高级",
+      "desc": "PPT 母版「极简黑白杂志」的 inkblue 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-mono",
+      "srcPalette": "inkblue"
+    },
+    {
+      "id": "master-tech-cyan",
+      "name": "深青科技风 · cyan",
+      "mood": "科技",
+      "desc": "PPT 母版「深青科技风」的 cyan 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-tech",
+      "srcPalette": "cyan"
+    },
+    {
+      "id": "master-tech-lime",
+      "name": "深青科技风 · lime",
+      "mood": "科技",
+      "desc": "PPT 母版「深青科技风」的 lime 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-tech",
+      "srcPalette": "lime"
+    },
+    {
+      "id": "master-tech-amber",
+      "name": "深青科技风 · amber",
+      "mood": "科技",
+      "desc": "PPT 母版「深青科技风」的 amber 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-tech",
+      "srcPalette": "amber"
+    },
+    {
+      "id": "master-tech-coral",
+      "name": "深青科技风 · coral",
+      "mood": "科技",
+      "desc": "PPT 母版「深青科技风」的 coral 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-tech",
+      "srcPalette": "coral"
+    },
+    {
+      "id": "master-v1-warm-gold",
+      "name": "暗色暖金（v1） · warm-gold",
+      "mood": "科技",
+      "desc": "PPT 母版「暗色暖金（v1）」的 warm-gold 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-v1",
+      "srcPalette": "warm-gold"
+    },
+    {
+      "id": "master-v1-olive",
+      "name": "暗色暖金（v1） · olive",
+      "mood": "科技",
+      "desc": "PPT 母版「暗色暖金（v1）」的 olive 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-v1",
+      "srcPalette": "olive"
+    },
+    {
+      "id": "master-v1-clay",
+      "name": "暗色暖金（v1） · clay",
+      "mood": "科技",
+      "desc": "PPT 母版「暗色暖金（v1）」的 clay 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-v1",
+      "srcPalette": "clay"
+    },
+    {
+      "id": "master-v1-mist-blue",
+      "name": "暗色暖金（v1） · mist-blue",
+      "mood": "科技",
+      "desc": "PPT 母版「暗色暖金（v1）」的 mist-blue 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-v1",
+      "srcPalette": "mist-blue"
+    },
+    {
+      "id": "master-v2-azure",
+      "name": "浅色商务（v2） · azure",
+      "mood": "高级",
+      "desc": "PPT 母版「浅色商务（v2）」的 azure 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-v2",
+      "srcPalette": "azure"
+    },
+    {
+      "id": "master-v2-steel",
+      "name": "浅色商务（v2） · steel",
+      "mood": "高级",
+      "desc": "PPT 母版「浅色商务（v2）」的 steel 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-v2",
+      "srcPalette": "steel"
+    },
+    {
+      "id": "master-v2-indigo",
+      "name": "浅色商务（v2） · indigo",
+      "mood": "高级",
+      "desc": "PPT 母版「浅色商务（v2）」的 indigo 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-v2",
+      "srcPalette": "indigo"
+    },
+    {
+      "id": "master-v2-violet",
+      "name": "浅色商务（v2） · violet",
+      "mood": "高级",
+      "desc": "PPT 母版「浅色商务（v2）」的 violet 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+      "createdBy": "master",
+      "srcMaster": "master-v2",
+      "srcPalette": "violet"
     }
   ],
   "masters": [
@@ -388,5 +749,6 @@
         "NotoSansSC-sub.woff2"
       ]
     }
-  ]
+  ],
+  "generatedNote": "index 由 tools/build-styles-from-masters.mjs 合并（内置包 + 母版派生包）"
 }

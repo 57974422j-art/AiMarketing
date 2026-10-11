@@ -1,0 +1,50 @@
+{
+  "id": "master-tech-cyan",
+  "name": "深青科技风 · cyan",
+  "desc": "PPT 母版「深青科技风」的 cyan 配色（皮肤并入 HTML 成片；版式仍走 HTML 结构库）",
+  "aspect": "both",
+  "speed": "normal",
+  "mood": "科技",
+  "vertical": [
+    "b2b"
+  ],
+  "tokens": {
+    "bg": "#0b1220",
+    "bg2": "#0a111e",
+    "ink": "#e6f0f5",
+    "dim": "#99a2aa",
+    "faint": "#6e7680",
+    "accent": "#29d3c9",
+    "accentText": "#50dbd3",
+    "font": "sans-900",
+    "radius": 0,
+    "density": "normal",
+    "grain": 0.02
+  },
+  "structure": [
+    "pipeline-process"
+  ],
+  "elements": [
+    "bg-gradient-linear",
+    "grid-fine",
+    "title-duo",
+    "eyebrow-en",
+    "caption-bottom-big",
+    "caption-pill"
+  ],
+  "motion": {
+    "enter": "wipe-in",
+    "emphasis": "sweep",
+    "exit": "crossfade-out",
+    "pace": 1
+  },
+  "prompt": "深青科技风（cyan）配色：底色 #0b1220 / 文字 #e6f0f5 / 强调 #29d3c9。",
+  "refs": [],
+  "createdBy": "master",
+  "srcMaster": "master-tech",
+  "srcPalette": "cyan",
+  "srcAspect": [
+    "16:9",
+    "9:16"
+  ]
+}
