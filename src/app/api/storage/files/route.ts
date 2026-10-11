@@ -4,6 +4,11 @@ import { listObjects, putObject } from '@/lib/oss'
 import { saveToPersonalRepo, ensureThumb } from '@/lib/personal-storage'
 // ★VF_REPOSPLIT_V1：分类（`gen_` 前缀 = 生成物）只认 lib/repo-naming 一处口径
 import { repoKind } from '@/lib/repo-naming'
+// ★VF_REPOSPLIT_V1b（2026-10-12 用户实测「成片和素材还是放在一起」）：**老成片**没有 `gen_` 前缀
+//   （改名之前生成的），必须用现成的**强判据**认出来：出片记录（video-factory 任务文件里的 repoName）
+//   + 统一入库命名 `YYYYMMDD_NNN.mp4` **两条同时成立** ⇒ 判为生成素材（不误伤用户自己导入的视频）。
+import { readOutcomeNames } from '@/lib/agent/video-material'
+import { materialStateOf } from '@/lib/agent/vf/material-pool'
 
 // ★VF_QUOTA_V2（2026-10-11 用户定案「到 450 就不给传」）：配额常量与判定**只认 lib/storage-quota**（一处真源）
 import { QUOTA_TOTAL, QUOTA_REJECT, quotaUsed, quotaCheck } from '@/lib/storage-quota'
@@ -42,6 +47,10 @@ export async function GET(request: NextRequest) {
   try {
     const prefix = `storage/${auth.userId}/`
     const objects = await listObjects(prefix)
+    // ★VF_REPOSPLIT_V1b：老成片判据（出片记录 + 统一入库命名，两条同时成立才算）——读的是
+    //   video-factory 任务文件的 repoName，零网络、零 prisma，判不出来就一个都不认（不误伤原片）。
+    let outcomes: Set<string> = new Set()
+    try { outcomes = readOutcomeNames(auth.userId) } catch { /* 读不到记录 ⇒ 只按前缀分 */ }
     // 已存在的缩略图集合，用于判断存量视频是否需要补图
     const thumbSet = new Set(
       objects.filter(o => o.name.includes('/.thumbs/')).map(o => o.name.split('/.thumbs/')[1])
@@ -64,11 +73,14 @@ export async function GET(request: NextRequest) {
         //   + 起一个 ffmpeg 抽帧 + 再上传，几十个视频同时跑就把带宽/CPU 打满，
         //   于是"列表之后的下载/播放"全被拖慢。这里限制**同时最多 2 个**，其余排队。
         if (isVideo && !thumbExists) scheduleThumb(auth!.userId, name)
+        // ★VF_REPOSPLIT_V1b：两类判据并起来 —— ① 新命名 `gen_日期_序号.ext`（repoKind）；
+        //   ② **老成片**（改名之前生成的，如 `20261011_022.mp4`）靠"出片记录 + 统一入库命名"
+        //      两条同时成立认出来（materialStateOf === 'outcome'）⇒ 不误伤用户自己导入的视频。
+        const isGen = repoKind(name) === 'gen' || materialStateOf(name, { outcomeNames: outcomes }) === 'outcome'
         return {
           name,
-          // ★VF_REPOSPLIT_V1：`gen` = 系统生成物（`gen_日期_序号.ext`），`asset` = 用户原始素材。
-          //   前端按它分两组显示（个人仓库里"原始素材 / 生成素材"分开），并据此决定是否放进出片素材池。
-          kind: repoKind(name),
+          // `gen` = 生成素材（前端"生成素材"这组）｜`asset` = 用户原始素材（"原始素材"这组）
+          kind: isGen ? 'gen' as const : 'asset' as const,
           size: o.size,
           mtime: o.lastModified.toISOString(),
           isVideo,

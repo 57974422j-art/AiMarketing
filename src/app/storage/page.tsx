@@ -29,6 +29,9 @@ export default function StoragePage() {
   const [backed, setBacked] = useState(0)
   // ★VF_THUMBGC_V1（2026-10-12 收口「缩略图孤儿」）：清理按钮的进行中状态
   const [cleaning, setCleaning] = useState(false)
+  // ★VF_REPOSPLIT_V1b（2026-10-12 用户实测「我没看见切换生成素材原始素材的按键」）：
+  //   **切换按键**（分段控件）：全部 / 原始素材 / 生成素材。
+  const [tab, setTab] = useState<'all' | 'asset' | 'gen'>('all')
 
   const load = async () => {
     setLoading(true)
@@ -77,9 +80,13 @@ export default function StoragePage() {
   const toggleSelect = (name: string) => {
     setSelected(prev => { const s = new Set(prev); s.has(name) ? s.delete(name) : s.add(name); return s })
   }
-  const allSelected = files.length > 0 && files.every(f => selected.has(f.name))
+  // ★VF_REPOSPLIT_V1b：两组 + 当前显示的那组（全选/批量删除只作用于**当前显示**的这组）
+  const assetFiles = files.filter(f => (f.kind === 'gen' ? false : true))
+  const genFiles = files.filter(f => f.kind === 'gen')
+  const shown = tab === 'all' ? files : tab === 'gen' ? genFiles : assetFiles
+  const allSelected = shown.length > 0 && shown.every(f => selected.has(f.name))
   const toggleAll = () => {
-    setSelected(allSelected ? new Set() : new Set(files.map(f => f.name)))
+    setSelected(allSelected ? new Set() : new Set(shown.map(f => f.name)))
   }
   // ★2026-09-22（用户实测「点下载弹窗非常慢」）：原来是 fetch → blob → createObjectURL → a.click()
   //   —— 必须**等整个文件下载完**才会弹出"另存为"（大视频等于卡住不动）。
@@ -216,24 +223,40 @@ export default function StoragePage() {
           {pct >= 90 && <p className="text-[10px] text-red-400 mt-1">空间即将用满，请清理或联系管理员</p>}
         </div>
 
+        {/* ★VF_REPOSPLIT_V1b（2026-10-12 用户实测「我没看见切换生成素材原始素材的按键」）：
+            这里给的是**切换按键**（分段控件）—— 全部 / 原始素材 / 生成素材 + 数量；列表只显示当前这组。
+            （上一版做成了"同页两个分组标题"，不是切换 —— 用户要的是切换。） */}
+        {!loading && files.length > 0 && (
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            {[{ k: 'all' as const, t: '全部', n: files.length },
+              { k: 'asset' as const, t: '原始素材', n: assetFiles.length },
+              { k: 'gen' as const, t: '生成素材', n: genFiles.length }].map((o) => (
+              <button key={o.k} onClick={() => { setTab(o.k); setSelected(new Set()) }}
+                className={'px-3 py-1.5 rounded-lg text-xs border transition ' + (tab === o.k
+                  ? 'bg-white/[0.14] border-white/25 text-white'
+                  : 'bg-white/[0.04] border-white/10 text-gray-400 hover:bg-white/[0.10]')}>
+                {o.t} <span className="text-[10px] opacity-70">{o.n}</span>
+              </button>
+            ))}
+            <span className="text-[10px] text-gray-500">
+              {tab === 'gen'
+                ? '系统产出（成片 / 审片图 / 预览）· 不占配额 · 不进选材池'
+                : tab === 'asset'
+                  ? '你上传的图片 / 视频 · 出片时从这里选'
+                  : '生成素材不占配额、不进选材池；老成片也认得出（按出片记录）'}
+            </span>
+          </div>
+        )}
+
         {loading ? <p className="text-gray-400 text-xs">加载中...</p> : files.length === 0 ? (
           <p className="text-gray-500 text-xs text-center py-10">暂无文件，上传你的第一个素材吧</p>
+        ) : shown.length === 0 ? (
+          <p className="text-gray-500 text-xs text-center py-10">
+            {tab === 'gen' ? '还没有生成素材（出片后会出现在这里）' : '这一组还没有文件'}
+          </p>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {/* ★VF_REPOSPLIT_V1（2026-10-11 用户定案「在个人仓库内分 原始素材 和 生成素材」）：
-                按文件名前缀分组显示 —— 生成物是 `gen_日期_序号.ext`（独立序号、不占配额、不进素材池）。 */}
-            {[{ k: 'asset' as const, t: '原始素材 · 你上传的图片 / 视频', s: '' },
-              { k: 'gen' as const, t: '生成素材 · 系统产出（成片 / 审片图 / 预览）', s: '不占配额' }]
-              .flatMap(g => {
-                const list = files.filter(f => (f.kind === 'gen' ? 'gen' : 'asset') === g.k)
-                if (!list.length) return []
-                return [
-                  <div key={'hd-' + g.k} className="col-span-2 sm:col-span-3 md:col-span-4 flex items-center gap-2 mt-2 mb-1">
-                    <span className="text-[11px] text-gray-200 font-mono tracking-wide">{g.t}</span>
-                    <span className="text-[10px] text-gray-500">{list.length} 个{g.s ? ' · ' + g.s : ''}</span>
-                    <span className="flex-1 border-t border-white/10" />
-                  </div>,
-                  ...list.map(f => (
+            {shown.map(f => (
               <div key={f.name} className="card-glass p-2 rounded-lg relative group">
                 {/* 缩略图 */}
                 <div className="aspect-video bg-white/5 rounded mb-1 overflow-hidden flex items-center justify-center">
@@ -271,9 +294,7 @@ export default function StoragePage() {
                   <button onClick={() => del(f.name)} className="w-6 h-6 bg-red-500/80 text-white rounded-full text-[10px] opacity-0 group-hover:opacity-100 transition" title="删除">×</button>
                 </div>
               </div>
-                  )),
-                ]
-              })}
+            ))}
           </div>
         )}
 
