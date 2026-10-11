@@ -121,23 +121,67 @@ function cleanupVfWorkDirs(maxAgeMs = 72 * HOUR): number {
   return n
 }
 
+/** ★VF_CLEANUP_V3（2026-10-11 用户实测提问「服务器好像也记录了视频和缩略图、图片，要不未来太多了，服务器承受不起」）
+ *  ④ **素材缓存**：`<storage>/<uid>/video-factory/material/` —— 成片线会把 OSS 素材**再下载一份到服务器**，
+ *     每跑一条片就多一份（几十 MB/条），而 V2 的清理范围**不含它** ⇒ 无上限增长。
+ *     安全口径：它是**可从 OSS 重新下载的缓存** ⇒ 留 48h（够"只重渲第 N 镜"用），过期即删。
+ *  ⑤ **成片工作/交付目录**：`<storage>/_studio/out/<line>/<slug>/`（逐帧片段 + 音轨 + 成片副本）。
+ *     成片若有入库（saveToPersonalRepo）就不怕删；留 72h 与 work_* 同口径。 */
+function cleanupVfMaterialCache(maxAgeMs = 48 * HOUR): number {
+  const storages = [
+    process.env.BU_STORAGE_ROOT || '',
+    join(process.cwd(), 'storage'),
+    '/root/AiMarketing/storage',
+  ].filter(Boolean)
+  let n = 0
+  for (const root of storages) {
+    try {
+      if (!existsSync(root)) continue
+      for (const uid of readdirSync(root)) {
+        n += purgeOldChildren(join(root, uid, 'video-factory', 'material'), maxAgeMs)
+      }
+    } catch { /* ignore */ }
+  }
+  return n
+}
+
+function cleanupStudioOut(maxAgeMs = 72 * HOUR): number {
+  const storages = [
+    process.env.BU_STORAGE_ROOT || '',
+    join(process.cwd(), 'storage'),
+    '/root/AiMarketing/storage',
+  ].filter(Boolean)
+  let n = 0
+  for (const root of storages) {
+    const out = join(root, '_studio', 'out')
+    try {
+      if (!existsSync(out)) continue
+      for (const line of readdirSync(out)) n += purgeOldChildren(join(out, line), maxAgeMs)
+    } catch { /* ignore */ }
+  }
+  return n
+}
+
 /** 跑一遍全部清理，返回汇总（供日志/接口用） */
 export function runCleanupAll(): {
-  outputs: number; frames: number; osTemp: number; workDirs: number; errors: string[]
+  outputs: number; frames: number; osTemp: number; workDirs: number; matCache: number; studio: number; errors: string[]
 } {
   const errors: string[] = []
-  let outputs = 0, frames = 0, osTemp = 0, workDirs = 0
+  let outputs = 0, frames = 0, osTemp = 0, workDirs = 0, matCache = 0, studio = 0
   try { outputs = cleanupOldFiles(7).deleted.length } catch (e: any) { errors.push('outputs: ' + String(e?.message || e)) }
   try { frames = cleanupPublishFrames() } catch (e: any) { errors.push('frames: ' + String(e?.message || e)) }
   try { osTemp = cleanupOsTemp() } catch (e: any) { errors.push('tmp: ' + String(e?.message || e)) }
   try { workDirs = cleanupVfWorkDirs() } catch (e: any) { errors.push('work: ' + String(e?.message || e)) }
-  return { outputs, frames, osTemp, workDirs, errors }
+  try { matCache = cleanupVfMaterialCache() } catch (e: any) { errors.push('material: ' + String(e?.message || e)) }
+  try { studio = cleanupStudioOut() } catch (e: any) { errors.push('studio: ' + String(e?.message || e)) }
+  return { outputs, frames, osTemp, workDirs, matCache, studio, errors }
 }
 
 /** V1 保留：老的"跑一次清理"出口 */
 export async function runCleanup() {
   const r = runCleanupAll()
   console.log(`[清理] outputs ${r.outputs} / 发布帧 ${r.frames} / 临时 ${r.osTemp} / 出片工作目录 ${r.workDirs}`
+    + ` / 素材缓存 ${r.matCache} / 成片目录 ${r.studio}`
     + (r.errors.length ? `（${r.errors.length} 项异常，已忽略）` : ''))
   return r
 }
