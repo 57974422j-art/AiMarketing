@@ -205,6 +205,9 @@ export function arrange(opts = {}) {
     // ★VF_RATIO_V1：**把"大图:填图"比例声明出去** —— 出片时 render-film 按"声明 vs 实测"核对
     //   （容差 ±1 张），不再是旧的"每 10 张 3~4 张"写死区间。
     plateRatio: RATIO,
+    // ★VF_ASPECT_V1（2026-10-11 用户定案「我要的是横屏竖屏我可以选」）：**画幅写进骨架**
+    //   —— 出片时由 film-to-page 读它决定画布；竖屏是当前唯一结构坐标齐备的画幅（默认）。
+    aspect: String(opts.aspect || '9:16'),
     // ★VF_SPEC_V1：风格语法（L1 构图 / L2 动效 / L3 文本形态）原样带进 film.json，
     //   由 tools/film-to-page.mjs 的语法层解释（本文件只负责"排版纪律与配额"）。
     spec: opts.spec || undefined,

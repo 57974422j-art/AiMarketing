@@ -546,6 +546,16 @@ export function makeFilmHtml(film) {
   // ★VF_SPEC_V1：语法层（film.spec > pack.spec > 默认）。越界/非法**打印出来**（不静默）
   const { spec, warns } = normSpec(film.spec, pack.spec)
   warns.forEach((w) => console.log('  ⚠ spec: ' + w))
+  // ★VF_ASPECT_V1（2026-10-11 用户定案「我要的是横屏竖屏我可以选」）：骨架里的画幅。
+  //   ⚠️ 现状如实说明：**只有 9:16 的结构坐标齐备**（8 个结构的位置都是竖屏绝对坐标）；
+  //   16:9 要逐结构重排（下一步专门做）。为不产出"半成品横屏"，
+  //   **对 16:9 先明确退回 9:16 并大声打印**（响亮，不静默降级）。
+  const ASPECT_WANT = String(film.aspect || '9:16')
+  const ASPECT = ASPECT_WANT === '16:9' ? '9:16' : ASPECT_WANT
+  if (ASPECT_WANT !== ASPECT) {
+    console.log('  ⚠ 画幅 16:9 的**结构坐标尚未就位** ⇒ 本次按 9:16 渲染（下一步补 8 个结构的横屏坐标）')
+  }
+  console.log('  画幅：' + ASPECT + '（骨架声明 ' + ASPECT_WANT + '）')
 
   let t = 0
   const scenes = (film.scenes || []).map((sc, i) => {
