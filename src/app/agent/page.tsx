@@ -1948,7 +1948,7 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
   //   往左 = 更多多图页（一张页塞 3~4 张素材，变化自然多）；往右 = 更多"整张不裁"的大图。
   //   这个值是**声明**：排骨架时按它排，出片时机器按"声明 vs 实测"核对（不达标拒渲）。
   const [plateRatio, setPlateRatio] = useState<number>(
-    typeof vj?.plateRatio === 'number' ? vj.plateRatio : 50)
+    typeof vj?.plateRatio === 'number' ? vj.plateRatio : 60)   // ★默认 6:4（用户定案 2026-10-11）
   // ★VF_SPEC_V2：**让 AI 自己规划版式**的开关（第 2 步卡上，**默认不勾** ⇒ 不勾与老流程完全一致）。
   //   服务端总闸 `VF_FILM_AI_SPEC=1` 打开时，卡片会显示"总闸已开"，默认值随之变 true（仍可取消）。
   const [aiSpec, setAiSpec] = useState<boolean>(

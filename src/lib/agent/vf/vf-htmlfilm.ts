@@ -445,7 +445,7 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
   //   草稿里存的是百分数（0~100），传给引擎时统一除 100（**只在这一处换算**，别处一律百分数）。
   const pl = await planFilm({
     materials: files, text: String(vd.topic || ''), pack: vd.pack || '', workDir,
-    plateRatio: (vd.plateRatio === undefined ? 50 : Number(vd.plateRatio)) / 100,
+    plateRatio: (vd.plateRatio === undefined ? 60 : Number(vd.plateRatio)) / 100,
     // ★VF_SPEC_V1/V2：语法（AI 声明的 ⇒ 由引擎解释；没声明 ⇒ pack/引擎默认兜底）
     spec,
   })
@@ -669,7 +669,7 @@ function styleCard(vd: HtmlFilmDraft): string {
     // ★VF_RATIO_V1：**大图:填图 比例条**（默认 50 = 5:5）——整条链的口号是
     //   「素材越多、越靠"多图页"消化，越不逼 AI 发明新版面」；这个值是**用户/AI 的声明**，
     //   出片时机器按"声明 vs 实测"核对（render-film 的完整大图那一行）。
-    plateRatio: vd.plateRatio === undefined ? 50 : Number(vd.plateRatio),
+    plateRatio: vd.plateRatio === undefined ? 60 : Number(vd.plateRatio),
     plateRatioHint: '大图 : 填图 —— 往左=更多多图页（素材多、变化多）；往右=更多整张不裁的大图',
     // ★VF_SPEC_V2：开关下发给卡片 —— `aiSpec` 是**这一单的当前值**（默认 = 总闸），
     //   `aiSpecForced` 只用来显示"服务端总闸已开"那句提示（用户仍可取消）。
@@ -714,7 +714,7 @@ function confirmCard(vd: HtmlFilmDraft): string {
     hint: '第 3 步 / 共 3 步 · 确认出片（文案已按素材写好，先看一眼；不满意可「← 换风格」重写）',
     names: vd.names,
     // ★VF_RATIO_V1：把这一单用的比例回显到确认卡（用户能看见"这条片按几比几排的"）
-    plateRatio: vd.plateRatio === undefined ? 50 : Number(vd.plateRatio),
+    plateRatio: vd.plateRatio === undefined ? 60 : Number(vd.plateRatio),
     // ★VF_FILMSRC_V1：卡片上写的张数 = **出片真正会用的张数**（vd.picked 定稿件）。
     //   老实现这里发的是"勾选名单长度"，而出片用的是另一份切片（12/40）⇒ 卡片与实际不符。
     n: picked.length || vd.names.length,
@@ -789,11 +789,11 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
       //   没带 ⇒ 保持原值（默认 50 = 5:5，由 planFilm 那一步统一兜底）。
       if (f.plateRatio !== undefined && f.plateRatio !== null && f.plateRatio !== '') {
         const rRaw = Number(f.plateRatio)
-        const r = Number.isFinite(rRaw) ? Math.min(100, Math.max(0, Math.round(rRaw))) : 50
+        const r = Number.isFinite(rRaw) ? Math.min(100, Math.max(0, Math.round(rRaw))) : 60
         if (Number.isFinite(rRaw) && rRaw !== r) vfLog(uid, '[HTML成片] plateRatio=' + rRaw + ' 越界 ⇒ 夹回 ' + r)
         vd.plateRatio = r
       }
-      if (vd.plateRatio === undefined) vd.plateRatio = 50
+      if (vd.plateRatio === undefined) vd.plateRatio = 60
       // ★VF_SPEC_V2：第 2 步卡上的"🎨 让 AI 自己规划版式"开关（**最终决定**就存这儿）
       if (f.aiSpec !== undefined) vd.aiSpec = !!f.aiSpec
       if (vd.aiSpec === undefined) vd.aiSpec = aiSpecEnabled()   // 没带 ⇒ 服务端总闸决定默认值
@@ -854,7 +854,7 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
     if (goF.plateRatio !== undefined && goF.plateRatio !== null && goF.plateRatio !== ''
       && Number.isFinite(Number(goF.plateRatio))) {
       const wantP = Math.min(100, Math.max(0, Math.round(Number(goF.plateRatio))))
-      const curP = vd.plateRatio === undefined ? 50 : Number(vd.plateRatio)
+      const curP = vd.plateRatio === undefined ? 60 : Number(vd.plateRatio)
       if (wantP !== curP) {
         vfLog(uid, '[HTML成片] 出片时比例被改（' + curP + ' → ' + wantP + '）⇒ 拒绝（骨架/文案已按旧比例排好）')
         return 'HTML成片：这一单的**比例**在出片前不能改（骨架与文案都已按 '
@@ -920,7 +920,7 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
       // ★VF_FILMSRC_V1：**用定稿的那份骨架**（不再让出片重排一次）
       planJson: vd.filmJson || undefined,
       // ★VF_RATIO_V1：比例也带上（只在"没有定稿骨架、需要现场编排"时才会用到；有定稿时以定稿为准）
-      plateRatio: (vd.plateRatio === undefined ? 50 : Number(vd.plateRatio)) / 100,
+      plateRatio: (vd.plateRatio === undefined ? 60 : Number(vd.plateRatio)) / 100,
       // ★VF_SPEC_V1：语法同上（有定稿骨架时以定稿里的 spec 为准）
       spec: vd.spec,
       vertical: vd.vertical || '',

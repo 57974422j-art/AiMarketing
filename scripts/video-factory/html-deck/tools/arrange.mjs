@@ -51,7 +51,7 @@ export function arrange(opts = {}) {
   //   ⚠️ 与旧硬口径（每 10 张 3~4 张）的关系：那条被这条**取代** —— 见 render-film 的
   //      "声明比例 vs 实测"校验（AI/用户声明多少，机器就核对多少）。
   const RATIO_RAW = Number(opts.plateRatio)
-  const RATIO = Number.isFinite(RATIO_RAW) ? Math.min(1, Math.max(0, RATIO_RAW)) : 0.5
+  const RATIO = Number.isFinite(RATIO_RAW) ? Math.min(1, Math.max(0, RATIO_RAW)) : 0.6   // ★默认 6:4（用户定案 2026-10-11）
   if (Number.isFinite(RATIO_RAW) && RATIO_RAW !== RATIO) console.log('[arrange] plateRatio=' + RATIO_RAW + ' 越界 ⇒ 夹回 ' + RATIO)
   // ★VF_SPEC_V1（声明驱动编排）：spec.image.complete=false 才允许用 fullbleed（满屏**裁切**）；
   //   默认（true）= 声明"图片保证完整" ⇒ 剩 1~2 张的零头**并入完整大图**，不留裁切页。
