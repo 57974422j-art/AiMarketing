@@ -81,7 +81,7 @@ export const SPEC_DEF = {
   layout: { system: 'axis', whitespace: 0.20 },
   image: { place: 'mat', complete: true },
   pacing: { minShotSec: 0 },
-  motion: { img: 'push', ease: 'out', type: 'overlay', cross: 0.5 },
+  motion: { img: 'push', ease: 'out', type: 'overlay', cross: 0.5, trans: 'auto' },
   // ★VF_SPEC_V1b（2026-10-10 用户问"要不要加些字体让设计上档次"）：**不换字体**也能提档次的三条 ——
   //   text.weight   标题字重（100~900；字体是可变字体，权重随便给）
   //   text.tracking 标题**字距**（em；大标题收紧、小标签拉开 —— 最见效的一条）
@@ -95,6 +95,8 @@ const SPEC_ENUM = {
   'motion.img': ['push', 'pop', 'fade'],
   'motion.ease': ['out', 'back', 'inout'],
   'motion.type': ['overlay', 'sticker', 'vertical'],
+  // ★VF_FILMTRANS_V2（2026-10-11 用户定案）：**全图页转场**也能由 AI 声明（auto = 用编排的默认）
+  'motion.trans': ['auto', 'fade', 'wipe', 'cut', 'push', 'slide-up', 'zoom-through', 'blur-dissolve', 'light-leak'],
   'text.titleForm': ['overlay', 'sticker', 'vertical'],
   'text.ornament': ['rule', 'tape', 'hairline', 'none'],
 }

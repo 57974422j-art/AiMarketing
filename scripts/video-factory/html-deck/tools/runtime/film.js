@@ -100,6 +100,10 @@
     var myTr = String(sc.trans || 'fade')
     if (!nx) tl.to('#sc' + i, { opacity: 0, duration: TRD, ease: 'power2.in' }, S + D - CROSS * 0.2)
     else if (ntr === 'cut') tl.set('#sc' + i, { opacity: 0 }, S + D)
+    // ★VF_FILMTRANS_V2（2026-10-11 用户定案「看能加哪些转场效果，特别是全图」）：出场按**下一段的类型**给对应动作
+    else if (ntr === 'blur-dissolve') tl.to('#sc' + i, { opacity: 0, filter: 'blur(16px)', duration: TRD, ease: 'power1.inOut' }, S + D - CROSS * 0.3)
+    else if (ntr === 'zoom-through') tl.to('#sc' + i, { opacity: 0, scale: 1.10, duration: TRD, ease: 'power2.in' }, S + D - CROSS * 0.3)
+    else if (ntr === 'slide-up') tl.to('#sc' + i, { opacity: 0, y: -180, duration: TRD, ease: 'power1.inOut' }, S + D - CROSS * 0.3)
     else tl.to('#sc' + i, { opacity: 0, duration: TRD, ease: 'power1.inOut' }, S + D - CROSS * 0.3)
     // 入场：**从本段起点开始**（不是提前）—— 因为上一段的窗口已被延长 0.7s（见 film-to-page 的 OVER），
     //   这段时间里上一段还在 ⇒ 出入场天然重叠 ~0.5s ⇒ 才是真叠化/真擦除。
@@ -111,6 +115,31 @@
         { clipPath: 'inset(0 0% 0 0)', duration: Math.min(0.8, TRD + 0.12), ease: 'power2.inOut', immediateRender: true }, S)
     } else if (myTr === 'push') {
       tl.fromTo('#sc' + i, { x: 720 }, { x: 0, duration: Math.min(0.8, TRD + 0.12), ease: 'power3.out', immediateRender: true }, S)
+    // ★VF_FILMTRANS_V2：下面 4 种是新增的（**全图页主力**）—— 与出场分支一一对应
+    } else if (myTr === 'zoom-through') {
+      // 推近揭示：本段从 1.12 落回 1.0（上一段同时被放大淡出）⇒ 像镜头推进
+      tl.fromTo('#sc' + i, { opacity: 0, scale: 1.12 },
+        { opacity: 1, scale: 1, duration: Math.min(1.0, TRD + 0.3), ease: 'power2.out', immediateRender: true }, S)
+    } else if (myTr === 'blur-dissolve') {
+      // 模糊叠化：双方同时带模糊交叉 ⇒ 电影感（对全图最搭）
+      tl.fromTo('#sc' + i, { opacity: 0, filter: 'blur(18px)' },
+        { opacity: 1, filter: 'blur(0px)', duration: Math.min(0.95, TRD + 0.3), ease: 'power1.inOut', immediateRender: true }, S)
+    } else if (myTr === 'slide-up') {
+      // 上滑换页：本段从下方推入（上一段同时上移淡出）
+      tl.fromTo('#sc' + i, { y: 1280 },
+        { y: 0, duration: Math.min(0.85, TRD + 0.2), ease: 'power3.out', immediateRender: true }, S)
+    } else if (myTr === 'light-leak') {
+      // 漏光扫过：叠化 + 一条白色斜向亮带迅速划屏（不想每次都上，故只在本段入场时扫一次）
+      var _leak = document.getElementById('__leak')
+      if (!_leak) {
+        _leak = document.createElement('div'); _leak.id = '__leak'
+        _leak.style.cssText = 'position:absolute;left:0;top:0;width:720px;height:1280px;pointer-events:none;z-index:9;'
+          + 'background:linear-gradient(100deg, rgba(255,255,255,0) 38%, rgba(255,255,255,.52) 50%, rgba(255,255,255,0) 62%);opacity:0'
+        var _st = document.getElementById('stage'); if (_st) _st.appendChild(_leak)
+      }
+      tl.fromTo('#sc' + i, { opacity: 0 }, { opacity: 1, duration: Math.min(0.7, TRD + 0.1), ease: 'power1.inOut', immediateRender: true }, S)
+      tl.fromTo(_leak, { x: -760, opacity: 0 }, { x: 760, opacity: .9, duration: 0.42, ease: 'power2.inOut' }, S)
+      tl.to(_leak, { opacity: 0, duration: 0.18 }, S + 0.42)
     } else {
       tl.fromTo('#sc' + i, { opacity: 0 }, { opacity: 1, duration: TRD, ease: 'power1.inOut', immediateRender: true }, S)
     }

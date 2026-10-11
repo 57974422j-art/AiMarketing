@@ -162,8 +162,21 @@ export function arrange(opts = {}) {
   // ★VF_FILMTRANS_V1：给每段定转场（4 种循环 ⇒ 相邻必然不同）
   //   ⚠️ 必须**排在结尾卡之后**调用 —— 否则结尾卡（glass-product）没有 trans，
   //   下游会打一行"有 1 段没带 trans"（用户实测看到过这行，会以为是故障）。
-  const TRS = ['fade', 'wipe', 'cut', 'push']
-  const applyTrans = () => { scenes.forEach((s, k) => { s.trans = s.trans || TRS[k % TRS.length] }) }
+  // ★VF_FILMTRANS_V2（2026-10-11 用户定案「看能加哪些转场效果，特别是全图」）：
+  //   · 转场从 4 种扩到 5 种（新增 slide-up；light-leak 属"重口味"，留给 spec 显式声明，不进默认轮换）
+  //   · **全图页专属**：plate-top / plate-bottom / fullbleed 走 zoom-through ↔ blur-dissolve 交替
+  //     （与其它页的集合不相交 ⇒ **相邻页必不相同**，同时满足排版闸门"转场 ≥2 种且不连三页同转场"）
+  const TRS = ['fade', 'wipe', 'cut', 'push', 'slide-up']
+  const TRS_FULL = ['zoom-through', 'blur-dissolve']
+  const FULL_IMG = new Set(['plate-top', 'plate-bottom', 'fullbleed'])
+  let fi = 0
+  const applyTrans = () => {
+    scenes.forEach((s, k) => {
+      if (s.trans) return
+      if (FULL_IMG.has(String(s.structure))) { s.trans = TRS_FULL[fi % TRS_FULL.length]; fi += 1 }
+      else s.trans = TRS[k % TRS.length]
+    })
+  }
   // 结尾卡：只有调用方给了文案才写；数字类一律不写（★不再 default 78.5%/45%）
   if (want('glass-product')) {
     const closeSlots = { eyebrow: o.eyebrow, title: o.glassTitle, sub: o.glassSub }
