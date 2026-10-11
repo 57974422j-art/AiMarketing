@@ -137,6 +137,8 @@ export function orchestrateRule(opts = {}) {
     media,
     // ★VF_RATIO_V1：**大图:填图 比例** 一路透传（客户端比例条 → planFilm → 这里 → arrange）
     plateRatio: opts.plateRatio,
+    // ★VF_ASPECT_V1：画幅也一路透传（默认 9:16；16:9 待结构坐标就位）
+    aspect: opts.aspect,
     spec: opts.spec,          // ★VF_SPEC_V1：风格语法（L1/L2/L3）也一并交给 arrange 带进 film.json
     slots: opts.slots || {},
   })
@@ -157,6 +159,8 @@ export function orchestrateRule(opts = {}) {
     imageCount: Number(film.imageCount) || 0,
     // ★VF_RATIO_V1：比例也要带出去（少了它 ⇒ render-film 退回旧区间 3~4/10 硬拦，5:5 会被误杀）
     plateRatio: film.plateRatio,
+    // ★VF_ASPECT_V1：画幅也必须带出去（少了它 ⇒ 骨架里没有 aspect，渲染侧只能当 9:16）
+    aspect: film.aspect || '9:16',
     // ★VF_SPEC_V1：语法层（L1/L2/L3）同样带出去（否则 spec 被吞 ⇒ 又变成"只有皮肤"）
     spec: film.spec || undefined,
     // ★VF_LAYOUTGATE_V1：排版纪律（页型/图数/转场要有变化）的硬口径也要带出去，否则同"被吞掉"
@@ -302,6 +306,7 @@ if (isCli) {
         requirePlate: !!v.requirePlate, plateCount: v.plateCount, imageCount: v.imageCount,
         // ★VF_RATIO_V1 / ★VF_SPEC_V1：比例与语法**必须写进 film.json**，否则出片时被吞
         plateRatio: v.plateRatio, spec: v.spec || undefined,
+        aspect: v.aspect || '9:16',   // ★VF_ASPECT_V1：validate 路径同样必须写进 film.json
         requireLayout: !!v.requireLayout,
         scenes: v.scenes,
       }, null, 2) + '\n', 'utf8')
