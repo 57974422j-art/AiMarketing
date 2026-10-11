@@ -31,7 +31,8 @@ import { loadCharset, sanitizeText, sanitizeSlots } from './charset'
 // ★VF_FILMCOPY_V5/V6：骨架 ↔ 文案的**唯一对齐口径**（按段号归位 + 分批 + 只补缺口）—— 单列成模块便于单测
 import { alignCopy, mergeSlots, batchRanges } from './film-copy-align'
 // ★VF_SPEC_V2：AI 自规划风格语法（**开关默认关**；关掉 ⇒ 零行为变化）—— 单列成模块便于单测
-import { aiSpecEnabled, pickSpec, describeSpec, specPrompt } from './film-spec'
+// ★VF_THEME_V1：`theme` 由 AI 定（完全自主模式）；★VF_PACKAI_V1：挑风格包也交给 AI（读图那一步）
+import { aiSpecEnabled, pickSpec, describeSpec, specPrompt, packPickPrompt, pickPackId } from './film-spec'
 
 const HTMLFILM_TAG = 'vf_draft_htmlfilm'
 const HTMLFILM_PREFIX = 'HTML成片草稿:'
@@ -91,6 +92,12 @@ export type HtmlFilmDraft = {
   /** ★VF_SPEC_V2：**这一单是否让 AI 规划风格语法**（第 2 步卡上的开关，默认不勾）。
    *  默认值由服务端总闸 `VF_FILM_AI_SPEC` 决定；用户可在卡上勾/取消 ⇒ 这里存**最终决定**。 */
   aiSpec?: boolean
+  /** ★VF_THEME_V1（2026-10-11 用户定案「AI 完全自己画 就不要参与我们模版」）：
+   *  勾了它 ⇒ **连配色也由 AI 定**（这一片不套库里风格包的皮肤），动效/排版全自主。
+   *  引擎会判对比度，不合格**丢弃退回**风格包（防"墨绿一坨"）。 */
+  aiPaint?: boolean
+  /** ★VF_ASPECT_V1：画幅 '9:16'（竖，默认）| '16:9'（横）——出片时渲染侧按它选画布 */
+  aspect?: string
 }
 
 /** 进程内缓存（与 vf-ppt.ts 同形制：DB 是主，Map 是"这一回合的加速"） */
@@ -195,8 +202,27 @@ export async function loadHtmlFilmDraft(db: any, uid: number | string): Promise<
       spec: (j.spec && typeof j.spec === 'object') ? j.spec : undefined,
       // ★VF_SPEC_V2：开关状态也要取回（漏了它 ⇒ "换风格"回来时开关会被重置成默认）
       aiSpec: j.aiSpec === undefined ? undefined : !!j.aiSpec,
+      // ★VF_THEME_V1：完全自主开关也要取回（漏了 ⇒ "换风格"回来就丢了）
+      aiPaint: j.aiPaint === undefined ? undefined : !!j.aiPaint,
     }
   } catch { return null }
+}
+
+/** ★VF_PACKAI_V1：给 AI 挑包用的**可用包清单**（体检通过的包；health.json 不存在 ⇒ 全给，不干预）。
+ *  口径来源：tools/check-style-packs.mjs 产出的 styles/health.json（唯一体检真源）。 */
+export async function availablePacks(): Promise<Array<{ id: string; name?: string; desc?: string; mood?: string }>> {
+  try {
+    const fs = await import('fs')
+    const pt = await import('path')
+    const dir = pt.join(filmToolsDir(), 'styles')
+    const idx: any = JSON.parse(fs.readFileSync(pt.join(dir, 'index.json'), 'utf8'))
+    let health: any = null
+    try { health = JSON.parse(fs.readFileSync(pt.join(dir, 'health.json'), 'utf8')) } catch { health = null }
+    const hitems = (health && health.items) || null
+    return (Array.isArray(idx.items) ? idx.items : [])
+      .filter((x: any) => !hitems || !hitems[x.id] || hitems[x.id].ok)
+      .map((x: any) => ({ id: String(x.id), name: x.name, desc: x.desc, mood: x.mood }))
+  } catch { return [] }
 }
 
 export async function clearHtmlFilmDraft(db: any, uid: number | string): Promise<void> {
@@ -421,17 +447,44 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
   //   关（默认）⇒ 这段完全不进 ⇒ 与今天之前的行为**一模一样**。
   let spec: any = vd.spec || undefined
   let specNote = ''
+  // ★VF_PACKAI_V1：AI 挑的风格包（用户手动选了包就**以用户的为准**，这里不挑）
+  let packNote = ''
+  // ★VF_PACKAI_V1（2026-10-11 用户定案「AI审图的时候就挑选可用的可以吗？」）：
+  //   **就在读图/审图这一步顺便挑包** —— 旧的"赛道 prefer[0]"永远同一个包、轮换又会轮到难看的，
+  //   所以改成：AI 看着素材，从**体检通过**的包里挑一个；编的 id 一律不认（退回引擎兜底）。
+  if (!vd.pack) {
+    try {
+      const cand = await availablePacks()
+      if (cand.length) {
+        const pkTxt = String(await ctx.generateText(
+          packPickPrompt(cand, summary, String(vd.topic || ''))) || '')
+        const pid = pickPackId(scanJson(pkTxt), cand.map((x) => x.id))
+        if (pid) {
+          vd.pack = pid
+          packNote = '🎨 AI 按素材挑的风格包：' + pid + '（从 ' + cand.length + ' 个可用包里挑）'
+          vfLog(uid, '[HTML成片] AI 挑风格包：' + pid)
+        } else {
+          vfLog(uid, '[HTML成片] AI 挑风格包：没给出可用 id ⇒ 退回引擎兜底')
+        }
+      }
+    } catch (e: any) {
+      vfLog(uid, '[HTML成片] AI 挑风格包失败：' + String(e?.message || e).slice(0, 80) + ' ⇒ 退回引擎兜底')
+    }
+  }
   // 这一单到底走不走"AI 规划"：**草稿里的开关优先**（用户在第 2 步卡上勾的），
   //   草稿没存过才退回服务端总闸。默认（不勾 + 总闸未开）⇒ 整段不进 ⇒ 与老流程完全一致。
   const wantSpec = vd.aiSpec === undefined ? aiSpecEnabled() : !!vd.aiSpec
-  if (wantSpec && !spec) {
+  // ★VF_THEME_V1：勾了「AI 完全自主」⇒ 强制走这段（连配色一起交给 AI）
+  const wantPaint = !!vd.aiPaint
+  if ((wantSpec || wantPaint) && !spec) {
     try {
       const spTxt = String(await ctx.generateText(
-        specPrompt(summary, picked.length, String(vd.topic || ''))) || '')
+        specPrompt(summary, picked.length, String(vd.topic || ''), wantPaint)) || '')
       const sp = pickSpec(scanJson(spTxt))
       if (sp) {
         spec = sp
-        specNote = '🎨 风格语法由 AI 规划：' + describeSpec(sp)
+        specNote = (wantPaint && sp.theme ? '🧪 AI 完全自主：配色/动效由 AI 定（不用库里模板皮肤）· ' : '🎨 风格语法由 AI 规划：')
+          + describeSpec(sp) + (packNote ? ' · ' + packNote : '')
         vfLog(uid, '[HTML成片] AI 规划风格语法：' + JSON.stringify(sp))
       } else {
         specNote = 'ℹ️ 这一步 AI 没给出风格语法，已用引擎默认（不影响出片）'
@@ -679,6 +732,8 @@ function styleCard(vd: HtmlFilmDraft): string {
     //   `aiSpecForced` 只用来显示"服务端总闸已开"那句提示（用户仍可取消）。
     aiSpec: vd.aiSpec === undefined ? aiSpecEnabled() : !!vd.aiSpec,
     aiSpecForced: aiSpecEnabled(),
+    // ★VF_THEME_V1：完全自主开关回显（第 2 步卡上能看到当前是不是"不用库里模板皮肤"）
+    aiPaint: !!vd.aiPaint,
   }
   return 'VF_JSON:' + JSON.stringify(body)
 }
@@ -809,6 +864,11 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
       // ★VF_SPEC_V2：第 2 步卡上的"🎨 让 AI 自己规划版式"开关（**最终决定**就存这儿）
       if (f.aiSpec !== undefined) vd.aiSpec = !!f.aiSpec
       if (vd.aiSpec === undefined) vd.aiSpec = aiSpecEnabled()   // 没带 ⇒ 服务端总闸决定默认值
+      // ★VF_THEME_V1（用户定案「AI 完全自己画 就不要参与我们模版」）：勾了"完全自主" ⇒ 必然走 AI 规划
+      if (f.aiPaint !== undefined) vd.aiPaint = !!f.aiPaint
+      if (vd.aiPaint) vd.aiSpec = true
+      // ★VF_PACKAI_V1：用户手动选了包 ⇒ 记下来（AI 挑包只在"没手选"时才做）
+      if (f.pack !== undefined) vd.pack = String(f.pack || '')
       if (f.topic !== undefined) vd.topic = String(f.topic || '').slice(0, 60)
       // ★VF_FILMCOPY_V1（用户原话：「B该用模型就用模型。还有让 AI 先总结素材。**不要乱出片**」）：
       //   「下一步」不再直接出确认卡 —— **先让 AI 看图总结素材 + 按骨架写逐镜文案**，连同确认卡一起给用户看，

@@ -70,6 +70,8 @@ export async function orchestrate(opts: {
   /** ★VF_SPEC_V1（2026-10-10 用户定案「四项全部让 AI 自己规划」）：**风格语法**（L1 构图/L2 动效/L3 文本形态）。
    *  CLI 用**文件**传（实测：Windows PowerShell 传内联 JSON 会把双引号吃掉 ⇒ JSON.parse 失败）。 */
   spec?: any
+  /** ★VF_ASPECT_V1（2026-10-11）：画幅 '9:16' | '16:9'（上一提交漏了这里的类型 ⇒ tsc 报错） */
+  aspect?: string
 }): Promise<{ ok: boolean; vertical?: string; pack?: string; scenes?: number; total?: number; note?: string }> {
   if (!opts.materials?.length) return { ok: false, note: '没有素材' }
   const args = [

@@ -90,18 +90,33 @@ export function pickVertical(lib, { text = '', mats = [] } = {}) {
   return { vertical: chosen, candidates: ranked.map((id) => ({ id, score: score[id], hits: why[id] })), confidence: conf, reason: conf >= 4 ? '关键词/颜色命中' : '命中不足 ⇒ 落通用' }
 }
 
-/* ---------------- ③ 选风格包：赛道的 prefer 优先，其次 vertical 命中 ---------------- */
-export function pickPack(lib, { vertical, text = '', prefer, variant = 0 } = {}) {
+let _healthIds
+/** ★VF_PACKHEALTH_V1（2026-10-11 用户定案「不管手动自动 都要会选，并且**选了能用不出错**」）：
+ *  读 styles/health.json（tools/check-style-packs.mjs 的产出）——**只有体检 ok 的包**才允许被自动选中。
+ *  没有该文件（还没跑过体检）⇒ 返回 null ⇒ **不干预**（不会因为"没体检"就挑不出包）。 */
+function healthyStyleIds() {
+  if (_healthIds !== undefined) return _healthIds
+  try {
+    const h = rd(path.join(HERE, '..', 'styles', 'health.json'))
+    const ids = Object.keys((h && h.items) || {}).filter((k) => h.items[k] && h.items[k].ok)
+    _healthIds = ids.length ? new Set(ids) : null
+  } catch { _healthIds = null }
+  return _healthIds
+}
+
+/* ---------------- ③ 选风格包：用户指定 > 赛道推荐位（跳过体检不过的）> 包声明赛道 > 兜底 ---------- */
+export function pickPack(lib, { vertical, text = '', prefer } = {}) {
   if (prefer && lib.ids.style.has(prefer)) return { pack: prefer, reason: '用户指定' }
+  // ★VF_PACKAI_V1（2026-10-11 用户定案「不要什么传递 轮换，做的内容不一样轮上去直接没法看」）：
+  //   **轮换取消** —— 这里不再按 variant 轮换。换风格改由 **AI 按素材挑**（见 film-spec.packPickPrompt +
+  //   vf-htmlfilm 的 AI 挑包），引擎只负责"在可用包里兜底"。
+  const health = healthyStyleIds()
+  const okId = (id) => lib.ids.style.has(id) && (!health || health.has(id))
   const vdef = lib.verticals.find((v) => v.id === vertical)
-  const preferIds = ((vdef && vdef.prefer) || []).filter((id) => lib.ids.style.has(id))
-  // ★ 变体：同一赛道多次出片时，在推荐位里轮换 ⇒ "每次不同风格"但**始终在库内**（用户 10-08 的诉求）
-  if (preferIds.length) {
-    const idx = Math.abs(Number(variant) || 0) % preferIds.length
-    return { pack: preferIds[idx], reason: '赛道 ' + vertical + ' 的推荐位[' + idx + '/' + preferIds.length + ']' }
-  }
-  const byVertical = lib.styles.find((s) => (s.vertical || []).includes(vertical))
-  if (byVertical) return { pack: byVertical.id, reason: '风格包声明适用该赛道' }
+  const preferIds = ((vdef && vdef.prefer) || []).filter(okId)
+  if (preferIds.length) return { pack: preferIds[0], reason: '赛道 ' + vertical + ' 的推荐位（已跳过体检不过的包）' }
+  const byVertical = lib.styles.find((s) => (s.vertical || []).includes(vertical) && okId(s.id))
+  if (byVertical) return { pack: byVertical.id, reason: '风格包声明适用该赛道（体检通过）' }
   return { pack: 'reel-showcase', reason: '兜底（素材展示型）' }
 }
 

@@ -22,14 +22,20 @@ export function aiSpecEnabled(): boolean {
   return /^(1|true|on|yes)$/i.test(String(process.env.VF_FILM_AI_SPEC || ''))
 }
 
-/** 只允许这 6 组、这些键（与 `film-to-page.mjs` 的 SPEC_DEF 一一对应） */
+/** 只允许这些组、这些键（与 `film-to-page.mjs` 的 SPEC_DEF / SPEC_ENUM 一一对应） */
 export const SPEC_KEYS: Record<string, string[]> = {
   layout: ['system', 'whitespace'],
   image: ['place', 'complete'],
   pacing: ['minShotSec'],
-  motion: ['img', 'ease', 'type', 'cross'],
+  // ★VF_FILMTRANS_V2b（2026-10-11 自检抓到）：`trans` 早就进了引擎 SPEC_ENUM，但**白名单里漏了**
+  //   ⇒ AI 声明的"全图页转场"每次都被 pickSpec 丢掉（等于白声明）。补上。
+  motion: ['img', 'ease', 'type', 'cross', 'trans'],
   text: ['titleForm', 'ornament', 'weight', 'tracking', 'scale'],
   gates: ['minImageWidth'],
+  // ★VF_THEME_V1（2026-10-11 用户定案「AI 完全自己画 就不要参与我们模版…动效样式完全它自主安排」）：
+  //   配色也能由 AI 定。合法性**不靠模型自觉** —— 引擎 tools/theme.mjs 的 normTheme 会判对比度，
+  //   不达标一律丢弃并退回风格包（用户原话「直接就一个墨绿底色简直没法看」）。
+  theme: ['bg', 'bg2', 'ink', 'dim', 'faint', 'accent', 'accentText', 'font', 'radius'],
 }
 
 /** 白名单化：`{spec:{…}}` 或裸 `{…}` 都收；只留白名单键；一个可用键都没有 ⇒ null */
@@ -58,12 +64,18 @@ export function describeSpec(sp: any): string {
     ['标题', g('text', 'titleForm')], ['字重', g('text', 'weight')],
     ['字距', g('text', 'tracking')], ['字号', g('text', 'scale')],
     ['入场', g('motion', 'img')], ['段间', g('motion', 'cross')],
+    ['转场', (sp && sp.motion && sp.motion.trans && sp.motion.trans !== 'auto') ? String(sp.motion.trans) : ''],
+    // ★VF_THEME_V1：AI 自定配色时，卡片上要说清"这片不用库里模板的配色"
+    ['配色', (sp && sp.theme && sp.theme.bg) ? 'AI 自定(' + String(sp.theme.bg) + ')' : ''],
   ]
   return rows.filter(([, v]) => v !== '').map(([k, v]) => k + '=' + v).join(' · ')
 }
 
-/** 给模型的"一页纸"：**只问风格语法**（不写文案 —— 文案是下一步自己的活） */
-export function specPrompt(summary: string, n: number, topic: string): string {
+/** 给模型的"一页纸"：**只问风格语法**（不写文案 —— 文案是下一步自己的活）
+ *  ★VF_THEME_V1（2026-10-11 用户定案「AI 完全自己画 就不要参与我们模版…动效样式完全它自主安排」）：
+ *  `paint=true`（用户勾了「AI 完全自主」）时**连配色一起要** —— 这一片不套库里风格包的皮肤；
+ *  给回来的 theme 由引擎 tools/theme.mjs 判对比度，不合格**丢弃退回**（不出"墨绿一坨"）。 */
+export function specPrompt(summary: string, n: number, topic: string, paint = false): string {
   return '你是竖屏短片（9:16）的**视觉导演**。这批素材共 ' + n + ' 张实拍照片。\n'
     + (topic ? '主题：' + topic + '\n' : '')
     + (summary ? '【素材读图总结】\n' + String(summary).slice(0, 1200) + '\n' : '')
@@ -82,5 +94,47 @@ export function specPrompt(summary: string, n: number, topic: string): string {
     // ★VF_SPEC_V2b（2026-10-10 实测：AI 只填了 text 组 4 个键 ⇒ 版式/图片/动效全走默认）：
     //   它把"拿不准就别写"执行得过于保守 ⇒ 明确点出"这三项最影响观感，尽量定下来"。
     + '⑤ **尽量**把这三项也定下来（它们最影响观感）：`layout.system`、`image.place`、`motion.img`；\n'
-    + '   真拿不准才省略（省略 = 用引擎默认，不会出错）。'
+    + '   真拿不准才省略（省略 = 用引擎默认，不会出错）；\n'
+    // ★VF_FILMTRANS_V2b：转场键早就在引擎里，之前白名单漏了 ⇒ AI 声明也被丢，现在补上并明确告诉它
+    + '⑥ 可选 `motion.trans`（**只在"整张不裁的全图页"上生效**）：auto/fade/wipe/cut/push/slide-up/zoom-through/blur-dissolve/light-leak。\n'
+    + (paint
+      ? '\n★**本次完全自主**：连**配色**也由你定（不使用库里任何模板皮肤）。请在 JSON 里再加一组 theme：\n'
+        + '"theme":{"bg":"#rrggbb","bg2":"#rrggbb","ink":"#rrggbb","dim":"#rrggbb","accent":"#rrggbb"}\n'
+        + '配色硬线（不合格会被**整组丢弃**、退回默认皮肤）：\n'
+        + '  ① bg 与 ink 对比度 ≥ 4.5（字必须看得清：深底配浅字，浅底配深字）；\n'
+        + '  ② accent 与 bg 对比度 ≥ 2.5（强调要看得出来，别整片一坨同色）；\n'
+        + '  ③ 全部用 #rrggbb；④ bg2 与 bg 要**有轻微差别**（成片拿它做第二层，同色会显平）；\n'
+        + '  ⑤ 配色要**服务素材**（美食偏暖、科技偏冷、医疗偏洁净），别为了花哨牺牲可读性。\n'
+      : '')
+}
+
+/* ═════════ ★VF_PACKAI_V1（2026-10-11 用户定案「AI审图的时候就挑选可用的可以吗？」）═════════
+   背景：自动挑包原来是"赛道 prefer[0]"（**永远同一个包**），轮换又会轮到不合适的（"轮上去直接没法看"）。
+   现口径：**让 AI 看着素材挑**（在读图/审图那一步，一次调用），且**只能从"体检通过"的包里挑**
+   （体检 = tools/check-style-packs.mjs → styles/health.json）。
+   ⚠️ 校验在服务端做（`pickPackId`）：模型编的 id 一律不认 ⇒ 退回引擎兜底。 */
+
+/** 给模型的挑包题面：**只给候选清单**（id 必须逐字来自清单） */
+export function packPickPrompt(
+  list: Array<{ id: string; name?: string; desc?: string; mood?: string }>,
+  summary: string, topic: string): string {
+  const rows = (Array.isArray(list) ? list : []).slice(0, 80)
+    .map((p) => '- ' + p.id + '（' + String(p.name || '') + (p.mood ? ' · ' + p.mood : '') + '）：'
+      + String(p.desc || '').slice(0, 70))
+    .join('\n')
+  return '你是短片的美术指导。请**看着这批素材**，从下面这份"可用风格包"清单里挑**最合适的一个**。\n'
+    + (topic ? '主题：' + topic + '\n' : '')
+    + (summary ? '【素材读图总结】\n' + String(summary).slice(0, 1200) + '\n' : '')
+    + '\n【可用风格包】（**只能从这些 id 里挑**）\n' + rows + '\n'
+    + '\n只回一个 JSON：{"pack":"<上面某个 id>","why":"一句话理由"}。\n'
+    + '硬规矩：① id 必须**逐字**来自上面清单（编造的 id 会被丢弃）；② 按"素材气质 / 用途"匹配，'
+    + '不要只看配色好不好看；③ 以竖屏截图为主的素材，优先信息层级清楚的（如 dark-dashboard / glass-saas）；'
+    + '④ 美食/风景实拍，优先留白多、照片为主的（如 reel-showcase / paper-editorial）。'
+}
+
+/** 从模型回答里取包 id：**必须在 allowed 里**（编的 id / 空 / 非字符串一律不认 ⇒ null） */
+export function pickPackId(j: any, allowed: string[]): string | null {
+  const id = String((j && typeof j === 'object' && j.pack !== undefined && j.pack !== null) ? j.pack : '').trim()
+  if (!id) return null
+  return (Array.isArray(allowed) ? allowed : []).includes(id) ? id : null
 }

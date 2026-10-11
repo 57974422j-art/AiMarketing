@@ -1,0 +1,884 @@
+{
+  "builtAt": "2026-10-11 05:48:36",
+  "counts": {
+    "styles": 51,
+    "ok": 51,
+    "bad": 0,
+    "badIds": []
+  },
+  "items": {
+    "dark-dashboard": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "elements 有 10 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 17.42,
+        "accentBg": 10.56,
+        "accentTextBg": 14.56,
+        "dimBg": 10.08
+      },
+      "createdBy": "builtin",
+      "name": "深色数据大屏"
+    },
+    "from-video-cand001": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "纯色底（bg2 与 bg 相同 / 未给）⇒ 成片没有第二层，其它层次靠 HTML 结构",
+        "elements 有 5 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 17.52,
+        "accentBg": 10.96,
+        "accentTextBg": 13.26,
+        "dimBg": 11.06
+      },
+      "createdBy": "ai",
+      "name": "参考视频抽取 · 4.25s"
+    },
+    "from-video-cand004": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "纯色底（bg2 与 bg 相同 / 未给）⇒ 成片没有第二层，其它层次靠 HTML 结构",
+        "elements 有 5 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 17.52,
+        "accentBg": 11.19,
+        "accentTextBg": 13.43,
+        "dimBg": 11.06
+      },
+      "createdBy": "ai",
+      "name": "参考视频抽取 · 29.75s"
+    },
+    "from-video-w1c8": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "elements 有 9 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 17.82,
+        "accentBg": 10.45,
+        "accentTextBg": 12.84,
+        "dimBg": 11.18
+      },
+      "createdBy": "user-video",
+      "name": "绿调教程 HUD · 左信息卡右实拍"
+    },
+    "glass-saas": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "elements 有 9 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 17.32,
+        "accentBg": 11.03,
+        "accentTextBg": 14.19,
+        "dimBg": 12.81
+      },
+      "createdBy": "builtin",
+      "name": "毛玻璃渐变 SaaS"
+    },
+    "mg-scatter": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：letters-scatter/timeline-build（母版包的 PPT 结构名）",
+        "elements 有 9 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 18.49,
+        "accentBg": 15.31,
+        "accentTextBg": 15.31,
+        "dimBg": 11.6
+      },
+      "createdBy": "builtin",
+      "name": "MG 编排 · 散开与收拢"
+    },
+    "neon-hud": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "elements 有 9 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 18.39,
+        "accentBg": 14.08,
+        "accentTextBg": 14.66,
+        "dimBg": 10.83
+      },
+      "createdBy": "builtin",
+      "name": "霓虹 HUD · 素材叠加"
+    },
+    "paper-editorial": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：paper-report（母版包的 PPT 结构名）",
+        "elements 有 9 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 17.11,
+        "accentBg": 5.06,
+        "accentTextBg": 5.06,
+        "dimBg": 5.91
+      },
+      "createdBy": "builtin",
+      "name": "亮底编辑风"
+    },
+    "pipeline-green": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 11 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 17.75,
+        "accentBg": 11.79,
+        "accentTextBg": 14.14,
+        "dimBg": 10.65
+      },
+      "createdBy": "builtin",
+      "name": "工序管线 · 荧光绿"
+    },
+    "press-collage": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：press-poster（母版包的 PPT 结构名）",
+        "elements 有 8 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 15.72,
+        "accentBg": 4.73,
+        "accentTextBg": 6.32,
+        "dimBg": 7.25
+      },
+      "createdBy": "builtin",
+      "name": "双色印刷拼贴"
+    },
+    "reel-showcase": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：fullbleed-kenburns/numbers-outro（母版包的 PPT 结构名）",
+        "elements 有 10 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 18.19,
+        "accentBg": 14.95,
+        "accentTextBg": 14.95,
+        "dimBg": 11.38
+      },
+      "createdBy": "builtin",
+      "name": "素材 Showreel"
+    },
+    "master-ecom-p1": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 17.01,
+        "accentBg": 3.12,
+        "accentTextBg": 4.46,
+        "dimBg": 5.51
+      },
+      "createdBy": "master",
+      "name": "电商高饱和 · 橙红"
+    },
+    "master-ecom-p2": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 17.01,
+        "accentBg": 3.91,
+        "accentTextBg": 5.47,
+        "dimBg": 5.51
+      },
+      "createdBy": "master",
+      "name": "电商高饱和 · 品红"
+    },
+    "master-ecom-p3": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 17.01,
+        "accentBg": 4.31,
+        "accentTextBg": 5.9,
+        "dimBg": 5.51
+      },
+      "createdBy": "master",
+      "name": "电商高饱和 · 电蓝"
+    },
+    "master-ecom-p4": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 17.01,
+        "accentBg": 2.48,
+        "accentTextBg": 2.1,
+        "dimBg": 5.51
+      },
+      "createdBy": "master",
+      "name": "电商高饱和 · 蜜绿"
+    },
+    "master-editorial-vermilion": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 15.87,
+        "accentBg": 5.38,
+        "accentTextBg": 7.12,
+        "dimBg": 5.27
+      },
+      "createdBy": "master",
+      "name": "纸感编辑风（亮底)  · vermilion"
+    },
+    "master-editorial-inkblue": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 15.87,
+        "accentBg": 8.54,
+        "accentTextBg": 10.38,
+        "dimBg": 5.27
+      },
+      "createdBy": "master",
+      "name": "纸感编辑风（亮底)  · inkblue"
+    },
+    "master-editorial-moss": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 15.87,
+        "accentBg": 5.15,
+        "accentTextBg": 6.82,
+        "dimBg": 5.27
+      },
+      "createdBy": "master",
+      "name": "纸感编辑风（亮底)  · moss"
+    },
+    "master-editorial-plum": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 15.87,
+        "accentBg": 8.33,
+        "accentTextBg": 10.16,
+        "dimBg": 5.27
+      },
+      "createdBy": "master",
+      "name": "纸感编辑风（亮底)  · plum"
+    },
+    "master-edu-blue": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 16.38,
+        "accentBg": 4.47,
+        "accentTextBg": 6.14,
+        "dimBg": 5.18
+      },
+      "createdBy": "master",
+      "name": "教育培训（暖乳白课堂蓝） · blue"
+    },
+    "master-edu-sun": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "accentText/底对比 1.97 偏低（强调文字可能发灰）",
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 16.38,
+        "accentBg": 2.3,
+        "accentTextBg": 1.97,
+        "dimBg": 5.18
+      },
+      "createdBy": "master",
+      "name": "教育培训（暖乳白课堂蓝） · sun"
+    },
+    "master-edu-leaf": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 16.38,
+        "accentBg": 3.32,
+        "accentTextBg": 2.63,
+        "dimBg": 5.18
+      },
+      "createdBy": "master",
+      "name": "教育培训（暖乳白课堂蓝） · leaf"
+    },
+    "master-edu-plum": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 16.38,
+        "accentBg": 6.28,
+        "accentTextBg": 8.2,
+        "dimBg": 5.18
+      },
+      "createdBy": "master",
+      "name": "教育培训（暖乳白课堂蓝） · plum"
+    },
+    "master-festive-gold": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 16.42,
+        "accentBg": 9.98,
+        "accentTextBg": 11.28,
+        "dimBg": 7.27
+      },
+      "createdBy": "master",
+      "name": "红金庆典风 · gold"
+    },
+    "master-festive-cinnabar": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 16.42,
+        "accentBg": 4.97,
+        "accentTextBg": 3.54,
+        "dimBg": 7.27
+      },
+      "createdBy": "master",
+      "name": "红金庆典风 · cinnabar"
+    },
+    "master-festive-jade": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 16.42,
+        "accentBg": 6.61,
+        "accentTextBg": 8.18,
+        "dimBg": 7.27
+      },
+      "createdBy": "master",
+      "name": "红金庆典风 · jade"
+    },
+    "master-festive-copper": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 16.42,
+        "accentBg": 5.72,
+        "accentTextBg": 7.27,
+        "dimBg": 7.27
+      },
+      "createdBy": "master",
+      "name": "红金庆典风 · copper"
+    },
+    "master-formal-p1": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 14.31,
+        "accentBg": 8.83,
+        "accentTextBg": 10.73,
+        "dimBg": 4.79
+      },
+      "createdBy": "master",
+      "name": "正式庄重（象牙墨绿） · 松绿"
+    },
+    "master-formal-p2": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 14.31,
+        "accentBg": 11.71,
+        "accentTextBg": 13.3,
+        "dimBg": 4.79
+      },
+      "createdBy": "master",
+      "name": "正式庄重（象牙墨绿） · 墨蓝"
+    },
+    "master-formal-p3": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 14.31,
+        "accentBg": 7.84,
+        "accentTextBg": 9.81,
+        "dimBg": 4.79
+      },
+      "createdBy": "master",
+      "name": "正式庄重（象牙墨绿） · 绛红"
+    },
+    "master-formal-p4": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 14.31,
+        "accentBg": 5.78,
+        "accentTextBg": 7.55,
+        "dimBg": 4.79
+      },
+      "createdBy": "master",
+      "name": "正式庄重（象牙墨绿） · 焦棕"
+    },
+    "master-health-teal": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "纯色底（bg2 与 bg 相同 / 未给）⇒ 成片没有第二层，其它层次靠 HTML 结构",
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 15.09,
+        "accentBg": 3.8,
+        "accentTextBg": 5.32,
+        "dimBg": 4.87
+      },
+      "createdBy": "master",
+      "name": "医疗健康（清透青绿） · teal"
+    },
+    "master-health-indigo": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "纯色底（bg2 与 bg 相同 / 未给）⇒ 成片没有第二层，其它层次靠 HTML 结构",
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 15.09,
+        "accentBg": 9.13,
+        "accentTextBg": 11.09,
+        "dimBg": 4.87
+      },
+      "createdBy": "master",
+      "name": "医疗健康（清透青绿） · indigo"
+    },
+    "master-health-coral": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "纯色底（bg2 与 bg 相同 / 未给）⇒ 成片没有第二层，其它层次靠 HTML 结构",
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 15.09,
+        "accentBg": 3.76,
+        "accentTextBg": 5.24,
+        "dimBg": 4.87
+      },
+      "createdBy": "master",
+      "name": "医疗健康（清透青绿） · coral"
+    },
+    "master-health-forest": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "纯色底（bg2 与 bg 相同 / 未给）⇒ 成片没有第二层，其它层次靠 HTML 结构",
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 15.09,
+        "accentBg": 6.14,
+        "accentTextBg": 7.99,
+        "dimBg": 4.87
+      },
+      "createdBy": "master",
+      "name": "医疗健康（清透青绿） · forest"
+    },
+    "master-mono-black": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "纯色底（bg2 与 bg 相同 / 未给）⇒ 成片没有第二层，其它层次靠 HTML 结构",
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 18.24,
+        "accentBg": 18.24,
+        "accentTextBg": 18.64,
+        "dimBg": 5.8
+      },
+      "createdBy": "master",
+      "name": "极简黑白杂志 · black"
+    },
+    "master-mono-graphite": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "纯色底（bg2 与 bg 相同 / 未给）⇒ 成片没有第二层，其它层次靠 HTML 结构",
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 18.24,
+        "accentBg": 6.17,
+        "accentTextBg": 8.04,
+        "dimBg": 5.8
+      },
+      "createdBy": "master",
+      "name": "极简黑白杂志 · graphite"
+    },
+    "master-mono-oxblood": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "纯色底（bg2 与 bg 相同 / 未给）⇒ 成片没有第二层，其它层次靠 HTML 结构",
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 18.24,
+        "accentBg": 9.93,
+        "accentTextBg": 11.97,
+        "dimBg": 5.8
+      },
+      "createdBy": "master",
+      "name": "极简黑白杂志 · oxblood"
+    },
+    "master-mono-inkblue": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "纯色底（bg2 与 bg 相同 / 未给）⇒ 成片没有第二层，其它层次靠 HTML 结构",
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 18.24,
+        "accentBg": 10.88,
+        "accentTextBg": 12.74,
+        "dimBg": 5.8
+      },
+      "createdBy": "master",
+      "name": "极简黑白杂志 · inkblue"
+    },
+    "master-tech-cyan": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 16.18,
+        "accentBg": 10.04,
+        "accentTextBg": 11.07,
+        "dimBg": 7.22
+      },
+      "createdBy": "master",
+      "name": "深青科技风 · cyan"
+    },
+    "master-tech-lime": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 16.18,
+        "accentBg": 10.63,
+        "accentTextBg": 11.8,
+        "dimBg": 7.22
+      },
+      "createdBy": "master",
+      "name": "深青科技风 · lime"
+    },
+    "master-tech-amber": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 16.18,
+        "accentBg": 9.25,
+        "accentTextBg": 10.55,
+        "dimBg": 7.22
+      },
+      "createdBy": "master",
+      "name": "深青科技风 · amber"
+    },
+    "master-tech-coral": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 16.18,
+        "accentBg": 6,
+        "accentTextBg": 7.35,
+        "dimBg": 7.22
+      },
+      "createdBy": "master",
+      "name": "深青科技风 · coral"
+    },
+    "master-v1-warm-gold": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 14.66,
+        "accentBg": 7.5,
+        "accentTextBg": 8.94,
+        "dimBg": 6.75
+      },
+      "createdBy": "master",
+      "name": "暗色暖金（v1） · warm-gold"
+    },
+    "master-v1-olive": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "accentText/底对比 1.8 偏低（强调文字可能发灰）",
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 14.66,
+        "accentBg": 2.26,
+        "accentTextBg": 1.8,
+        "dimBg": 6.75
+      },
+      "createdBy": "master",
+      "name": "暗色暖金（v1） · olive"
+    },
+    "master-v1-clay": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 14.66,
+        "accentBg": 2.75,
+        "accentTextBg": 2.11,
+        "dimBg": 6.75
+      },
+      "createdBy": "master",
+      "name": "暗色暖金（v1） · clay"
+    },
+    "master-v1-mist-blue": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 14.66,
+        "accentBg": 5.32,
+        "accentTextBg": 6.89,
+        "dimBg": 6.75
+      },
+      "createdBy": "master",
+      "name": "暗色暖金（v1） · mist-blue"
+    },
+    "master-v2-azure": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 14.48,
+        "accentBg": 5.84,
+        "accentTextBg": 7.64,
+        "dimBg": 4.77
+      },
+      "createdBy": "master",
+      "name": "浅色商务（v2） · azure"
+    },
+    "master-v2-steel": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 14.48,
+        "accentBg": 3.12,
+        "accentTextBg": 2.42,
+        "dimBg": 4.77
+      },
+      "createdBy": "master",
+      "name": "浅色商务（v2） · steel"
+    },
+    "master-v2-indigo": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 14.48,
+        "accentBg": 12.11,
+        "accentTextBg": 13.62,
+        "dimBg": 4.77
+      },
+      "createdBy": "master",
+      "name": "浅色商务（v2） · indigo"
+    },
+    "master-v2-violet": {
+      "ok": true,
+      "problems": [],
+      "warns": [
+        "structure 里有 HTML 侧不认识的名字：pipeline-process（母版包的 PPT 结构名）",
+        "elements 有 6 个（HTML 成片**不吃** ⇒ 只剩配色与字体）",
+        "没有 spec（不参与 AI 语法层；纯皮肤包）"
+      ],
+      "metrics": {
+        "inkBg": 14.48,
+        "accentBg": 5.53,
+        "accentTextBg": 7.29,
+        "dimBg": 4.77
+      },
+      "createdBy": "master",
+      "name": "浅色商务（v2） · violet"
+    }
+  }
+}

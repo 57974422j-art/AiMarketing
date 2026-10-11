@@ -9,7 +9,13 @@
   'use strict'
   var F = window.__FILM__ || { scenes: [], total: 0, tokens: {} }
   var T = F.tokens || {}
-  var W = 720, H = 1280
+  // ★VF_ASPECT_V1 修（2026-10-11 自检抓到）：W/H 必须是**唯一一处**声明并按画布取值 ——
+  //   昨晚把 W/H 写在 sceneAnim() 里面 ⇒ 只覆盖了段内位移，而背景绘制（drawBg / 网格 / 光斑 / DOTS）
+  //   仍按 720×1280 ⇒ **横屏背景画不满**。现在统一到这里（内外共用）。
+  var W = Number(F.width) || 720
+  var H = Number(F.height) || 1280
+  // ★VF_FLATFIX_V1：光斑颜色（tokens.blob 由 film-to-page 的 fixTokens 给；没给就用 accent）
+  var BLOB = T.blob || T.accent || '#4dd7ff'
   var cv = document.getElementById('filmBg')
   var ctx = cv && cv.getContext('2d')
 
@@ -40,8 +46,11 @@
     g.addColorStop(1, T.bg2 || T.bg || '#0b0f14')
     ctx.fillStyle = g; ctx.fillRect(0, 0, W, H)
     var a1 = LIGHT ? 0.10 : 0.22
-    blob(160 + Math.sin(t * 0.11) * 90, 300 + Math.cos(t * 0.13) * 70, 470, T.accent || '#4dd7ff', a1)
-    blob(580 + Math.cos(t * 0.09) * 80, 940 + Math.sin(t * 0.12) * 90, 510, T.accent || '#4dd7ff', a1 * 0.85)
+    // ★VF_ASPECT_V1：光斑按画布比例摆（竖屏 RB=1 ⇒ 160/300/470、580/940/510，与原实现完全一致）
+    //   ★VF_FLATFIX_V1：颜色用 BLOB（深底深强调时已被提亮）—— 否则深色 accent 会糊成两坨同色
+    var RB = Math.min(W, H) / 720
+    blob(W * 0.22 + Math.sin(t * 0.11) * 90, H * 0.24 + Math.cos(t * 0.13) * 70, 470 * RB, BLOB, a1)
+    blob(W * 0.81 + Math.cos(t * 0.09) * 80, H * 0.73 + Math.sin(t * 0.12) * 90, 510 * RB, BLOB, a1 * 0.85)
     ctx.save()
     ctx.globalAlpha = LIGHT ? 0.10 : 0.13
     ctx.strokeStyle = LIGHT ? 'rgba(20,26,34,.5)' : 'rgba(180,210,255,.35)'
@@ -79,10 +88,8 @@
     //   旋转也不能靠 CSS（GSAP 会写同一 transform 属性）⇒ 由这里按语法补 rotate：
     //     mat-tape（相纸+胶带）与 free（自由错位）都带轻微旋转，奇偶交替 ⇒ 不像同一张模板。
     var SP = F.spec || {}
-    // ★VF_ASPECT_V1（2026-10-11）：画布尺寸从 film 里取（横屏 1280×720 / 竖屏 720×1280）
-    //   写死的位移量（推移 720、上滑 1280、漏光层尺寸）全部改用 W/H —— 否则横屏会"只推半屏"
-    var W = Number(F.width) || 720
-    var H = Number(F.height) || 1280
+    // ★VF_ASPECT_V1：画布尺寸 W/H 与光斑色 BLOB 都在**文件顶部唯一一处**声明（这里不再重复 var ——
+    //   昨晚在这里 var 了一次，drawBg 用的是外面的 720×1280 ⇒ 横屏背景画不满）
     var M = Object.assign({ img: 'push', ease: 'out', type: 'overlay', cross: 0.5 }, SP.motion || {})
     var PLACE = String((SP.image || {}).place || 'mat')
     var SYS = String((SP.layout || {}).system || 'axis')

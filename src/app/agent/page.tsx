@@ -1951,6 +1951,8 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
     typeof vj?.plateRatio === 'number' ? vj.plateRatio : 60)   // ★默认 6:4（用户定案 2026-10-11）
   // ★VF_ASPECT_V1（2026-10-11 用户定案「我要的是横屏竖屏我可以选」）：**画幅**（第 2 步卡上，默认竖屏）
   const [aspect, setAspect] = useState<string>(String(vj?.aspect || '9:16'))
+  // ★VF_THEME_V1（2026-10-11 用户定案「AI 完全自己画 就不要参与我们模版…它想怎么处理动效样式 完全它自主安排」）
+  const [aiPaint, setAiPaint] = useState<boolean>(!!vj?.aiPaint)
   // ★VF_SPEC_V2：**让 AI 自己规划版式**的开关（第 2 步卡上，**默认不勾** ⇒ 不勾与老流程完全一致）。
   //   服务端总闸 `VF_FILM_AI_SPEC=1` 打开时，卡片会显示"总闸已开"，默认值随之变 true（仍可取消）。
   const [aiSpec, setAiSpec] = useState<boolean>(
@@ -2101,6 +2103,18 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
               切换画幅会**重排骨架**（同一次出片里不能中途改）；横屏的 11 个结构坐标已按 1280×720 单独排过。
             </div>
           </div>
+          {/* ── ★VF_THEME_V1：AI 完全自主（连配色一起交给 AI，**不使用库里模板皮肤**）── */}
+          <label className={`flex items-start gap-2 rounded-xl border px-3 py-2 mb-2 cursor-pointer select-none ${aiPaint ? 'border-fuchsia-400/60 bg-fuchsia-500/[0.10]' : 'border-white/10 bg-black/20 hover:bg-white/[0.04]'}`}>
+            <input type="checkbox" checked={aiPaint} onChange={(e) => setAiPaint(e.target.checked)}
+              className="mt-0.5 accent-fuchsia-400" />
+            <span className="flex-1">
+              <span className="text-[11px] text-gray-100">🧪 AI 完全自主（不用我们的模板皮肤）</span>
+              <span className="block text-[9px] text-gray-500 mt-0.5">
+                开启后：**配色 / 排版 / 动效全部由 AI 自己定**（不使用风格包的配色）。
+                引擎会检查对比度，不合格就退回风格包（不会出现"一坨同色"）。
+              </span>
+            </span>
+          </label>
           {/* ── ★VF_SPEC_V2：让 AI 自己规划版式（**默认不勾**；勾了才走，不勾 = 与老流程一模一样）── */}
           <label className={`flex items-start gap-2 rounded-xl border px-3 py-2 mb-2 cursor-pointer select-none ${aiSpec ? 'border-emerald-400/60 bg-emerald-500/[0.10]' : 'border-white/10 bg-black/20 hover:bg-white/[0.04]'}`}>
             <input type="checkbox" checked={aiSpec} onChange={(e) => setAiSpec(e.target.checked)}
@@ -2118,7 +2132,7 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
           </label>
           <div className="flex gap-2">
             <button onClick={() => next('back_mat')} className={btn + ' border-white/15 text-gray-300 hover:bg-white/[0.08]'}>← 换素材</button>
-            <button onClick={() => next('style', { pack, plateRatio, aiSpec, aspect })}
+            <button onClick={() => next('style', { pack, plateRatio, aiSpec, aspect, aiPaint })}
               className="flex-1 px-4 py-2 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100 text-sm font-medium">
               下一步 → 确认出片
             </button>

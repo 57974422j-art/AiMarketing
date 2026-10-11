@@ -77,6 +77,9 @@ const mediaTag = (m) => m ? `<img class="fill" src="${esc(m)}" alt="" />` : `<di
      text.ornament  rule|tape|hairline|none
      gates.minImageWidth number         最小图宽（0 = 不声明）
    ⚠ 本文件是模板字符串：注释里不许出现反引号。 */
+// ★VF_PACKHEALTH_V1 / VF_THEME_V1 / VF_FLATFIX_V1：颜色体检与配色修正的**唯一口径**（纯函数，可单测）
+import { normTheme, fixTokens } from './theme.mjs'
+
 export const SPEC_DEF = {
   layout: { system: 'axis', whitespace: 0.20 },
   image: { place: 'mat', complete: true },
@@ -140,6 +143,9 @@ export function normSpec(filmSpec, packSpec) {
     }
     setP(out, p, v)
   }
+  // ★VF_THEME_V1：AI 自定配色（"完全自主"模式）也随 spec 走 —— 这里**只搬运不做判**，
+  //   合法性由渲染器用 tools/theme.mjs 的 normTheme 判（不达标就丢弃 ⇒ 绝不产出"没法看"的配色）
+  if (isObj(filmSpec) && isObj(filmSpec.theme)) out.theme = filmSpec.theme
   return { spec: out, warns }
 }
 
@@ -613,13 +619,23 @@ function bleedCss(i, lm, T, AT) {
 /** film → index.html（纯函数，不读盘） */
 export function makeFilmHtml(film) {
   const pack = film.packObj || {}
-  const T = Object.assign({ bg: '#0b0f14', bg2: '', ink: '#f0f5fa', dim: '#b8c6d6', accent: '#4dd7ff', font: 'sans-900', radius: 16, density: 'normal', grain: 0.04 }, pack.tokens || {})
-  const serif = T.font === 'serif-700'
-  const AT = T.accentText || T.accent
-  const LIGHT = lum(T.bg) > 0.6
   // ★VF_SPEC_V1：语法层（film.spec > pack.spec > 默认）。越界/非法**打印出来**（不静默）
   const { spec, warns } = normSpec(film.spec, pack.spec)
   warns.forEach((w) => console.log('  ⚠ spec: ' + w))
+  // ★VF_THEME_V1（2026-10-11 用户定案「AI 完全自己画 就不要参与我们模版」）：
+  //   AI 自定配色（spec.theme）**优先于风格包 tokens**；但不达标的 theme **一律丢弃并打印**
+  //   （口径 = tools/theme.mjs；用户原话「直接就一个墨绿底色简直没法看」⇒ 宁可退回包里那套，也不出没法看的）
+  const th = normTheme(spec && spec.theme)
+  if (spec && spec.theme && !th.ok) console.log('  ⚠ theme: AI 给的配色不达标 ⇒ 丢弃并退回风格包配色（' + th.problems.join('；') + '）')
+  if (th.ok) console.log('  🎨 theme: 用 AI 自定配色（bg=' + th.theme.bg + ' ink=' + th.theme.ink + (th.theme.accent ? ' accent=' + th.theme.accent : '') + '）')
+  const T0 = Object.assign({ bg: '#0b0f14', bg2: '', ink: '#f0f5fa', dim: '#b8c6d6', accent: '#4dd7ff', font: 'sans-900', radius: 16, density: 'normal', grain: 0.04 }, pack.tokens || {}, th.ok ? th.theme : {})
+  // ★VF_FLATFIX_V1：补第二层底 + 提亮光斑（用户实测「一坨墨绿」的根治口径，见 tools/theme.mjs）
+  const fixed = fixTokens(T0)
+  const T = fixed.tokens
+  fixed.notes.forEach((n) => console.log('  🎨 底色：' + n))
+  const serif = T.font === 'serif-700'
+  const AT = T.accentText || T.accent
+  const LIGHT = lum(T.bg) > 0.6
   // ★VF_ASPECT_V1（2026-10-11 用户定案「我要的是横屏竖屏我可以选」）：骨架里的画幅。
   //   ⚠️ 现状如实说明：**只有 9:16 的结构坐标齐备**（8 个结构的位置都是竖屏绝对坐标）；
   //   16:9 要逐结构重排（下一步专门做）。为不产出"半成品横屏"，
