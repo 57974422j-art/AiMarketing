@@ -3,7 +3,8 @@ import { getAuthFromHeaders } from '@/lib/api-auth'
 import { listObjects, putObject } from '@/lib/oss'
 import { saveToPersonalRepo, ensureThumb } from '@/lib/personal-storage'
 
-const MAX_QUOTA = 500 * 1024 * 1024 // 500MB
+// ★VF_QUOTA_V2（2026-10-11 用户定案「到 450 就不给传」）：配额常量与判定**只认 lib/storage-quota**（一处真源）
+import { QUOTA_TOTAL, QUOTA_REJECT, quotaUsed, quotaCheck } from '@/lib/storage-quota'
 
 // ★2026-09-22：缩略图补齐的**并发闸门**（同时最多 2 个，其余排队）。
 //   为什么：ensureThumb 每个任务都要"整段下载视频 → ffmpeg 抽帧 → 上传"，无限制并发会把
@@ -28,15 +29,8 @@ function scheduleThumb(userId: number, name: string): void {
   else thumbQueue.push(run)
 }
 
-/** 获取用户在 OSS 上的已用空间 */
-async function usedQuota(userId: number): Promise<number> {
-  try {
-    const files = await listObjects(`storage/${userId}/`)
-    return files.reduce((sum, f) => sum + f.size, 0)
-  } catch {
-    return 0
-  }
-}
+// ★VF_QUOTA_V2：原来这里有一套 usedQuota（失败返回 0 ⇒ 配额形同虚设），已统一到 lib/storage-quota 的 quotaUsed
+//   （排除 .thumbs/ 与 _gen/，失败返回 -1 ⇒ 调用方明确报错，不静默放行）。
 
 export async function GET(request: NextRequest) {
   // 2026-08-12 #5: 删除 query 回退（原 query 可伪造他人 userId 枚举私有素材），强制 header/cookie 鉴权
@@ -79,8 +73,16 @@ export async function GET(request: NextRequest) {
       })
       .sort((a, b) => b.mtime.localeCompare(a.mtime))
 
-    const used = await usedQuota(auth.userId)
-    return NextResponse.json({ success: true, data: { files, used, total: MAX_QUOTA, userId: auth.userId } })
+    const used = await quotaUsed(auth.userId)
+    // ★VF_QUOTA_V2：给前端的口径与拒传阈值**一致**（total = 拒传阈值 450MB；totalReal = 总空间 500MB）
+    return NextResponse.json({
+      success: true,
+      data: {
+        files, used: used < 0 ? 0 : used,
+        total: QUOTA_REJECT, totalReal: QUOTA_TOTAL, quotaUnknown: used < 0,
+        userId: auth.userId,
+      },
+    })
   } catch (e: any) {
     return NextResponse.json({ success: false, message: e.message || '读取失败' }, { status: 500 })
   }
@@ -94,10 +96,10 @@ export async function POST(request: NextRequest) {
   const file = form.get('file') as File
   if (!file) return NextResponse.json({ success: false, message: '缺少文件' }, { status: 400 })
 
-  const used = await usedQuota(auth.userId)
-  if (used + file.size > MAX_QUOTA) {
-    return NextResponse.json({ success: false, message: `存储空间不足（已用 ${(used / 1024 / 1024).toFixed(1)}MB / 500MB）` }, { status: 413 })
-  }
+  const used = await quotaUsed(auth.userId)
+  // ★VF_QUOTA_V2：统一判定（已用 + 本次 > 450MB ⇒ 拒；统计失败也拒 ⇒ 不静默放行）
+  const quotaMsg = quotaCheck(used, file.size)
+  if (quotaMsg) return NextResponse.json({ success: false, message: quotaMsg }, { status: 413 })
 
   // ★VF_UPLOADGUARD_V1（2026-10-10 用户服务器实测：仓库里躺着 `20261009_021.mp4` = **0 字节**，
   //   而且它没有缩略图 ⇒ 这是**上传中途断**留下的半成品：列表里看得见、点开是坏的）。

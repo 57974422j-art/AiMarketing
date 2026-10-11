@@ -12,8 +12,8 @@ import path from 'path'
 import { tmpdir } from 'os'
 import { putObject, listObjects, getObject, objectExists } from '@/lib/oss'
 import { runFFmpeg } from '@/lib/ffmpeg'
-
-const MAX_QUOTA = 500 * 1024 * 1024 // 500MB
+// ★VF_QUOTA_V2（2026-10-11 用户定案「到 450 就不给传」）：配额唯一真源（排除 .thumbs/ 与 _gen/）
+import { quotaUsed, quotaCheck as quotaMsg } from '@/lib/storage-quota'
 
 const VIDEO_RE = /\.(mp4|mov|avi|mkv|webm)$/i
 
@@ -56,18 +56,14 @@ export async function saveToPersonalRepo(opts: SaveToRepoOptions): Promise<{ nam
   const uid = String(userId)
   const quotaCheck = opts.quotaCheck ?? true
 
-  // 配额检查（统计该用户已用空间）
+  // ★VF_QUOTA_V2：配额判定统一到 lib/storage-quota
+  //   （一处真源：总量 500MB / 拒传阈值 450MB / **排除 .thumbs 与 _gen**）
+  //   与旧实现的差别：① 不再各处写死 500MB；② 缩略图不再占用户配额；
+  //   ③ **列目录失败（-1）也拦** —— 旧实现是"失败就跳过配额检查"（用户实测"一会能传一会不能"的来源之一）。
   if (quotaCheck) {
-    try {
-      const files = await listObjects(`storage/${uid}/`)
-      const used = files.reduce((sum, f) => sum + f.size, 0)
-      if (used + buffer.length > MAX_QUOTA) {
-        throw new Error('存储空间不足')
-      }
-    } catch (e) {
-      if (e instanceof Error && e.message === '存储空间不足') throw e
-      // OSS 列目录失败时跳过配额检查
-    }
+    const used = await quotaUsed(uid)
+    const msg = quotaMsg(used, buffer.length)
+    if (msg) throw new Error(msg)
   }
 
   // 日期序命名：YYYYMMDD_NNN.ext
