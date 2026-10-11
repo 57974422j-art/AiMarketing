@@ -27,6 +27,8 @@ export default function StoragePage() {
   // ★VF_LOCAL_BACKUP_V1（2026-09-24 用户要求）：一键备份到本地仓库 —— 进度状态
   const [backing, setBacking] = useState(false)
   const [backed, setBacked] = useState(0)
+  // ★VF_THUMBGC_V1（2026-10-12 收口「缩略图孤儿」）：清理按钮的进行中状态
+  const [cleaning, setCleaning] = useState(false)
 
   const load = async () => {
     setLoading(true)
@@ -119,6 +121,19 @@ export default function StoragePage() {
   //   （`electronAPI.storageMirror` → 落到本机 storage 目录）。
   //   这里把"单文件镜像"扩成【一键批量备份】：逐个镜像 + 进度 + 结束给结论。
   //   ⚠️ 只有【在客户端里打开】才有 electronAPI；浏览器里直接提示不可用（不假装成功）。
+  // ★VF_THUMBGC_V1（2026-10-12 收口「缩略图孤儿」）：清理 `.thumbs/` 下**没有主文件**的缩略图
+  //   （2026-10-10 之前删掉的素材留下的，以及 analyze/ 这类别的线写的）——**用户点才删**，结果如实回报。
+  const cleanThumbs = async () => {
+    setCleaning(true)
+    try {
+      const r = await fetch('/api/storage/cleanup-thumbs', { method: 'POST', credentials: 'include' })
+      const d = await r.json()
+      if (d.success) { showToast(d.message || '已清理', 'success'); load() }
+      else showToast(d.message || '清理失败', 'error')
+    } catch { showToast('清理失败', 'error') }
+    finally { setCleaning(false) }
+  }
+
   const backupAll = async () => {
     const api = (window as any).electronAPI
     if (!api?.storageMirror) { showToast('一键备份只在客户端里可用（浏览器没有本地仓库）', 'error'); return }
@@ -176,6 +191,15 @@ export default function StoragePage() {
               className="text-sm px-3 py-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-gray-200 border border-white/[0.08] disabled:opacity-50"
             >
               {backing ? `⏳ 备份中 ${backed}/${files.length}` : '⬇️ 一键备份到本地'}
+            </button>
+            {/* ★VF_THUMBGC_V1：清理"没有主文件"的孤儿缩略图（历史遗留 + analyze/ 这类别的线写的） */}
+            <button
+              onClick={cleanThumbs}
+              disabled={cleaning}
+              title="清理 .thumbs 里找不到主文件的缩略图（历史遗留垃圾，不影响任何素材）"
+              className="text-sm px-3 py-2 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-gray-200 border border-white/[0.08] disabled:opacity-50"
+            >
+              {cleaning ? '⏳ 清理中…' : '🧹 清理孤儿缩略图'}
             </button>
           </div>
         </div>

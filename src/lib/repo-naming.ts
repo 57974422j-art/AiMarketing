@@ -87,3 +87,32 @@ export function nextSeq(names: string[], opts: { datePrefix: string; gen?: boole
 export function repoKind(nameOrKey: string): 'gen' | 'asset' {
   return isGeneratedName(nameOrKey) ? 'gen' : 'asset'
 }
+
+/* ═════════ ★VF_THUMBGC_V1（2026-10-12 收口「缩略图孤儿」）═════════
+   病灶：删除接口 2026-10-10 才补上"连缩略图一起删"（VF_THUMBDEL_V1）⇒ **在那之前删掉的素材**，
+   缩略图全都留在 `.thumbs/` 里（用户实测：真删了 70 个素材、缩略图全在，9.9MB 里大半是这种垃圾）；
+   另外 `analyze/` 这类**别的线写的缩略图**（`.thumbs/analyze/xxx.jpg`）删除时也没人清。
+   判定口径（纯函数）：`.thumbs/` 下的对象，若其"主文件"在仓库里**不存在** ⇒ 孤儿。
+   主文件判定按**文件名主干 + 任意扩展名**（缩略图不一定是 .jpg、主文件可能被换过扩展名）。 */
+
+/** 从 OSS 对象名列表里挑出**孤儿缩略图**（可直接 deleteObject 的完整 key） */
+export function orphanThumbs(allKeys: string[]): string[] {
+  const keys = (Array.isArray(allKeys) ? allKeys : []).map(String)
+  const mains = new Set<string>()
+  for (const k of keys) if (!k.includes('/.thumbs/')) mains.add(k)
+  const exts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.mp4', '.mov', '.avi', '.mkv', '.webm']
+  const out: string[] = []
+  for (const k of keys) {
+    const i = k.indexOf('/.thumbs/')
+    if (i < 0) continue
+    const rel = k.slice(i + '/.thumbs/'.length)          // 20261011_001.jpg ｜ analyze/x.jpg ｜ _gen/x.jpg
+    const base = k.slice(0, i)
+    // 主干可能有多种写法：`20261011_001`（去掉 .jpg）、或历史遗留的 `20261011_001.mp4`（缩略图名里带原扩展名）
+    const stem = rel.replace(/\.[A-Za-z0-9]+$/, '')
+    const stems = [stem]
+    for (const e of exts) if (stem.toLowerCase().endsWith(e)) stems.push(stem.slice(0, -e.length))
+    const hit = stems.some((s) => mains.has(base + '/' + s) || exts.some((e) => mains.has(base + '/' + s + e)))
+    if (!hit) out.push(k)
+  }
+  return out
+}

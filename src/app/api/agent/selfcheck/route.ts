@@ -161,16 +161,20 @@ export async function GET(request: NextRequest) {
     // 8) 个人仓库（2026-08-24：AI 生成自动入库；容量超 80% 提示转移本地仓库）
     try {
       const assetCount = await prisma.mediaAsset.count({ where: { ownerId: auth.userId } })
-      const QUOTA = 500 * 1024 * 1024  // 500MB（估算配额）
-      let used = 0
-      try {
-        const { listObjects } = await import('@/lib/oss')
-        const objs = await listObjects(`storage/${auth.userId}/`, 1000)
-        used = objs.reduce((s: number, o: any) => s + (o.size || 0), 0)
-      } catch {}
-      const pct = QUOTA > 0 ? Math.min(99, Math.round((used / QUOTA) * 100)) : 0
+      // ★VF_QUOTA_V2b（2026-10-12 收口）：配额**只认 lib/storage-quota**（一处真源）。
+      //   老写法自己 listObjects 求和 + 写死 500MB，且**把 .thumbs/ 缩略图与生成物都算进去**
+      //   ⇒ 体检读数与真实口径不一致（用户可能被"已用 80%"误导去删素材，而里面大半是缩略图/生成物）。
+      const { quotaUsed, QUOTA_TOTAL, mb } = await import('@/lib/storage-quota')
+      const used = await quotaUsed(auth.userId)            // 排除 .thumbs/ 与 gen_ 生成物；列目录失败返回 -1
+      const pct = used < 0 ? -1 : Math.min(99, Math.round((used / QUOTA_TOTAL) * 100))
       const over80 = pct >= 80
-      checks.push({ key: 'storage', label: '个人仓库', ok: !over80, detail: `${assetCount} 条素材 · 已用 ${pct}%${over80 ? ' ⚠️ 超过 80%——建议转移到本地仓库（导出）' : ''}` })
+      checks.push({
+        key: 'storage', label: '个人仓库', ok: !over80,
+        detail: used < 0
+          ? `${assetCount} 条素材 · 空间统计失败（列目录失败，请重试）`
+          : `${assetCount} 条素材 · 已用 ${mb(used)}MB / ${mb(QUOTA_TOTAL)}MB（${pct}%）`
+            + (over80 ? ' ⚠️ 超过 80%——建议转移到本地仓库（导出）' : ''),
+      })
     } catch { checks.push({ key: 'storage', label: '个人仓库', ok: true, detail: '查询失败' }) }
 
     return NextResponse.json({ success: true, data: { checks, model: modelInfo } })

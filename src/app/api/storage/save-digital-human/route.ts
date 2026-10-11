@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthFromHeaders } from '@/lib/api-auth'
-import { listObjects, signedUrl } from '@/lib/oss'
+import { signedUrl } from '@/lib/oss'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
-
-const MAX_QUOTA = 500 * 1024 * 1024 // 500MB
+// ★VF_QUOTA_V2b（2026-10-12 收口）：配额常量与判定**只认 lib/storage-quota**（一处真源）。
+//   这里原先自己写死 500MB + 自己 listObjects 求和（还把 .thumbs/ 缩略图与生成物算进去）—— 已删。
+import { quotaUsed, quotaCheck as quotaMsgFn } from '@/lib/storage-quota'
 
 /**
  * POST /api/storage/save-digital-human
@@ -22,12 +23,8 @@ export async function POST(request: NextRequest) {
     const { videoUrl, title } = await request.json()
     if (!videoUrl) return NextResponse.json({ success: false, message: '缺少 videoUrl' }, { status: 400 })
 
-    // 检查配额（从 OSS 统计已用空间）
-    let used = 0
-    try {
-      const files = await listObjects(`storage/${auth.userId}/`)
-      used = files.reduce((sum, f) => sum + f.size, 0)
-    } catch { /* 首次使用可能无目录 */ }
+    // 检查配额（★VF_QUOTA_V2b：走真源 —— 排除 .thumbs/ 缩略图与 gen_ 生成物；列目录失败返回 -1）
+    const used = await quotaUsed(auth.userId)
 
     addLog(`[STORAGE] 开始下载视频`)
 
@@ -43,13 +40,9 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(await response.arrayBuffer())
     const fileSize = buffer.length
 
-    // 配额检查
-    if (used + fileSize > MAX_QUOTA) {
-      return NextResponse.json({
-        success: false,
-        message: `存储空间不足 (已用 ${Math.round(used / 1024 / 1024)}MB / 500MB)`,
-      }, { status: 413 })
-    }
+    // 配额检查（与上传口**同一判据**：450MB 拒传；统计失败也拒 ⇒ 绝不静默放行）
+    const qMsg = quotaMsgFn(used, fileSize)
+    if (qMsg) return NextResponse.json({ success: false, message: qMsg }, { status: 413 })
 
     // 统一写入个人仓库（日期序命名 + 自动缩略图）
     try {
