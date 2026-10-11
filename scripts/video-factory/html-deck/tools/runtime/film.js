@@ -79,6 +79,10 @@
     //   旋转也不能靠 CSS（GSAP 会写同一 transform 属性）⇒ 由这里按语法补 rotate：
     //     mat-tape（相纸+胶带）与 free（自由错位）都带轻微旋转，奇偶交替 ⇒ 不像同一张模板。
     var SP = F.spec || {}
+    // ★VF_ASPECT_V1（2026-10-11）：画布尺寸从 film 里取（横屏 1280×720 / 竖屏 720×1280）
+    //   写死的位移量（推移 720、上滑 1280、漏光层尺寸）全部改用 W/H —— 否则横屏会"只推半屏"
+    var W = Number(F.width) || 720
+    var H = Number(F.height) || 1280
     var M = Object.assign({ img: 'push', ease: 'out', type: 'overlay', cross: 0.5 }, SP.motion || {})
     var PLACE = String((SP.image || {}).place || 'mat')
     var SYS = String((SP.layout || {}).system || 'axis')
@@ -114,7 +118,7 @@
       tl.fromTo('#sc' + i, { clipPath: 'inset(0 100% 0 0)' },
         { clipPath: 'inset(0 0% 0 0)', duration: Math.min(0.8, TRD + 0.12), ease: 'power2.inOut', immediateRender: true }, S)
     } else if (myTr === 'push') {
-      tl.fromTo('#sc' + i, { x: 720 }, { x: 0, duration: Math.min(0.8, TRD + 0.12), ease: 'power3.out', immediateRender: true }, S)
+      tl.fromTo('#sc' + i, { x: W }, { x: 0, duration: Math.min(0.8, TRD + 0.12), ease: 'power3.out', immediateRender: true }, S)
     // ★VF_FILMTRANS_V2：下面 4 种是新增的（**全图页主力**）—— 与出场分支一一对应
     } else if (myTr === 'zoom-through') {
       // 推近揭示：本段从 1.12 落回 1.0（上一段同时被放大淡出）⇒ 像镜头推进
@@ -126,14 +130,14 @@
         { opacity: 1, filter: 'blur(0px)', duration: Math.min(0.95, TRD + 0.3), ease: 'power1.inOut', immediateRender: true }, S)
     } else if (myTr === 'slide-up') {
       // 上滑换页：本段从下方推入（上一段同时上移淡出）
-      tl.fromTo('#sc' + i, { y: 1280 },
+      tl.fromTo('#sc' + i, { y: H },
         { y: 0, duration: Math.min(0.85, TRD + 0.2), ease: 'power3.out', immediateRender: true }, S)
     } else if (myTr === 'light-leak') {
       // 漏光扫过：叠化 + 一条白色斜向亮带迅速划屏（不想每次都上，故只在本段入场时扫一次）
       var _leak = document.getElementById('__leak')
       if (!_leak) {
         _leak = document.createElement('div'); _leak.id = '__leak'
-        _leak.style.cssText = 'position:absolute;left:0;top:0;width:720px;height:1280px;pointer-events:none;z-index:9;'
+        _leak.style.cssText = 'position:absolute;left:0;top:0;width:' + W + 'px;height:' + H + 'px;pointer-events:none;z-index:9;'
           + 'background:linear-gradient(100deg, rgba(255,255,255,0) 38%, rgba(255,255,255,.52) 50%, rgba(255,255,255,0) 62%);opacity:0'
         var _st = document.getElementById('stage'); if (_st) _st.appendChild(_leak)
       }

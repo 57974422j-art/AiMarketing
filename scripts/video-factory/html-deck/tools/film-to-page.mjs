@@ -147,7 +147,7 @@ export function normSpec(filmSpec, packSpec) {
  *  ⚠️ 缩放/旋转**不能用 transform 写在 .plate/.ttl 上** —— 运行时 GSAP 会写同一属性（y/rotate），
  *     CSS 的 transform 会被覆盖 ⇒ 所以这里一律用 width/left/top（尺寸与位置），
  *     旋转交给运行时按 spec 一起补（见 runtime/film.js 的 plateRot）。 */
-export function specCss(spec) {
+export function specCss(spec, CW = 720, CH = 1280) {
   const ws = Number(spec.layout.whitespace)
   const t = (ws - 0.08) / 0.47                       // 0（密）→ 1（疏）
   const sys = spec.layout.system, place = spec.image.place, form = spec.text.titleForm, orn = spec.text.ornament
@@ -210,7 +210,7 @@ export function specCss(spec) {
   //     并用 :is(...) 限定在三类整页单图结构上。
   const FB = '.sec[data-place="fullbleed"]:is(.st-fullbleed,.st-plate-top,.st-plate-bottom)'
   if (place === 'fullbleed') {
-    L.push(FB + ' .plate{left:0;top:0;width:720px;height:1280px;border-radius:0;background:#0b0d10;box-shadow:none}')
+    L.push(FB + ' .plate{left:0;top:0;width:' + CW + 'px;height:' + CH + 'px;border-radius:0;background:#0b0d10;box-shadow:none}')
     L.push(FB + ' .pb{opacity:0}')
     L.push(FB + ' .shot{object-fit:cover}')
     L.push(FB + ' .plate::after{content:"";position:absolute;left:0;top:0;width:100%;height:100%;'
@@ -366,6 +366,80 @@ export function filmCssFor(st) {
 .st-grid-2x2 .n1{left:72px;top:336px}.st-grid-2x2 .n2{left:384px;top:336px}
 .st-grid-2x2 .n3{left:72px;top:678px}.st-grid-2x2 .n4{left:384px;top:678px}
 .st-grid-2x2 .tail{left:64px;top:1024px;width:600px;font-size:24px;color:var(--ink)}`.trim()
+}
+
+/** ★VF_ASPECT_V1（2026-10-11 用户定案「我要的是横屏竖屏我可以选」）：**横屏（1280×720）重排层**
+ *  —— 单独一层，**只在 aspect=16:9 时追加**（排在结构级/语法层之后 ⇒ 覆盖它们）⇒ 竖屏行为零回归。
+ *  设计口径（横屏 = 左"字列" / 右"图列"，或整幅铺满）：
+ *    · 文字列 x 72~612 · 图/网格列 x 688~1208（两边各留 72；1280 宽里不再出现"竖屏窄条"）
+ *    · 全幅（fullbleed）整页 1280×720 + 上下渐隐；完整大图 plate-top 左字右图 / plate-bottom 左图右字（镜像）
+ *    · 网格类（grid-2x2 / works-wall）改**一排横铺**（横屏没有竖屏那样的高度可堆两行）
+ *  ⚠️ 只覆盖**位置/尺寸**：配色、字体、动效一律沿用（横屏只重排，不换皮）。 */
+export function landscapeCss() {
+  return `
+/* ---- 横屏通用 ---- */
+#bar{width:1280px}
+.foot{left:72px;top:664px}
+/* ---- opening-hero：左字右图 ---- */
+.st-opening-hero .eb{left:72px;top:72px}
+.st-opening-hero .t1{left:72px;top:120px;width:560px;font-size:64px}
+.st-opening-hero .t2{left:72px;top:212px;width:560px;font-size:64px}
+.st-opening-hero .sub{left:72px;top:332px;width:540px;font-size:24px}
+.st-opening-hero .media{left:auto;right:72px;top:72px;width:520px;height:576px}
+/* ---- works-wall：一排三卡 + 左下三行 ---- */
+.st-works-wall .ttl{left:72px;top:56px;width:1140px;font-size:42px}
+.st-works-wall .sub{left:72px;top:114px;width:1140px;font-size:22px}
+.st-works-wall .c1{left:72px;top:178px;width:240px;height:330px}
+.st-works-wall .c2{left:332px;top:178px;width:240px;height:330px}
+.st-works-wall .c3{left:592px;top:178px;width:240px;height:330px}
+.st-works-wall .row{left:72px;width:1140px;font-size:21px}
+.st-works-wall .r1{top:540px}.st-works-wall .r2{top:578px}.st-works-wall .r3{top:616px}
+/* ---- glass-product：左主卡 / 右三行指标 ---- */
+.st-glass-product .ttl{left:72px;top:56px;width:1140px;font-size:42px}
+.st-glass-product .sub{left:72px;top:114px;width:1140px;font-size:22px}
+.st-glass-product .main{left:72px;top:172px;width:560px;height:300px}
+.st-glass-product .main.noKpi .num{left:0;width:560px;top:96px;font-size:88px}
+.st-glass-product .mini{width:520px;height:96px}
+.st-glass-product .m1{left:688px;top:172px}.st-glass-product .m2{left:688px;top:284px}.st-glass-product .m3{left:688px;top:396px}
+.st-glass-product .mini span{top:16px}.st-glass-product .mini b{top:42px;font-size:32px}
+.st-glass-product .cta{left:72px;top:520px;width:560px;height:68px;font-size:24px}
+/* ---- data-dashboard：左字 + 三行 KPI / 右环 + 大数字 ---- */
+.st-data-dashboard .k{left:72px;top:48px}
+.st-data-dashboard .t1{left:72px;top:92px;width:560px;font-size:50px}
+.st-data-dashboard .ex{left:72px;top:170px;width:540px;font-size:22px}
+.st-data-dashboard .kpi{width:528px;height:84px}
+.st-data-dashboard .kp1{left:72px;top:240px}.st-data-dashboard .kp2{left:72px;top:336px}.st-data-dashboard .kp3{left:72px;top:432px}
+.st-data-dashboard .ring{left:900px;top:120px}
+.st-data-dashboard .num{left:688px;top:520px;width:520px;font-size:58px}
+/* ---- fullbleed：整幅 1280×720 ---- */
+.st-fullbleed .full{left:0;top:0;width:1280px;height:720px}
+.st-fullbleed .scrimT{width:1280px;height:220px}
+.st-fullbleed .scrimB{width:1280px;height:420px}
+.st-fullbleed .eb{left:72px;top:56px}
+.st-fullbleed .ttl{left:72px;top:430px;width:900px;font-size:54px}
+.st-fullbleed .sub{left:72px;top:518px;width:900px;font-size:24px}
+.st-fullbleed .chips{left:72px;top:576px}
+/* ---- 完整大图：plate-top 左字右图 / plate-bottom 左图右字 ---- */
+.st-plate-top .eb{left:72px;top:56px}
+.st-plate-top .ttl{left:72px;top:104px;width:540px;font-size:48px;line-height:1.14}
+.st-plate-top .sub{left:72px;top:214px;width:540px;font-size:24px}
+.st-plate-top .chips{left:72px;top:306px}
+.st-plate-top .plate{left:688px;top:60px;width:520px;height:600px}
+.st-plate-bottom .eb{left:688px;top:56px}
+.st-plate-bottom .plate{left:72px;top:120px;width:520px;height:520px}
+.st-plate-bottom .ttl{left:688px;top:184px;width:520px;font-size:46px;line-height:1.14}
+.st-plate-bottom .sub{left:688px;top:304px;width:520px;font-size:24px}
+.st-plate-bottom .chips{left:688px;top:396px}
+/* ---- grid-2x2：四张横铺一排 ---- */
+.st-grid-2x2 .ttl{left:72px;top:56px;width:1140px;font-size:42px}
+.st-grid-2x2 .sub{left:72px;top:114px;width:1140px;font-size:22px}
+.st-grid-2x2 .g{width:268px;height:300px}
+.st-grid-2x2 .g1{left:72px;top:178px}.st-grid-2x2 .g2{left:360px;top:178px}
+.st-grid-2x2 .g3{left:648px;top:178px}.st-grid-2x2 .g4{left:936px;top:178px}
+.st-grid-2x2 .n1{left:88px;top:194px}.st-grid-2x2 .n2{left:376px;top:194px}
+.st-grid-2x2 .n3{left:664px;top:194px}.st-grid-2x2 .n4{left:952px;top:194px}
+.st-grid-2x2 .tail{left:72px;top:520px;width:1140px;font-size:22px}
+`.trim()
 }
 
 /** 结构 → 段落 DOM（**只用类名，不用 id** —— 多段共用一份 HTML） */
@@ -550,11 +624,12 @@ export function makeFilmHtml(film) {
   //   ⚠️ 现状如实说明：**只有 9:16 的结构坐标齐备**（8 个结构的位置都是竖屏绝对坐标）；
   //   16:9 要逐结构重排（下一步专门做）。为不产出"半成品横屏"，
   //   **对 16:9 先明确退回 9:16 并大声打印**（响亮，不静默降级）。
+  // ★VF_ASPECT_V1（2026-10-11 用户定案「我要的是横屏竖屏我可以选」）：画布尺寸由画幅决定。
+  //   横屏坐标见 landscapeCss()（**单独一层，只在 16:9 时追加** ⇒ 竖屏行为零回归）。
   const ASPECT_WANT = String(film.aspect || '9:16')
-  const ASPECT = ASPECT_WANT === '16:9' ? '9:16' : ASPECT_WANT
-  if (ASPECT_WANT !== ASPECT) {
-    console.log('  ⚠ 画幅 16:9 的**结构坐标尚未就位** ⇒ 本次按 9:16 渲染（下一步补 8 个结构的横屏坐标）')
-  }
+  const ASPECT = ASPECT_WANT === '16:9' ? '16:9' : '9:16'
+  const CW = ASPECT === '16:9' ? 1280 : 720
+  const CH = ASPECT === '16:9' ? 720 : 1280
   console.log('  画幅：' + ASPECT + '（骨架声明 ' + ASPECT_WANT + '）')
 
   let t = 0
@@ -584,19 +659,19 @@ export function makeFilmHtml(film) {
      独立入口：**不改 deck 契约**；新东西失败时调用方回退老画法。 -->
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=720, height=1280" />
+<meta name="viewport" content="width=${CW}, height=${CH}" />
 <title>${esc(film.name || film.id)}</title>
 <style>
   @font-face{font-family:'NotoSansSC';src:url('assets/NotoSansSC-sub.woff2') format('woff2');font-weight:100 900;font-display:block}
   ${serif ? "@font-face{font-family:'NotoSerifSC';src:url('assets/NotoSerifSC-sub.woff2') format('woff2');font-weight:200 900;font-display:block}" : ''}
   :root{ --bg:${T.bg}; --bg2:${T.bg2 || T.bg}; --ink:${T.ink}; --dim:${T.dim}; --accent:${T.accent}; --at:${AT}; --r:${T.radius}px; }
   *{box-sizing:border-box;margin:0;padding:0}
-  html,body{width:720px;height:1280px;background:var(--bg)}
+  html,body{width:${CW}px;height:${CH}px;background:var(--bg)}
   body{font-family:${serif ? "'NotoSerifSC'" : "'NotoSansSC'"},system-ui,sans-serif;overflow:hidden}
   .clip{position:absolute}
-  #filmBg{left:0;top:0;width:720px;height:1280px}
-  #stage{position:relative;width:720px;height:1280px;overflow:hidden}
-  .sec{position:absolute;left:0;top:0;width:720px;height:1280px}
+  #filmBg{left:0;top:0;width:${CW}px;height:${CH}px}
+  #stage{position:relative;width:${CW}px;height:${CH}px;overflow:hidden}
+  .sec{position:absolute;left:0;top:0;width:${CW}px;height:${CH}px}
   .sec > *{position:absolute}
   .eb{font-size:16px;font-weight:700;letter-spacing:3.4px;color:var(--at)}
   .ttl{font-weight:800;color:var(--ink);letter-spacing:1px;line-height:1.2}
@@ -614,24 +689,26 @@ export function makeFilmHtml(film) {
   .chip{padding:10px 16px 11px;border-radius:10px;background:rgba(10,22,36,.8);
     border:1px solid rgba(140,200,255,.3);font-size:19px;color:#eaf3ff;margin-right:12px;display:inline-block}
   #barIn{display:block;width:100%;height:100%;background:var(--accent);transform-origin:left center}
-  #bar{position:absolute;left:0;bottom:0;width:720px;height:4px;background:rgba(130,180,230,.16)}
+  #bar{position:absolute;left:0;bottom:0;width:${CW}px;height:4px;background:rgba(130,180,230,.16)}
 
   /* ---------- 结构级（每个结构自带作用域 .st-xxx，多段共用不会串味） ---------- */
 ${usedStructs.map(filmCssFor).join('\n')}
   /* ---------- ★VF_SPEC_V1 语法层（放在结构级之后 ⇒ 天然覆盖；L1 构图 / L2 动效 / L3 文本形态） ---------- */
-${specCss(spec)}
+${specCss(spec, CW, CH)}
   /* ---------- ★VF_FILMBLEEDFIX_V1：全幅段按**实测亮度**局部改字色/遮罩（量不到的段没有这几行） ---------- */
 ${bleedFix}
+  /* ---------- ★VF_ASPECT_V1：横屏重排层（只在 16:9 时追加；排最后 ⇒ 覆盖结构级与语法层的位置） ---------- */
+${ASPECT === '16:9' ? landscapeCss() : ''}
 </style>
 </head>
 <body>
 <div id="stage" data-composition-id="main" data-start="0" data-duration="${total}"
-     data-fps="${film.fps || 25}" data-width="720" data-height="1280">
-  <canvas id="filmBg" class="clip" data-start="0" data-duration="${total}" data-track-index="0" width="720" height="1280"></canvas>
+     data-fps="${film.fps || 25}" data-width="${CW}" data-height="${CH}">
+  <canvas id="filmBg" class="clip" data-start="0" data-duration="${total}" data-track-index="0" width="${CW}" height="${CH}"></canvas>
 ${body}
   <div id="bar" class="clip" data-start="0" data-duration="${total}" data-track-index="9"><i id="barIn"></i></div>
 </div>
-<script>window.__FILM__ = ${JSON.stringify({ tokens: T, total, spec, scenes: scenes.map((x) => ({ structure: x.st, start: x.start, dur: x.dur, trans: String(x.sc.trans || '') })) })};</script>
+<script>window.__FILM__ = ${JSON.stringify({ tokens: T, total, spec, width: CW, height: CH, aspect: ASPECT, scenes: scenes.map((x) => ({ structure: x.st, start: x.start, dur: x.dur, trans: String(x.sc.trans || '') })) })};</script>
 <script>window.__timelines = window.__timelines || {}; window.__timelines["main"] = { seek: function () {}, duration: function () { return ${total}; }, pause: function () {}, play: function () {} };</script>
 <script src="assets/gsap.min.js"></script>
 <script src="assets/film.js"></script>

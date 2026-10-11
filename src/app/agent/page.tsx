@@ -1949,6 +1949,8 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
   //   这个值是**声明**：排骨架时按它排，出片时机器按"声明 vs 实测"核对（不达标拒渲）。
   const [plateRatio, setPlateRatio] = useState<number>(
     typeof vj?.plateRatio === 'number' ? vj.plateRatio : 60)   // ★默认 6:4（用户定案 2026-10-11）
+  // ★VF_ASPECT_V1（2026-10-11 用户定案「我要的是横屏竖屏我可以选」）：**画幅**（第 2 步卡上，默认竖屏）
+  const [aspect, setAspect] = useState<string>(String(vj?.aspect || '9:16'))
   // ★VF_SPEC_V2：**让 AI 自己规划版式**的开关（第 2 步卡上，**默认不勾** ⇒ 不勾与老流程完全一致）。
   //   服务端总闸 `VF_FILM_AI_SPEC=1` 打开时，卡片会显示"总闸已开"，默认值随之变 true（仍可取消）。
   const [aiSpec, setAiSpec] = useState<boolean>(
@@ -2076,6 +2078,29 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
               <div className="text-[9px] text-gray-500 mt-1">{String(vj.plateRatioHint)}</div>
             ) : null}
           </div>
+          {/* ── ★VF_ASPECT_V1：画幅（竖屏 9:16 / 横屏 16:9）—— 竖屏是默认，横屏适合素材以横图为主 ── */}
+          <div className="rounded-xl border border-emerald-500/25 bg-black/20 px-3 py-2 mb-2">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] text-gray-300">画幅</span>
+              <span className="text-[11px] text-emerald-300 font-medium">
+                {aspect === '16:9' ? '横屏 16:9' : '竖屏 9:16'}
+              </span>
+            </div>
+            <div className="flex gap-2">
+              {[{ v: '9:16', t: '竖屏 9:16', d: '抖音 / 小红书 / 视频号竖版' },
+                { v: '16:9', t: '横屏 16:9', d: '视频号横版 / 公众号 / B 站' }].map((o) => (
+                <button key={o.v} onClick={() => setAspect(o.v)}
+                  className={'flex-1 px-3 py-2 rounded-lg text-left border ' +
+                    (aspect === o.v ? 'border-emerald-400/70 bg-emerald-500/[0.14]' : 'border-white/10 bg-black/20 hover:bg-white/[0.04]')}>
+                  <span className="block text-[11px] text-gray-100">{o.t}</span>
+                  <span className="block text-[9px] text-gray-500 mt-0.5">{o.d}</span>
+                </button>
+              ))}
+            </div>
+            <div className="text-[9px] text-gray-500 mt-1">
+              切换画幅会**重排骨架**（同一次出片里不能中途改）；横屏的 11 个结构坐标已按 1280×720 单独排过。
+            </div>
+          </div>
           {/* ── ★VF_SPEC_V2：让 AI 自己规划版式（**默认不勾**；勾了才走，不勾 = 与老流程一模一样）── */}
           <label className={`flex items-start gap-2 rounded-xl border px-3 py-2 mb-2 cursor-pointer select-none ${aiSpec ? 'border-emerald-400/60 bg-emerald-500/[0.10]' : 'border-white/10 bg-black/20 hover:bg-white/[0.04]'}`}>
             <input type="checkbox" checked={aiSpec} onChange={(e) => setAiSpec(e.target.checked)}
@@ -2093,7 +2118,7 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
           </label>
           <div className="flex gap-2">
             <button onClick={() => next('back_mat')} className={btn + ' border-white/15 text-gray-300 hover:bg-white/[0.08]'}>← 换素材</button>
-            <button onClick={() => next('style', { pack, plateRatio, aiSpec })}
+            <button onClick={() => next('style', { pack, plateRatio, aiSpec, aspect })}
               className="flex-1 px-4 py-2 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100 text-sm font-medium">
               下一步 → 确认出片
             </button>

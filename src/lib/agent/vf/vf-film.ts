@@ -82,6 +82,8 @@ export async function orchestrate(opts: {
   ]
   if (opts.pack) args.push('--pack', opts.pack)
   if (Number.isFinite(Number(opts.plateRatio))) args.push('--plate-ratio', String(Number(opts.plateRatio)))
+  // ★VF_ASPECT_V1（2026-10-11 用户定案「横屏竖屏我可以选」）：画幅一路透传到骨架
+  if (opts.aspect) args.push('--aspect', String(opts.aspect))
   if (opts.spec && typeof opts.spec === 'object') {
     const specRel = opts.outJson.replace(/\.json$/, '') + '.spec.json'
     fs.writeFileSync(path.join(filmToolsDir(), specRel), JSON.stringify(opts.spec, null, 2), 'utf8')
@@ -244,8 +246,10 @@ export async function planFilm(opts: {
   pack?: string
   variant?: number
   workDir: string
-  /** ★VF_RATIO_V1：大图:填图 比例（0~1，默认 5:5）——骨架按它排，并写进 film.json 供出片核对 */
+  /** ★VF_RATIO_V1：大图:填图 比例（0~1，默认 6:4）——骨架按它排，并写进 film.json 供出片核对 */
   plateRatio?: number
+  /** ★VF_ASPECT_V1（2026-10-11）：画幅 '9:16'（竖，默认）| '16:9'（横）——写进 film.json，渲染侧按它选画布 */
+  aspect?: string
   /** ★VF_SPEC_V1：风格语法（L1/L2/L3）——写进 film.json，由渲染器解释 */
   spec?: any
 }): Promise<{ ok: boolean; scenes?: Array<{ structure: string; media: string[]; dur: number }>; pack?: string; vertical?: string; err?: string
@@ -301,6 +305,8 @@ export async function makeFilmFromMaterials(opts: {
   voice?: string
   /** ★VF_RATIO_V1：大图:填图 比例（0~1）——只在"没有定稿骨架、需要现场编排"时才用到 */
   plateRatio?: number
+  /** ★VF_ASPECT_V1：画幅 '9:16' | '16:9'（同上，只在现场编排时用到） */
+  aspect?: string
   /** ★VF_SPEC_V1：风格语法（L1/L2/L3）——同上，只在现场编排时用到 */
   spec?: any
   /** ★VF_FILMCOPY_V1：AI 写好的逐镜文案（与骨架同序；key 名按结构：title1/sub/chips/rows…） */

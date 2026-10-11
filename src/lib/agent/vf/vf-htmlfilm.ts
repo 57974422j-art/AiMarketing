@@ -446,6 +446,8 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
   const pl = await planFilm({
     materials: files, text: String(vd.topic || ''), pack: vd.pack || '', workDir,
     plateRatio: (vd.plateRatio === undefined ? 60 : Number(vd.plateRatio)) / 100,
+    // ★VF_ASPECT_V1：画幅随骨架写入（出片时渲染侧按它选画布）
+    aspect: vd.aspect === '16:9' ? '16:9' : '9:16',
     // ★VF_SPEC_V1/V2：语法（AI 声明的 ⇒ 由引擎解释；没声明 ⇒ pack/引擎默认兜底）
     spec,
   })
@@ -671,6 +673,8 @@ function styleCard(vd: HtmlFilmDraft): string {
     //   出片时机器按"声明 vs 实测"核对（render-film 的完整大图那一行）。
     plateRatio: vd.plateRatio === undefined ? 60 : Number(vd.plateRatio),
     plateRatioHint: '大图 : 填图 —— 往左=更多多图页（素材多、变化多）；往右=更多整张不裁的大图',
+    // ★VF_ASPECT_V1：画幅回显到卡片（用户能看见"这条片按什么画幅排"，切换会重排骨架）
+    aspect: vd.aspect === '16:9' ? '16:9' : '9:16',
     // ★VF_SPEC_V2：开关下发给卡片 —— `aiSpec` 是**这一单的当前值**（默认 = 总闸），
     //   `aiSpecForced` 只用来显示"服务端总闸已开"那句提示（用户仍可取消）。
     aiSpec: vd.aiSpec === undefined ? aiSpecEnabled() : !!vd.aiSpec,
@@ -787,6 +791,14 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
       vd.pack = String(f.pack || '')
       // ★VF_RATIO_V1：比例条的值（0~100）。越界夹回并如实打印（不静默）；
       //   没带 ⇒ 保持原值（默认 50 = 5:5，由 planFilm 那一步统一兜底）。
+      // ★VF_ASPECT_V1（2026-10-11 用户定案「我要的是横屏竖屏我可以选」）：画幅（第 2 步卡）
+      //   只认两个值；非法值**夹回竖屏并打印**（不静默）。
+      if (f.aspect !== undefined && f.aspect !== null && f.aspect !== '') {
+        const a = String(f.aspect)
+        vd.aspect = a === '16:9' ? '16:9' : '9:16'
+        if (a !== '16:9' && a !== '9:16') vfLog(uid, '[HTML成片] aspect=' + a + ' 不是 9:16/16:9 ⇒ 夹回 9:16')
+      }
+      if (vd.aspect === undefined) vd.aspect = '9:16'
       if (f.plateRatio !== undefined && f.plateRatio !== null && f.plateRatio !== '') {
         const rRaw = Number(f.plateRatio)
         const r = Number.isFinite(rRaw) ? Math.min(100, Math.max(0, Math.round(rRaw))) : 60
@@ -921,6 +933,8 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
       planJson: vd.filmJson || undefined,
       // ★VF_RATIO_V1：比例也带上（只在"没有定稿骨架、需要现场编排"时才会用到；有定稿时以定稿为准）
       plateRatio: (vd.plateRatio === undefined ? 60 : Number(vd.plateRatio)) / 100,
+      // ★VF_ASPECT_V1：画幅同上（有定稿骨架时以定稿里的 aspect 为准）
+      aspect: vd.aspect === '16:9' ? '16:9' : '9:16',
       // ★VF_SPEC_V1：语法同上（有定稿骨架时以定稿里的 spec 为准）
       spec: vd.spec,
       vertical: vd.vertical || '',

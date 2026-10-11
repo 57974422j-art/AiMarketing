@@ -284,6 +284,8 @@ if (isCli) {
     }
     const o = orchestrateRule({ lib, mats, materials: materials, text, pack: arg('pack', ''), id: arg('id', 'orch'), variant: Number(arg('variant', '0')) || 0,
       plateRatio: arg('plate-ratio', '') === '' ? undefined : Number(arg('plate-ratio', '')),
+      // ★VF_ASPECT_V1：画幅（9:16 / 16:9）也走 CLI（卡片选的画幅一路到骨架）
+      aspect: arg('aspect', '') || undefined,
       spec: specJson || undefined })
     const out = arg('out', '')
     if (out) { fs.writeFileSync(out, JSON.stringify(o, null, 2) + '\n', 'utf8'); console.log('已写：' + out) }
