@@ -101,6 +101,9 @@ export interface VfVideoDraft {
    *       | 'deck-glass' | 'deck-soft'；非法/缺省 → 'auto'（归一化在 anti-ai.ts 的 normalizeDeckStyle）。
    *  链路：设置卡 → 草稿 → 出片时写进 plan 根级 `deck_style`（渲染层读它）。 */
   deckStyle?: string
+  /** ★VF_ENGINE_UI_V1（2026-10-04 用户定案「成片方式第一轮就选」）：'classic'（老引擎，默认）| 'deck'（新引擎动态 PPT）。
+   *  ⚠️ 类型里一直**漏了这个字段**（`:1077` 在 `vd.engine = …` 赋值 ⇒ tsc TS2339）——本轮按"看见就修"补上。 */
+  engine?: string
   /** ★VF_STYLES_WIRE_V1（2026-10-01 用户定案「目前模版有2套我是不是有点乱。能统一一下吗？」）：
    *  「🎨 画面风格」= 5 套成品风格之一（键名逐字见渲染层 themes.py 的 STYLES）：
    *   'bluewhite' | 'darkgrad' | 'cleanlight' | 'magazine' | 'softlux'。
@@ -556,7 +559,8 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
 
   if (!imgPaths.length && !clips.length) {
     vd.step = 'form'
-    return '视频混剪：你的个人仓库里没有可用素材（图片或视频都行）。先传一些素材（设置卡上的「📤 我上传素材」支持视频），再来一句「视频混剪」我就开工。'
+    // ★VF_MATONLY_V1：口径统一成"原始素材"（成片不算素材，取素材的地方一律不含成片）
+    return '视频混剪：还没有可用的**原始素材**（图片或视频都行；成片不算素材）。先传一些素材（设置卡上的「📤 我上传素材」支持视频），再来一句「视频混剪」我就开工。'
   }
 
   // ── 2) 画幅：用户指定优先；auto 则按第一个视频/素材的宽高判断 ──

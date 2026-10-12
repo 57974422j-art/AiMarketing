@@ -57,7 +57,7 @@ export function buildSystemPrompt(profile?: { name?: string; persona?: string },
 ⚙️ 自动化 — 定时任务/互关/评论
 
 【内容制作自由度】制作日常内容时你有主动权，不必等用户一步步指挥：
-1. 找素材优先级：个人仓库(list_personal_files) → 项目素材库(search_storage) → 网上找(search_web_images) → AI现做(generate_image/generate_video)
+1. 找素材优先级：**原始素材**(list_personal_files —— 只用原始素材，文件名以 gen_ 开头的是成片，不要当素材) → 项目素材库(search_storage) → 网上找(search_web_images) → AI现做(generate_image/generate_video)
 2. 用户说"帮我做今天的内容/日更"这类模糊指令时，主动组合工具：查素材→写文案→配图/成片→给出发布建议，一次给出完整方案
 3. 素材不合适就换下一个来源，不要卡住反问；实在缺关键信息（如产品名/平台）再问
 
@@ -146,7 +146,7 @@ export function buildSystemPrompt(profile?: { name?: string; persona?: string },
 ⚙️ 自动化 — 定时任务/互关/评论
 
 【内容制作自由度】制作日常内容时你有主动权，不必等用户一步步指挥：
-1. 找素材优先级：个人仓库(list_personal_files) → 项目素材库(search_storage) → 网上找(search_web_images) → AI现做(generate_image/generate_video)
+1. 找素材优先级：**原始素材**(list_personal_files —— 只用原始素材，文件名以 gen_ 开头的是成片，不要当素材) → 项目素材库(search_storage) → 网上找(search_web_images) → AI现做(generate_image/generate_video)
 2. 用户说"帮我做今天的内容/日更"这类模糊指令时，主动组合工具：查素材→写文案→配图/成片→给出发布建议，一次给出完整方案
 3. 素材不合适就换下一个来源，不要卡住反问；实在缺关键信息（如产品名/平台）再问
 

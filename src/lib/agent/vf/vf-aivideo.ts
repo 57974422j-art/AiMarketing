@@ -262,7 +262,8 @@ export async function handleAiLine(ctx: VfAiCtx): Promise<string> {
           } catch { /* ignore */ }
         }
         if (!imgName) {
-          return '图生视频：我这边没找到可用的图。请先在「AI 制片」卡里**上传一张图**（或先往个人仓库传张图），再跟我说「用我的图动起来」。'
+          // ★VF_MATONLY_V1：取素材只认"原始素材"（成片不进素材池）
+          return '图生视频：我这边没找到可用的图。请先在「AI 制片」卡里**上传一张图**（或先往「原始素材」里传张图），再跟我说「用我的图动起来」。'
         }
         const nd: VfAiDraft = vd || {
           step: 'ai_setup', topic: '', aspect: 'portrait', dur: 30, style: '', voice: 'longxiaochun',

@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 // 2026-08-27: 发布草稿状态（多轮确认工作流用）：userId -> { videoName, frames, selectedFrame, title, topics, cover, step }
 // ★VF_VIDEOLINE_V1（2026-09-24）：视频素材探测 + 抽帧理解（给「视频混剪」线用；素材线仍走"仅列名"）
 import { listRepoMaterials, summarizeMaterials, downloadMaterials, vfLog, vfRootDir, vfStorageRoot, probeMaterialSizes, probeVideos, describeVideoClips, readOutcomeNames } from '@/lib/agent/video-material'
+// ★VF_MATONLY_V1（2026-10-12 用户定案「AGENT 页里用到仓库的地方，路径直接改成**原始素材**。不要有成片」）：
+//   素材清单的成片判据（`gen_日期_序号.`）只认 lib/repo-naming 一处口径
+import { isGeneratedName } from '@/lib/repo-naming'
 // ★VF_LINES_V1（2026-09-21）：三条新线的【入口词】判断 —— 用于 skipModelStep1（把"AI 制片/混合创作"
 //   也当成"状态机入口信号"）。这两个函数是**纯正则、零依赖**（两个文件都是零 import），
 //   所以静态 import 不会引入循环依赖。
@@ -524,7 +527,12 @@ async function swapMatAndLog(uid: number | string, outName: string): Promise<{ i
       listObjects(`storage/${String(uid)}/`, 400).catch(() => [] as any[]),
     ])
     const outcomes = readOutcomeNames(uid)
-    const built = buildMatUIList(flattenRepoObjects(objs), {
+    // ★VF_MATONLY_V1：**换一张**也只在原始素材里换（成片不进素材池）
+    const onlyAssets = flattenRepoObjects(objs).filter((x: any) => {
+      const n = String((x && x.name) || '')
+      return !!n && !isGeneratedName(n) && !outcomes.has(n)
+    })
+    const built = buildMatUIList(onlyAssets, {
       allow: policy.allow, deny: policy.deny, outcomeNames: outcomes,
       i2v: policy.i2v, limit: VF_MAT_UI_LIMIT,
     })
@@ -589,7 +597,15 @@ async function buildMatUI(uid: number | string, limit = VF_MAT_UI_LIMIT): Promis
       listObjects(`storage/${String(uid)}/`, 400).catch(() => [] as any[]),
     ])
     const outcomes = readOutcomeNames(uid)
-    const built = buildMatUIList(flattenRepoObjects(objs), {
+    // ★VF_MATONLY_V1（2026-10-12 用户定案「AGENT 页里用到仓库的地方，**路径直接改成原始素材。不要有成片**」）：
+    //   素材清单**只列原始素材** —— ① 新命名 `gen_日期_序号.*`（成片/审片图/预览/数字人）；
+    //   ② **老成片**（改名之前生成的）按出片记录（video-factory 任务文件的 repoName）认出来，同样不列。
+    //   注：VF_POOL_V1 的"软排除（素材太少就放开）"仍作用于池级选材；这里是从**清单**这层就不让成片出现。
+    const onlyAssets = flattenRepoObjects(objs).filter((x: any) => {
+      const n = String((x && x.name) || '')
+      return !!n && !isGeneratedName(n) && !outcomes.has(n)
+    })
+    const built = buildMatUIList(onlyAssets, {
       allow: policy.allow, deny: policy.deny, outcomeNames: outcomes,
       i2v: policy.i2v, limit,
     })

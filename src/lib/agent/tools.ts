@@ -238,7 +238,10 @@ export const AGENT_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'list_personal_files',
-    description: '列出用户个人仓库（OSS 私有存储）的文件，含用户自己上传的视频/图片。发布内容前可主动调用挑选成片；返回的每个文件带可直接使用的URL。',
+    // ★VF_MATONLY_V1（2026-10-12 用户定案「AGENT 页里用到仓库的地方，路径直接改成**原始素材**。不要有成片」）：
+    //   这个工具**同时**要服务"挑原始素材做内容"与"挑成片去发布"，所以要把两类说清楚，
+    //   否则模型会把成片当素材（自我循环：拿自己旧片当素材，用户实测抱怨过）。
+    description: '列出个人仓库的文件（**原始素材**与**成片**都在这里）。① **做素材时只用原始素材**：文件名 `gen_` 开头的、以及出片记录里的都是成片，别当素材用；② 发布内容前挑成片（`gen_*.mp4` 或老的 `YYYYMMDD_NNN.mp4`）。返回的每个文件带可直接使用的URL。',
     parameters: {
       type: 'object',
       properties: {
@@ -446,7 +449,7 @@ export const TOOL_STEP_LABEL: Record<string, string> = {
   digital_human_speak: '生成数字人口播',
   query_digital_human: '查询数字人口播进度',
   search_storage: '检索项目素材库',
-  list_personal_files: '读取个人仓库',
+  list_personal_files: '读取个人仓库（原始素材/成片）',
   search_templates: '查找模板',
   publish_content: '核对发布账号',
   query_publish_tasks: '查询发布任务',

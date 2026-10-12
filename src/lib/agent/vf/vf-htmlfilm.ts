@@ -373,10 +373,10 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
   let pick: FilmPick = { pool: [], picked: [], missing: [], capped: 0 }
   try { pick = await pickFilmMaterials(uid, vd.names) } catch { /* 取不到就走下面"没有可用图片" */ }
   const picked = pick.picked
-  if (!picked.length) return { ok: false, err: '个人仓库里没有可用图片' }
+  if (!picked.length) return { ok: false, err: '还没有原始素材（只列你上传的图，成片不算）' }
   // 勾选的图被删/被移出候选池 ⇒ **如实报错**（绝不静默换素材：换了素材，文案与分镜就必然错位）
   if (pick.missing.length) {
-    return { ok: false, err: '有 ' + pick.missing.length + ' 张勾选的图片在个人仓库里找不到了（'
+    return { ok: false, err: '有 ' + pick.missing.length + ' 张勾选的图片在原始素材里找不到了（'
       + pick.missing.slice(0, 3).join('、') + (pick.missing.length > 3 ? ' …' : '') + '）——请回上一步「刷新列表」后重新勾选' }
   }
   // ② 看图总结（★VF_FILMSRC_V1：**分批读完所有要用的图** —— 老实现只看前 8 张，
@@ -698,8 +698,10 @@ async function matCard(uid: number | string, vd: HtmlFilmDraft): Promise<string>
   const body = {
     step: 'film_mat',
     hint: images.length
-      ? '第 1 步 / 共 3 步 · 选素材（个人仓库里的图片；不勾就默认用最近 ' + FILM_DEFAULT_RECENT + ' 张）'
-      : '第 1 步 / 共 3 步 · 个人仓库里还没有图片 —— 先上传几张，或点「下一步」由系统用最近素材',
+      // ★VF_MATONLY_V1（2026-10-12 用户定案「AGENT 页里要用到仓库的地方，**路径直接改成原始素材。不要有成片**」）：
+      //   选素材这一步**只列原始素材**（`gen_` 成片/审片图、以及出片记录里的老成片一律不列）——文案也要说明白。
+      ? '第 1 步 / 共 3 步 · 选原始素材（只列你上传的图，成片不算；不勾就默认用最近 ' + FILM_DEFAULT_RECENT + ' 张）'
+      : '第 1 步 / 共 3 步 · 还没有原始素材 —— 先上传几张，或点「下一步」由系统用最近素材',
     images,
     names: vd.names,
     // ★VF_FILMSRC_V1：上限**只有一个**且下发到前端（不再各写 40/12/8）——
@@ -917,7 +919,7 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
       await clearHtmlFilmDraft(prisma, uid)
       vfLog(uid, '[HTML成片] 草案版本过期（' + (vd.ver || '无版本') + ' ≠ ' + FILM_LINE_VERSION + '）⇒ 已作废，要求重来一次')
       return 'HTML成片：这一单是**旧版本**排出来的（脚本/模板刚更新过），为避免"卡片上的文案与成片骨架对不上"，'
-        + '**已把它作废、没有出片**。请重新说一次「HTML成片」重走一遍（素材还在个人仓库里，勾选约 1 分钟）。'
+        + '**已把它作废、没有出片**。请重新说一次「HTML成片」重走一遍（素材还在原始素材里，勾选约 1 分钟）。'
     }
 
     // ★VF_RATIO_V1：比例在"出确认卡"那一刻就已生效（**骨架与文案都按它排好了**）⇒
@@ -955,7 +957,7 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
     try {
       const pick = await pickFilmMaterials(uid, pickNames)
       if (pick.missing.length) {
-        return 'TOOL_REJECT:HTML成片：这一单定稿的素材里有 ' + pick.missing.length + ' 张在个人仓库找不到了（'
+        return 'TOOL_REJECT:HTML成片：这一单定稿的素材里有 ' + pick.missing.length + ' 张在原始素材找不到了（'
           + pick.missing.slice(0, 3).join('、') + '）——请重新说一次「HTML成片」并刷新列表重勾（**没有自动换素材**）。'
       }
       const dl = await downloadMaterials(uid, pick.picked)
@@ -972,7 +974,7 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
         files = fs.readdirSync(mdir).filter((f) => /\.(jpe?g|png|webp)$/i.test(f)).map((f) => path.join(mdir, f))
       } catch { files = [] }
     }
-    if (!files.length) return 'TOOL_REJECT:没有找到素材（个人仓库里没有图片）——请先上传几张图片，再说一次「HTML成片」。'
+    if (!files.length) return 'TOOL_REJECT:没有找到素材（原始素材里没有图片；成片不算素材）——请先上传几张图片，再说一次「HTML成片」。'
     // ★VF_FILMSRC_V1：**不再** files.slice(0,40) —— 上限只在 pickFilmMaterials 一处（FILM_MAT_MAX）
 
     // （★VF_FILMSRC_V1 的"骨架/文案一致性校验"已在上面、下载素材**之前**做过）

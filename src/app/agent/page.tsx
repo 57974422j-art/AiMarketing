@@ -1160,7 +1160,7 @@ function VfAiI2vCard({ vj, onStart }: { vj: any; onStart: (msg: string) => void 
         {/* ★2026-09-29（team-lead 要求把"没确认会怎样"说清）：**不写"超时自动作废"** ——
             现网没有任何超时作废机制（vf-aivideo.ts 里 0 个 setTimeout/过期逻辑），写上去就是假提示，
             撞本项目「不许写假话/假同步」的规矩。改成如实说明：不点确认不扣费、想撤点下面那个按钮。 */}
-        <div className="mt-0.5 text-amber-300/80">不点「确认」就**不扣费**；不做了点「↺ 换一张 / 退出」即可（草稿会清掉，不会自动扣费）。</div>
+        <div className="mt-0.5 text-amber-300/80">不点「确认」就<b>不扣费</b>；不做了点「↺ 换一张 / 退出」即可（草稿会清掉，不会自动扣费）。</div>
       </div>
       <div className="flex items-center gap-2 flex-wrap">
         <button onClick={() => onStart('确认')}
@@ -2034,7 +2034,9 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
               })}
             </div>
           ) : (
-            <div className="text-[11px] text-gray-400 mb-2">个人仓库里还没有图片 —— 点「⬆️ 上传图片」传几张（或直接点下一步，用最近素材）。</div>
+            /* ★VF_MATONLY_V1：只说"原始素材"（成片不算素材）—— 与仓库页的「原始素材 / 生成素材」两个切换键同口径。
+               两处坑都踩过：① 三元表达式位置不能放 JSX 注释（要放普通块注释）；② JSX 里加粗用 b 标签，别写 markdown 星号。 */
+            <div className="text-[11px] text-gray-400 mb-2">还没有<b className="text-gray-200">原始素材</b> —— 点「⬆️ 上传图片」传几张（或直接点下一步，用最近素材）。成片不算素材。</div>
           )}
           <button onClick={() => next('mat', { names: sel })}
             className="w-full px-4 py-2 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100 text-sm font-medium">
@@ -2148,7 +2150,7 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
                 卡片必须写**出片真正会用的张数**（服务端定稿 `pickedN`），不是"勾选名单长度"；
                 顺带把"AI 读了几张图 / 单条上限"也写出来 —— 上限要看得见，不做隐藏天花板。 */}
             <div>
-              素材：{Number(vj?.pickedN) || Number(vj?.n) ? `${Number(vj?.pickedN) || Number(vj?.n)} 张（出片就用这些）` : `个人仓库最近 ${Number(vj?.defRecent) || 12} 张`}
+              素材：{Number(vj?.pickedN) || Number(vj?.n) ? `${Number(vj?.pickedN) || Number(vj?.n)} 张（出片就用这些）` : `原始素材最近 ${Number(vj?.defRecent) || 12} 张`}
               {Number(vj?.readN) ? ` · AI 已读图 ${Number(vj.readN)} 张` : ''}
               {Number(vj?.matMax) ? ` · 单条上限 ${Number(vj.matMax)} 张` : ''}
             </div>
@@ -2247,7 +2249,7 @@ function VfPptCard({ vj, onSend }: { vj: any; onSend: (m: string) => void }) {
             没贴 ⇒ AI 按这个字数帮你写）。**秒数永远是配音的结果**（配音是唯一时序真源）。
             ⚠️ 字数改用 VF_SUB_CPS（4.3 字/秒，唯一真源）—— 改前写死 4.5，卡片与成片会给出两个字数。 */}
         <div className="text-[10px] text-gray-400 mb-1">
-          文案长度 <span className="text-gray-600">（只影响「你没贴文案、让 AI 帮你写」时的字数；你贴了文案就以你贴的为准。**秒数由配音决定**）</span>
+          文案长度 <span className="text-gray-600">（只影响「你没贴文案、让 AI 帮你写」时的字数；你贴了文案就以你贴的为准。<b>秒数由配音决定</b>）</span>
         </div>
         <div className="flex flex-wrap gap-1.5">
           {['30', '60', '90', '180'].map((s) => R(dur, s, s + '秒 ≈' + Math.round((parseInt(s) || 60) * VF_SUB_CPS) + '字', setDur))}
@@ -2302,7 +2304,7 @@ function VfPptCard({ vj, onSend }: { vj: any; onSend: (m: string) => void }) {
         className="w-full px-4 py-2 rounded-lg bg-fuchsia-500/50 hover:bg-fuchsia-500/80 text-sm text-white font-medium">
         🚀 开始排版
       </button>
-      <div className="text-[10px] text-gray-500 mt-1">PPT 成片：页 = PPT 版式页，时长由配音决定；**不掺素材图**（要素材画面请用「图片成片」或「图视混剪」）</div>
+      <div className="text-[10px] text-gray-500 mt-1">PPT 成片：页 = PPT 版式页，时长由配音决定；<b>不掺素材图</b>（要素材画面请用「图片成片」或「图视混剪」）</div>
     </div>
   )
 }

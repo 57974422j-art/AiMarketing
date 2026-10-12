@@ -7,7 +7,8 @@
 import fs from 'fs'
 import path from 'path'
 import { spawnSync, execFile } from 'child_process'
-import { listObjects, getObject, signedUrl } from '@/lib/oss'
+// ★VF_OSS_MAXKEYS_V1：素材池要**分页全量**（单次最多 1000 ⇒ 素材多的仓库会漏）
+import { listObjects, listAllObjects, getObject, signedUrl } from '@/lib/oss'
 import { describeImageWithVL, describeImagesWithVL } from '@/lib/ai-providers'
 // ★VF_POOL_V1（2026-09-30）：成片素材池治理的**纯函数**（判定"本系统出片产物" / 视觉摘要缓存键）。
 //   逻辑在 material-pool.ts（零依赖、可单测），本文件只负责 IO（读任务文件、读写缓存文件）。
@@ -339,11 +340,18 @@ export async function listRepoMaterials(
 ): Promise<RepoMaterial[]> {
   const uid = String(userId)
   try {
-    const objs = await listObjects(`storage/${uid}/`, 1000)
+    // ★VF_OSS_MAXKEYS_V1：分页全量（单次最多 1000 ⇒ 素材多的仓库会漏）
+    const objs = await listAllObjects(`storage/${uid}/`, 2000)
+    // ★VF_MATONLY_V1（2026-10-12 用户定案「AGENT 页中几处需要用到个人仓库的，**路径直接改成素材库。不要有成片**」）：
+    //   素材池**只吃素材**，两类成片一律不进：
+    //     ① 新命名 `gen_日期_序号.ext`（`isGeneratedName`）；
+    //     ② **老成片**（改名之前生成的，如 `20261011_022.mp4`）——用**出片记录**认（video-factory
+    //        任务文件里的 repoName，只有我们自己的出片流程会写它 ⇒ 精确，不会误伤用户导入的原片）。
+    //   ⚠️ 与 VF_POOL_V1 的区别：那是"排除后素材太少就**放开**"的软排除；这条是**硬排除**（连 recent 模式也排）。
+    const outcomes = readOutcomeNames(uid)
     const all = objs
-      // ★VF_REPOSPLIT_V1：**生成物不进素材池**（`gen_日期_序号.ext`：成片/审片图/预览/数字人）
-      //   与 VF_POOL_V1（按出片记录排除）互补：这条是**硬的**，不看有没有出片记录。
-      .filter((o) => !o.name.includes('/.thumbs/') && !o.name.endsWith('/') && !isGeneratedName(o.name))
+      .filter((o) => !o.name.includes('/.thumbs/') && !o.name.endsWith('/') && !isGeneratedName(o.name)
+        && !outcomes.has(o.name.split('/').pop() || o.name))
       .map((o) => {
         const name = o.name.split('/').pop() || o.name
         return {
