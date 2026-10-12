@@ -6,7 +6,11 @@ import { existsSync } from 'fs'
 import { execSync } from 'child_process'
 import { getAuthFromHeaders } from '@/lib/api-auth'
 import { PrismaClient } from '@prisma/client'
-import OSS from 'ali-oss'
+// ★修（2026-10-12 用户定案「有BUG 看见就修」）：删掉本文件里那份**重复实现**的 ossClient/uploadOSS，
+//   统一用 lib/oss 的 uploadOSS（一处真源）。正是因为"同一个函数两份实现"，
+//   `live-stream-engine.ts` 引用了 lib/oss **从未导出**的同名函数才埋了雷（走到就抛异常）。
+//   ali-oss 的 OSS 类也只被那份重复实现用过 ⇒ 连它的 import 一起去掉。
+import { uploadOSS } from '@/lib/oss'
 import { checkTokens, TOKEN_COSTS } from '@/lib/token-wallet'
 import {
   createRecord, attachTaskId, finalizeSuccess, finalizeFailure,
@@ -16,29 +20,8 @@ import {
 export const runtime = 'nodejs'
 const prisma = new PrismaClient()
 
-function ossClient() {
-  if (!process.env.OSS_ACCESS_KEY_ID || !process.env.OSS_ACCESS_KEY_SECRET || !process.env.OSS_BUCKET) throw new Error('OSS未配置')
-  return new OSS({
-    region: process.env.OSS_REGION || 'oss-cn-hangzhou',
-    accessKeyId: process.env.OSS_ACCESS_KEY_ID!,
-    accessKeySecret: process.env.OSS_ACCESS_KEY_SECRET!,
-    bucket: process.env.OSS_BUCKET!,
-    secure: true, timeout: 300000,
-  })
-}
-
-/** 上传文件到 OSS，返回公开 URL */
-async function uploadOSS(fileOrPath: File | string, ext: string): Promise<string> {
-  const oss = ossClient()
-  const key = `dh/${Date.now()}_${Math.random().toString(36).substring(2, 6)}.${ext}`
-  if (typeof fileOrPath === 'string') {
-    await oss.put(key, fileOrPath, { headers: { 'x-oss-object-acl': 'public-read' } })
-  } else {
-    const buf = Buffer.from(await fileOrPath.arrayBuffer())
-    await oss.put(key, buf, { headers: { 'x-oss-object-acl': 'public-read' } })
-  }
-  return `https://${process.env.OSS_BUCKET}.${process.env.OSS_REGION || 'oss-cn-hangzhou'}.aliyuncs.com/${key}`
-}
+/* ossClient() / uploadOSS() 已迁到 lib/oss.ts（一处真源）—— 见顶部 import 的说明。
+   本文件原有的调用点（uploadOSS(tmp,'mp3') 等）签名不变，直接用。 */
 
 /** TTS 文本→MP3 到 OSS */
 /** TTS 文本→MP3 到 OSS（2026-08-14: edge-tts 被墙弃用——改用 ai-providers textToSpeech 百炼/火山） */

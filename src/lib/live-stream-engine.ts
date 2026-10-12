@@ -97,6 +97,10 @@ export interface ContentGenItem {
   text: string
   type: string
   avatarId: string
+  /** ★修（2026-10-12）：wan2.2-s2v 用的**形象照片 URL** —— 代码早就在赋值/读取它
+   *  （createContentGenTask 里 `photoUrl: item.photoUrl`、生成时 `createDigitalHumanVideo(item.photoUrl || item.avatarId, …)`），
+   *  但类型里一直没声明 ⇒ tsc 报 3 处 TS2339/TS2345（运行时能跑，类型不过；也让"填了照片没用"这类问题更难被看见）。 */
+  photoUrl?: string
   background?: string
   status: 'pending' | 'generating' | 'completed' | 'failed'
   outputPath?: string
@@ -409,7 +413,10 @@ export async function getStreamStatus(sessionId?: string): Promise<StreamSession
  * @returns 任务对象（异步执行，需轮询状态）
  */
 export async function generateLiveContent(
-  items: Array<{ text: string; type: string; avatarId: string; background?: string }>,
+  // ★修（2026-10-12）：这张内联类型漏了 `photoUrl`、而且把 `avatarId` 写成**必填** ——
+  //   而 aiGenerateLiveContent 传进来的恰恰是"可能没有 avatarId、只有 photoUrl（wan2.2-s2v 走照片）"，
+  //   所以 tsc 一直报 TS2339/TS2345（运行时能跑、类型不过）。
+  items: Array<{ text: string; type: string; avatarId?: string; photoUrl?: string; background?: string }>,
   options?: { onProgress?: (done: number, total: number) => void }
 ): Promise<ContentGenTask> {
   await ensureDirs()
@@ -426,7 +433,9 @@ export async function generateLiveContent(
       id: `${taskId}_${idx}`,
       text: item.text,
       type: item.type,
-      avatarId: item.avatarId,
+      // ★修（2026-10-12）：入参的 avatarId 现在是可选的 ⇒ 这里**归一成空串**（ContentGenItem.avatarId 仍是 string，
+      //   不给下游添"可能是 undefined"的麻烦；真正的缺项在生成前拦一次，见下面的 face 判空）
+      avatarId: item.avatarId || '',
       photoUrl: item.photoUrl,
       background: item.background,
       status: 'pending',
@@ -470,7 +479,11 @@ export async function generateLiveContent(
         audioUrl = await uploadOSS(tmpAudio, 'mp3')
       } finally { try { unlinkSync(tmpAudio) } catch {} }
       if (!audioUrl) throw new Error('音频上传失败')
-      const dhRes = await createDigitalHumanVideo(item.photoUrl || item.avatarId, audioUrl)
+      // ★修（2026-10-12）：photoUrl/avatarId 都可能没有 ⇒ **先判空再调**（否则把 undefined 当照片 URL 传下去，
+      //   远端只会回一句含糊的失败；这里直接给出可读原因，并在任务里标 failed）
+      const face = item.photoUrl || item.avatarId
+      if (!face) throw new Error('缺少形象照片（photoUrl）或形象 ID（avatarId）—— 请在直播页填「形象照片 URL」')
+      const dhRes = await createDigitalHumanVideo(face, audioUrl)
       if (dhRes?.videoUrl) {
         const localPath = join(outputDir, `${item.id}.mp4`)
         await downloadFile(dhRes.videoUrl, localPath)

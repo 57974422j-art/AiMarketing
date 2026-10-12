@@ -684,7 +684,9 @@ export default function LivePage() {
                         className="input-dark w-full"
                         placeholder="形象照片 URL（如 OSS 人像图，wan2.2-s2v 用）"
                         value={photoUrl}
-                        onChange={e => setAvatarId(e.target.value)}
+                        /* ★修（2026-10-12）：这里原先写的是 setAvatarId —— 用户往"形象照片 URL"
+                           里填的值**根本没存进 photoUrl**（看着能输入、提交时是空的 ⇒ wan2.2-s2v 拿不到照片）。 */
+                        onChange={e => setPhotoUrl(e.target.value)}
                       />
                       <p className="text-xs text-gray-600 mt-1 font-mono">在数字人板块克隆形象后获取</p>
                     </div>

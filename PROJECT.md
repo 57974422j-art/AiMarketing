@@ -1,7 +1,7 @@
 # AiMarketing 项目文档
 
 > 本文档为**唯一权威项目文档**（替代已删除的 PROJECT_REPORT.md 与 docs/ 全部散落文档）。
-> 最后更新：2026-10-05 ｜ 配套文档：[AGENT-HANDOFF.md](./AGENT-HANDOFF.md)（**AGENT 页接手文档——换工具/换机器先读它**）、[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
+> 最后更新：2026-10-12 ｜ 配套文档：[AGENT-HANDOFF.md](./AGENT-HANDOFF.md)（**AGENT 页接手文档——换工具/换机器先读它**）、[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
 > 维护规则：**每次执行操作后**，必须同步更新本文档「当前进度/待办」章节 + EXECUTION_LOG.md + ISSUES.md。
 
 
@@ -222,6 +222,18 @@ dashboard(+insights/sop)、workspace、ai-tools、ai-copy、image-generator、au
 i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
+
+### 2026-10-11 ~ 10-12：模型自愈 / 横竖画幅 / 风格包体检+AI挑包+完全自主 / 仓库分家 / 落地页规矩（✅ 代码完成并推送，待部署实测）
+
+- ✅ **模型自愈**（`VF_VLMODEL_V2`/`VF_TEXTHEAL_V1`/`VF_MSGCLAMP_V1`）：读图与"书写"模型不再写死 —— 问 `/models` 自动挑（用户账号实测无 `qwen-vl-max`、无 `deepseek-v4-flash`）；只在真报"模型不存在"时才换并记住；空的 `tool_calls` 发出前清洗（百炼/DeepSeek 都会 400）。线上实测：读图 **13/13**、`[模型自愈]` 生效、文案全出无"（降级）"。
+- ✅ **横竖画幅可选**（`VF_ASPECT_V1`）：画布 `720×1280 / 1280×720`；`landscapeCss()` 给 8 个结构逐一重排（只在 16:9 追加 ⇒ 竖屏零回归）；运行时位移量改用 `W/H`；卡片新增「画幅」选择器。
+- ✅ **风格包 11 → 51**（40 个 PPT 母版派生，皮肤级）+ **体检**（`styles/health.json`，51/51 可用）+ **AI 在"读图"那步按素材挑包**（只给体检通过的，编 id 一律不认）+ **取消机械轮换** + **「AI 完全自主」**（AI 自定配色 `theme`，不达标整组丢弃）+ 纯色底/深底深强调的观感兜底（`fixTokens`）。
+- ✅ **个人仓库分家**（`VF_REPOSPLIT_V1/V1b`）：生成物 = `gen_YYYYMMDD_NNN.ext`（**独立序号空间**，不占配额、不进选材池）；11 处入库点标 `gen:true`；列表下发 `kind` + 前端**切换按键**；老成片用"出片记录 + 命名"两条认出来。**未做**：存量老成片不改名（靠判据归类）。
+- ✅ **配额与清理收口**：配额只认 `lib/storage-quota`（6 处入口无一处自己写死/求和）；孤儿缩略图可一键清理（`POST /api/storage/cleanup-thumbs`）；OSS `max-keys` 夹 1~1000 + `listAllObjects()` 分页全量（配额/列表/清理三处）。
+- ✅ **落地页规矩进 `AGENTS.md`**（`VF_FILMLP_V1`，13 条：画布安全区 / 一屏一段 / 每段 ≤4 图 / 字号阶梯 / 文字主导页 / 动效三件套 / 覆盖率 / 节奏 / 图片统一处理 / AI 味禁止清单 / **可渲染性硬约束** / 出片前自检）。参考实现 `temp/_daily/daily.html`（用户认可观感、判定"不适合作视频"⇒ 规矩就是这轮定的）。
+- ⏳ **待部署实测**：切换按键 / `gen_` 命名 / 老成片归类 / 清理孤儿 / 横屏片 / AI 挑包与完全自主。
+- 🔴 **未根治**：PPT 母版派生包只带"配色+字体"进 HTML 成片，母版的 `elements`（渐变/网格/装饰）与 `structure`（PPT 页型）HTML 侧**不吃** ⇒ 只剩一层纯色底（现用"补第二层 + 提亮光斑"兜观感）。
+- 🔴 **待用户定**：C2「AI 自己写页 → 出片」—— 规矩已立、参考实现已有，待做：锁画布 + 滚动/CSS 动画映射到时间轴（Web Animations API seek）+ 通用自检闸门（对比度/越界/重叠/字表）。
 
 ### 2026-10-06 批 3c-1：素材/视频镜渐变遮罩（✅ 代码完成，待部署实测）
 

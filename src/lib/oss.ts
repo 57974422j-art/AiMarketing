@@ -137,6 +137,23 @@ export async function listAllObjects(prefix: string, hardCap = 5000): Promise<Ar
   return out.slice(0, cap)
 }
 
+/**
+ * ★VF_OSSUPLOAD_V1（2026-10-12 用户定案「有BUG 看见就修」）
+ * 病灶：`src/lib/live-stream-engine.ts:469` 写的是
+ *   `const { uploadOSS } = await import('@/lib/oss')` —— 而**本文件从未导出 uploadOSS**
+ *   （真正的实现藏在 `app/api/digital-human/route.ts:31` 的局部函数里）⇒ 直播配音上传一旦走到就抛异常。
+ * 现口径：把那份实现**搬到这里**（一处真源），两处调用共享；`public-read` ACL 与 `dh/` 前缀保持原样。
+ * ⚠️ 只在"要一个**公开可访问**的直链"时用它（数字人/直播配音这类对外播放的音频）；
+ *    个人仓库素材请走 `putObject`＋`signedUrl`（私有，别把用户素材设成 public-read）。
+ */
+export async function uploadOSS(src: Buffer | string, ext: string, dir = 'dh'): Promise<string> {
+  const oss = await getOSSClient()
+  const key = `${dir}/${Date.now()}_${Math.random().toString(36).substring(2, 6)}.${ext}`
+  // 传本地路径（string）或 buffer 都行 —— ali-oss 的 put 两种都吃
+  await oss.put(key, src as any, { headers: { 'x-oss-object-acl': 'public-read' } })
+  return `https://${process.env.OSS_BUCKET}.${process.env.OSS_REGION || 'oss-cn-hangzhou'}.aliyuncs.com/${key}`
+}
+
 /** 获取签名 URL（用于内部服务端 fetch） */
 export async function signedUrl(key: string, expires = 3600): Promise<string> {
   const oss = await getOSSClient()
