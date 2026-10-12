@@ -21,6 +21,41 @@ export const PLAN_FORMS = ['overlay', 'sticker', 'vertical']
 export const PLAN_PLACES = ['cover', 'mat']
 
 /**
+ * ★VF_DAILY_L4（2026-10-12 用户「说 L4 大胆试」）：**皮肤库** —— 与引擎
+ * `tools/daily-page.mjs` 的 `THEMES` **必须逐字一致**（两处白名单）。
+ * 用户病灶原话的另一半：「两份产物 `<style>` 连 md5 都一样」⇒ 结构能变、皮肤永远一套。
+ * 现在 AI 按素材气质挑皮肤；也可给 `custom` 自定 hex 配色（引擎会做对比度体检，不达标自动回落）。
+ */
+export const PLAN_THEMES: Array<{ id: string; name: string; look: string }> = [
+  { id: 'paper-daily', name: '暖纸日报', look: '暖米纸 + 朱红点缀 + 衬线（默认，适合餐饮热食/市井）' },
+  { id: 'night-gold',  name: '夜宴金',   look: '深墨底 + 金点缀 + 衬线（夜景/酒吧/高端）' },
+  { id: 'tea-green',   name: '青瓷茶绿', look: '豆绿纸 + 墨绿点缀 + 衬线（茶/素食/清雅）' },
+  { id: 'blue-print',  name: '蓝图冷调', look: '冷白纸 + 蓝点缀 + 无衬线（数码/办公/科技感）' },
+  { id: 'coral-warm',  name: '柿橙暖场', look: '奶橘纸 + 柿橙点缀 + 无衬线（甜品/果汁/活泼）' },
+  { id: 'mono-print',  name: '素黑白',   look: '白纸 + 黑点缀 + 无衬线（极简/纪实/严肃）' },
+]
+const THEME_IDS = PLAN_THEMES.map((x) => x.id)
+/** 皮肤名（清单/卡头用；不认识的 id 回落默认名） */
+export function themeName(id: any): string {
+  const t = PLAN_THEMES.filter((x) => x.id === String(id || ''))[0]
+  return t ? t.name : PLAN_THEMES[0].name
+}
+/** 抽 AI 的皮肤选择：白名单 + 自定配色必须是 4 个 hex（不合规就丢掉并记进 fixes） */
+export function normTheme(raw: any): { theme: string; custom?: { paper: string; ink: string; dim: string; accent: string }; fixes: string[] } {
+  const fixes: string[] = []
+  const want = String(raw?.theme || '')
+  let theme = THEME_IDS.indexOf(want) >= 0 ? want : ''
+  if (want && !theme) fixes.push(`AI 要的皮肤「${want}」不在库里 ⇒ 用默认「${PLAN_THEMES[0].name}」`)
+  const c = raw?.custom && typeof raw.custom === 'object' ? raw.custom : null
+  if (c) {
+    const ok = ['paper', 'ink', 'dim', 'accent'].every((k) => /^#[0-9a-fA-F]{6}$/.test(String(c[k] || '')))
+    if (ok) return { theme: theme || 'custom', custom: { paper: c.paper, ink: c.ink, dim: c.dim, accent: c.accent }, fixes }
+    fixes.push('AI 自定配色里有非 hex 值 ⇒ 已忽略（用预设皮肤）')
+  }
+  return { theme: theme || THEME_IDS[0], fixes }
+}
+
+/**
  * ★VF_DAILY_L2（2026-10-12 用户「说 L2 大胆试」）：**段结构库** —— 与引擎
  * `scripts/video-factory/html-deck/tools/daily-page.mjs` 里的 `LAYOUTS` **必须逐字一致**（两处白名单）。
  * 用户病灶原话：「你是不是把设计说的很死，我看它设计跟你的一模一样」—— 老实现只有一套骨架，
@@ -72,6 +107,11 @@ export function aiPrompt(n: number, topic: string): string {
     '【段结构库】（`layout` 只能取这些 id；**每段的图数必须与该结构匹配**）',
     cat,
     '',
+    '【皮肤库】（**按素材气质挑一个**放进 `theme`；不挑就用 paper-daily）',
+    PLAN_THEMES.map((t) => `  · ${t.id}（${t.name}）：${t.look}`).join('\n'),
+    '  也可以给 `custom` 自定配色（4 个 hex：paper 底 / ink 正文 / dim 次要 / accent 点缀）——',
+    '  系统会做对比度体检（正文/底 ≥4.5、次要 ≥3.0、强调 ≥2.0），不达标会自动换回预设皮肤。',
+    '',
     '硬约束（违反即作废）：',
     '1. segments 数组 2~8 段；**每张图至少用一次**（可以重复用）；单段图数必须等于所选结构允许的张数。',
     '2. 首段当封面（用 hero / sticker / split / vertical 之一），末段建议用 quote 或 hero 收尾。',
@@ -83,7 +123,7 @@ export function aiPrompt(n: number, topic: string): string {
     '7. 简体中文，不用 emoji。',
     '',
     '只输出 JSON（不要解释、不要 markdown 代码块）：',
-    '{"motion":"calm|normal|lively","segments":[{"layout":"hero","kicker":"...","stamp":"...","title":["第一行","第二行"],"imgs":[1],"points":[["短词","短词"]],"place":"cover"}]}',
+    '{"theme":"night-gold","motion":"calm|normal|lively","segments":[{"layout":"hero","kicker":"...","stamp":"...","title":["第一行","第二行"],"imgs":[1],"points":[["短词","短词"]],"place":"cover"}]}',
   ].join('\n')
 }
 
@@ -181,11 +221,18 @@ export function normSegs(raw: any, n: number, topic: string): { segs: any[]; add
   return { segs: out, added, fixes }
 }
 
-/** 把段数组组装成引擎配置（风格固定 = DAILY_STYLE） */
-export function buildPlanFromSegs(segs: any[], topicRaw: string, motion = 'normal'): any {
+/** 把段数组组装成引擎配置（★L4：皮肤由 AI 挑，`theme` / `custom` 透传给引擎做对比度体检） */
+export function buildPlanFromSegs(segs: any[], topicRaw: string, motion = 'normal', theme?: string, custom?: any): any {
   const topic = String(topicRaw || '').trim().slice(0, 24)
+  const meta: any = {
+    issue: '第 01 期',
+    accent: DAILY_STYLE.accent, paper: DAILY_STYLE.paper,   // 老字段留着（兼容），实际色值由引擎按 theme 定
+    title: `日报落地页 · ${topic || '素材记录'}`,
+    theme: String(theme || 'paper-daily'),
+  }
+  if (custom && typeof custom === 'object') meta.custom = custom
   return {
-    meta: { issue: '第 01 期', accent: DAILY_STYLE.accent, paper: DAILY_STYLE.paper, title: `日报落地页 · ${topic || '素材记录'}` },
+    meta,
     motion: normMotion(motion),
     imageDir: 'images',
     segments: segs,
@@ -272,7 +319,8 @@ export function formatDailyPlan(plan: any, o: { topic: string; picks: PlanPick[]
   const L: string[] = []
   L.push('📄「日报落地页」第 2 步 / 共 3 步 · **方案确认**')
   L.push('')
-  L.push(`风格：**${DAILY_STYLE.name}**（本轮唯一风格，先定型）｜动效档：${plan?.motion || 'normal'}`)
+  // ★L4：皮肤不再是"唯一那一套" —— 由 AI 按素材挑（自定配色会过对比度体检，`notes` 写在卡上）
+  L.push(`皮肤：**${themeName(plan?.meta?.theme)}**${plan?.meta?.custom ? '（AI 自定配色·已过对比度体检）' : ''}｜动效档：${plan?.motion || 'normal'}`)
   L.push(`主题：${o.topic || '（未给 → 中性占位文案）'}｜素材 ${o.picks.length} 张｜共 **${segs.length} 段** · 约 ${total.toFixed(1)} 秒`)
   L.push('')
   L.push('—'.repeat(28))
@@ -314,7 +362,7 @@ export function buildPlanCardPayload(plan: any, o: {
   return {
     step: 'daily_plan',
     proto: 'VF_DAILY_FORM',
-    hint: `第 2 步 / 共 3 步 · 方案确认（${segs.length} 段 · 约 ${dur.toFixed(1)} 秒 · 风格 ${DAILY_STYLE.name}）`
+    hint: `第 2 步 / 共 3 步 · 方案确认（${segs.length} 段 · 约 ${dur.toFixed(1)} 秒 · 皮肤 ${themeName(plan?.meta?.theme)}）`
       + (o.hintExtra ? ' · ' + o.hintExtra : ''),
     topic: o.topic || '',
     by: o.by,

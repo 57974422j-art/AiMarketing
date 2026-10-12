@@ -36,7 +36,7 @@ import { listAllObjects } from '@/lib/oss'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 import { dashscopeFunctionCall } from '@/lib/ai-providers'
 // ★纯函数层（零依赖、可单测：temp/_exp/daily/test-plan.mjs）
-import { DAILY_STYLE, aiPrompt, extractJson, normSegs, normMotion, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, applyDailyEdit, buildPlanCardPayload } from './daily-plan'
+import { DAILY_STYLE, aiPrompt, extractJson, normSegs, normMotion, normTheme, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, applyDailyEdit, buildPlanCardPayload } from './daily-plan'
 
 export { DAILY_STYLE }
 
@@ -266,7 +266,7 @@ function toPicks(uid: number | string, src: DailySource, names: string[]): Daily
  *   两段式：① 视觉模型逐张读出"拍的是什么" ② **文字模型**（qwen3.8-flash，稳）据此出 JSON 方案。
  *   视觉不可用时**不判死**：退成"按主题+序号排"，并把原因如实写进方案卡。
  */
-export async function aiPlanSegments(picks: DailyPick[], topic: string): Promise<{ ok: boolean; segs?: any[]; error?: string; added?: number; fixes?: string[]; motion?: string; sawImages?: boolean; vlErr?: string }> {
+export async function aiPlanSegments(picks: DailyPick[], topic: string): Promise<{ ok: boolean; segs?: any[]; error?: string; added?: number; fixes?: string[]; theme?: string; custom?: any; motion?: string; sawImages?: boolean; vlErr?: string }> {
   const n = picks.length
   if (!n) return { ok: false, error: '没有素材' }
 
@@ -317,7 +317,10 @@ export async function aiPlanSegments(picks: DailyPick[], topic: string): Promise
     if (!raw) return { ok: false, error: 'AI 没吐出可解析的 JSON' + (vlErr ? '；' + vlErr : ''), sawImages: !!summary, vlErr }
     const { segs, added, fixes } = normSegs(raw, n, topic)
     if (segs.length < 2) return { ok: false, error: 'AI 的分段不合规（段数不足）', sawImages: !!summary, vlErr }
-    return { ok: true, segs, added, fixes, motion: normMotion(raw?.motion), sawImages: !!summary, vlErr }
+    // ★L4：皮肤（AI 按素材挑；自定配色交给引擎做对比度体检）
+    const th = normTheme(raw)
+    const allFixes = fixes.concat(th.fixes)
+    return { ok: true, segs, added, fixes: allFixes, theme: th.theme, custom: th.custom, motion: normMotion(raw?.motion), sawImages: !!summary, vlErr }
   } catch (e: any) {
     return { ok: false, error: String(e?.message || e).slice(0, 120), sawImages: !!summary, vlErr }
   }
@@ -431,7 +434,8 @@ async function runPlan(ctx: DailyCtx, d: DailyDraft, src: DailySource, picked: s
   let by: 'ai' | 'fallback'
   let note = ''
   if (ai.ok && ai.segs && ai.segs.length) {
-    plan = buildPlanFromSegs(ai.segs, d.topic || '', ai.motion || 'normal')
+    // ★L4：皮肤（theme / custom）来自 AI；引擎会做对比度体检，不达标自己在页头回落并写明
+    plan = buildPlanFromSegs(ai.segs, d.topic || '', ai.motion || 'normal', ai.theme, ai.custom)
     by = 'ai'
     if (ai.added) note = `AI 漏了 ${ai.added} 张，已自动补段`
   } else {
@@ -508,8 +512,10 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Pr
   try { ctx.log?.(uid, `[日报落地页] 交付：${key} ｜ 短链 ${viewPath || apiPath}`) } catch { /* ignore */ }
   const viewUrl = abs(viewPath) || apiPath
   const dlUrl = abs(dlPath)
-  return '✅ **日报落地页 HTML 已生成**（' + plan.segments.length + ' 段 · 风格 ' + DAILY_STYLE.name
-    + ' · ' + (d.planBy === 'ai' ? 'AI 看素材编排' : '系统保底版式') + ' · ' + (r.note || 'R1~R14 通过').trim() + '）\n\n'
+  return '✅ **日报落地页 HTML 已生成**（' + plan.segments.length + ' 段 · 皮肤 ' + themeName(plan?.meta?.theme)
+    + ' · ' + (d.planBy === 'ai' ? 'AI 看素材编排' : '系统保底版式')
+    + ' · 结构 ' + Array.from(new Set(plan.segments.map((s: any) => String(s.layout || '-')))).length + ' 种'
+    + ' · ' + (r.note || 'R1~R14 通过').trim() + '）\n\n'
     + '▶ **打开预览（浏览器直接渲染）**：\n' + viewUrl
     + (dlUrl ? '\n\n⬇ **下载这个 HTML 文件**：\n' + dlUrl : '')
     + '\n\n（链接 7 天有效，可以发给别人；过期后回来说一次「日报落地页」重做一份就有新链接。）\n'

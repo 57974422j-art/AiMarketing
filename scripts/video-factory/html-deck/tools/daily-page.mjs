@@ -41,6 +41,128 @@ if (!cfgFile) { console.log('用法：node temp/_exp/template/daily.mjs <配置.
 const cfg = JSON.parse(fs.readFileSync(path.resolve(cfgFile), 'utf8'))
 
 const META = Object.assign({ issue: '', accent: '#C6392B', paper: '#F5F1E8', title: '日报落地页' }, cfg.meta || {})
+
+/* ═══════════ ★VF_DAILY_L4（2026-10-12 用户「说 L4 大胆试」）：**皮肤放开** ═══════════
+   病灶（用户原话「它设计跟你的一模一样」的**另一半**）：老实现的 `:root` 把纸色/墨色/次色/点缀色/
+   字体/图片占位渐变**全写死**，所以两份产物的 `<style>` 连 md5 都相同 —— 结构能变、**皮肤永远是那一套**。
+   现口径（三层保险，绝不让"难看配色"出厂）：
+     ① `meta.theme` = 从下面 6 套**预设皮肤**里挑（AI 按素材气质选）；
+     ② 可选 `meta.custom = {paper,ink,dim,accent}` = AI 自定hex配色；
+     ③ **对比度体检**（WCAG：正文≥4.5 / 次要≥3.0 / 强调≥2.0 / 反白≥4.5）——
+        不达标 ⇒ **回落预设皮肤**并在页头注释与 stdout 里如实写明（不静默、不硬着头皮出）。
+   皮肤只改"纸/墨/点缀/字体/占位渐变/暗衬"，**不动结构**（结构是 L2 的事）。 */
+const THEMES = {
+  'paper-daily': {
+    name: '暖纸日报', font: 'serif',
+    paper: '#F5F1E8', ink: '#17140F', dim: '#6B6157', accent: '#C6392B',
+    g: ['linear-gradient(152deg,#6E2F1C 0%,#B4562A 52%,#E9B77F 100%)',
+      'linear-gradient(152deg,#8E3A22 0%,#C4703A 52%,#E3B478 100%)',
+      'linear-gradient(152deg,#3E3226 0%,#7A6244 58%,#C9AE84 100%)'],
+  },
+  'night-gold': {
+    name: '夜宴金', font: 'serif',
+    paper: '#191712', ink: '#F3EADB', dim: '#B9A98F', accent: '#D8A94B',
+    g: ['linear-gradient(152deg,#2A2114 0%,#6A4E22 55%,#D8A94B 100%)',
+      'linear-gradient(152deg,#1E1A12 0%,#4E3B1E 55%,#A98A45 100%)',
+      'linear-gradient(152deg,#241E13 0%,#5C4520 58%,#C2A25A 100%)'],
+  },
+  'tea-green': {
+    name: '青瓷茶绿', font: 'serif',
+    paper: '#EEF2E9', ink: '#1B241C', dim: '#5F6B5C', accent: '#2E7D5B',
+    g: ['linear-gradient(152deg,#1F3B2E 0%,#3F6B4E 55%,#9CC0A2 100%)',
+      'linear-gradient(152deg,#2C4A38 0%,#5A7F5F 55%,#BBD3B4 100%)',
+      'linear-gradient(152deg,#233A2C 0%,#4A6650 58%,#A8C0A6 100%)'],
+  },
+  'blue-print': {
+    name: '蓝图冷调', font: 'sans',
+    paper: '#EEF3F8', ink: '#12202E', dim: '#5A6C7C', accent: '#1F6FB2',
+    g: ['linear-gradient(152deg,#12314C 0%,#2E5F86 55%,#9BC0DA 100%)',
+      'linear-gradient(152deg,#1B3A57 0%,#3D6E93 55%,#B6CFE2 100%)',
+      'linear-gradient(152deg,#16324A 0%,#4A7391 58%,#A7C3D8 100%)'],
+  },
+  'coral-warm': {
+    name: '柿橙暖场', font: 'sans',
+    paper: '#FBF3EA', ink: '#2A1A12', dim: '#7A5B4A', accent: '#E2662A',
+    g: ['linear-gradient(152deg,#8A3417 0%,#D2672F 52%,#F0B27A 100%)',
+      'linear-gradient(152deg,#9E4220 0%,#E07C3C 52%,#F3C08C 100%)',
+      'linear-gradient(152deg,#6E3A22 0%,#B4653A 58%,#E3B489 100%)'],
+  },
+  'mono-print': {
+    name: '素黑白', font: 'sans',
+    paper: '#F6F6F4', ink: '#141414', dim: '#6A6A66', accent: '#141414',
+    g: ['linear-gradient(152deg,#2A2A2A 0%,#5E5E5C 55%,#B8B8B4 100%)',
+      'linear-gradient(152deg,#1F1F1F 0%,#4A4A48 55%,#A6A6A2 100%)',
+      'linear-gradient(152deg,#333331 0%,#6E6E6B 58%,#C2C2BE 100%)'],
+  },
+}
+const DEFAULT_THEME = 'paper-daily'
+
+/** 十六进制 → [r,g,b]（拿不到就 null） */
+function hex2rgb(h) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(h || '').trim())
+  if (!m) return null
+  const v = parseInt(m[1], 16)
+  return [(v >> 16) & 255, (v >> 8) & 255, v & 255]
+}
+/** WCAG 相对亮度 */
+function lum(rgb) {
+  const f = (c) => { const s = c / 255; return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4) }
+  return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2])
+}
+/** 对比度（1~21） */
+function contrast(a, b) {
+  const A = hex2rgb(a), B = hex2rgb(b)
+  if (!A || !B) return 0
+  const la = lum(A), lb = lum(B)
+  return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05)
+}
+/** rgba(ink, alpha) */
+function inkAlpha(ink, alpha) {
+  const c = hex2rgb(ink) || [0, 0, 0]
+  return `rgba(${c[0]},${c[1]},${c[2]},${alpha})`
+}
+/** 把一套 4 色 token 补全成完整皮肤（并做对比度体检） */
+function completeTheme(id, name, font, paper, ink, dim, accent, g) {
+  const th = { id, name, font, paper, ink, dim, accent, g }
+  th.line = inkAlpha(ink, 0.16)
+  th.paper2 = id === DEFAULT_THEME ? '#EDE7DA' : inkAlpha(ink, 0.05)
+  // 暗衬带：浅底皮肤用暖黑，深底皮肤用纯黑（都要能压住照片）
+  th.scrim = contrast('#FFFFFF', paper) > 6 ? 'rgba(23,20,15,.74)' : 'rgba(6,6,8,.80)'
+  // 反白字（角标底上的字）：纸色或白，哪个够 4.5 用哪个
+  th.onAccent = contrast(paper, accent) >= 4.5 ? paper : (contrast('#FFFFFF', accent) >= 4.5 ? '#FFFFFF' : ink)
+  th.fail = []
+  if (contrast(ink, paper) < 4.5) th.fail.push(`正文/底 ${contrast(ink, paper).toFixed(2)} < 4.5`)
+  if (contrast(dim, paper) < 3.0) th.fail.push(`次要/底 ${contrast(dim, paper).toFixed(2)} < 3.0`)
+  if (contrast(accent, paper) < 2.0) th.fail.push(`强调/底 ${contrast(accent, paper).toFixed(2)} < 2.0`)
+  if (contrast(th.onAccent, accent) < 4.5) th.fail.push(`角标反白 ${contrast(th.onAccent, accent).toFixed(2)} < 4.5`)
+  return th
+}
+function themeById(id, gs) {
+  const t = THEMES[String(id || '')]
+  if (!t) return null
+  return completeTheme(String(id), t.name, t.font, t.paper, t.ink, t.dim, t.accent, gs || t.g)
+}
+/** 最终皮肤：AI 自定配色 → 体检 → 不达标回落预设皮肤（全过程记进 themeNote） */
+let themeNote = ''
+function resolveTheme() {
+  const want = String(META.theme || '')
+  const base = themeById(want, null) || themeById(DEFAULT_THEME, null)
+  const cu = META.custom && typeof META.custom === 'object' ? META.custom : null
+  if (cu) {
+    const okHex = ['paper', 'ink', 'dim', 'accent'].every((k) => !!hex2rgb(cu[k]))
+    if (!okHex) { themeNote = 'AI 自定配色里有非 hex 值 ⇒ 已忽略自定配色'; return base }
+    const cand = completeTheme('custom', 'AI 自定配色', 'serif', cu.paper, cu.ink, cu.dim, cu.accent, base.g)
+    if (!cand.fail.length) return cand
+    themeNote = 'AI 自定配色对比度不达标（' + cand.fail.join('；') + '）⇒ 已回落「' + base.name + '」'
+    return base
+  }
+  if (want && !THEMES[want]) themeNote = 'AI 要的皮肤「' + want + '」不在库里 ⇒ 已用「' + base.name + '」'
+  if (base.fail.length) { themeNote = '预设皮肤「' + base.name + '」对比度异常（' + base.fail.join('；') + '）⇒ 已回落默认'; return themeById(DEFAULT_THEME, null) }
+  return base
+}
+const TH = resolveTheme()
+if (themeNote) console.log('   ⚠️ ' + themeNote)
+
 const MOTION = {
   calm: { zoom: 1.04, dmul: 1.35, gap: 900, dur: 0.14 },     // 稳：推近小、错峰慢
   normal: { zoom: 1.07, dmul: 1.0, gap: 700, dur: 0 },
@@ -165,23 +287,28 @@ const html = `<!DOCTYPE html>
 ${warns.length ? '<!-- ⚠️ 字数体检警告：\n     ' + warns.join('\n     ') + '\n-->' : ''}
 <style>
   :root{
-    --paper:${META.paper}; --paper2:#EDE7DA; --ink:#17140F; --dim:#6B6157; --rule:${META.accent}; --line:rgba(23,20,15,.16);
+    /* ★VF_DAILY_L4：皮肤 token 全部来自 THEMES（AI 挑 / 对比度体检通过才会用它） */
+    --paper:${TH.paper}; --paper2:${TH.paper2}; --ink:${TH.ink}; --dim:${TH.dim};
+    --rule:${TH.accent}; --line:${TH.line}; --scrim:${TH.scrim}; --on-accent:${TH.onAccent};
+    --dots:${inkAlpha(TH.ink, 0.05)};
+    --fbody:${TH.font === 'sans' ? '"Noto Sans SC",system-ui,"PingFang SC",sans-serif' : '"Noto Serif SC","Songti SC",Georgia,serif'};
+    --fsans:"Noto Sans SC",system-ui,sans-serif;
     --pad:clamp(24px,3.6vmin,50px); --gap:clamp(14px,2vmin,26px);
     --title:clamp(44px,7vmin,92px); --label:22px; --num:clamp(30px,4.2vmin,56px);
     --mz:${MOTION.zoom};                    /* 动效档：推近幅度 */
     --sp:1; --d:0;
-    --g1:linear-gradient(152deg,#8E3A22 0%,#C4703A 52%,#E3B478 100%);
-    --g2:linear-gradient(152deg,#3E3226 0%,#7A6244 58%,#C9AE84 100%);
-    --g0:linear-gradient(152deg,#6E2F1C 0%,#B4562A 52%,#E9B77F 100%);
+    --g1:${TH.g[1]};
+    --g2:${TH.g[2]};
+    --g0:${TH.g[0]};
   }
   *{box-sizing:border-box;margin:0;padding:0}
   /* ★短标签一律不折行 + 窄窗降级列数（R14：窗口被拖窄时"先涮后蘸"会被折行） */
   .kick,.stamp,.col b,.col i,h2 span{white-space:nowrap;word-break:keep-all}
   @media (max-width:600px){ .cols.c3{grid-template-columns:1fr 1fr} .figs.n2{grid-template-columns:1fr} }
   html,body{background:var(--paper);color:var(--ink);-webkit-font-smoothing:antialiased;
-    font-family:"Noto Serif SC","Songti SC",Georgia,serif}
+    font-family:var(--fbody)}
   body::after{content:"";position:fixed;inset:0;pointer-events:none;opacity:.5;
-    background:radial-gradient(rgba(23,20,15,.05) .6px, transparent .6px);background-size:5px 5px}
+    background:radial-gradient(var(--dots) .6px, transparent .6px);background-size:5px 5px}
   html[data-mode="preview"] body{overflow-y:auto}
   html[data-mode="preview"] .sec{position:relative;height:100vh;min-height:520px}
   html[data-mode="preview"] .sec + .sec{border-top:1px solid var(--line)}
@@ -198,9 +325,9 @@ ${warns.length ? '<!-- ⚠️ 字数体检警告：\n     ' + warns.join('\n    
   }
 
   .head{grid-area:head;display:flex;align-items:baseline;gap:14px}
-  .kick{font-family:"Noto Sans SC",system-ui,sans-serif;font-size:var(--label);color:var(--rule);
+  .kick{font-family:var(--fsans);font-size:var(--label);color:var(--rule);
     letter-spacing:.3em;opacity:clamp(0,calc(var(--sp)*5),1)}
-  .stamp{margin-left:auto;font-family:"Noto Sans SC",system-ui,sans-serif;font-size:var(--label);color:#fff;
+  .stamp{margin-left:auto;font-family:var(--fsans);font-size:var(--label);color:var(--on-accent);
     background:var(--rule);padding:4px 10px;border-radius:2px;
     opacity:clamp(0,calc((var(--sp) - .12)*4),1);
     transform:rotate(calc(-3deg + 3deg * clamp(0,calc((var(--sp) - .12)*4),1)))}
@@ -239,7 +366,7 @@ ${warns.length ? '<!-- ⚠️ 字数体检警告：\n     ' + warns.join('\n    
   /* 标题与信息点共用**一条**暗衬带（::after 跨两行、把中间的行距也盖住）——
      否则两个深色块中间露一条纸色缝，看着像"两个灰盒子"（截图上看过一眼就不想要了）。 */
   .sec[data-form="overlay"]::after{content:"";grid-row:3 / span 2;grid-column:1;
-    background:rgba(23,20,15,.74);z-index:0}
+    background:var(--scrim);z-index:0}
   .sec[data-form="overlay"] h2,.sec[data-form="overlay"] .cols{position:relative;z-index:1}
   .sec[data-form="overlay"] h2{background:none;color:#fff;padding:.06em .26em .12em}
   .sec[data-form="overlay"] h2 em{box-shadow:inset 0 -.18em 0 rgba(230,150,120,.5)}
@@ -296,7 +423,7 @@ ${warns.length ? '<!-- ⚠️ 字数体检警告：\n     ' + warns.join('\n    
   .col:nth-child(2){--d:calc(.22 * ${MOTION.dmul})}
   .col:nth-child(3){--d:calc(.30 * ${MOTION.dmul})}
   .col b{font-size:var(--num);line-height:1.1}
-  .col:nth-child(1) b{font-family:"Noto Sans SC",system-ui,sans-serif;color:var(--rule)}
+  .col:nth-child(1) b{font-family:var(--fsans);color:var(--rule)}
   .col i{font-style:normal;font-size:var(--label);color:var(--dim)}
 </style>
 </head>
