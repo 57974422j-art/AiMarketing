@@ -250,7 +250,79 @@ const TOTAL = +acc.toFixed(2)
 
 const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
+/* ═══════════ ★VF_DAILY_L3（2026-10-12 用户「说 L3 大胆试」）：**AI 段内自由 HTML** ═══════════
+   定位：L2 结构库之外，允许 AI 为**某一段**自己写 HTML/CSS（真正的自由设计）。
+   三条护栏（缺一条就会变成"AI 随手写、页面崩了没人知道"）：
+     ① **静态沙箱**：禁外链/禁脚本/禁随机与时间 API；CSS 里的选择器**必须**带该段的前缀
+        （`.aiN-*` 且 `.sec[data-seg="N"]`）⇒ 防止不同段互相污染；
+     ② **动画契约**：AI 的 CSS 必须用到 `var(--sp)`（段内进度 0→1，由统一时间轴驱动）
+        ⇒ 这样出片确定性不会被破坏；
+     ③ **段级回落**：任一条不满足 ⇒ **只有这一段**退回 L2 结构库的模板（其余段照旧），
+        并把原因写进页头注释与 stdout（不静默）。
+   开关：`VF_DAILY_AIHTML=1`（环境变量）才接受 AI 段 —— 默认关 ⇒ 产品行为逐字不变，可先离线试。 */
+const AIHTML_ON = String(process.env.VF_DAILY_AIHTML || '') === '1'
+
+function aiGuardHTML(n, html, css) {
+  const h = String(html || '')
+  const c = String(css || '')
+  const bad = []
+  if (!h.trim()) return { ok: false, why: 'html 为空' }
+  if (h.length > 6000 || c.length > 6000) bad.push('体积超限（html/css 各 ≤6000 字符）')
+  if (/https?:\/\/|\/\/[a-z0-9-]+\.[a-z]{2,}|@import/i.test(h + c)) bad.push('出现外链/外部资源')
+  if (/<script|javascript:|on[a-z]+\s*=/i.test(h)) bad.push('出现脚本或内联事件')
+  if (/Math\.random|Date\.now|setTimeout|setInterval|requestAnimationFrame/.test(h + c)) bad.push('出现随机/时间 API')
+  // ★R2（规范硬线）：布局块不许用绝对定位 —— AI 段一律禁（我们的模板自己有可控地用它）
+  if (/position\s*:\s*absolute/i.test(c)) bad.push('CSS 用了 position:absolute（R2 禁止用绝对定位排版）')
+  // ⚠️ 实测踩到的：模型写的是 `var(--sp,0)`（带兜底值），旧正则只认 `var(--sp)` ⇒ 会把合格的段误判为不合格
+  if (c && !/var\(\s*--sp\b/.test(c)) bad.push('CSS 没用 var(--sp)（无法随时间轴动）')
+  // CSS 选择器前缀检查：每条选择器都要落在 `.aiN-` 或 `.sec[data-seg="N"]` 之内
+  if (c) {
+    const sels = c.replace(/\/\*[\s\S]*?\*\//g, '').match(/(^|[}])\s*([^{}@]+)\{/g) || []
+    for (const raw of sels) {
+      const sel = raw.replace(/[}{]/g, '').split(',').map((x) => x.trim()).filter(Boolean)
+      for (const one of sel) {
+        const okPrefix = one.startsWith(`.ai${n}-`) || one.startsWith(`.sec[data-seg="${n}"]`)
+        if (!okPrefix) bad.push('选择器没带本段前缀：' + one.slice(0, 40))
+      }
+    }
+  }
+  if (bad.length) return { ok: false, why: bad.slice(0, 3).join('；') }
+  return { ok: true, why: '' }
+}
+/**
+ * ★L3 加固：AI 段里的 `<img>` 由**引擎**补上 `loading="lazy" onerror="this.remove()"`。
+ * 为什么不能让 AI 自己写：沙箱**禁一切 `on*` 事件**（安全感），而缺图不摘掉就会被审核判"缺图"（实测：
+ * AI 段三张图缺图 ⇒ 结构闸门 3 处不过）。⇒ 契约归契约，**兜底由引擎做**，不指望模型记得。
+ */
+function hardenAiHtml(h) {
+  return String(h || '').replace(/<img\b([^>]*?)(\/?)>/gi, (m, attrs, slash) => {
+    let a = attrs
+    if (!/loading\s*=/i.test(a)) a += ' loading="lazy"'
+    if (!/onerror\s*=/i.test(a)) a += ' onerror="this.remove()"'
+    return '<img' + a + (slash || '') + '>'
+  })
+}
+
+/** 收集 AI 段的 CSS（已带前缀）→ 注入主 <style> */
+const AI_CSS = []
+const AI_FALLBACKS = []
+const AI_USED = []
+
 function segBody(s, sc) {
+  const n = sc.i + 1
+  // ★L3：AI 自写段优先（开关 + 静态沙箱都过才用）—— 不过就**只有这一段**回落 L2 结构
+  if (AIHTML_ON && s && typeof s.html === 'string' && s.html.trim()) {
+    const g = aiGuardHTML(n, s.html, s.css)
+    if (g.ok) {
+      AI_USED.push(n)
+      if (s.css) AI_CSS.push('/* seg' + n + '（AI 自写段）*/\n' + String(s.css))
+      return `<section class="sec" data-seg="${n}" data-start="${sc.start}" data-duration="${sc.dur}"`
+        + ` data-place="${esc(s.place || 'cover')}" data-form="ai" data-layout="ai">`
+        + hardenAiHtml(s.html)
+        + `</section>`
+    }
+    AI_FALLBACKS.push(`段${n} 的 AI 自写段被拒（${g.why}）⇒ 已回落结构「${LAYOUTS[layoutOf(s)].name}」`)
+  }
   const layout = layoutOf(s)
   const lim = LAYOUTS[layout]
   const form = FORM_IDS[layout] || String(s.form || 'overlay')
@@ -273,6 +345,10 @@ function segBody(s, sc) {
     + `</section>`
 }
 
+// ⚠️ 顺序很重要：**先把每段渲染出来**（AI 段的 CSS 会在这步被收集进 AI_CSS），
+//    再拼 HTML 模板 —— 否则 <style> 里的 `${AI_CSS}` 取值时还是空的（模板是从上往下算的）。
+const BODIES = segs.map((s, i) => segBody(s, scenes[i]))
+
 const html = `<!DOCTYPE html>
 <html lang="zh-CN" data-mode="preview">
 <head>
@@ -280,11 +356,12 @@ const html = `<!DOCTYPE html>
 <title>${esc(META.title)}</title>
 <!-- 由 temp/_exp/template/daily.mjs 生成（日报落地页模板 · 阶段 1）
      段：${segs.length} · 总时长：${TOTAL}s · 动效档：${String(cfg.motion || 'normal')}
-     结构（★VF_DAILY_L2 段结构库）：${segs.map((s) => layoutOf(s)).join(' → ')}
+     结构（★VF_DAILY_L2 段结构库）：${segs.map((s) => layoutOf(s)).join(' → ')}${AI_USED.length ? '（其中 ' + AI_USED.length + ' 段为 ★L3 AI 自写）' : ''}
      图片槽位：${IMG_DIR}/ 目录，命名 1..N.jpg（${segs.map((s) => (s.imgs || []).join('+')).join(' / ')}）
      契约：section.sec[data-seg][data-start][data-duration][data-place][data-form]；时间轴 window.__seek(t)
      合规目标：R1~R14（见 docs/exp/响应式段规范-v1.md） -->
 ${warns.length ? '<!-- ⚠️ 字数体检警告：\n     ' + warns.join('\n     ') + '\n-->' : ''}
+${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' + AI_FALLBACKS.join('\n     ') + '\n-->' : ''}
 <style>
   :root{
     /* ★VF_DAILY_L4：皮肤 token 全部来自 THEMES（AI 挑 / 对比度体检通过才会用它） */
@@ -425,10 +502,11 @@ ${warns.length ? '<!-- ⚠️ 字数体检警告：\n     ' + warns.join('\n    
   .col b{font-size:var(--num);line-height:1.1}
   .col:nth-child(1) b{font-family:var(--fsans);color:var(--rule)}
   .col i{font-style:normal;font-size:var(--label);color:var(--dim)}
+${AI_CSS.length ? '\n  /* ══ ★VF_DAILY_L3：AI 自写段的 CSS（选择器都带 .aiN- / .sec[data-seg="N"] 前缀）══ */\n' + AI_CSS.join('\n') : ''}
 </style>
 </head>
 <body>
-${segs.map((s, i) => segBody(s, scenes[i])).join('\n\n')}
+${BODIES.join('\n\n')}
 
 <script>
   /* 双模式：preview 自动循环（人打开就能看见动）；__seek(t) 一调 ⇒ 切 film 并停循环（渲染确定性） */
