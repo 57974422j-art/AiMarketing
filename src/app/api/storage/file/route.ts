@@ -10,6 +10,14 @@ const MIME_MAP: Record<string, string> = {
   gif: 'image/gif', webp: 'image/webp',
 }
 
+/** ★VF_PRIVCACHE_V1（2026-10-12 用户实测「我的账号上传正常，**其它账号在别的机器**上传缩略图是错的」）：
+ *  病灶：本路由原来对所有响应都发 `Cache-Control: public, max-age=86400` —— `public` 允许**共享缓存**
+ *  （nginx / CDN / 网关代理）缓存。而本路由路径恒为 `/api/storage/file`，不同用户之间**只差 query**
+ *  （userId、name）⇒ 一旦链路上有按路径缓存的中间层，**先访问者的图会被返给后来的人**
+ *  （观感就是"别人的缩略图跑到我这儿 / 我的跑到别人那儿"）。
+ *  口径：用户私有素材一律 `private`（只允许**浏览器自己**缓存）；跨账号路径隔离不受影响。
+ *  配合 ★VF_CACHEBUST_V1（files/route.ts 给缩略图 URL 挂 `&v=<size-mtime>`）⇒ 内容变了 URL 也变，
+ *  浏览器那 24h 缓存也不会再显示旧图。 */
 export async function GET(request: NextRequest) {
   // 2026-08-12 #5: 加登录 + 归属校验（原免鉴权任意 userId+name 可下载他人私有素材）
   const auth = getAuthFromCookie(request)
@@ -54,7 +62,7 @@ export async function GET(request: NextRequest) {
       const len = resp.headers.get('content-length')
       const headers: Record<string, string> = {
         'Content-Type': mime,
-        'Cache-Control': 'public, max-age=86400',
+        'Cache-Control': 'private, max-age=86400',
         'Content-Disposition': "attachment; filename*=UTF-8''" + encodeURIComponent(name),
       }
       if (len) headers['Content-Length'] = len
@@ -66,7 +74,7 @@ export async function GET(request: NextRequest) {
     const result = await oss.get(key)
     const buffer = result.content as Buffer
     return new NextResponse(buffer, {
-      headers: { 'Content-Type': mime, 'Content-Length': String(buffer.length), 'Cache-Control': 'public, max-age=86400', ...(isDownload ? { 'Content-Disposition': "attachment; filename*=UTF-8''" + encodeURIComponent(name) } : {}) },
+      headers: { 'Content-Type': mime, 'Content-Length': String(buffer.length), 'Cache-Control': 'private, max-age=86400', ...(isDownload ? { 'Content-Disposition': "attachment; filename*=UTF-8''" + encodeURIComponent(name) } : {}) },
     })
   } catch (e: any) {
     return NextResponse.json({ success: false, message: e.message || '文件不存在' }, { status: 404 })

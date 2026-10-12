@@ -105,10 +105,27 @@ export async function saveToPersonalRepo(opts: SaveToRepoOptions): Promise<{ nam
     todaySeq++
     name = buildRepoName({ datePrefix, seq: todaySeq, ext, gen })
   }
-  const key = `storage/${uid}/${name}`
+  let key = `storage/${uid}/${name}`
 
-  // 上传主文件
-  await putObject(key, buffer, mime)
+  // ★VF_PUTUNIQ_V1（2026-10-12 用户定案「个人仓库缩略图错乱」修复其二）：**条件写 + 撞名换号重试**
+  //   旧写法是"HEAD 探测 → 再 put"，探测与写入之间有空档：并发两个请求可能**同时通过探测**，
+  //   后写者把前者的素材**连同它的 `.thumbs/` 缩略图**一起覆盖
+  //   （用户现象原话："我上传是对的，其它人上传缩略图就是乱的"）。
+  //   现口径：`x-oss-forbid-overwrite` ⇒ 已存在由**服务端拒绝**（409），本端退到下一号重试 ——
+  //   哪怕并发，也保证**一个名字只有一个写入者**。上面的 HEAD 循环保留：让绝大多数情况一次就中、少一次 409 往返。
+  for (let guard = 0; ; guard++) {
+    try {
+      await putObject(key, buffer, mime, { forbidOverwrite: true })
+      break
+    } catch (e: any) {
+      const sig = String(e?.code || e?.name || e?.message || '')
+      const conflict = /FileAlreadyExists|ObjectAlreadyExists|409/i.test(sig)
+      if (!conflict || guard >= 50) throw e
+      todaySeq++
+      name = buildRepoName({ datePrefix, seq: todaySeq, ext, gen })
+      key = `storage/${uid}/${name}`
+    }
+  }
 
   // 视频文件：生成缩略图存到 .thumbs/ 目录
   if (VIDEO_RE.test(name)) {

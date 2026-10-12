@@ -56,6 +56,15 @@ export async function GET(request: NextRequest) {
     const thumbSet = new Set(
       objects.filter(o => o.name.includes('/.thumbs/')).map(o => o.name.split('/.thumbs/')[1])
     )
+    // ★VF_CACHEBUST_V1（2026-10-12 用户定案「缩略图和素材不一样」修复其一）：缩略图**版本指纹**
+    //   病灶：缩略图 URL 由文件名确定性拼出，而后端返回 `Cache-Control: public, max-age=86400`
+    //   ⇒ 底层文件被覆盖/重生成后 **URL 不变 ⇒ 浏览器继续显示 24 小时前的旧图**（观感就是"和素材不符"）。
+    //   现口径：URL 后面挂 `&v=<size-mtime>`；内容一变 URL 就变，24h 缓存从此安全。
+    const thumbVer = new Map<string, string>()
+    for (const o of objects) {
+      if (!o.name.includes('/.thumbs/')) continue
+      thumbVer.set(o.name.split('/.thumbs/')[1], `${o.size}-${o.lastModified.getTime()}`)
+    }
 
     // 过滤掉 .thumbs 子目录的文件，只返回用户上传的文件
     // ★VF_REPOSPLIT_V1：顺手排除历史/规划中的 `_gen/` 目录项（那类 key 读/删/镜像三处都进不去，
@@ -87,8 +96,8 @@ export async function GET(request: NextRequest) {
           isVideo,
           // 视频用 .thumbs 缩略图；图片直接用文件本身作预览；缺图时返回 null（由懒补齐生成）
           thumbUrl: isVideo
-            ? (thumbExists ? `/api/storage/file?userId=${auth!.userId}&name=.thumbs/${thumbName}` : null)
-            : `/api/storage/file?userId=${auth!.userId}&name=${encodeURIComponent(name)}`,
+            ? (thumbExists ? `/api/storage/file?userId=${auth!.userId}&name=.thumbs/${thumbName}&v=${thumbVer.get(thumbName) || 0}` : null)
+            : `/api/storage/file?userId=${auth!.userId}&name=${encodeURIComponent(name)}&v=${o.size}-${o.lastModified.getTime()}`,
         }
       })
       .sort((a, b) => b.mtime.localeCompare(a.mtime))
@@ -144,6 +153,8 @@ export async function POST(request: NextRequest) {
   try {
     const res = await saveToPersonalRepo({ userId: auth.userId, buffer, ext, mime })
     // 2026-08-26: 不再自动抽帧（用户要求：上传视频不切图；发视频时按需抽帧在 extract_video_frames 工具内）
+    // ★2026-10-12 更正（这句注释曾把排查带偏）：`saveToPersonalRepo` **确实会**为视频抽一帧，
+    //   但那一帧只作**列表缩略图**存到 `.thumbs/`（personal-storage.ts 视频分支），不返回给调用方当"分镜帧"。
     return NextResponse.json({ success: true, data: { name: res.name, size: file.size, frames: [] } })
   } catch (e) {
     const message = e instanceof Error ? e.message : '保存失败'

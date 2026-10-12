@@ -52,11 +52,19 @@ export function resetOSSClient(): void {
 
 // ====== 便捷方法 ======
 
-/** 上传文件 */
-export async function putObject(key: string, buffer: Buffer | string, mime?: string): Promise<void> {
+/** 上传文件
+ *  ★VF_PUTUNIQ_V1（2026-10-12 用户定案「个人仓库缩略图错乱」修复其一）：支持**条件写** ——
+ *  `forbidOverwrite: true` 时带上 OSS 原生头 `x-oss-forbid-overwrite: true`：
+ *  **对象已存在 ⇒ 服务端直接拒绝（409 FileAlreadyExists）**，而不是静默覆盖。
+ *  用途：个人仓库的"日期+序号"命名用它堵住"先查后写"的并发空档
+ *  （原实现是 HEAD 探测存在性 → 再 put，两人同时上传会互相覆盖素材与其缩略图）。 */
+export async function putObject(key: string, buffer: Buffer | string, mime?: string, opt?: { forbidOverwrite?: boolean }): Promise<void> {
   const oss = await getOSSClient()
   const options: Record<string, any> = {}
-  if (mime) options.headers = { 'Content-Type': mime }
+  const headers: Record<string, string> = {}
+  if (mime) headers['Content-Type'] = mime
+  if (opt?.forbidOverwrite) headers['x-oss-forbid-overwrite'] = 'true'
+  if (Object.keys(headers).length) options.headers = headers
   await oss.put(key, buffer, options)
 }
 

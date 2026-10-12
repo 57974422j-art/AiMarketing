@@ -47,7 +47,12 @@ export async function GET(request: NextRequest) {
   const common = {
     'Content-Type': 'video/mp4',
     'Accept-Ranges': 'bytes',          // ★关键：告诉浏览器"可以按段请求"（可拖动、可边下边播）
-    'Cache-Control': 'public, max-age=86400',
+    // ★VF_PRIVCACHE_V1b（2026-10-12 用户定案「改」）：原来这里是 `public` —— `public` 允许**共享缓存**
+    //   （CDN / 企业网关 / 未来加的 nginx proxy_cache）按 URL 缓存。本路由**无人鉴权**、按 `id` 取服务器
+    //   本地产物（`public/generated/{id}.mp4`）⇒ 不同用户同名 id 时，共享缓存会把**先访问者的片子**返给后来的人。
+    //   服务器实测：nginx **没有** `proxy_cache`（只有 `proxy_cache_bypass $http_upgrade`，那是 WebSocket 升级配置，
+    //   单独出现不产生缓存）⇒ 当前没有中间层在缓存；这里改成 `private` 是**堵住将来**（加 CDN/网关就出事）。
+    'Cache-Control': 'private, max-age=86400',
   }
 
   // ── Range 请求（播放器几乎总是带 Range）→ 206 ──
