@@ -16,11 +16,16 @@ AI 统一入口：src/lib/ai-providers.ts。
 ## 分工（铁律）
 - 本地代码修改、git add/commit/push：由 AI 助手完成。
 - 服务器操作（git pull / prisma db push / build / pm2 restart / 上传发布文件）：**始终由用户本人执行**，AI 只提供可复制的完整命令。
-- 服务器标准部署：cd /root/AiMarketing && git pull origin master && npm run build && pm2 restart aimarketing
-  （涉及 schema 改动时在 build 前补：npx prisma db push && npx prisma generate）
+- 服务器标准部署（★ 2026-10-12 更正：下面这条旧命令**已废弃、禁止再用**）：
+  `cd /root/AiMarketing && git fetch origin && git reset --hard origin/master && bash scripts/deploy-server.sh`
+  - ⛔ 旧命令 `git pull origin master && npm run build && pm2 restart aimarketing` 的问题：它漏了 standalone 产物必需的
+    `.next/static` 与 `public` 拷贝 ⇒ 服务器前台 JS/CSS 全 404 ⇒ **"前台样式全部丢失"**（用户实测过，事故详见 AGENTS.md 硬规则）。
+  - 最前面的 `git fetch origin && git reset --hard origin/master` **不能省**：要保证即将执行的 `deploy-server.sh` 本身是最新版。
 
 ## 强制规则
-1. 不读 .next、node_modules、.git。
+1. 不读 .next、node_modules、.git、dist-rel、backup-*，以及 `temp` 里的打包暂存/旧渲染目录
+   （这些已写进 `.codebuddy/ignore`）。**只按用户指定范围取证，不整仓目录扫描**（仓库噪音 4 万+ 文件，会白烧上下文）。
+   回归测试脚本 `temp/_spec/*.mjs`、`temp/_repo/test.mjs` **保留可读**（不在 ignore 内）。
 2. 数据库安全：严禁 prisma migrate reset、db push --force-reset、--accept-data-loss。
    本地允许执行 npx prisma generate（只生成 TS 类型，不碰数据库）；本地 db push 只打本地库，与服务器数据无关。
 3. 删除文件、修改 package.json/tsconfig.json 前须先说明原因并征得同意

@@ -1,0 +1,38 @@
+# .codebuddy/ignore —— 上下文过滤（类 .gitignore 语法）
+# 作用：列在这里的路径「不索引、不参与搜索、不进目录快照」⇒ 不进入 AI 的上下文。
+# 建立原因（2026-10-12 用户提出「上下文消耗快 / 没做多少事就压缩」）：
+#   本仓库 6 万+ 文件里绝大多数是**可再生噪音**，一次目录级扫描就会把老副本、渲染产物带进来
+#   （实测证据：tsc 输出里混进过 backup-hotspot-20260808/src 的老副本；搜索曾触发 buffer limit）。
+#
+# ★ 口径：**只排除「依赖 / 构建产物 / 备份 / 旧渲染版本」；源码一律保留**。
+#   不排除：src/ · scripts/video-factory/html-deck/{tools,runtime,styles,masters,assets}/ ·
+#          public/ · electron/ · prisma/ · docs/ · temp/_spec/（回归测试）· temp/_repo/（test.mjs）
+#   要看被排除的东西：跟 AI 说一声，临时删掉对应行即可（1 行改动，随时回滚）。
+
+# ── 依赖 & 构建产物 ──
+node_modules/
+.next/
+.git/
+dist-rel/
+build/
+scripts/video-factory/html-deck/node_modules/
+
+# ── 渲染产物（可再生成，out/ 单个就 1535 文件）──
+scripts/video-factory/html-deck/out/
+scripts/video-factory/html-deck/out-master-v2/
+scripts/video-factory/html-deck/out-tmp-pool/
+scripts/video-factory/html-deck/out-tmp-batch/
+scripts/video-factory/html-deck/out-tmp-ctl/
+scripts/video-factory/html-deck/out-tmp-skin2/
+scripts/video-factory/html-deck/out-tmp-final/
+
+# ── 老备份（含 src 老副本，会污染搜索结果）──
+backup-hotspot-20260808/
+backup-20260816/
+
+# ── temp：打包暂存 17091 文件 + 旧渲染版本（v7..v16 / _travfilm / _peek）──
+#    ⚠️ 保留 temp/_spec/（回归测试 *.mjs）与 temp/_repo/（test.mjs），它们**不**在排除内。
+temp/python-pack-stage/
+temp/_travfilm/
+temp/_peek/
+temp/v*/

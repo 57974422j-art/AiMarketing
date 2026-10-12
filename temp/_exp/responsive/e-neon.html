@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-mode="preview">
+<head>
+<meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>赛博风 · 3 段（e-neon v2）</title>
+<!--
+  图片槽位（渐变占位；真图换成 url("images/N.jpg")）
+   1 主视觉（16:9，cover）｜2 细节（1:1，cover）｜3 收尾（16:9，cover）
+  双模式：默认 preview（三段纵向可滚动 + **自动循环播放**）；调用 window.__seek(t) ⇒ 切 film（叠放·确定性）
+  动效（每段 5 类）：① 网格漂移 ② 图缓慢推近 ③ 标题逐行扫入 ④ 读数条生长 ⑤ 扫描线扫过
+  文字量（R11）：每段 = 标记 5 字 + 标题 8 字（2 行）+ 3 条读数（各 4 字）
+  ★ 配色收敛（去 AI 味）：只留**一个**荧光青 + 一处洋红点缀；不再青洋满屏。
+-->
+<style>
+  :root{
+    --bg:#06080C; --bg2:#0B1119; --ink:#E9F4FF; --dim:#7E93A6; --cy:#3FE0FF; --mg:#FF2D6F;
+    --pad:clamp(24px,3.6vmin,50px); --gap:clamp(14px,2vmin,26px);
+    --title:clamp(44px,7.2vmin,94px); --label:22px; --num:clamp(30px,4.2vmin,58px);
+    --sp:1; --d:0;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  /* ★VF_NOWRAP_V1（用户实测：「先涮后蘸」被折成「先涮后/蘸」）：短标签一律不折行 +
+     窄窗口降级列数（<600px：3 列 → 2 列）+ 中文 word-break:keep-all 防单字落行。 */
+  .tag, .r b, .r i, h2 span, .kick{white-space:nowrap;word-break:keep-all}
+  @media (max-width:600px){ .read{grid-template-columns:1fr 1fr} }
+  html,body{background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;
+    font-family:"Noto Sans SC","PingFang SC",system-ui,sans-serif}
+  /* ① 网格底：随段内进度缓慢漂移（整段都在动，不是入场一下就停） */
+  body::before{content:"";position:fixed;inset:-12%;pointer-events:none;opacity:.42;
+    background:
+      repeating-linear-gradient(0deg,transparent 0 92px,rgba(63,224,255,.11) 92px 93px),
+      repeating-linear-gradient(90deg,transparent 0 92px,rgba(63,224,255,.08) 92px 93px);
+    transform:translate3d(0,calc(var(--sp) * -30px),0)}
+  html[data-mode="preview"] body{overflow-y:auto}
+  html[data-mode="preview"] .sec{position:relative;height:100vh;min-height:520px}
+  html[data-mode="preview"] .sec + .sec{border-top:1px solid rgba(63,224,255,.14)}
+  html[data-mode="film"] body{overflow:hidden;width:100vw;height:100vh}
+  html[data-mode="film"] .sec{position:absolute;inset:0;opacity:0}
+  html[data-mode="film"] .sec[data-live="1"]{opacity:1}
+
+  .sec{padding:var(--pad);display:grid;gap:var(--gap);
+    grid-template-columns:minmax(0,1fr);
+    grid-template-rows:auto auto minmax(0,1fr) auto;
+    grid-template-areas:"tag" "title" "fig" "read"}
+  @media (min-aspect-ratio:1/1){
+    .sec{grid-template-columns:minmax(0,1.08fr) minmax(0,1fr);
+      grid-template-rows:auto auto minmax(0,1fr);
+      grid-template-areas:"tag fig" "title fig" "read fig"}
+  }
+
+  /* 标记行：细、紧、带一条会"长出来"的线 —— 不做发光描边框那套 */
+  .tag{grid-area:tag;display:flex;align-items:center;gap:12px;font-size:var(--label);
+    letter-spacing:.26em;color:var(--cy);opacity:clamp(0,calc(var(--sp)*5),1)}
+  .tag::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--cy),transparent);
+    transform-origin:left;transform:scaleX(clamp(0,calc((var(--sp) - .05)*3),1))}
+
+  /* 行高 1.03 太挤（中文行内盒 ≈1.4×字号会溢出**行盒**、撞图外框，R5 实测报警）⇒ 1.14 */
+  h2{grid-area:title;font-size:var(--title);line-height:1.14;font-weight:900;letter-spacing:-.015em}
+  h2 span{display:block;opacity:clamp(0,calc((var(--sp) - var(--d,0))*4),1);
+    transform:translateX(calc(-34px*(1 - clamp(0,calc((var(--sp) - var(--d,0))*4),1))))}
+  h2 span:nth-child(2){--d:.18;color:var(--cy)}
+  h2 i{font-style:normal;color:var(--mg)}   /* 洋红**只用一处**：标题里的一个字 */
+
+  .fig{grid-area:fig;min-height:0;position:relative;overflow:hidden;border-radius:2px;margin-top:10px;
+    background:linear-gradient(146deg,#071620 0%,#0E3A4A 48%,#1B6C7E 100%);
+    box-shadow:0 0 0 1px rgba(63,224,255,.22) inset;
+    transform:scale(calc(1.06 - .06*var(--sp)))}
+  .fig::after{content:"";position:absolute;left:0;right:0;height:30%;pointer-events:none;   /* ⑤ 扫描线 */
+    background:linear-gradient(transparent,rgba(63,224,255,.20),transparent);
+    top:calc(-30% + var(--sp)*130%)}
+  .s2 .fig{background:linear-gradient(146deg,#0A0F14 0%,#123243 52%,#2A7C93 100%)}
+  .s3 .fig{background:linear-gradient(146deg,#050B12 0%,#0F2C3A 52%,#1E5F73 100%)}
+
+  /* 读数：**1 大 + 2 小**（不等分），避免三卡等宽的报表味 */
+  /* 横屏时这一格是弹性行 ⇒ align-self:end 让读数沉到底；错峰提前收尾（原来段末才就位） */
+  .read{grid-area:read;display:grid;grid-template-columns:1.5fr 1fr 1fr;gap:var(--gap);align-self:end;
+    border-top:1px solid rgba(63,224,255,.18);padding-top:var(--gap)}
+  .r{display:flex;flex-direction:column;gap:3px;opacity:clamp(0,calc((var(--sp) - var(--d,0))*4),1)}
+  .r:nth-child(1){--d:.16} .r:nth-child(2){--d:.24} .r:nth-child(3){--d:.32}
+  .r::before{content:"";height:2px;width:clamp(46px,7vmin,110px);background:var(--cy);
+    transform-origin:left;transform:scaleX(clamp(0,calc((var(--sp) - var(--d,0))*3),1))}
+  .r b{font-size:var(--num);line-height:1.08}
+  .r:nth-child(2) b,.r:nth-child(3) b{font-size:clamp(24px,3vmin,38px);color:var(--dim)}
+  .r i{font-style:normal;font-size:var(--label);color:var(--dim)}
+</style>
+</head>
+<body>
+  <section class="sec s1" data-seg="1" data-start="0" data-duration="3.2" data-place="cover" data-form="overlay">
+    <div class="tag">NODE-07 夜食</div>
+    <h2><span>四点起火</span><span>清汤先<i>滚</i></span></h2>
+    <div class="fig"></div>
+    <div class="read">
+      <div class="r"><b>炭火慢炖</b><i>六小时</i></div>
+      <div class="r"><b>清汤见底</b><i>无添加</i></div>
+      <div class="r"><b>现切现涮</b><i>不过夜</i></div>
+    </div>
+  </section>
+
+  <section class="sec s2" data-seg="2" data-start="3.2" data-duration="3.2" data-place="cover" data-form="sticker">
+    <div class="tag">BOOTH-02 手作</div>
+    <h2><span>刀起刀落</span><span>薄如<i>纸</i>片</span></h2>
+    <div class="fig"></div>
+    <div class="read">
+      <div class="r"><b>手切上脑</b><i>立盘不掉</i></div>
+      <div class="r"><b>冰盘垫底</b><i>保脆嫩</i></div>
+      <div class="r"><b>三秒入锅</b><i>口感最佳</i></div>
+    </div>
+  </section>
+
+  <section class="sec s3" data-seg="3" data-start="6.4" data-duration="3.2" data-place="cover" data-form="vertical">
+    <div class="tag">POT-01 招牌</div>
+    <h2><span>一锅清汤</span><span>涮尽<i>鲜</i>味</span></h2>
+    <div class="fig"></div>
+    <div class="read">
+      <div class="r"><b>铜锅炭火</b><i>老北京</i></div>
+      <div class="r"><b>先涮后蘸</b><i>麻酱韭花</i></div>
+      <div class="r"><b>七上八下</b><i>毛肚最佳</i></div>
+    </div>
+  </section>
+
+<script>
+  /* 双模式（同 d-daily）：preview = 每段各自循环（人打开就能看见动）；__seek = 确定性出片并停循环 */
+  (function () {
+    var SECS = [{ s: 0, d: 3.2 }, { s: 3.2, d: 3.2 }, { s: 6.4, d: 3.2 }]
+    var nodes = Array.prototype.slice.call(document.querySelectorAll('.sec'))
+    var D = 3200, GAP = 700, t0 = (window.performance && performance.now) ? performance.now() : 0
+
+    function paint(list) {
+      for (var i = 0; i < list.length; i++) {
+        list[i].node.style.setProperty('--sp', list[i].sp)
+        list[i].node.style.setProperty('--d', 0)
+      }
+    }
+    function loop(now) {
+      if (document.documentElement.dataset.mode === 'film') return
+      var out = []
+      for (var i = 0; i < nodes.length; i++) {
+        var t = ((now - t0 - i * GAP) % (D + GAP) + (D + GAP)) % (D + GAP)
+        out.push({ node: nodes[i], sp: Math.min(1, t / D) })
+      }
+      paint(out)
+      requestAnimationFrame(loop)
+    }
+    window.__seek = function (t) {
+      document.documentElement.dataset.mode = 'film'
+      t = Number(t) || 0
+      var idx = 0
+      for (var i = 0; i < SECS.length; i++) if (t >= SECS[i].s && t < SECS[i].s + SECS[i].d) idx = i
+      if (t >= SECS[SECS.length - 1].s + SECS[SECS.length - 1].d) idx = SECS.length - 1
+      var out = []
+      for (var k = 0; k < nodes.length; k++) {
+        var live = (k === idx)
+        nodes[k].dataset.live = live ? '1' : '0'
+        out.push({ node: nodes[k], sp: live ? Math.max(0, Math.min(1, (t - SECS[k].s) / SECS[k].d)) : 1 })
+      }
+      paint(out)
+    }
+    requestAnimationFrame(loop)
+  })()
+</script>
+</body>
+</html>

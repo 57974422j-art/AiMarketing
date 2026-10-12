@@ -3756,6 +3756,9 @@ function AgentPageInner() {
     // ★VF_LEAD_V1（2026-09-29 老板定案）：第 5 条状态机线 ——「智能获客」设置面板。
     //   ⚠️ 与 standard-commands.ts 的 STD_COMMANDS 必须一字不差（后端是"去空白后完全相等"）。
     '智能获客',
+    // ★VF_DAILY_V1（2026-10-12 用户定案）：第 9 条状态机线 ——「日报落地页」（选素材 → 出 HTML）。
+    //   ⚠️ 同样必须与 standard-commands.ts 的 text 一字不差。
+    '日报落地页',
     // ★STD_MODE_V1（2026-09-21，用户定案）：「帮我搜一下小红书…」**删除**（不做）；
     //   剩下的「热点 / 配乐 / 记录待办」先留着 —— 点了由后端回「开发中」（standard-commands.ts 里 kind:'wip'）。
     //   ⚠️ 这里每一条都必须与 `src/lib/agent/standard-commands.ts` 的 STD_COMMANDS **一字不差**

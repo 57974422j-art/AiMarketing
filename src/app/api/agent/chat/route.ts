@@ -30,6 +30,8 @@ import { matchesMixLine, clearVfMixDraft, hasMixDraft } from '@/lib/agent/vf/vf-
 // ★VF_LEAD_V1（2026-09-29 老板定案）：「智能获客」= 第 5 条状态机线。草稿 tag 独立（vf_draft_lead），
 //   纯函数 + prisma 注入（与成片线同一形态），静态 import 只为拿"清草稿/查草稿"两个函数。
 import { clearLeadDraft, hasLeadDraft, shouldTakeOverLeadLine, handleLeadLine } from '@/lib/agent/lead'
+// ★VF_DAILY_V1（2026-10-12）：第 9 条状态机线「日报落地页」（选素材 → 生成 HTML；本轮不出片）
+import { clearDailyDraft, hasDailyDraft, shouldTakeOverDailyLine, handleDailyLine } from '@/lib/agent/daily'
 // ★STD_MODE_V1（2026-09-21，用户定案）：标准模式 = 【命令白名单，锁死】——
 //   命令表唯一真相源在 `src/lib/agent/standard-commands.ts`（加/改命令只改那张表，别再往这里加正则）。
 import { matchStdCommand, STD_UNSUPPORTED_REPLY, STD_WIP_REPLY, STD_QUERY_RE, isStdSettingMessage, stdGatePass, i2vIntentOf } from '@/lib/agent/standard-commands'
@@ -975,6 +977,8 @@ async function stdClearAllDrafts(userId: number | string): Promise<void> {
   try { await clearLeadDraft(prisma, uid) } catch { /* ignore */ }     // 智能获客线
   // ★VF_PPTSOLO_V1（2026-10-06）：PPT 成片线（第 6 条状态机线）—— 同上，不在这里清则「命令=重来」对它不成立
   try { const { clearPptDraft } = await import('@/lib/agent/vf/vf-ppt'); await clearPptDraft(prisma, uid) } catch { /* ignore */ }
+  // ★VF_DAILY_V1（2026-10-12）：日报落地页线（第 9 条状态机线）—— 同上，不在这里清则「命令=重来」对它不成立
+  try { await clearDailyDraft(prisma, uid) } catch { /* ignore */ }
 }
 
 /**
@@ -1012,6 +1016,10 @@ async function stdHasAnyDraft(userId: number | string): Promise<boolean> {
   //   不登记这张名单 ⇒ 第 2/3 步协议串（`VF_FILM_FORM:` / `VF_FILM_GO:`）会被闸门锁死。
   //   （动态 import：与 vf-ppt 同一写法，避免把渲染链拖进启动路径）
   try { const { hasHtmlFilmDraft } = await import('@/lib/agent/vf/vf-htmlfilm'); if (await hasHtmlFilmDraft(prisma, uid)) return true } catch { /* ignore */ }
+  // ★VF_DAILY_V1（2026-10-12）：**日报落地页线补登记**（第 9 条）。
+  //   不登记这张名单 ⇒ 它的第 2 步（用户回 `1,3,5` 选素材 / 回 `自动`，都不是标准命令）会被锁死回复拦住
+  //   —— 与 09-28 视频混剪、09-29 获客线、10-07 PPT、10-08 HTML成片**同一个坑**（这次是第五次预防）。
+  try { if (await hasDailyDraft(prisma, uid)) return true } catch { /* ignore */ }
   return false
 }
 
@@ -4322,6 +4330,28 @@ PUBLISH_DRAFT.delete(uidW)
         //   ⇒ 消息落到 AI ⇒ 模型自己编一个"长得像我们的卡"的协议串（实测 `step:"ppt_plan"`，全仓无此值）。
         //   本线判定**精确到自己的命令（stdCmdHit.id === 'vf_ppt'）与自己的协议串（^VF_PPT_FORM:）**，
         //   且**不再看 leadHandled**（否则又被获客线挡住）⇒ 放最前面零风险。
+        // ═══ ★VF_DAILY_V1（2026-10-12 用户定案）：【日报落地页】独立状态机（第 9 条线）═══
+        //   用户原话：「不要一次就搞 HTML 成片 AI 自主…应该加一个让我们的 AI AGENT 有做日报落地页的能力」
+        //            「不做到出片 你做到选素材 出HTML 就行」。
+        //   本轮范围 = 选素材 → 生成合规 HTML（存个人仓库、可下载），**不做视频出片**。
+        //   为什么放最前 + 只看自己：与 PPT / HTML成片 同一理由 —— 被别的线挡过一次就再也轮不到。
+        //   ⚠️ 登记三处（命令表 / stdHasAnyDraft / stdClearAllDrafts）已在本次一并加好。
+        try {
+          const _msgDL = String(userMessage || '').trim()
+          if (stdCmdOwned(['daily']) || await shouldTakeOverDailyLine(prisma, uidVF2, _msgDL)) {
+            const _rDL = await handleDailyLine({
+              uid: uidVF2,
+              userMessage,
+              prisma,
+              isEntry: !!stdCmdHit && stdCmdHit.id === 'daily',
+              log: (u: number | string, s: string) => { try { vfLog(u, s) } catch { /* ignore */ } },
+            })
+            if (_rDL) { wfEarlyReply = _rDL; finalResult = _rDL }
+            try { vfLog(uidVF2, `[日报落地页-DIAG] hit=true entry=${!!stdCmdHit && stdCmdHit.id === 'daily'} r=${_rDL ? 'ok' : 'null'}`) } catch { /* ignore */ }
+          }
+        } catch (eDL: any) {
+          try { vfLog(uidVF2, '[日报落地页] 分派异常：' + String(eDL?.message || eDL)) } catch { /* ignore */ }
+        }
         // ═══════════════════════════════════════════════════════════════════════════
         // ═══ ★VF_HTMLSTD_V1（2026-10-08 用户定案「要」）：【HTML成片】独立状态机（第 8 条线）═══
         //   为什么放最前：本线判定**精确到自己的命令（stdCmdHit.id==='film'）与自己的协议串

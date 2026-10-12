@@ -110,6 +110,16 @@ export const STD_COMMANDS: StdCommand[] = [
     alias: ['素材片', '素材短片', '做条素材片', '素材集', 'showreel'],
     note: 'HTML成片线状态机（素材卡→风格卡→确认卡→出片；HTML 逐帧渲染，风格包 + 镜头组，不额外扣点）' },
 
+  // ★VF_DAILY_V1（2026-10-12 用户定案）：第 9 条状态机线 ——「日报落地页」。
+  //   用户原话：「不要一次就搞 HTML 成片 AI 自主…应该加一个让我们的 AI AGENT 有做日报落地页的能力」
+  //            「不做到出片 你做到选素材 出HTML 就行」。
+  //   本轮范围 = **选素材 → 生成合规 HTML（存个人仓库，可下载）**，不做视频出片。
+  //   ⚠️ 与其它 8 条线同款铁律：命令登记这里 + 草稿登记 route.ts 的 stdHasAnyDraft / stdClearAllDrafts
+  //      + 分派块放最前（route.ts 4326 之前），缺一处就会出现"第 2 步被锁死 / 命令≠重来"。
+  { id: 'daily', text: '日报落地页', kind: 'machine',
+    alias: ['日报页', '做日报页'],
+    note: '日报落地页线状态机（选素材 → 生成 HTML；本轮不出片，实现在 src/lib/agent/daily.ts）' },
+
   // ── 缺口（用户定案：先回"开发中"，把手上 7 条做扎实）──────────────────
   { id: 'hotspot',  text: '帮我查一下今日热点',        kind: 'wip',     note: '⚠️ 缺专用工具（只有 /api/agent/hotspots 接口，工具箱里没有热点工具）' },
   { id: 'music',    text: '帮我配一段背景音乐',        kind: 'wip',     note: '⚠️ Agent 侧无音乐工具（只有网页 /api/music/generate）' },
