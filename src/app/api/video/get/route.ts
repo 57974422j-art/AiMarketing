@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import path from 'path'
 import fs from 'fs'
 import { Readable } from 'stream'
+import { getAuthFromCookie } from '@/lib/api-auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,6 +27,11 @@ function genDir(): string {
  * 现在：路径校验回到代码里 + 支持 `Range`（206 Partial Content）+ `inline` + 流式返回（不吃内存）。
  */
 export async function GET(request: NextRequest) {
+  // ★VF_VIDEOAUTH_V1（2026-10-12 用户定案「有BUG先处理」）：本路由原来**无鉴权** ——
+  //   只要按 `?id=` 猜，任何人都能取到服务器本地的生成物（`public/generated/{id}.mp4`）。
+  //   现口径：**必须登录**。（更细的"只能看自己的片子"需要按 id 反查任务归属，另行处理。）
+  const auth = getAuthFromCookie(request)
+  if (!auth?.userId) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
   const rawId = (request.nextUrl.searchParams.get('id') || '').trim()
   // 允许传 "xxx" 或 "xxx.mp4"；其余一律拒绝（防路径穿越）
   const base = rawId.replace(/\.mp4$/i, '')

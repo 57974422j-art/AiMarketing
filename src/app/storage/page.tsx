@@ -29,6 +29,8 @@ export default function StoragePage() {
   const [backed, setBacked] = useState(0)
   // ★VF_THUMBGC_V1（2026-10-12 收口「缩略图孤儿」）：清理按钮的进行中状态
   const [cleaning, setCleaning] = useState(false)
+  // ★VF_THUMBREBUILD_V1（2026-10-12 用户定案「个人仓库这里 先修改好」）：重建缩略图按钮的进行中状态
+  const [rebuilding, setRebuilding] = useState(false)
   // ★VF_REPOSPLIT_V1b（2026-10-12 用户实测「我没看见切换生成素材原始素材的按键」）：
   //   **切换按键**（分段控件）：全部 / 原始素材 / 生成素材。
   const [tab, setTab] = useState<'all' | 'asset' | 'gen'>('all')
@@ -146,6 +148,21 @@ export default function StoragePage() {
     finally { setCleaning(false) }
   }
 
+  // ★VF_THUMBREBUILD_V1（2026-10-12 用户定案「个人仓库这里 先修改好」）：**重建缩略图**
+  //   与「清理孤儿」分工：孤儿 = `.thumbs/` 里**没有主文件**（历史垃圾）；
+  //   重建 = 有主文件、但缩略图**内容不对**（旧帧/张冠李戴）⇒ 删掉后由列表懒补齐**按现视频重抽**。
+  //   ⚠️ 只删缩略图，不碰任何素材；用户点才删。
+  const rebuildThumbs = async () => {
+    setRebuilding(true)
+    try {
+      const r = await fetch('/api/storage/rebuild-thumbs', { method: 'POST', credentials: 'include' })
+      const d = await r.json()
+      if (d.success) { showToast(d.message || '已重建缩略图', 'success'); load() }
+      else showToast(d.message || '重建失败', 'error')
+    } catch { showToast('重建失败', 'error') }
+    finally { setRebuilding(false) }
+  }
+
   const backupAll = async () => {
     const api = (window as any).electronAPI
     if (!api?.storageMirror) { showToast('一键备份只在客户端里可用（浏览器没有本地仓库）', 'error'); return }
@@ -213,6 +230,17 @@ export default function StoragePage() {
             >
               {cleaning ? '⏳ 清理中…' : '🧹 清理孤儿缩略图'}
             </button>
+            {/* ★VF_THUMBREBUILD_V1（用户定案「个人仓库这里先修改好」）：**重建缩略图** ——
+                「缩略图和素材不一样」时点它：删掉现有缩略图 ⇒ 刷新后系统按**现在的视频**重抽一帧。
+                与「清理孤儿」的分工写在 title 里（孤儿=没主文件；重建=有主文件但图不对）。 */}
+            <button
+              onClick={rebuildThumbs}
+              disabled={rebuilding}
+              title="缩略图和视频对不上时点这个：删掉现有缩略图，刷新后按现在的视频重新抽帧（只动缩略图，不动素材）"
+              className="text-sm px-3 py-2 rounded-lg bg-amber-500/[0.12] hover:bg-amber-500/[0.22] text-amber-100 border border-amber-400/25 disabled:opacity-50"
+            >
+              {rebuilding ? '⏳ 重建中…' : '🖼 重建缩略图'}
+            </button>
           </div>
         </div>
 
@@ -257,6 +285,14 @@ export default function StoragePage() {
               className="px-3 py-1.5 rounded-lg text-xs border bg-white/[0.04] border-white/10 text-gray-300 hover:bg-white/[0.10]">
               {allSelected ? '取消全选' : `全选本组 ${shown.length}`}
             </button>
+            {/* ★VF_DELETEALL_V1（2026-10-12 用户问「个人仓库中的全部删除键去哪里了」）：
+                给一个**跨分组**的"全选全部"入口 —— 选中数 = 全部时，下面的按钮会变成「删除全部 N」，
+                也就是**一键删全部**（仍然走 delBatch 的二次确认：删除 = OSS 真删、不可恢复）。 */}
+            <button onClick={() => setSelected(new Set(files.map(f => f.name)))}
+              title="选中两个分组里的全部文件（选中后按钮会变成「删除全部」）"
+              className="px-3 py-1.5 rounded-lg text-xs border bg-white/[0.04] border-white/10 text-gray-300 hover:bg-white/[0.10]">
+              全选全部 {files.length}
+            </button>
             {selected.size > 0 && (
               <>
                 <button onClick={() => setSelected(new Set())}
@@ -264,8 +300,13 @@ export default function StoragePage() {
                   清空选择
                 </button>
                 <button onClick={delBatch}
-                  className="px-3 py-1.5 rounded-lg text-xs border bg-red-500/20 border-red-400/40 text-red-200 hover:bg-red-500/30">
-                  删除选中 {selected.size}
+                  className={'px-3 py-1.5 rounded-lg text-xs border hover:bg-red-500/30 '
+                    + (files.length > 0 && selected.size >= files.length
+                      ? 'bg-red-500/35 border-red-400/60 text-white'
+                      : 'bg-red-500/20 border-red-400/40 text-red-200')}>
+                  {files.length > 0 && selected.size >= files.length
+                    ? `删除全部 ${selected.size}`
+                    : `删除选中 ${selected.size}`}
                 </button>
               </>
             )}

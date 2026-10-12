@@ -1,14 +1,31 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { getAuthFromCookie } from '@/lib/api-auth'
 
 /**
  * 流式返回测试接口
  * 用法: /api/debug-oss/stream?key=storage/1/xxx.mp4
  * 直接在浏览器打开测试视频能否播放
+ *
+ * ★VF_DEBUGAUTH_V1（2026-10-12 用户定案「有BUG先处理」）：**本路由原先是完全公开的** ——
+ *   任何人只要拼一个 key 就能用服务器上的 OSS 凭证读**任意对象**（含别人的 `storage/{uid}/…` 私有素材），
+ *   还带 `public` 缓存（共享缓存/网关会把内容再扩散一层）。这是越权读，属于必须修的一类。
+ *   现口径：① **必须登录**；② 只允许读**自己**的 `storage/{uid}/` 前缀（admin 可读全部）；
+ *   ③ 缓存 `public` → `private`（私有内容不许共享缓存）。
+ *   ⚠️ 它只是排查用的手工工具，生产环境若用不到，直接删掉更干净（删文件需你点头）。
  */
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
+  const auth = getAuthFromCookie(request)
+  if (!auth?.userId) return NextResponse.json({ error: '请先登录' }, { status: 401 })
+
   const url = new URL(request.url)
   const key = url.searchParams.get('key')
   if (!key) return NextResponse.json({ error: '缺少key参数' }, { status: 400 })
+
+  // 越权闸门：非 admin 只能读自己 uid 前缀下的对象
+  const ownPrefix = `storage/${auth.userId}/`
+  if (auth.role !== 'admin' && !key.startsWith(ownPrefix)) {
+    return NextResponse.json({ error: '只能读取自己的文件（storage/' + auth.userId + '/…）' }, { status: 403 })
+  }
 
   try {
     // 读取环境变量
@@ -36,7 +53,7 @@ export async function GET(request: Request) {
       // 检查 stream 是否有效
       if (!stream || typeof stream.pipe !== 'function') throw new Error('getStream返回无效')
       return new NextResponse(stream as any, {
-        headers: { 'Content-Type': 'video/mp4', 'Cache-Control': 'public, max-age=3600' },
+        headers: { 'Content-Type': 'video/mp4', 'Cache-Control': 'private, max-age=300' },
       })
     } catch (streamErr: any) {
       // 方案B失败 → 方案C: fetch签名URL再返回buffer (兼容性最好)
@@ -45,7 +62,7 @@ export async function GET(request: Request) {
       if (!resp.ok) throw new Error(`fetch OSS失败: ${resp.status}`)
       const buffer = Buffer.from(await resp.arrayBuffer())
       return new NextResponse(buffer, {
-        headers: { 'Content-Type': 'video/mp4', 'Content-Length': String(buffer.length), 'Cache-Control': 'public, max-age=3600' },
+        headers: { 'Content-Type': 'video/mp4', 'Content-Length': String(buffer.length), 'Cache-Control': 'private, max-age=300' },
       })
     }
   } catch (e: any) {
