@@ -221,6 +221,12 @@ export function isStdNoDraftAllowed(msg: string): boolean {
   //   （与 `VF_PPT_FORM` 同一规矩；这条是兜底：草稿因任何原因没读到时也不会被锁死）。
   if (/^VF_FILM_FORM\s*[:{]/.test(m)) return true
   if (/^VF_FILM_GO\s*[:{]/.test(m)) return true
+  // ★VF_DAILY_V5（2026-10-12）：**日报落地页线**（第 9 条状态机线）的素材卡协议串
+  //   —— 素材卡「下一步 / 刷新列表」。与 `VF_FILM_FORM` 同一规矩：只由我们自己的卡片按钮产生、
+  //   进线后仍过本线 step 校验 ⇒ 放行安全（兜底：草稿因任何原因没读到也不会被锁死）。
+  //   ⚠️ 为什么另起一个串而不是复用 VF_FILM_FORM：两条线**各自有草稿**时会互相抢消息
+  //      （分派是"有草稿就接管"）；各发各的串 ⇒ 谁也不会吃掉谁（这个仓库这类抢线坑踩过五次）。
+  if (/^VF_DAILY_FORM\s*[:{]/.test(m)) return true
   return false
 }
 

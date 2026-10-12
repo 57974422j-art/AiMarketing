@@ -1967,7 +1967,10 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
   // 素材卡：没手动选过就默认勾最近 N 张（★VF_FILMSRC_V1：N 由**服务端**下发 `defRecent`，
   //   前端不再自己写一个 12 —— 上限也由服务端 `max` 下发，避免"前端 40 / 服务端 12"这种两处口径）
   const matMax = Number(vj?.max) || 60
-  const defRecent = Number(vj?.defRecent) || 12
+  // ★VF_DAILY_V5：`defRecent: 0` 必须**真的表示"默认一张都不勾"**（日报线手动选取模式要这个）。
+  //   旧写法 `Number(vj?.defRecent) || 12` 会把 0 变成 12 —— 那就等于"替用户勾了 12 张"。
+  //   成片线传的是 12 ⇒ 行为不变。
+  const defRecent = (vj?.defRecent === undefined || vj?.defRecent === null) ? 12 : (Number(vj.defRecent) || 0)
   useEffect(() => {
     if (step === 'film_mat' && !sel.length && images.length) setSel(images.slice(0, defRecent).map((x: any) => String(x.name)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1997,11 +2000,17 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
 
   const box = 'mb-2 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06]'
   const btn = 'px-3 py-1.5 rounded-lg text-xs border'
-  const next = (at: 'mat' | 'style' | 'back_mat' | 'back_style', extra?: any) => onSend('VF_FILM_FORM:' + JSON.stringify({ at, ...(extra || {}) }))
+  // ★VF_DAILY_V5：协议串前缀由卡里 `proto` 决定（成片线不传 ⇒ 仍是 VF_FILM_FORM，行为不变；
+  //   日报线传 'VF_DAILY_FORM' ⇒ **两条线各发各的串**，谁也不会抢谁的消息）
+  const protoWord = String(vj?.proto || 'VF_FILM_FORM')
+  const next = (at: 'mat' | 'style' | 'back_mat' | 'back_style', extra?: any) => onSend(protoWord + ':' + JSON.stringify({ at, ...(extra || {}) }))
 
   return (
     <div className={box}>
-      <div className="text-xs text-emerald-300 mb-2">🎬 HTML成片 · {vj?.hint || '第 1 步'}</div>
+      {/* ★VF_DAILY_V5（2026-10-12 用户定案「去看看 HTML 怎么做的」）：这张卡**被日报线复用**了
+          （服务端发 step:'film_mat' + title/nextLabel 两个标签）⇒ 卡片标题与下一步文案参数化，
+          默认值仍是成片线原话，成片线行为**逐字不变**。 */}
+      <div className="text-xs text-emerald-300 mb-2">{vj?.title || '🎬 HTML成片'} · {vj?.hint || '第 1 步'}</div>
 
       {/* ── 第 1 步：素材卡 ── */}
       {step === 'film_mat' ? (
@@ -2040,7 +2049,7 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
           )}
           <button onClick={() => next('mat', { names: sel })}
             className="w-full px-4 py-2 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100 text-sm font-medium">
-            下一步 → 选风格（已选 {sel.length || '最近'} 张）
+            {vj?.nextLabel || '下一步 → 选风格'}（已选 {sel.length || '最近'} 张）
           </button>
         </>
       ) : null}

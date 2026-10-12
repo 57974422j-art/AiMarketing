@@ -3501,7 +3501,10 @@ export async function POST(request: NextRequest) {
     //   ⇒ 与 3453 行 PPT 那次（VF_PPT_FORM）、3435 行 AI 制片那次**完全同因**。规律（写在上面那段注释里）：
     //     **新线上线要在四处同步登记** —— ①闸门放行 isStdNoDraftAllowed ②草稿名单 stdHasAnyDraft
     //     ③分派顺序（排前）④**本白名单**。我当时只登了 ①②③，漏了 ④。
-    const vfProtoWord = /^(VF_FORM|VF_PPT_FORM|VF_FILM_FORM|VF_FILM_GO|VF_EDIT|VF_I2V_OFF|VF_BRIEF|VF_JSON|VF_MAT_SET|VF_MAT_SWAP|VF_DECK_CONFIRM|FRAMES_OK|MAKE_VIDEO_TASK|MAKE_VIDEO_COST|MAKE_VIDEO_FAIL|BROWSER_TASK|TOOL_REJECT|VIDEO_RESULT|LEAD_CFG)\s*[:{]/.test(userMessage.trim())
+    // ★VF_DAILYPROTO_V1（2026-10-12）：再把**日报落地页**的 `VF_DAILY_FORM` 加进来 ——
+    //   理由与 PPT/FILM 两次**逐字相同**（同一族的第 6 处预防）：漏在这张白名单外 ⇒ `skipModelStep1=false`
+    //   ⇒ AI 那一步照样跑 ⇒ 卡片点了"下一步"却同时冒出一段 AI 编的话（甚至自己编一张卡）。
+    const vfProtoWord = /^(VF_FORM|VF_PPT_FORM|VF_FILM_FORM|VF_FILM_GO|VF_DAILY_FORM|VF_EDIT|VF_I2V_OFF|VF_BRIEF|VF_JSON|VF_MAT_SET|VF_MAT_SWAP|VF_DECK_CONFIRM|FRAMES_OK|MAKE_VIDEO_TASK|MAKE_VIDEO_COST|MAKE_VIDEO_FAIL|BROWSER_TASK|TOOL_REJECT|VIDEO_RESULT|LEAD_CFG)\s*[:{]/.test(userMessage.trim())
     // ★STD_MODE_V1：命中 machine 命令（发布 / 三条成片线）→ 强制进状态机（跳过 AI 那一步）
     // ★VF_I2VDFLT_V1：再加 `stdSettingWord`（改设置的说法 / VF_I2V_OFF 协议串）→ 同样强制进状态机，
     //   由两条成片线在 step='script' 里改 i2v 并重出确认卡（不再落进 AI 自由发挥/锁死）。
@@ -4342,7 +4345,11 @@ PUBLISH_DRAFT.delete(uidW)
         //   ⚠️ 登记三处（命令表 / stdHasAnyDraft / stdClearAllDrafts）已在本次一并加好。
         try {
           const _msgDL = String(userMessage || '').trim()
-          if (stdCmdOwned(['daily']) || await shouldTakeOverDailyLine(prisma, uidVF2, _msgDL)) {
+          // ★VF_DAILY_V5：补上 `!stdCmdHit ||`（照获客线那行的写法）——
+          //   旧写法 `stdCmdOwned(['daily']) || shouldTakeOver…` 会在**本线残留草稿**时把**别条命令**蹭走
+          //   （本线"有草稿就接管"，而别条命令不是命令命中本线 ⇒ 左边为 false、右边为 true）。
+          //   这与 09-28 视频混剪、09-29 获客、10-07 PPT、10-08 HTML成片是同一个坑 —— 这是本线自己的那一份。
+          if ((!stdCmdHit || stdCmdOwned(['daily'])) && (stdCmdOwned(['daily']) || await shouldTakeOverDailyLine(prisma, uidVF2, _msgDL))) {
             const _rDL = await handleDailyLine({
               uid: uidVF2,
               userMessage,

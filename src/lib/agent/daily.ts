@@ -126,9 +126,21 @@ function cleanSeg(v?: string): string { return String(v || '').replace(/^[/\\]+|
  * 返回的是**相对个人仓库根**的名字（`sub/xxx.jpg`），拼 key 时直接 `storage/{uid}/{name}`。
  */
 export async function listDailyImages(uid: number | string, limit = LIST_SHOWN, subdir = ''): Promise<string[]> {
+  const sub = cleanSeg(subdir)
+  if (!sub) {
+    // ★VF_DAILY_V5（2026-10-12 用户定案「仓库不要搞错：个人仓库对，但要进原始素材」）：
+    //   仓库根**与成片线同一口径** —— 走 `listRepoMaterials`（★VF_MATONLY_V1：`gen_` 生成物 +
+    //   **出片记录里的老成片**一律硬排除）。旧实现自己排一遍，只排 `gen_`/`.thumbs`，
+    //   会漏掉"改名之前的老成片"（如 `20261011_022.mp4`）⇒ 那就是用户说的"仓库搞错了"。
+    try {
+      const { listRepoMaterials } = await import('@/lib/agent/video-material')
+      const items = await listRepoMaterials(uid, limit, 'recent')
+      return (items || []).filter((m: any) => m?.kind === 'image')
+        .map((m: any) => String(m.name || '')).filter(Boolean).slice(0, limit)
+    } catch { /* 取不到就落到下面的老实现（不让"列目录失败"变成"没素材"） */ }
+  }
   try {
     const base = `storage/${uid}/`
-    const sub = cleanSeg(subdir)
     const prefix = sub ? `${base}${sub}/` : base
     const objs = await listAllObjects(prefix, 3000)
     return objs
@@ -140,6 +152,54 @@ export async function listDailyImages(uid: number | string, limit = LIST_SHOWN, 
       .reverse()
       .slice(0, limit)
   } catch { return [] }
+}
+
+/**
+ * ★VF_DAILY_V5：给素材卡用的「原始素材 + 24h 签名缩略图」。
+ * 与成片线 `vf-htmlfilm.ts` 的 `repoImages()` 同口径（同一底层、同一排除规则），
+ * 保证"日报线的素材"和"成片线的素材"是**同一批东西**。
+ */
+async function dailyMatItems(uid: number | string, limit = LIST_CAP): Promise<Array<{ name: string; url: string }>> {
+  try {
+    const { listRepoMaterials } = await import('@/lib/agent/video-material')
+    const { signedUrl } = await import('@/lib/oss')
+    const items = await listRepoMaterials(uid, limit, 'recent')
+    const imgs = (items || []).filter((m: any) => m?.kind === 'image').slice(0, limit)
+    const out: Array<{ name: string; url: string }> = []
+    for (const m of imgs) {
+      let url = ''
+      try { url = await signedUrl(`storage/${uid}/${m.name}`, 86400) } catch { /* 单张失败不影响整卡 */ }
+      out.push({ name: String(m.name || ''), url })
+    }
+    return out
+  } catch { return [] }
+}
+
+/**
+ * ★VF_DAILY_V5：**直接复用成片线那张素材卡**（`VF_JSON` + `step:'film_mat'`，前端 `VfFilmCard`）。
+ * 为什么不新造一张卡：用户在 18:35 原话「去看看 HTML 怎么做的」—— 那张卡有缩略图网格、
+ * 上传/刷新/全选/清空、勾选上限、默认勾选数全部现成；新造一张只会多一处漂移。
+ * 两处"会显示错线名"的字已参数化（`title` / `nextLabel`），默认值仍是成片线原话。
+ */
+async function dailyMatCard(uid: number | string, d: DailyDraft): Promise<string> {
+  const images = await dailyMatItems(uid, LIST_CAP)
+  const body = {
+    step: 'film_mat',
+    title: '📄 日报落地页',
+    hint: images.length
+      // ⚠️ 卡片里的 hint 是**纯文本**（不渲染 markdown）⇒ 不能写 `**加粗**`（会原样露出星号）
+      ? '第 1 步 / 共 3 步 · 选原始素材（只列你上传的图，成片不算素材；最多勾 ' + DAILY_MAX_PICK + ' 张，不勾就用最近 ' + DAILY_MAX_PICK + ' 张）'
+      : '第 1 步 / 共 3 步 · 还没有原始素材 —— 先点「⬆️ 上传图片」传几张（成片不算素材）',
+    nextLabel: '下一步 → 看方案',
+    proto: 'VF_DAILY_FORM',   // ★本线的协议串（前端 `next()` 用它，不跟成片线共用）
+    images,
+    names: Array.isArray(d.names) ? d.names : [],
+    max: DAILY_MAX_PICK,
+    poolMax: LIST_CAP,
+    defRecent: 0,          // 手动选取模式：**不替用户勾**（不勾就按最近 N 张，并在回复里说清）
+    pack: '',
+  }
+  return 'VF_JSON:' + JSON.stringify(body)
 }
 
 /** 本机目录白名单（防止一句话让服务端乱读任意路径） */
@@ -343,6 +403,39 @@ function materialsReply(d: DailyDraft, names: string[], src: DailySource): strin
   return L.join('\n')
 }
 
+/** ★VF_DAILY_V5：挑完图 → AI 看素材排方案 → 返回"方案确认"回复。
+ *  卡片协议串与"文字回序号"两条入口**共用这一份**（免得两处各排一遍、行为漂移）。 */
+async function runPlan(ctx: DailyCtx, d: DailyDraft, src: DailySource, picked: string[], note0 = ''): Promise<string> {
+  const uid = ctx.uid
+  const picks = toPicks(uid, src, picked)
+  d.source = src
+  d.names = picked
+  try { ctx.log?.(uid, `[日报落地页] AI 看素材编排（${picks.length} 张，来源=${src.kind}）…`) } catch { /* ignore */ }
+  const ai = await aiPlanSegments(picks, d.topic || '')
+  let plan: any
+  let by: 'ai' | 'fallback'
+  let note = ''
+  if (ai.ok && ai.segs && ai.segs.length) {
+    plan = buildPlanFromSegs(ai.segs, d.topic || '', ai.motion || 'normal')
+    by = 'ai'
+    if (ai.added) note = `AI 漏了 ${ai.added} 张，已自动补段`
+  } else {
+    note = String(ai.error || '未知原因')
+    const fb = buildDailyPlan(picked, d.topic || '')
+    plan = buildPlanFromSegs(fb.segments, d.topic || '', fb.motion)
+    by = 'fallback'
+    try { ctx.log?.(uid, '[日报落地页] AI 编排失败 → 保底版式：' + note) } catch { /* ignore */ }
+  }
+  attachSrc(plan, picks)
+  d.plan = plan
+  d.planBy = by
+  d.planNote = note
+  d.step = 'review'
+  await saveDailyDraft(ctx.prisma, uid, d)
+  try { ctx.log?.(uid, `[日报落地页] 方案已排（${by}，${plan.segments.length} 段）`) } catch { /* ignore */ }
+  return (note0 ? 'ℹ️ ' + note0 + '\n\n' : '') + formatDailyPlan(plan, { topic: d.topic || '', picks, by, note })
+}
+
 export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
   const uid = ctx.uid
   const raw = String(ctx.userMessage || '').trim()
@@ -358,16 +451,18 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
     d = newDailyDraft()
     d.source = { kind: 'repo' }
     await saveDailyDraft(ctx.prisma, uid, d)
-    const names = await listDailyImages(uid, LIST_SHOWN)
-    try { ctx.log?.(uid, `[日报落地页] 起稿（第 1 步 选素材 · 候选 ${names.length} 张）`) } catch { /* ignore */ }
-    if (!names.length) {
-      return '📄「日报落地页」第 1 步 / 共 3 步 · 选素材（本轮只出 HTML 文件，不出视频）\n'
-        + '⚠️ 你的个人仓库里还没有**图片** —— 先去「个人仓库」上传几张，再回来说一次「日报落地页」。'
-    }
-    return materialsReply(d, names, d.source)
+    // ★VF_DAILY_V5：入口直接出**图形素材卡**（复用成片线那张卡；原来是文字清单 + 回序号）
+    const card = await dailyMatCard(uid, d)
+    try { ctx.log?.(uid, '[日报落地页] 起稿 → 出素材卡（第 1 步选原始素材）') } catch { /* ignore */ }
+    return card
   }
 
   if (!d) return null
+
+  // ★VF_DAILY_V5：**别线的协议串一律让位**。本线有草稿时会接管"非命令"消息，而别线的卡片协议串
+  //   （VF_FILM_FORM / VF_FILM_GO / VF_PPT_FORM / VF_DECK_CONFIRM / VF_EDIT / LEAD_CFG…）也是"非命令"
+  //   ⇒ 不显式放走就会被本线吃掉（成片线点「下一步」没反应）。只认自己的 `VF_DAILY_FORM`。
+  if (/^VF_/.test(raw) && !/^VF_DAILY_FORM\s*[:{]/.test(raw)) return null
 
   // ── 退出口（防止草稿"终身吞掉"后续消息） ──
   if (DAILY_EXIT_RE.test(bare)) {
@@ -378,6 +473,36 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
 
   // 老草稿（v2 的"step=topic"）兼容：等价于"还没挑图"，直接落到第 1 步
   if (d.step === 'topic') d.step = 'pick'
+
+  /* ── ★VF_DAILY_V5：自己的素材卡协议串（**不复用成片线的 `VF_FILM_FORM`** —— 两条线各有草稿时
+     会互相抢消息；用自己的 `VF_DAILY_FORM`，前端靠卡里的 `proto` 字段发对应的串）。
+     只在"等挑素材"这一步 + 来源是个人仓库时认；其它情况 return null 交回主流程。 ── */
+  if (/^VF_DAILY_FORM\s*[:{]/.test(raw)) {
+    if (d.step !== 'pick' || (d.source && d.source.kind !== 'repo')) return null
+    let f: any = {}
+    try { f = JSON.parse(raw.slice(raw.indexOf('{'))) } catch { /* ignore */ }
+    const at = String(f?.at || 'mat')
+    if (at === 'back_mat') {
+      await saveDailyDraft(ctx.prisma, uid, d)
+      return await dailyMatCard(uid, d)
+    }
+    if (at !== 'mat') return null          // style / back_style 是成片线的，不碰
+    const items = await dailyMatItems(uid, LIST_CAP)
+    const all = items.map((x) => x.name)
+    let picked = (Array.isArray(f?.names) ? f.names : [])
+      .map((x: any) => String(x)).filter((n: string) => all.indexOf(n) >= 0)
+    picked = Array.from(new Set(picked)).slice(0, DAILY_MAX_PICK)
+    let note0 = ''
+    if (!picked.length) {
+      picked = all.slice(0, DAILY_MAX_PICK)
+      note0 = '你**没勾选**，我按最近 ' + picked.length + ' 张走（下次可以先点图勾选）。'
+    }
+    if (!picked.length) {
+      await saveDailyDraft(ctx.prisma, uid, d)
+      return '⚠️ 原始素材里没有图片（只有成片的仓库不算素材）。先去「个人仓库」上传几张，再点一次「日报落地页」。'
+    }
+    return await runPlan(ctx, d, { kind: 'repo' }, picked, note0)
+  }
 
   /* ── 第 1 步：选素材（手动；来源可切换；主题可选） ── */
   if (d.step === 'pick') {
@@ -457,33 +582,8 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
       return materialsReply(d, names, src)
     }
 
-    // ③ AI 看素材 → 分段方案（失败回落保底，绝不空手）
-    const picks = toPicks(uid, src, picked)
-    d.names = picked
-    try { ctx.log?.(uid, `[日报落地页] AI 看素材编排（${picks.length} 张，来源=${src.kind}）…`) } catch { /* ignore */ }
-    const ai = await aiPlanSegments(picks, d.topic || '')
-    let plan: any
-    let by: 'ai' | 'fallback'
-    let note = ''
-    if (ai.ok && ai.segs && ai.segs.length) {
-      plan = buildPlanFromSegs(ai.segs, d.topic || '', ai.motion || 'normal')
-      by = 'ai'
-      if (ai.added) note = `AI 漏了 ${ai.added} 张，已自动补段`
-    } else {
-      note = String(ai.error || '未知原因')
-      const fb = buildDailyPlan(picked, d.topic || '')
-      plan = buildPlanFromSegs(fb.segments, d.topic || '', fb.motion)
-      by = 'fallback'
-      try { ctx.log?.(uid, '[日报落地页] AI 编排失败 → 保底版式：' + note) } catch { /* ignore */ }
-    }
-    attachSrc(plan, picks)
-    d.plan = plan
-    d.planBy = by
-    d.planNote = note
-    d.step = 'review'
-    await saveDailyDraft(ctx.prisma, uid, d)
-    try { ctx.log?.(uid, `[日报落地页] 方案已排（${by}，${plan.segments.length} 段）`) } catch { /* ignore */ }
-    return formatDailyPlan(plan, { topic: d.topic || '', picks, by, note })
+    // ③ AI 看素材 → 分段方案（失败回落保底，绝不空手）—— 与卡片协议那条路**同一份实现**
+    return await runPlan(ctx, d, src, picked)
   }
 
   /* ── 第 3 步：确认（确认 → 生成；重选 → 回第 2 步） ── */
@@ -493,6 +593,8 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
       d.plan = undefined
       await saveDailyDraft(ctx.prisma, uid, d)
       const src = d.source || { kind: 'repo' }
+      // ★VF_DAILY_V5：仓库来源 ⇒ 重新出**素材卡**（与入口一致）；本机/子目录没有缩略图 ⇒ 走文字清单
+      if (src.kind === 'repo') return await dailyMatCard(uid, d)
       const names = src.kind === 'local' ? (listLocalImages(String(src.value || ''), LIST_CAP).names || [])
         : await listDailyImages(uid, src.kind === 'subdir' ? LIST_CAP : LIST_SHOWN, src.kind === 'subdir' ? src.value : '')
       if (!names.length) { await clearDailyDraft(ctx.prisma, uid); return '⚠️ 来源里没有可用图片了，本单已取消。' }
@@ -542,6 +644,10 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
       + '文件已存进你的**个人仓库**（生成素材组）。想再做一份：再说一次「日报落地页」。'
   }
 
-  // step = done：还有草稿时，用户说别的话 → 明确引导（不让草稿吞消息）
-  return '这一单已经生成好了。想**再做一份**就说「日报落地页」；也可以回「取消」清掉本单草稿。'
+  // step = done：★VF_DAILY_V5 修掉一个**会吞消息**的隐患 ——
+  //   旧实现只要有草稿（done 也留着）就 return 一句引导 ⇒ 那之后**用户说任何话都会被本线截住**
+  //   （别的命令、普通聊天全进不来）。现口径：交付即清草稿、返回 null 交回主流程；
+  //   想再做一份 ⇒ 说「日报落地页」会重新起稿（入口本来就是"作废旧单"）。
+  await clearDailyDraft(ctx.prisma, uid)
+  return null
 }
