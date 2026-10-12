@@ -32,12 +32,11 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { listAllObjects, getObject } from '@/lib/oss'
+import { listAllObjects } from '@/lib/oss'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 import { dashscopeFunctionCall } from '@/lib/ai-providers'
-import { runFFmpeg } from '@/lib/ffmpeg'
 // ★纯函数层（零依赖、可单测：temp/_exp/daily/test-plan.mjs）
-import { DAILY_STYLE, aiPrompt, extractJson, normSegs, normMotion, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, applyDailyEdit } from './daily-plan'
+import { DAILY_STYLE, aiPrompt, extractJson, normSegs, normMotion, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, applyDailyEdit, buildPlanCardPayload } from './daily-plan'
 
 export { DAILY_STYLE }
 
@@ -251,62 +250,76 @@ function toPicks(uid: number | string, src: DailySource, names: string[]): Daily
   return names.map((n) => ({ name: n, key: `storage/${uid}/${n}` }))
 }
 
-async function readPickBuffer(p: DailyPick): Promise<Buffer | null> {
-  try {
-    if (p.local && p.abs) return fs.readFileSync(p.abs)
-    return await getObject(p.key)
-  } catch { return null }
-}
+// ★VF_DAILY_V6：不再自己下二进制/缩图（旧路径见文件头"vf6"注释）—— 看图交给 `describeImagesWithVL`，直接给 URL。
 
 /* ─────────────── AI 看素材 → 分段方案（★v2 的核心；提示词/规整在 daily-plan.ts） ─────────────── */
 
-/** 压缩后再喂视觉模型（512 宽，几十 KB 级）——失败就用原图 */
-async function shrinkForVision(buf: Buffer): Promise<Buffer> {
-  if (buf.length < 220 * 1024) return buf
-  const tin = path.join(os.tmpdir(), `dv_${Date.now()}_${Math.random().toString(36).slice(2)}.img`)
-  const tout = tin + '.jpg'
-  try {
-    fs.writeFileSync(tin, buf)
-    await runFFmpeg(`-y -i "${tin}" -vf "scale=512:-2" -q:v 5 "${tout}"`, { timeout: 12000, skipNice: true, priority: 'high' })
-    const out = fs.readFileSync(tout)
-    return out.length ? out : buf
-  } catch { return buf } finally {
-    try { fs.unlinkSync(tin) } catch { /* ignore */ }
-    try { fs.unlinkSync(tout) } catch { /* ignore */ }
-  }
-}
-
 /**
- * ★v2 核心：AI 看素材 → 分段方案。
- * 返回 ok=false 时**不是异常**，是"这轮 AI 没排出来"，调用方回落确定性保底版式并**如实告知用户**。
+ * ★VF_DAILY_V6（2026-10-12 服务器日志实测，**改看图的通路**）：
+ *   病灶（pm2 日志逐行对得上）：
+ *     `[模型] ⚠️ qwen3-max 在本账号不存在（HTTP 404 Model not exist）` → 兜底到 **deepseek-v4-flash**
+ *     ⇒ 模型**一个像素都没看到** ⇒ "AI 没吐出可解析的 JSON" ⇒ 每次都掉进保底版式（用户看到的正是这个）。
+ *   还有一处白跑：我自己用 ffmpeg 缩图，临时文件写成 `/tmp/dv_xxx.img` ⇒
+ *     `Invalid data found when processing input`（后缀不认识就解不开）。
+ *   现口径：**走成片线那条已验证的看图通路** `describeImagesWithVL`（自带模型候选链 + 404 自愈 +
+ *     缺 key 探针），直接把**签名 URL** 递给它（不再自己下二进制、不再自己缩图）。
+ *   两段式：① 视觉模型逐张读出"拍的是什么" ② **文字模型**（qwen3.8-flash，稳）据此出 JSON 方案。
+ *   视觉不可用时**不判死**：退成"按主题+序号排"，并把原因如实写进方案卡。
  */
-export async function aiPlanSegments(picks: DailyPick[], topic: string): Promise<{ ok: boolean; segs?: any[]; error?: string; added?: number; motion?: string }> {
+export async function aiPlanSegments(picks: DailyPick[], topic: string): Promise<{ ok: boolean; segs?: any[]; error?: string; added?: number; motion?: string; sawImages?: boolean; vlErr?: string }> {
   const n = picks.length
   if (!n) return { ok: false, error: '没有素材' }
-  const content: any[] = [{ type: 'text', text: aiPrompt(n, topic) }]
-  let bytes = 0
-  let sent = 0
-  for (let i = 0; i < n; i++) {
-    const buf = await readPickBuffer(picks[i])
-    if (!buf || !buf.length) continue
-    if (bytes + buf.length > 9 * 1024 * 1024) break
-    bytes += buf.length
-    const small = await shrinkForVision(buf)
-    const mime = /\.png$/i.test(picks[i].name) ? 'image/png' : 'image/jpeg'
-    content.push({ type: 'text', text: `【图 ${i + 1}】${picks[i].name}` })
-    content.push({ type: 'image_url', image_url: { url: `data:${mime};base64,${small.toString('base64')}` } })
-    sent++
-  }
-  if (sent === 0) return { ok: false, error: '素材一张都没读到' }
+
+  // ① 看图（可选，失败不判死）
+  let summary = ''
+  let vlErr = ''
   try {
-    const res = await dashscopeFunctionCall([{ role: 'user', content }], [], 2600, 0.6, true)
+    const { describeImagesWithVL, vlReady, vlModel } = await import('@/lib/ai-providers')
+    if (!vlReady()) vlErr = '服务端没配视觉模型 key（DASHSCOPE_API_KEY）'
+    else {
+      const { signedUrl } = await import('@/lib/oss')
+      const urls: string[] = []
+      for (const p of picks) {
+        try {
+          if (p.local && p.abs) {
+            const b = fs.readFileSync(p.abs)
+            if (b.length > 6 * 1024 * 1024) continue                    // 单张太大就跳过（不缩图，避免再踩 ffmpeg）
+            const mime = /\.png$/i.test(p.name) ? 'image/png' : 'image/jpeg'
+            urls.push(`data:${mime};base64,${b.toString('base64')}`)
+          } else {
+            urls.push(await signedUrl(p.key, 3600))
+          }
+        } catch { /* 单张失败跳过 */ }
+      }
+      if (!urls.length) vlErr = '素材 URL 拿不到（OSS 签名失败）'
+      else {
+        const ask = '这是一组要做成「日报落地页」的实拍照片（共 ' + urls.length + ' 张，按给定顺序编号 1..' + urls.length + '）。'
+          + '第一行：一句话总结这组素材拍的是什么（≤30 字）。'
+          + '之后**逐张一行**，写清第 N 张拍的是什么（主体/菜品/场景，≤20 字），格式「N. …」。'
+          + '只回这些，不要解释、不要 markdown 代码块。'
+        for (let tries = 1; tries <= 2 && !summary; tries++) {
+          try {
+            const r = await describeImagesWithVL(urls, ask, 900)
+            if (String(r || '').trim()) summary = String(r).trim()
+          } catch { /* 试第二次 */ }
+        }
+        if (!summary) vlErr = '视觉模型读图失败（' + vlModel() + '）'
+      }
+    }
+  } catch (e: any) { vlErr = String(e?.message || e).slice(0, 100) }
+
+  // ② 让**文字模型**据此出 JSON 方案（有读图总结就带上；没有就按主题+序号排，并如实标注）
+  const prompt = aiPrompt(n, topic)
+    + (summary ? '\n\n【素材实拍内容（视觉模型逐张读出，写文案必须据此，不许编造看不到的东西）】\n' + summary : '')
+  try {
+    const res = await dashscopeFunctionCall([{ role: 'user', content: prompt }], [], 2600, 0.6, false)
     const raw = extractJson(String(res?.content || ''))
-    if (!raw) return { ok: false, error: 'AI 没吐出可解析的 JSON' }
+    if (!raw) return { ok: false, error: 'AI 没吐出可解析的 JSON' + (vlErr ? '；' + vlErr : ''), sawImages: !!summary, vlErr }
     const { segs, added } = normSegs(raw, n, topic)
-    if (segs.length < 2) return { ok: false, error: 'AI 的分段不合规（段数不足）' }
-    return { ok: true, segs, added, motion: normMotion(raw?.motion) }
+    if (segs.length < 2) return { ok: false, error: 'AI 的分段不合规（段数不足）', sawImages: !!summary, vlErr }
+    return { ok: true, segs, added, motion: normMotion(raw?.motion), sawImages: !!summary, vlErr }
   } catch (e: any) {
-    return { ok: false, error: String(e?.message || e).slice(0, 120) }
+    return { ok: false, error: String(e?.message || e).slice(0, 120), sawImages: !!summary, vlErr }
   }
 }
 
@@ -432,8 +445,51 @@ async function runPlan(ctx: DailyCtx, d: DailyDraft, src: DailySource, picked: s
   d.planNote = note
   d.step = 'review'
   await saveDailyDraft(ctx.prisma, uid, d)
-  try { ctx.log?.(uid, `[日报落地页] 方案已排（${by}，${plan.segments.length} 段）`) } catch { /* ignore */ }
-  return (note0 ? 'ℹ️ ' + note0 + '\n\n' : '') + formatDailyPlan(plan, { topic: d.topic || '', picks, by, note })
+  try { ctx.log?.(uid, `[日报落地页] 方案已排（${by}，${plan.segments.length} 段，看图=${ai.sawImages ? '是' : '否' + (ai.vlErr ? '（' + ai.vlErr + '）' : '')}）`) } catch { /* ignore */ }
+  // ★VF_DAILY_V6：**"没看成图"要如实写在卡上**（不然用户以为 AI 真看过素材了）
+  const extra: string[] = []
+  if (note0) extra.push(note0.replace(/\*\*/g, ''))
+  if (ai.ok && !ai.sawImages) extra.push('这轮没看成图：' + (ai.vlErr || '未知原因') + '（方案按主题/序号排，文案请自己核一遍）')
+  return planOut(d, picks, by, note, extra.join(' · '))
+}
+
+/** 方案交付：仓库来源 ⇒ 出**方案卡**；本机/子目录（没有缩略图可签）⇒ 退回文字清单 */
+function planOut(d: DailyDraft, picks: DailyPick[], by: 'ai' | 'fallback', note: string, hintExtra = ''): string {
+  if ((d.source || { kind: 'repo' }).kind === 'repo') {
+    return 'VF_JSON:' + JSON.stringify(buildPlanCardPayload(d.plan, {
+      picks, by, note, hintExtra, topic: d.topic || '',
+    }))
+  }
+  return (hintExtra ? '✅ ' + hintExtra + '\n\n' : '')
+    + formatDailyPlan(d.plan, { topic: d.topic || '', picks, by, note })
+}
+
+/** ★VF_DAILY_V6：真的生成 HTML 入库（**卡片按钮 `at:'go'` 与打字 `确认` 两条路共用**） */
+async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Promise<string> {
+  const uid = ctx.uid
+  const plan = d.plan
+  if (!plan || !Array.isArray(plan.segments) || !plan.segments.length) {
+    await clearDailyDraft(ctx.prisma, uid)
+    return '⚠️ 方案丢了（草稿异常），本单已取消。再说一次「日报落地页」重来。'
+  }
+  const r = await buildAndStoreDaily(uid, plan)
+  if (!r.ok || !r.name) {
+    try { ctx.log?.(uid, '[日报落地页] 生成失败：' + String(r.error || '')) } catch { /* ignore */ }
+    return '⚠️ HTML 生成失败：' + String(r.error || '未知原因') + '\n（可以回 `确认` 再试一次；若反复失败，把这句发给开发者）'
+  }
+  d.step = 'done'
+  d.htmlName = r.name
+  await saveDailyDraft(ctx.prisma, uid, d)
+  try { ctx.log?.(uid, `[日报落地页] 已生成 ${r.name}（${plan.segments.length} 段 · ${d.planBy}）`) } catch { /* ignore */ }
+  const url = `/api/storage/file?userId=${uid}&name=${encodeURIComponent(r.name)}&download=1`
+  const ordered = picks.map((p, i) => `${i + 1}.jpg ← ${p.name}`).join('\n　')
+  return '✅ **日报落地页 HTML 已生成**（' + plan.segments.length + ' 段 · 风格 ' + DAILY_STYLE.name
+    + ' · ' + (d.planBy === 'ai' ? 'AI 看素材编排' : '系统保底版式') + ' · 合规检查：' + (r.note || 'R1~R14 通过') + '）\n\n'
+    + '**下载**：' + url + '\n\n'
+    + '换成真图（2 步）：\n'
+    + '　① 下载后**双击**用浏览器打开即可预览（上下滚动 = 预览模式，每段自动循环）；\n'
+    + '　② 在 HTML 同目录建 `images/` 文件夹，把图按下面对应关系命名放进去：\n　' + ordered + '\n\n'
+    + '文件已存进你的**个人仓库**（生成素材组）。想再做一份：再说一次「日报落地页」。'
 }
 
 export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
@@ -478,15 +534,23 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
      会互相抢消息；用自己的 `VF_DAILY_FORM`，前端靠卡里的 `proto` 字段发对应的串）。
      只在"等挑素材"这一步 + 来源是个人仓库时认；其它情况 return null 交回主流程。 ── */
   if (/^VF_DAILY_FORM\s*[:{]/.test(raw)) {
-    if (d.step !== 'pick' || (d.source && d.source.kind !== 'repo')) return null
+    if (d.source && d.source.kind !== 'repo') return null
     let f: any = {}
     try { f = JSON.parse(raw.slice(raw.indexOf('{'))) } catch { /* ignore */ }
     const at = String(f?.at || 'mat')
+    // ① 方案卡「✅ 生成 HTML」→ 真的生成（与打字 `确认` 同一份实现）
+    if (at === 'go') {
+      if (d.step !== 'review' || !d.plan) return null
+      return await finishDaily(ctx, d, toPicks(uid, d.source || { kind: 'repo' }, d.names || []))
+    }
+    // ② 「🔄 重选素材」→ 回第 1 步，重出素材卡
     if (at === 'back_mat') {
+      d.step = 'pick'
+      d.plan = undefined
       await saveDailyDraft(ctx.prisma, uid, d)
       return await dailyMatCard(uid, d)
     }
-    if (at !== 'mat') return null          // style / back_style 是成片线的，不碰
+    if (at !== 'mat' || d.step !== 'pick') return null
     const items = await dailyMatItems(uid, LIST_CAP)
     const all = items.map((x) => x.name)
     let picked = (Array.isArray(f?.names) ? f.names : [])
@@ -605,12 +669,11 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
       const picksForEdit = toPicks(uid, d.source || { kind: 'repo' }, d.names || [])
       const ed = applyDailyEdit(d.plan, raw, picksForEdit)
       if (ed.matched) {
-        if (!ed.ok) return '⚠️ ' + ed.msg + '\n\n' + formatDailyPlan(d.plan, { topic: d.topic || '', picks: picksForEdit, by: d.planBy || 'fallback', note: d.planNote })
+        if (!ed.ok) return '⚠️ ' + ed.msg
         d.plan = ed.plan
         await saveDailyDraft(ctx.prisma, uid, d)
         try { ctx.log?.(uid, '[日报落地页] ' + ed.msg) } catch { /* ignore */ }
-        return '✅ ' + ed.msg + '\n\n'
-          + formatDailyPlan(d.plan, { topic: d.topic || '', picks: picksForEdit, by: d.planBy || 'fallback', note: d.planNote })
+        return planOut(d, picksForEdit, d.planBy || 'fallback', d.planNote || '', ed.msg)
       }
       return '这一步在等你**拍板**：\n'
         + '· 满意 → 回 `确认`（我就生成 HTML 文件）\n'
@@ -618,30 +681,8 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
         + '· 想退出 → 回 `取消`\n'
         + '· 想改某一段 → 例如 `改 3 标题=刀起刀落/薄如纸片`、`改 3 版式=竖排`、`改 3 用图=2,4`、`删 3`'
     }
-    const plan = d.plan
-    if (!plan || !Array.isArray(plan.segments) || !plan.segments.length) {
-      await clearDailyDraft(ctx.prisma, uid)
-      return '⚠️ 方案丢了（草稿异常），本单已取消。再说一次「日报落地页」重来。'
-    }
-    const picks = toPicks(uid, d.source || { kind: 'repo' }, d.names || [])
-    const r = await buildAndStoreDaily(uid, plan)
-    if (!r.ok || !r.name) {
-      try { ctx.log?.(uid, '[日报落地页] 生成失败：' + String(r.error || '')) } catch { /* ignore */ }
-      return '⚠️ HTML 生成失败：' + String(r.error || '未知原因') + '\n（可以回 `确认` 再试一次；若反复失败，把这句发给开发者）'
-    }
-    d.step = 'done'
-    d.htmlName = r.name
-    await saveDailyDraft(ctx.prisma, uid, d)
-    try { ctx.log?.(uid, `[日报落地页] 已生成 ${r.name}（${plan.segments.length} 段 · ${d.planBy}）`) } catch { /* ignore */ }
-    const url = `/api/storage/file?userId=${uid}&name=${encodeURIComponent(r.name)}&download=1`
-    const ordered = picks.map((p, i) => `${i + 1}.jpg ← ${p.name}`).join('\n　')
-    return '✅ **日报落地页 HTML 已生成**（' + plan.segments.length + ' 段 · 风格 ' + DAILY_STYLE.name
-      + ' · ' + (d.planBy === 'ai' ? 'AI 看素材编排' : '系统保底版式') + ' · 合规检查：' + (r.note || 'R1~R14 通过') + '）\n\n'
-      + '**下载**：' + url + '\n\n'
-      + '换成真图（2 步）：\n'
-      + '　① 下载后**双击**用浏览器打开即可预览（上下滚动 = 预览模式，每段自动循环）；\n'
-      + '　② 在 HTML 同目录建 `images/` 文件夹，把图按下面对应关系命名放进去：\n　' + ordered + '\n\n'
-      + '文件已存进你的**个人仓库**（生成素材组）。想再做一份：再说一次「日报落地页」。'
+    // ④ 打字 `确认` → 生成（★VF_DAILY_V6：抽成 finishDaily，与方案卡的「✅ 生成 HTML」共用）
+    return await finishDaily(ctx, d, toPicks(uid, d.source || { kind: 'repo' }, d.names || []))
   }
 
   // step = done：★VF_DAILY_V5 修掉一个**会吞消息**的隐患 ——

@@ -1937,6 +1937,54 @@ function VfDeckConfirm({ vj, onSend }: { vj: any; onSend: (m: string) => void })
  *  本组件**只做展示与发协议串**（VF_FILM_FORM: / VF_FILM_GO:），业务判断全在服务端。
  *  ⚠️ 上传走与 VideoFormCard 同一套（POST /api/storage/files + electronAPI.storageMirror 镜像）——
  *     不新造上传通道（本项目教训：同一件事两处实现必然分叉）。 */
+/* ★VF_DAILY_V6（2026-10-12 用户原话「第二步 怎么回的是文字…没有前台卡片了？」）：
+   日报落地页的**方案确认卡**（第 2 步）。与第 1 步素材卡同族 —— 列出每段的
+   类型/版式/用图/标题/信息点/对应素材；按钮走**本线自己的**协议串（`proto` 由服务端下发，
+   成片线不传 ⇒ 那套卡照旧发 VF_FILM_FORM）。
+   逐段微调仍靠打字（`改 3 标题=第一行/第二行`），改完服务端会重出这张卡、
+   并把"已改了什么 / 这轮有没有看成图"写在卡头那行 `hint` 里。 */
+function VfDailyPlanCard({ vj, onSend }: { vj: any; onSend: (m: string) => void }) {
+  const segs: any[] = Array.isArray(vj?.segs) ? vj.segs : []
+  const proto = String(vj?.proto || 'VF_DAILY_FORM')
+  const send = (at: string) => onSend(proto + ':' + JSON.stringify({ at }))
+  return (
+    <div className="mb-2 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06]">
+      <div className="text-xs text-emerald-300 mb-2">📄 日报落地页 · {String(vj?.hint || '第 2 步 / 共 3 步 · 方案确认')}</div>
+      {vj?.topic ? <div className="text-[10px] text-gray-400 mb-2">主题：{String(vj.topic)}</div> : null}
+      <div className="space-y-1.5 max-h-72 overflow-y-auto mb-2">
+        {segs.map((s: any, i: number) => (
+          <div key={i} className="text-[11px] text-gray-200 border border-white/10 rounded-lg px-2 py-1.5">
+            <div className="text-gray-400">
+              {i + 1}. {String(s.label || '')}{Array.isArray(s.imgs) && s.imgs.length ? ` · 用图 ${s.imgs.join('+')}` : ''}
+            </div>
+            <div className="text-gray-100">{Array.isArray(s.title) ? s.title.join(' / ') : String(s.title || '')}</div>
+            {Array.isArray(s.points) && s.points.length ? <div className="text-gray-400">信息点：{s.points.join('　｜　')}</div> : null}
+            {Array.isArray(s.src) && s.src.length ? <div className="text-gray-500">素材：{s.src.join('、')}</div> : null}
+          </div>
+        ))}
+      </div>
+      {vj?.by === 'fallback'
+        ? <div className="text-[10px] text-amber-300 mb-2">⚠️ AI 这轮没排出方案（{String(vj?.note || '未知原因')}）→ 用的是系统保底版式</div>
+        : <div className="text-[10px] text-gray-500 mb-2">AI 看素材后编排{vj?.note ? `（${String(vj.note)}）` : ''}</div>}
+      <div className="text-[10px] text-gray-500 mb-2">
+        想改某一段就直接发：<span className="text-gray-300">改 3 标题=第一行/第二行</span> ·{' '}
+        <span className="text-gray-300">改 3 版式=竖排</span> · <span className="text-gray-300">改 3 用图=2,4</span> ·{' '}
+        <span className="text-gray-300">删 3</span>（改完我重出这张卡）
+      </div>
+      <div className="flex gap-2">
+        <button onClick={() => send('go')}
+          className="flex-1 px-4 py-2 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100 text-sm font-medium">
+          ✅ 生成 HTML
+        </button>
+        <button onClick={() => send('back_mat')}
+          className="px-3 py-2 rounded-lg text-xs border border-white/15 text-gray-200 hover:bg-white/[0.08]">
+          🔄 重选素材
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => void; userId?: number | string }) {
   const step = String(vj?.step || 'film_mat')
   const images: any[] = Array.isArray(vj?.images) ? vj.images : []
@@ -4131,6 +4179,8 @@ function AgentPageInner() {
         {/* ★VF_HTMLSTD_V1（2026-10-08 用户定案「要」）：【HTML成片】状态机三张卡（素材 / 风格 / 确认） */}
         if (_vj && (_vj.step === 'film_mat' || _vj.step === 'film_style' || _vj.step === 'film_confirm'))
           return <VfFilmCard vj={_vj} onSend={sendMessage} userId={user?.id} />
+        {/* ★VF_DAILY_V6（2026-10-12 用户定案「第二步怎么回的是文字…没有前台卡片了？」）：日报落地页第 2 步也出卡 */}
+        if (_vj && _vj.step === 'daily_plan') return <VfDailyPlanCard vj={_vj} onSend={sendMessage} />
         {/* ★VF_PPT_UI_V1（2026-10-06 用户定案「彻底拆开」）：【PPT 成片】独立线两张卡 */}
         if (_vj && _vj.step === 'ppt_setup') return <VfPptCard vj={_vj} onSend={sendMessage} />
         if (_vj && _vj.step === 'ppt_confirm') {

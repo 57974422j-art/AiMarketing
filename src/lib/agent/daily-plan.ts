@@ -223,6 +223,35 @@ export function formatDailyPlan(plan: any, o: { topic: string; picks: PlanPick[]
 }
 
 /**
+ * ★VF_DAILY_V6（2026-10-12 用户实测「第二步 怎么回的是文字…没有前台卡片了？」）：
+ *   方案确认这一步也出**卡**（与第 1 步素材卡一致）。这里是卡的载荷（纯函数 ⇒ 可单测）；
+ *   前端 `VfDailyPlanCard` 按 `step:'daily_plan'` 渲染，按钮发 `VF_DAILY_FORM:{at:'go'|'back_mat'}`。
+ */
+export function buildPlanCardPayload(plan: any, o: {
+  picks: PlanPick[]; by: 'ai' | 'fallback'; note?: string; hintExtra?: string; topic?: string
+}): any {
+  const segs: any[] = Array.isArray(plan?.segments) ? plan.segments : []
+  const dur = planDuration(plan)
+  return {
+    step: 'daily_plan',
+    proto: 'VF_DAILY_FORM',
+    hint: `第 2 步 / 共 3 步 · 方案确认（${segs.length} 段 · 约 ${dur.toFixed(1)} 秒 · 风格 ${DAILY_STYLE.name}）`
+      + (o.hintExtra ? ' · ' + o.hintExtra : ''),
+    topic: o.topic || '',
+    by: o.by,
+    note: o.note || '',
+    segs: segs.map((s, i) => ({
+      i: i + 1,
+      label: layoutLabel(s),
+      title: Array.isArray(s.title) ? s.title.map((x: any) => String(x)) : [String(s.title || '')],
+      points: (Array.isArray(s.points) ? s.points : []).map((p: any) => (Array.isArray(p) ? p.filter(Boolean).join('·') : String(p))),
+      imgs: Array.isArray(s.imgs) ? s.imgs : [],
+      src: Array.isArray(s.src) ? s.src : [],
+    })),
+  }
+}
+
+/**
  * ★逐段微调（用户 2026-10-12 定案后补做）：把一句人话改成方案的局部手术。
  * 支持（`第`/`段` 可省）：
  *   `改 <n> 标题=行1/行2` · `改 <n> 标签=后厨 · 手作` · `改 <n> 角标=封面故事`
