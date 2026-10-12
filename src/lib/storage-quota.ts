@@ -31,8 +31,10 @@ export const mb = (n: number): number => Math.round((n / 1024 / 1024) * 10) / 10
 export async function quotaUsed(uid: number | string): Promise<number> {
   try {
     // 惰性引入：纯函数（quotaCheck）单测时不需要拉起 OSS 客户端，也避免循环依赖
-    const { listObjects } = await import('@/lib/oss')
-    const objs = await listObjects(`storage/${uid}/`)
+    // ★VF_OSS_MAXKEYS_V1：用**分页全量** —— 单次最多 1000 条，超过就会**少算配额**
+    //   （用户仓库里"素材 + .thumbs"叠起来超 1000 很常见）
+    const { listAllObjects } = await import('@/lib/oss')
+    const objs = await listAllObjects(`storage/${uid}/`, 20000)
     return objs.filter((o) => !NOT_USAGE.test(String(o.name))).reduce((a, o) => a + (o.size || 0), 0)
   } catch {
     return -1

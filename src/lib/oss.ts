@@ -97,15 +97,44 @@ export async function objectExists(key: string): Promise<boolean> {
   }
 }
 
-/** 列出目录下所有文件 */
+/** 列出目录下所有文件（⚠️ **单次最多 1000** —— OSS 的硬上限；要全量请用 listAllObjects） */
 export async function listObjects(prefix: string, maxKeys = 1000): Promise<Array<{ name: string; size: number; lastModified: Date }>> {
   const oss = await getOSSClient()
-  const result = await oss.list({ prefix, 'max-keys': maxKeys }, {})
+  // ★VF_OSS_MAXKEYS_V1（2026-10-12 用户实测报错「Argument max-keys must be an integer between 1 and 1000」）：
+  //   OSS 的 max-keys 只能 1~1000；调用方传 2000 会**整条请求报错**（不是截断）。
+  //   现口径：这里**夹到 1~1000**（把"传大了"从"报错"降级成"最多 1000 条"），要全量用下面的 listAllObjects。
+  const n = Math.max(1, Math.min(1000, Math.floor(Number(maxKeys) || 1000)))
+  const result = await oss.list({ prefix, 'max-keys': n }, {})
   return (result.objects || []).map(o => ({
     name: o.name,
     size: o.size || 0,
     lastModified: o.lastModified ? new Date(o.lastModified) : new Date(),
   }))
+}
+
+/**
+ * ★VF_OSS_MAXKEYS_V1：**分页列全量**（一次 1000，按 marker 翻页，硬上限 hardCap 防失控）。
+ * 为什么需要它：单次最多 1000 条，而"仓库里 1000 个对象"很常见（素材 + `.thumbs/` 叠加），
+ *   一旦超过，配额统计会**少算**、孤儿缩略图会**漏清**、列表会**少显示**。
+ */
+export async function listAllObjects(prefix: string, hardCap = 5000): Promise<Array<{ name: string; size: number; lastModified: Date }>> {
+  const oss = await getOSSClient()
+  const cap = Math.max(1, Math.min(20000, Math.floor(Number(hardCap) || 5000)))
+  const out: Array<{ name: string; size: number; lastModified: Date }> = []
+  let marker: string | undefined
+  for (let page = 0; page < 25 && out.length < cap; page++) {
+    const result: any = await oss.list(Object.assign({ prefix, 'max-keys': 1000 }, marker ? { marker } : {}), {})
+    const objs = (result.objects || []).map((o: any) => ({
+      name: o.name,
+      size: o.size || 0,
+      lastModified: o.lastModified ? new Date(o.lastModified) : new Date(),
+    }))
+    out.push(...objs)
+    // ali-oss：还有下一页时 isTruncated=true 且给出 nextMarker；没有对象也停（防死循环）
+    if (!result.isTruncated || !result.nextMarker || !objs.length) break
+    marker = String(result.nextMarker)
+  }
+  return out.slice(0, cap)
 }
 
 /** 获取签名 URL（用于内部服务端 fetch） */

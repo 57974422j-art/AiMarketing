@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthFromHeaders } from '@/lib/api-auth'
-import { listObjects, putObject } from '@/lib/oss'
+// ★VF_OSS_MAXKEYS_V1：列表改**分页全量**（单次最多 1000 条 ⇒ 超过会"少显示"）
+import { listAllObjects, putObject } from '@/lib/oss'
 import { saveToPersonalRepo, ensureThumb } from '@/lib/personal-storage'
 // ★VF_REPOSPLIT_V1：分类（`gen_` 前缀 = 生成物）只认 lib/repo-naming 一处口径
 import { repoKind } from '@/lib/repo-naming'
@@ -46,7 +47,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const prefix = `storage/${auth.userId}/`
-    const objects = await listObjects(prefix)
+    const objects = await listAllObjects(prefix, 20000)
     // ★VF_REPOSPLIT_V1b：老成片判据（出片记录 + 统一入库命名，两条同时成立才算）——读的是
     //   video-factory 任务文件的 repoName，零网络、零 prisma，判不出来就一个都不认（不误伤原片）。
     let outcomes: Set<string> = new Set()

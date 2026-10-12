@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthFromHeaders } from '@/lib/api-auth'
-import { listObjects, deleteObject } from '@/lib/oss'
+import { listAllObjects, deleteObject } from '@/lib/oss'
 import { orphanThumbs } from '@/lib/repo-naming'
 
 /**
@@ -22,7 +22,9 @@ export async function POST(request: NextRequest) {
 
   const prefix = `storage/${auth.userId}/`
   try {
-    const objs = await listObjects(prefix, 2000)
+    // ★VF_OSS_MAXKEYS_V1：必须**分页全量**扫 —— 单次最多 1000 条（写 2000 会整条报错，用户实测过），
+    //   仓库里"素材 + .thumbs"叠起来超过 1000 很常见，少扫就会漏清。
+    const objs = await listAllObjects(prefix, 20000)
     const sizeOf = new Map(objs.map((o) => [o.name, o.size || 0]))
     const orphans = orphanThumbs(objs.map((o) => o.name))
     const batch = orphans.slice(0, MAX_DELETE)
@@ -34,8 +36,8 @@ export async function POST(request: NextRequest) {
     const rest = Math.max(0, orphans.length - deleted)
     return NextResponse.json({
       success: true,
-      data: { found: orphans.length, deleted, bytes, rest },
-      message: `孤儿缩略图：发现 ${orphans.length} 个，已清理 ${deleted} 个（约 ${Math.round(bytes / 1024)}KB）`
+      data: { scanned: objs.length, found: orphans.length, deleted, bytes, rest },
+      message: `扫描 ${objs.length} 个对象：孤儿缩略图 ${orphans.length} 个，已从 OSS 删除 ${deleted} 个（约 ${Math.round(bytes / 1024)}KB）`
         + (rest ? `；还剩 ${rest} 个，再点一次即可` : ''),
     })
   } catch (e: any) {

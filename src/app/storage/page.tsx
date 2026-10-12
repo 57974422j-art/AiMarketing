@@ -66,9 +66,14 @@ export default function StoragePage() {
     } catch {}
   }
 
+  // ★VF_REPOSPLIT_V1b：批量删除（按钮终于在界面上接上了 —— 之前 delBatch 是**死函数**，界面上没有入口）
+  //   ① 只删**当前显示这组**选中的（切到"生成素材"就只删生成素材）；
+  //   ② 删的是 **OSS 上的对象本体**（不可恢复）⇒ 必须先确认，并把数量写清。
   const delBatch = async () => {
     if (!selected.size) return
     const names = Array.from(selected)
+    if (!window.confirm(`将从 OSS 彻底删除 ${names.length} 个文件（不可恢复）：\n`
+      + `当前分组：${tab === 'gen' ? '生成素材' : tab === 'asset' ? '原始素材' : '全部'}\n\n确定删除吗？`)) return
     try {
       const r = await fetch('/api/storage/delete', { method: 'DELETE', body: JSON.stringify({ names }), headers: { 'Content-Type': 'application/json' }, credentials: 'include' })
       const d = await r.json()
@@ -245,6 +250,25 @@ export default function StoragePage() {
                   ? '你上传的图片 / 视频 · 出片时从这里选'
                   : '生成素材不占配额、不进选材池；老成片也认得出（按出片记录）'}
             </span>
+            {/* ★VF_REPOSPLIT_V1b：批量删除入口（先前 delBatch 是死函数、界面上没按钮）——
+                全选/清空/删除**都只作用于当前这组**；删除 = OSS 真删（按钮里会二次确认）。 */}
+            <span className="flex-1" />
+            <button onClick={toggleAll}
+              className="px-3 py-1.5 rounded-lg text-xs border bg-white/[0.04] border-white/10 text-gray-300 hover:bg-white/[0.10]">
+              {allSelected ? '取消全选' : `全选本组 ${shown.length}`}
+            </button>
+            {selected.size > 0 && (
+              <>
+                <button onClick={() => setSelected(new Set())}
+                  className="px-3 py-1.5 rounded-lg text-xs border bg-white/[0.04] border-white/10 text-gray-400 hover:bg-white/[0.10]">
+                  清空选择
+                </button>
+                <button onClick={delBatch}
+                  className="px-3 py-1.5 rounded-lg text-xs border bg-red-500/20 border-red-400/40 text-red-200 hover:bg-red-500/30">
+                  删除选中 {selected.size}
+                </button>
+              </>
+            )}
           </div>
         )}
 
