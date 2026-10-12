@@ -5,11 +5,15 @@
  * v2 用户原话：「A+C 吧」「素材暂时是手动选取模式」「设计风格只有一个先定型」
  *            「依然 AI 开素材决定设计风格」「出一个 风格/页数/排版/文字 列表，确认后生成」。
  *
- * ⇒ v2 流程（4 步，每步都等用户回话）：
- *   ① 主题（A：先问主题；回 `跳过` 也行 —— 不带主题就走中性占位）
- *   ② 素材（C：来源可选 = 个人仓库根 / `目录=子目录` / `本机=绝对路径`；**手动挑序号**，不做自动）
- *   ③ 方案确认（AI **看素材** → 出「风格 · 段数 · 每段排版 · 文字」清单 → 用户回 `确认`）
- *   ④ 生成（引擎 tools/daily-page.mjs → 存个人仓库 → 下载链接）
+ * ⇒ **v4 流程（3 步）**：
+ *   ① 选素材（点按钮**直接列素材**；手动挑序号；★C 来源可选 = 个人仓库根 / `目录=子目录` / `本机=绝对路径`
+ *        ★主题**可选**：`京味铜锅涮肉 1,3,5` 或 `主题=…`，不写就走中性占位）
+ *   ② 方案确认（AI **看素材** → 出「风格 · 段数 · 每段排版 · 文字」清单 → 可 `改 N …` 微调 → 回 `确认`）
+ *   ③ 生成（引擎 tools/daily-page.mjs → 存个人仓库 → 下载链接 + 真图命名对照表）
+ *
+ *   v2→v4 为什么砍掉"先单独问主题"那一步（2026-10-12 17:58 用户实测）：
+ *     点按钮后看到"请回一句主题"⇒ 他不知道要再打字、以为卡住了，连着三次都停在第 1 步
+ *     （服务器日志只有 `起稿（第 1 步 主题）`、从没有主题消息）。⇒ 主题改成"跟序号一句话说"。
  *
  * ★风格口径（用户定案）：**本轮只做一个风格，先定型**（DAILY_STYLE「暖纸日报」），
  *   不做风格选择；但**段数 / 每段版式 / 文案 / 动效档仍由 AI 看素材决定**（AI 编排）。
@@ -325,16 +329,17 @@ function materialsReply(d: DailyDraft, names: string[], src: DailySource): strin
     : (src.kind === 'subdir' ? `个人仓库 · 子目录「${src.value}」`
       : '个人仓库（全部图片）')
   const L: string[] = []
-  L.push('📄「日报落地页」第 2 步 / 共 4 步 · **选素材**（手动挑，回序号）')
+  L.push('📄「日报落地页」第 1 步 / 共 3 步 · **选素材**（手动挑：回序号）')
   L.push('')
-  L.push(`主题：${d.topic || '（未给 → 中性占位）'}`)
+  L.push(`主题：${d.topic || '未给（想给就一起写，示例见下）'}`)
   L.push(`来源：${srcLabel}　共 ${names.length} 张${names.length >= LIST_CAP ? '（只列前 ' + LIST_CAP + ' 张）' : ''}`)
   L.push('')
   names.forEach((n, i) => L.push(`  ${i + 1}. ${n}`))
   L.push('')
-  L.push(`回**要用哪几张**（最多 ${DAILY_MAX_PICK} 张），例如：\`1,3,5\`${names.length > DAILY_MAX_PICK ? '；或回 `自动` 用前 ' + Math.min(DAILY_MAX_PICK, names.length) + ' 张' : ''}`)
-  L.push('换来源（想用别的素材时）：`目录=子文件夹名`　|　`本机=E:\\ai-marketing\\storage\\1\\餐饮素材`')
-  L.push('（想退出：回「取消」）')
+  L.push(`👉 回**要用哪几张**（最多 ${DAILY_MAX_PICK} 张），就一个数字列表：\`1,3,5\`${names.length > DAILY_MAX_PICK ? '（也可回 `自动` 用前 ' + Math.min(DAILY_MAX_PICK, names.length) + ' 张）' : ''}`)
+  L.push('· 想带主题：`京味铜锅涮肉 1,3,5`（或 `主题=京味铜锅涮肉`）')
+  L.push('· 只想看某个子文件夹：`目录=子文件夹名`　·　想用电脑上的文件夹：`本机=E:\\ai-marketing\\storage\\1\\餐饮素材`')
+  L.push('· 想退出：回「取消」')
   return L.join('\n')
 }
 
@@ -344,17 +349,22 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
   const bare = raw.replace(/\s+/g, '')
   let d = await loadDailyDraft(ctx.prisma, uid)
 
-  // ── 入口：作废旧草稿 → 第 1 步「主题」（★A：先问主题，再挑素材） ──
+  // ── 入口：作废旧草稿 → **直接列素材**（★VF_DAILY_V4：把"先单独问主题"那一步合并掉） ──
+  //   用户实测（2026-10-12 17:58）：点按钮后看到"请回一句主题"，他不知道要再打字、以为卡住，
+  //   连着三次都停在这一步。⇒ 改成"点按钮就给素材清单"，主题改成**可选**（跟序号一句话说）：
+  //     `1,3,5`（不给主题） / `京味铜锅涮肉 1,3,5`（给主题） / `主题=京味铜锅涮肉`
   if (isDailyEntry(bare)) {
     await clearDailyDraft(ctx.prisma, uid)
     d = newDailyDraft()
+    d.source = { kind: 'repo' }
     await saveDailyDraft(ctx.prisma, uid, d)
-    try { ctx.log?.(uid, '[日报落地页] 起稿（v2 · 第 1 步 主题）') } catch { /* ignore */ }
-    return '📄「日报落地页」第 1 步 / 共 4 步 · **这一期做什么**（本轮只出 HTML 文件，不出视频）\n\n'
-      + '👉 **请直接在下面输入框回一句话**（不是再点按钮）：例如 `京味铜锅涮肉`、`门店秋季新品`、`周末探店记录`。\n'
-      + '· 不想给主题就回 `跳过` —— 标题会用中性占位文案，我会如实告诉你；\n'
-      + '· 不想先说主题、直接挑图也行：回 `1,3,5` 或 `自动`，我按没主题处理（★2026-10-12 补：用户实测"卡在第 1 步"，就是以为点了按钮就会自己往下走）；\n'
-      + '· 想退出：回「取消」。'
+    const names = await listDailyImages(uid, LIST_SHOWN)
+    try { ctx.log?.(uid, `[日报落地页] 起稿（第 1 步 选素材 · 候选 ${names.length} 张）`) } catch { /* ignore */ }
+    if (!names.length) {
+      return '📄「日报落地页」第 1 步 / 共 3 步 · 选素材（本轮只出 HTML 文件，不出视频）\n'
+        + '⚠️ 你的个人仓库里还没有**图片** —— 先去「个人仓库」上传几张，再回来说一次「日报落地页」。'
+    }
+    return materialsReply(d, names, d.source)
   }
 
   if (!d) return null
@@ -366,30 +376,10 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
     return '已退出「日报落地页」（本线草稿已清）。想重来就说「日报落地页」。'
   }
 
-  /* ── 第 1 步：主题 ── */
-  if (d.step === 'topic') {
-    // ★2026-10-12 补（用户实测"卡在第 1 步"）：主题这一步**只回序号/自动**也放行 ——
-    //   当作用户不想说主题，直接进第 2 步那套解析（不然用户会以为"点了按钮就该自己往下走"）。
-    const picksOnly = /^[\d\s,，、]+$/.test(bare) || /^自动$/.test(bare)
-    d.source = d.source || { kind: 'repo' }
-    if (!picksOnly) {
-      d.topic = DAILY_SKIP_RE.test(bare) ? '' : raw.replace(/\s+/g, ' ').slice(0, 24)
-      const names = await listDailyImages(uid, LIST_SHOWN, d.source.kind === 'subdir' ? d.source.value : '')
-      d.step = 'pick'
-      await saveDailyDraft(ctx.prisma, uid, d)
-      if (!names.length) {
-        return '📄 第 2 步 / 共 4 步 · 选素材\n⚠️ 你的个人仓库里还没有**图片** —— 先去「个人仓库」上传几张，再回来说一次「日报落地页」。'
-      }
-      return materialsReply(d, names, d.source)
-    }
-    d.topic = ''
-    d.step = 'pick'
-    await saveDailyDraft(ctx.prisma, uid, d)
-    try { ctx.log?.(uid, '[日报落地页] 第 1 步收到的是序号/自动 → 跳过主题，直接选素材') } catch { /* ignore */ }
-    // 落到下面的"第 2 步"分派：把这句话当序号用（不浪费用户这一次输入）
-  }
+  // 老草稿（v2 的"step=topic"）兼容：等价于"还没挑图"，直接落到第 1 步
+  if (d.step === 'topic') d.step = 'pick'
 
-  /* ── 第 2 步：选素材（手动；来源可切换） ── */
+  /* ── 第 1 步：选素材（手动；来源可切换；主题可选） ── */
   if (d.step === 'pick') {
     // ① 解析来源（先剥掉来源表达式，免得路径里的数字被当成序号）
     const SRC_RE = /(本机|目录)\s*[=:：]\s*("[^"]+"|'[^']+'|[^\s,，、]+)/g
@@ -443,6 +433,23 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
     const picked = auto
       ? names.slice(0, DAILY_MAX_PICK)
       : Array.from(new Set(nums)).slice(0, DAILY_MAX_PICK).map((n) => names[n - 1]).filter(Boolean)
+
+    // ①' 主题（可选）：显式 `主题=xxx` 优先；否则把"剥掉来源/序号之后剩下的文字"当主题 ——
+    //     这样 `京味铜锅涮肉 1,3,5` 一句话就能既给主题又挑图（少一次来回）。
+    const tm = /主题\s*[=:：]\s*("[^"]+"|'[^']+'|[^\s,，、]+)/.exec(raw)
+    if (tm) {
+      d.topic = unq(tm[1]).slice(0, 24)
+    } else if (!DAILY_SKIP_RE.test(bare)) {
+      const leftover = strip(raw)
+        .replace(/主题\s*[=:：]\s*("[^"]+"|'[^']+'|[^\s,，、]+)/g, ' ')
+        .replace(/自动/g, ' ')
+        .replace(/[\d,，、]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+      if (leftover.length >= 2) d.topic = leftover.slice(0, 24)
+    } else {
+      d.topic = ''
+    }
 
     // 只换了来源、还没挑图 ⇒ 存下来 + 重新列清单（不让用户重打一遍）
     if (!picked.length) {

@@ -191,7 +191,7 @@ export function formatDailyPlan(plan: any, o: { topic: string; picks: PlanPick[]
   const segs: any[] = Array.isArray(plan?.segments) ? plan.segments : []
   const total = planDuration(plan)
   const L: string[] = []
-  L.push('📄「日报落地页」第 3 步 / 共 4 步 · **方案确认**')
+  L.push('📄「日报落地页」第 2 步 / 共 3 步 · **方案确认**')
   L.push('')
   L.push(`风格：**${DAILY_STYLE.name}**（本轮唯一风格，先定型）｜动效档：${plan?.motion || 'normal'}`)
   L.push(`主题：${o.topic || '（未给 → 中性占位文案）'}｜素材 ${o.picks.length} 张｜共 **${segs.length} 段** · 约 ${total.toFixed(1)} 秒`)
