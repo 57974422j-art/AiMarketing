@@ -33,7 +33,7 @@ import { saveToPersonalRepo } from '@/lib/personal-storage'
 import { dashscopeFunctionCall } from '@/lib/ai-providers'
 import { runFFmpeg } from '@/lib/ffmpeg'
 // ★纯函数层（零依赖、可单测：temp/_exp/daily/test-plan.mjs）
-import { DAILY_STYLE, aiPrompt, extractJson, normSegs, normMotion, buildPlanFromSegs, buildDailyPlan, formatDailyPlan } from './daily-plan'
+import { DAILY_STYLE, aiPrompt, extractJson, normSegs, normMotion, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, applyDailyEdit } from './daily-plan'
 
 export { DAILY_STYLE }
 
@@ -481,11 +481,22 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
       return materialsReply(d, names, src)
     }
     if (!DAILY_YES_RE.test(bare)) {
+      // ★逐段微调：`改 3 标题=…` / `改 3 版式=竖排` / `动效=活泼` / `删 3` —— 改完重列方案
+      const picksForEdit = toPicks(uid, d.source || { kind: 'repo' }, d.names || [])
+      const ed = applyDailyEdit(d.plan, raw, picksForEdit)
+      if (ed.matched) {
+        if (!ed.ok) return '⚠️ ' + ed.msg + '\n\n' + formatDailyPlan(d.plan, { topic: d.topic || '', picks: picksForEdit, by: d.planBy || 'fallback', note: d.planNote })
+        d.plan = ed.plan
+        await saveDailyDraft(ctx.prisma, uid, d)
+        try { ctx.log?.(uid, '[日报落地页] ' + ed.msg) } catch { /* ignore */ }
+        return '✅ ' + ed.msg + '\n\n'
+          + formatDailyPlan(d.plan, { topic: d.topic || '', picks: picksForEdit, by: d.planBy || 'fallback', note: d.planNote })
+      }
       return '这一步在等你**拍板**：\n'
         + '· 满意 → 回 `确认`（我就生成 HTML 文件）\n'
         + '· 想换素材 → 回 `重选`\n'
         + '· 想退出 → 回 `取消`\n'
-        + '（想改文案/版式的细节：先回 `重选` 挑一批图让我重排；逐段微调还没做）'
+        + '· 想改某一段 → 例如 `改 3 标题=刀起刀落/薄如纸片`、`改 3 版式=竖排`、`改 3 用图=2,4`、`删 3`'
     }
     const plan = d.plan
     if (!plan || !Array.isArray(plan.segments) || !plan.segments.length) {

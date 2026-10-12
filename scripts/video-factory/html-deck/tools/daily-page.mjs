@@ -173,6 +173,43 @@ ${warns.length ? '<!-- ⚠️ 字数体检警告：\n     ' + warns.join('\n    
   /* ★VF_DAILY_V2：真图槽（images/N.jpg）；img 被 onerror 摘掉时露出下面的渐变占位 */
   .fig .ph{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
 
+  /* ═══ ★VF_DAILY_V3（2026-10-12 用户定案「排版要真的不一样」）═══
+     form / place 以前只是写在标签上、看不出差别；现在**真的换版式**。
+     全部用 grid（不用绝对定位）⇒ 越界/溢出闸门照旧管用；三种 form 互不相同，
+     文字压在图上的一律带 ≥74% 暗衬（对比度与"压图"判定都稳）。 */
+  /* form=overlay：大图吃满整段（横竖都拉通），文字贴图下沿 + 暗衬条 */
+  .sec[data-form="overlay"]{grid-template-columns:minmax(0,1fr);
+    grid-template-rows:auto minmax(0,1fr) auto auto;grid-template-areas:"head" "fig" "title" "cols"}
+  /* ⚠️ 踩过的坑（实测）：满幅图的"推近"若加在图框上，横屏会算出 3px 越界（图框比视口宽）。
+     所以满幅段把推近**移到框内的图**上 —— 被 .fig 的 overflow:hidden 裁掉，版面不动。 */
+  .sec[data-form="overlay"] .fig{margin-top:0;transform:rotate(-.25deg)}
+  .sec[data-form="overlay"] .fig .ph{transform:scale(calc(var(--mz) - (var(--mz) - 1)*var(--sp)));
+    transition:none}
+  /* 标题与信息点共用**一条**暗衬带（::after 跨两行、把中间的行距也盖住）——
+     否则两个深色块中间露一条纸色缝，看着像"两个灰盒子"（截图上看过一眼就不想要了）。 */
+  .sec[data-form="overlay"]::after{content:"";grid-row:3 / span 2;grid-column:1;
+    background:rgba(23,20,15,.74);z-index:0}
+  .sec[data-form="overlay"] h2,.sec[data-form="overlay"] .cols{position:relative;z-index:1}
+  .sec[data-form="overlay"] h2{background:none;color:#fff;padding:.06em .26em .12em}
+  .sec[data-form="overlay"] h2 em{box-shadow:inset 0 -.18em 0 rgba(230,150,120,.5)}
+  .sec[data-form="overlay"] .cols{background:none;color:#fff;border-top:0;
+    padding:var(--gap) calc(var(--gap) * .8)}
+  .sec[data-form="overlay"] .cols .col i{color:rgba(255,255,255,.78)}
+  .sec[data-form="overlay"] .cols .col b{color:#F3C9A0}
+  /* form=sticker：标题变贴纸块（纸色底 + 朱红硬投影 + 轻倾斜） */
+  .sec[data-form="sticker"] h2{align-self:start;justify-self:start;
+    background:var(--paper2);padding:.10em .30em .16em;box-shadow:7px 8px 0 rgba(198,57,43,.22)}
+  /* form=vertical：竖排标题（报纸竖排感）—— 标题单独占一列，图在左 */
+  .sec[data-form="vertical"]{grid-template-columns:minmax(0,1fr) auto;
+    grid-template-rows:auto minmax(0,1fr) auto;grid-template-areas:"head head" "fig title" "cols cols"}
+  .sec[data-form="vertical"] h2{writing-mode:vertical-rl;text-orientation:upright;
+    font-size:clamp(30px,3.4vmin,50px);letter-spacing:.08em;align-self:start;justify-self:end;
+    padding-left:calc(var(--gap) * .6)}
+  /* place=mat：相纸感（图缩一圈、白边、方角） */
+  .sec[data-place="mat"] .figs{padding:clamp(8px,1.1vmin,16px)}
+  .sec[data-place="mat"] .fig{outline:clamp(4px,0.7vmin,8px) solid #fff;border-radius:1px;
+    box-shadow:0 16px 32px rgba(60,40,20,.16)}
+
   .cols{grid-area:cols;display:grid;grid-template-columns:1.45fr 1fr 1fr;gap:var(--gap);align-self:end;
     border-top:1px solid var(--line);padding-top:var(--gap)}
   .cols.c2{grid-template-columns:1.45fr 1fr}

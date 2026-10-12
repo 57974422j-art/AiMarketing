@@ -48,7 +48,9 @@ export function aiPrompt(n: number, topic: string): string {
     '3. 每段 title = **两行短句**（每行 ≤12 个汉字），像报纸小标题；不要长句、不要感叹号堆砌。',
     '4. 每段 points 最多 3 组、每组两个短词（各 ≤8 字），如 ["手切现片","立盘不掉"]；**只写你在图里真看到的东西**，不许编门店名/评分/价格/销量。',
     '5. kicker = 段上的小标签（≤20 字，如「后厨 · 手作」）；只有封面给 stamp（≤10 字，如「封面故事」）。',
-    '6. form 取值 "overlay"（文字压大图）| "sticker"（贴纸式标题）| "vertical"（竖排标题）；place 取值 "cover" | "mat"；相邻段不要连续相同。',
+    '6. form 决定这一段**长什么样**（相邻段不要连续相同）："overlay"=满幅大图（图吃满整段，文字贴在图下沿的深色衬条上）'
+    + '｜"sticker"=贴纸标题（标题成纸色贴纸块）｜"vertical"=竖排标题（标题竖排在图右侧，字小，只适合短句）。'
+    + 'place："cover"=图铺满｜"mat"=相纸留边（图缩一圈带白边）。',
     '7. 简体中文，不用 emoji。',
     '',
     '只输出 JSON（不要解释、不要 markdown 代码块）：',
@@ -155,10 +157,29 @@ export function buildDailyPlan(names: string[], topicRaw: string) {
 
 /* ─────────────── 给人看的方案清单（风格/页数/排版/文字） ─────────────── */
 
+/** 段类型 / 版式的**人话名**（清单与 AI 提示词共用，避免两处说法不一致） */
+export const KIND_LABEL: Record<string, string> = { cover: '封面', feature: '正片', end: '结尾' }
+export const FORM_LABEL: Record<string, string> = { overlay: '满幅大图', sticker: '贴纸标题', vertical: '竖排标题' }
+export const KIND_ALIASES: Record<string, string> = {
+  封面: 'cover', cover: 'cover', 正片: 'feature', feature: 'feature', 中间: 'feature', 内容: 'feature', 结尾: 'end', 尾: 'end', end: 'end',
+}
+export const FORM_ALIASES: Record<string, string> = {
+  满幅: 'overlay', 压字: 'overlay', 大图: 'overlay', 满幅大图: 'overlay', overlay: 'overlay',
+  贴纸: 'sticker', 贴纸标题: 'sticker', sticker: 'sticker',
+  竖排: 'vertical', 竖排标题: 'vertical', vertical: 'vertical',
+}
+export const MOTION_ALIASES: Record<string, string> = {
+  稳: 'calm', 慢: 'calm', 安静: 'calm', calm: 'calm',
+  正常: 'normal', normal: 'normal',
+  活泼: 'lively', 快: 'lively', 热闹: 'lively', lively: 'lively',
+}
+
 export function layoutLabel(s: any): string {
-  const k = s.kind === 'cover' ? '封面' : (s.kind === 'end' ? '结尾' : '正片')
+  const k = KIND_LABEL[String(s.kind)] || '正片'
   const f = (s.imgs || []).length >= 2 ? '双图并排' : '单图通栏'
-  return `${k} · ${f}`
+  const form = FORM_LABEL[String(s.form)] || FORM_LABEL.overlay
+  const mat = String(s.place) === 'mat' ? ' · 相纸留边' : ''
+  return `${k} · ${f} · ${form}${mat}`
 }
 export function durOf(kind: string): number { return kind === 'cover' ? 3.4 : 3.2 }
 export function planDuration(plan: any): number {
@@ -195,6 +216,107 @@ export function formatDailyPlan(plan: any, o: { topic: string; picks: PlanPick[]
     : `（⚠️ AI 这轮没排出方案${o.note ? '：' + o.note : ''} → 用的是**系统保底版式**）`)
   L.push('')
   L.push('回 `确认` 我就**生成 HTML 文件**；回 `重选` 重新挑素材；回 `取消` 退出。')
+  L.push('微调（改完我重列一遍方案）：`改 3 标题=刀起刀落/薄如纸片`　`改 3 版式=竖排`　`改 3 用图=2,4`　'
+    + '`改 3 信息点=甲,乙;丙,丁`　`改 3 类型=结尾`　`动效=活泼`　`删 3`')
   L.push('（生成后下载 HTML，把你选的图**按上面「用图」的编号**命名成 `1.jpg…N.jpg` 放进同目录 `images/` 文件夹即为真图）')
   return L.join('\n')
+}
+
+/**
+ * ★逐段微调（用户 2026-10-12 定案后补做）：把一句人话改成方案的局部手术。
+ * 支持（`第`/`段` 可省）：
+ *   `改 <n> 标题=行1/行2` · `改 <n> 标签=后厨 · 手作` · `改 <n> 角标=封面故事`
+ *   `改 <n> 信息点=甲,乙;丙,丁` · `改 <n> 用图=2,4` · `改 <n> 版式=满幅|贴纸|竖排`
+ *   `改 <n> 类型=封面|正片|结尾` · `动效=稳|正常|活泼` · `删 <n>`
+ * 返回 matched=true 表示"这句话是本线在改方案"（哪怕参数写错 ⇒ ok=false 并给出人话原因，
+ * 由调用方决定是回显错误还是当成普通消息）。**不改用户原对象**（深拷贝后再动）。
+ */
+export function applyDailyEdit(plan: any, raw: string, picks: PlanPick[] = []): { matched: boolean; ok: boolean; msg: string; plan?: any } {
+  const s = String(raw || '').trim()
+  const src: any[] = Array.isArray(plan?.segments) ? plan.segments : []
+  if (!src.length) return { matched: false, ok: false, msg: '' }
+  const segs: any[] = src.map((x: any) => ({
+    ...x,
+    title: [...(Array.isArray(x.title) ? x.title : [])],
+    imgs: [...(Array.isArray(x.imgs) ? x.imgs : [])],
+    points: (Array.isArray(x.points) ? x.points : []).map((p: any) => [...p]),
+    src: [...(Array.isArray(x.src) ? x.src : [])],
+  }))
+  const next: any = { ...plan, segments: segs }
+  const segCount = segs.length
+  const maxImg = picks.length || Math.max(0, ...segs.flatMap((x: any) => x.imgs))
+
+  // ① 动效档
+  let m = /^(?:动效|节奏)\s*[=:：]\s*(\S+)\s*$/.exec(s)
+  if (m) {
+    const v = MOTION_ALIASES[m[1]]
+    if (!v) return { matched: true, ok: false, msg: `不认识的动效档「${m[1]}」—— 可选：稳 / 正常 / 活泼` }
+    next.motion = v
+    return { matched: true, ok: true, msg: `已改：动效档 → ${m[1]}`, plan: next }
+  }
+
+  // ② 删第 n 段
+  m = /^删\s*第?\s*(\d+)\s*段?\s*$/.exec(s)
+  if (m) {
+    const i = parseInt(m[1], 10) - 1
+    if (!(i >= 0 && i < segCount)) return { matched: true, ok: false, msg: `没有第 ${m[1]} 段（本方案 ${segCount} 段）` }
+    if (segCount <= 2) return { matched: true, ok: false, msg: '至少要留 2 段（想整体重来就回 `重选`）' }
+    const gone = segs.splice(i, 1)[0]
+    if (i === 0) segs[0].kind = 'cover'                    // 删掉封面 ⇒ 新首段顶上当封面
+    if (i >= segs.length) segs[segs.length - 1].kind = 'end'
+    return { matched: true, ok: true, msg: `已删掉第 ${m[1]} 段（原「${(gone.title || []).join(' / ')}」）`, plan: next }
+  }
+
+  // ③ 改第 n 段的某个字段
+  m = /^改\s*第?\s*(\d+)\s*段?\s*(标题|标签|角标|信息点|用图|版式|类型)\s*[=:：]\s*([\s\S]+)$/.exec(s)
+  if (!m) return { matched: false, ok: false, msg: '' }
+  const i = parseInt(m[1], 10) - 1
+  const field = m[2]
+  const val = String(m[3] || '').trim()
+  if (!(i >= 0 && i < segCount)) return { matched: true, ok: false, msg: `没有第 ${m[1]} 段（本方案 ${segCount} 段）` }
+  const seg = segs[i]
+  const head = `已改：第 ${i + 1} 段`
+
+  if (field === '标题') {
+    const lines = val.split(/[/｜|]/).map((x) => clip(x, 12)).filter(Boolean).slice(0, 2)
+    if (!lines.length) return { matched: true, ok: false, msg: '标题要写点字，例如 `改 1 标题=凌晨四点/第一锅汤`（斜杠分行）' }
+    seg.title = lines.length === 1 ? [lines[0], (seg.title || [])[1] || ''].filter(Boolean) : lines
+    return { matched: true, ok: true, msg: `${head}标题 → ${seg.title.join(' / ')}`, plan: next }
+  }
+  if (field === '标签') {
+    seg.kicker = clip(val, 20)
+    return { matched: true, ok: true, msg: `${head}标签 → ${seg.kicker}`, plan: next }
+  }
+  if (field === '角标') {
+    seg.stamp = clip(val, 10)
+    return { matched: true, ok: true, msg: `${head}角标 → ${seg.stamp}`, plan: next }
+  }
+  if (field === '信息点') {
+    const pts = val.split(/[;；]/)
+      .map((g) => g.split(/[,，、]/).map((x) => clip(x, 8)).filter(Boolean))
+      .filter((g) => g.length).slice(0, 3)
+      .map((g) => [g[0], g[1] || ''])
+    seg.points = pts
+    return { matched: true, ok: true, msg: `${head}信息点 → ${pts.map((p) => p.join('·')).join(' ｜ ') || '（清空）'}`, plan: next }
+  }
+  if (field === '用图') {
+    const nums = Array.from(new Set((val.match(/\d+/g) || []).map((x) => parseInt(x, 10)).filter((x) => x >= 1 && x <= maxImg))).slice(0, 2)
+    if (!nums.length) return { matched: true, ok: false, msg: `图号要写在 1~${maxImg} 之间（本方案共 ${maxImg} 张素材）` }
+    seg.imgs = nums
+    seg.src = picks.length ? nums.map((x) => picks[x - 1]?.name || '').filter(Boolean) : seg.src
+    return { matched: true, ok: true, msg: `${head}用图 → ${nums.join('+')}`, plan: next }
+  }
+  if (field === '版式') {
+    const f = FORM_ALIASES[val.replace(/\s+/g, '')]
+    if (!f) return { matched: true, ok: false, msg: `不认识的版式「${val}」—— 可选：满幅 / 贴纸 / 竖排` }
+    seg.form = f
+    return { matched: true, ok: true, msg: `${head}版式 → ${FORM_LABEL[f]}`, plan: next }
+  }
+  if (field === '类型') {
+    const k = KIND_ALIASES[val.replace(/\s+/g, '')]
+    if (!k) return { matched: true, ok: false, msg: `不认识的类型「${val}」—— 可选：封面 / 正片 / 结尾` }
+    seg.kind = k
+    return { matched: true, ok: true, msg: `${head}类型 → ${KIND_LABEL[k]}`, plan: next }
+  }
+  return { matched: true, ok: false, msg: '这条改法没看懂' }
 }
