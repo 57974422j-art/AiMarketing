@@ -481,13 +481,34 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Pr
   d.htmlName = r.name
   await saveDailyDraft(ctx.prisma, uid, d)
   try { ctx.log?.(uid, `[日报落地页] 已生成 ${r.name}（${plan.segments.length} 段 · ${d.planBy}）`) } catch { /* ignore */ }
-  const url = `/api/storage/file?userId=${uid}&name=${encodeURIComponent(r.name)}&download=1`
+  // ★VF_DAILY_V7（2026-10-12 用户原话「如果不能显示你至少给个地址可以访问」）：
+  //   旧实现只给了一条**相对路径** `/api/storage/file?...`（还没登录 cookie 就 401、也没法直接发人）
+  //   ⇒ 现在给**OSS 签名直链**（7 天有效，浏览器直接渲染：存进去时 Content-Type 就是 text/html）。
+  //   另给一条带 `content-disposition:attachment` 的**下载链**（点了就存文件，不渲染）。
+  const key = `storage/${uid}/${r.name}`
+  let viewUrl = ''
+  let dlUrl = ''
+  try {
+    const { signedUrl } = await import('@/lib/oss')
+    viewUrl = await signedUrl(key, 7 * 86400)
+  } catch { /* 签名失败就退回下面的相对下载路径 */ }
+  try {
+    const { getOSSClient } = await import('@/lib/oss')
+    const oss = await getOSSClient()
+    dlUrl = oss.signatureUrl(key, {
+      expires: 7 * 86400,
+      response: { 'content-disposition': `attachment; filename="${r.name}"` },
+    })
+  } catch { /* 不给下载链也不影响"能打开" */ }
+  const apiPath = `/api/storage/file?userId=${uid}&name=${encodeURIComponent(r.name)}&download=1`
   const ordered = picks.map((p, i) => `${i + 1}.jpg ← ${p.name}`).join('\n　')
   return '✅ **日报落地页 HTML 已生成**（' + plan.segments.length + ' 段 · 风格 ' + DAILY_STYLE.name
-    + ' · ' + (d.planBy === 'ai' ? 'AI 看素材编排' : '系统保底版式') + ' · 合规检查：' + (r.note || 'R1~R14 通过') + '）\n\n'
-    + '**下载**：' + url + '\n\n'
-    + '换成真图（2 步）：\n'
-    + '　① 下载后**双击**用浏览器打开即可预览（上下滚动 = 预览模式，每段自动循环）；\n'
+    + ' · ' + (d.planBy === 'ai' ? 'AI 看素材编排' : '系统保底版式') + '（' + (r.note || 'R1~R14 通过').trim() + '）\n\n'
+    + '**① 直接打开看（浏览器里渲染，7 天有效）**：\n' + (viewUrl || '（签名失败，用下面的路径）')
+    + (dlUrl ? '\n\n**② 下载这个 HTML 文件**：\n' + dlUrl : '')
+    + '\n\n**③ 存到本地（登录后可用）**：' + apiPath
+    + '\n\n**换成真图（2 步）**：\n'
+    + '　① 下载后用浏览器打开即可预览（上下滚动 = 预览模式，每段自动循环）；\n'
     + '　② 在 HTML 同目录建 `images/` 文件夹，把图按下面对应关系命名放进去：\n　' + ordered + '\n\n'
     + '文件已存进你的**个人仓库**（生成素材组）。想再做一份：再说一次「日报落地页」。'
 }
