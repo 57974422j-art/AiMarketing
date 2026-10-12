@@ -86,7 +86,9 @@ const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</
 function segBody(s, sc) {
   const title = (s.title || []).map((line, j) => j === 0 ? `<span>${esc(line)}</span>` : `<span><em>${esc(line)}</em></span>`).join('')
   const imgs = (Array.isArray(s.imgs) ? s.imgs : []).slice(0, 2)
-  const figs = imgs.map((n) => `<div class="fig" style="background:var(--g${n % 3})"></div>`).join('')
+  // ★VF_DAILY_V2：图槽真的挂上 images/N.jpg（缺图时 onerror 自己摘掉 ⇒ 退回渐变占位，不裂图）
+  const figs = imgs.map((n) => `<div class="fig" style="background:var(--g${n % 3})">`
+    + `<img class="ph" src="${IMG_DIR}/${n}.jpg" alt="" loading="lazy" onerror="this.remove()"></div>`).join('')
   const pts = (Array.isArray(s.points) ? s.points : []).slice(0, 3)
     .map((p) => `<div class="col"><b>${esc(p && p[0])}</b><i>${esc(p && p[1])}</i></div>`).join('')
   return `<section class="sec" data-seg="${sc.i + 1}" data-start="${sc.start}" data-duration="${sc.dur}"`
@@ -168,6 +170,8 @@ ${warns.length ? '<!-- ⚠️ 字数体检警告：\n     ' + warns.join('\n    
     border-left:2px solid rgba(255,255,255,.75);border-top:2px solid rgba(255,255,255,.75)}
   .fig::after{content:"";position:absolute;right:14px;bottom:14px;width:16px;height:16px;
     border-right:2px solid rgba(255,255,255,.75);border-bottom:2px solid rgba(255,255,255,.75)}
+  /* ★VF_DAILY_V2：真图槽（images/N.jpg）；img 被 onerror 摘掉时露出下面的渐变占位 */
+  .fig .ph{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
 
   .cols{grid-area:cols;display:grid;grid-template-columns:1.45fr 1fr 1fr;gap:var(--gap);align-self:end;
     border-top:1px solid var(--line);padding-top:var(--gap)}

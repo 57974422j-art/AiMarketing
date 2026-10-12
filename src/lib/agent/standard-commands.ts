@@ -118,7 +118,7 @@ export const STD_COMMANDS: StdCommand[] = [
   //      + 分派块放最前（route.ts 4326 之前），缺一处就会出现"第 2 步被锁死 / 命令≠重来"。
   { id: 'daily', text: '日报落地页', kind: 'machine',
     alias: ['日报页', '做日报页'],
-    note: '日报落地页线状态机（选素材 → 生成 HTML；本轮不出片，实现在 src/lib/agent/daily.ts）' },
+    note: '日报落地页线 v2（主题 → 选素材[手动/来源可选] → AI 看素材出「风格/段数/排版/文字」方案 → 确认 → 生成 HTML；本轮不出片，实现在 src/lib/agent/daily.ts）' },
 
   // ── 缺口（用户定案：先回"开发中"，把手上 7 条做扎实）──────────────────
   { id: 'hotspot',  text: '帮我查一下今日热点',        kind: 'wip',     note: '⚠️ 缺专用工具（只有 /api/agent/hotspots 接口，工具箱里没有热点工具）' },
