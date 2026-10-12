@@ -4355,6 +4355,18 @@ PUBLISH_DRAFT.delete(uidW)
               userMessage,
               prisma,
               isEntry: !!stdCmdHit && stdCmdHit.id === 'daily',
+              // ★VF_FILELINK_V1：把**用户实际访问的域名**传进去 —— 交付回复里的"本站短链"要用它拼绝对地址。
+              //   优先 x-forwarded-*（应用常在反代后面 ⇒ request.url 会是内网的 127.0.0.1:3000）。
+              origin: (() => {
+                try {
+                  const h = request.headers
+                  const host = String(h.get('x-forwarded-host') || h.get('host') || '').split(',')[0].trim()
+                  if (!host) return new URL(request.url).origin
+                  const proto = String(h.get('x-forwarded-proto') || '').split(',')[0].trim()
+                    || (/^(localhost|127\.|\[::1\]|(\d+\.){3}\d+)(:\d+)?$/i.test(host) ? 'http' : 'https')
+                  return proto + '://' + host
+                } catch { return '' }
+              })(),
               log: (u: number | string, s: string) => { try { vfLog(u, s) } catch { /* ignore */ } },
             })
             if (_rDL) { wfEarlyReply = _rDL; finalResult = _rDL }

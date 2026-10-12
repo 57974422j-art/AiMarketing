@@ -393,6 +393,8 @@ export interface DailyCtx {
   prisma: any
   /** 只有"点/说了命令"才算入口（本线没有协议串，保留参数与其它线同形） */
   isEntry?: boolean
+  /** ★VF_FILELINK_V1：调用方传入的**对外域名**（用于拼"本站短链"；拿不到就退回相对路径） */
+  origin?: string
   log?: (uid: number | string, s: string) => void
 }
 
@@ -481,36 +483,34 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Pr
   d.htmlName = r.name
   await saveDailyDraft(ctx.prisma, uid, d)
   try { ctx.log?.(uid, `[日报落地页] 已生成 ${r.name}（${plan.segments.length} 段 · ${d.planBy}）`) } catch { /* ignore */ }
-  // ★VF_DAILY_V7（2026-10-12 用户原话「如果不能显示你至少给个地址可以访问」）：
-  //   旧实现只给了一条**相对路径** `/api/storage/file?...`（还没登录 cookie 就 401、也没法直接发人）
-  //   ⇒ 现在给**OSS 签名直链**（7 天有效，浏览器直接渲染：存进去时 Content-Type 就是 text/html）。
-  //   另给一条带 `content-disposition:attachment` 的**下载链**（点了就存文件，不渲染）。
+  // ★VF_FILELINK_V1（2026-10-12 用户原话「你至少包装一下 怎么这么现实出来了 连我服务器地址什么都搞出来了」）：
+  //   不再往回复里贴 OSS 原始签名地址（桶名/区域/OSSAccessKeyId/内部 key 全在里面）。
+  //   对外只给**本站短链** `/f/<uid>/<文件名>?t=<过期>.<签名>` —— 由 src/app/f/[uid]/[name]/route.ts
+  //   校验签名后 302 跳到真地址（不代理流量、无状态；7 天有效、可发人）。
+  //   OSS 原始地址与内部路径只写进**服务端日志**（排障用），不出现在聊天里。
   const key = `storage/${uid}/${r.name}`
-  let viewUrl = ''
-  let dlUrl = ''
+  let viewPath = ''
+  let dlPath = ''
   try {
-    const { signedUrl } = await import('@/lib/oss')
-    viewUrl = await signedUrl(key, 7 * 86400)
-  } catch { /* 签名失败就退回下面的相对下载路径 */ }
-  try {
-    const { getOSSClient } = await import('@/lib/oss')
-    const oss = await getOSSClient()
-    dlUrl = oss.signatureUrl(key, {
-      expires: 7 * 86400,
-      response: { 'content-disposition': `attachment; filename="${r.name}"` },
-    })
-  } catch { /* 不给下载链也不影响"能打开" */ }
+    const { fileLinkPath } = await import('@/lib/file-link')
+    viewPath = fileLinkPath(uid, r.name, 7 * 86400)
+    dlPath = viewPath + (viewPath.includes('?') ? '&' : '?') + 'dl=1'
+  } catch { /* 极端情况下退回下面的 api 路径 */ }
+  const base = String(ctx.origin || '').replace(/\/+$/, '')
+  const abs = (p: string) => (p ? (base ? base + p : p) : '')
   const apiPath = `/api/storage/file?userId=${uid}&name=${encodeURIComponent(r.name)}&download=1`
   const ordered = picks.map((p, i) => `${i + 1}.jpg ← ${p.name}`).join('\n　')
+  try { ctx.log?.(uid, `[日报落地页] 交付：${key} ｜ 短链 ${viewPath || apiPath}`) } catch { /* ignore */ }
+  const viewUrl = abs(viewPath) || apiPath
+  const dlUrl = abs(dlPath)
   return '✅ **日报落地页 HTML 已生成**（' + plan.segments.length + ' 段 · 风格 ' + DAILY_STYLE.name
-    + ' · ' + (d.planBy === 'ai' ? 'AI 看素材编排' : '系统保底版式') + '（' + (r.note || 'R1~R14 通过').trim() + '）\n\n'
-    + '**① 直接打开看（浏览器里渲染，7 天有效）**：\n' + (viewUrl || '（签名失败，用下面的路径）')
-    + (dlUrl ? '\n\n**② 下载这个 HTML 文件**：\n' + dlUrl : '')
-    + '\n\n**③ 存到本地（登录后可用）**：' + apiPath
-    + '\n\n**换成真图（2 步）**：\n'
-    + '　① 下载后用浏览器打开即可预览（上下滚动 = 预览模式，每段自动循环）；\n'
-    + '　② 在 HTML 同目录建 `images/` 文件夹，把图按下面对应关系命名放进去：\n　' + ordered + '\n\n'
-    + '文件已存进你的**个人仓库**（生成素材组）。想再做一份：再说一次「日报落地页」。'
+    + ' · ' + (d.planBy === 'ai' ? 'AI 看素材编排' : '系统保底版式') + ' · ' + (r.note || 'R1~R14 通过').trim() + '）\n\n'
+    + '▶ **打开预览（浏览器直接渲染）**：\n' + viewUrl
+    + (dlUrl ? '\n\n⬇ **下载这个 HTML 文件**：\n' + dlUrl : '')
+    + '\n\n（链接 7 天有效，可以发给别人；过期后回来说一次「日报落地页」重做一份就有新链接。）\n'
+    + '**换成真图（2 步）**：① 下载后用浏览器打开预览（上下滚动 = 预览模式，每段自动循环）；'
+    + '② 在同目录建 `images/` 文件夹，把图按下面对应关系命名放进：\n　' + ordered + '\n\n'
+    + '文件同时存在你的**个人仓库 · 生成素材组**。想再做一份：再说一次「日报落地页」。'
 }
 
 export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
