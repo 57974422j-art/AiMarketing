@@ -266,7 +266,7 @@ function toPicks(uid: number | string, src: DailySource, names: string[]): Daily
  *   两段式：① 视觉模型逐张读出"拍的是什么" ② **文字模型**（qwen3.8-flash，稳）据此出 JSON 方案。
  *   视觉不可用时**不判死**：退成"按主题+序号排"，并把原因如实写进方案卡。
  */
-export async function aiPlanSegments(picks: DailyPick[], topic: string): Promise<{ ok: boolean; segs?: any[]; error?: string; added?: number; motion?: string; sawImages?: boolean; vlErr?: string }> {
+export async function aiPlanSegments(picks: DailyPick[], topic: string): Promise<{ ok: boolean; segs?: any[]; error?: string; added?: number; fixes?: string[]; motion?: string; sawImages?: boolean; vlErr?: string }> {
   const n = picks.length
   if (!n) return { ok: false, error: '没有素材' }
 
@@ -315,9 +315,9 @@ export async function aiPlanSegments(picks: DailyPick[], topic: string): Promise
     const res = await dashscopeFunctionCall([{ role: 'user', content: prompt }], [], 2600, 0.6, false)
     const raw = extractJson(String(res?.content || ''))
     if (!raw) return { ok: false, error: 'AI 没吐出可解析的 JSON' + (vlErr ? '；' + vlErr : ''), sawImages: !!summary, vlErr }
-    const { segs, added } = normSegs(raw, n, topic)
+    const { segs, added, fixes } = normSegs(raw, n, topic)
     if (segs.length < 2) return { ok: false, error: 'AI 的分段不合规（段数不足）', sawImages: !!summary, vlErr }
-    return { ok: true, segs, added, motion: normMotion(raw?.motion), sawImages: !!summary, vlErr }
+    return { ok: true, segs, added, fixes, motion: normMotion(raw?.motion), sawImages: !!summary, vlErr }
   } catch (e: any) {
     return { ok: false, error: String(e?.message || e).slice(0, 120), sawImages: !!summary, vlErr }
   }
@@ -452,6 +452,11 @@ async function runPlan(ctx: DailyCtx, d: DailyDraft, src: DailySource, picked: s
   const extra: string[] = []
   if (note0) extra.push(note0.replace(/\*\*/g, ''))
   if (ai.ok && !ai.sawImages) extra.push('这轮没看成图：' + (ai.vlErr || '未知原因') + '（方案按主题/序号排，文案请自己核一遍）')
+  // ★L2：AI 给的结构与图数打架 / 整份结构太单一 ⇒ 我校正过，**如实写进卡头**（不闷着改）
+  if (ai.ok && ai.fixes && ai.fixes.length) {
+    try { ctx.log?.(uid, '[日报落地页] 结构校正：' + ai.fixes.join('；')) } catch { /* ignore */ }
+    extra.push('结构已校正：' + ai.fixes.slice(0, 2).join('；') + (ai.fixes.length > 2 ? ` 等 ${ai.fixes.length} 处` : ''))
+  }
   return planOut(d, picks, by, note, extra.join(' · '))
 }
 

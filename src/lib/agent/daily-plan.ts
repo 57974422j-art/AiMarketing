@@ -20,6 +20,31 @@ export const DAILY_STYLE = { id: 'paper-daily', name: '暖纸日报', accent: '#
 export const PLAN_FORMS = ['overlay', 'sticker', 'vertical']
 export const PLAN_PLACES = ['cover', 'mat']
 
+/**
+ * ★VF_DAILY_L2（2026-10-12 用户「说 L2 大胆试」）：**段结构库** —— 与引擎
+ * `scripts/video-factory/html-deck/tools/daily-page.mjs` 里的 `LAYOUTS` **必须逐字一致**（两处白名单）。
+ * 用户病灶原话：「你是不是把设计说的很死，我看它设计跟你的一模一样」—— 老实现只有一套骨架，
+ * 两份产物连 `<style>` 都字节相同；现在 AI 可以按素材在这 8 种里挑（图数必须与结构匹配，见 normSegs）。
+ */
+export const PLAN_LAYOUTS: Array<{ id: string; name: string; minImg: number; maxImg: number; look: string }> = [
+  { id: 'hero',     name: '满幅压字', minImg: 1, maxImg: 1, look: '图吃满整段，文字贴在下沿深色衬带上（气势型，适合环境/门头/全景）' },
+  { id: 'sticker',  name: '贴纸标题', minImg: 1, maxImg: 1, look: '标题做成纸色贴纸块，图在下方（手作感，适合细节/单品）' },
+  { id: 'vertical', name: '竖排标题', minImg: 1, maxImg: 1, look: '标题竖排占右侧一列，图在左（报纸感，标题要短）' },
+  { id: 'split',    name: '图文左右', minImg: 1, maxImg: 1, look: '字左图右左右分栏（说明型，适合要讲清一件事的图）' },
+  { id: 'stack2',   name: '上下双图', minImg: 2, maxImg: 2, look: '两张图上下叠（横屏自动变左右并排），一组对照/前后' },
+  { id: 'grid3',    name: '三图拼版', minImg: 3, maxImg: 3, look: '一主两辅：1 张大图 + 2 张小图（适合菜品/产品一组）' },
+  { id: 'grid4',    name: '四宫格',   minImg: 4, maxImg: 4, look: '四张等分 2×2（适合把一批素材一次给足，节奏快）' },
+  { id: 'quote',    name: '引文页',   minImg: 0, maxImg: 1, look: '无图或一张窄条图，字很大居中（适合金句/落款/收尾）' },
+]
+const LAYOUT_IDS = PLAN_LAYOUTS.map((x) => x.id)
+/** 图数 → 最合适的基础结构（AI 没给 / 给错时的兜底） */
+export function layoutForCount(n: number): string {
+  if (n >= 4) return 'grid4'
+  if (n === 3) return 'grid3'
+  if (n === 2) return 'stack2'
+  return 'hero'
+}
+
 export interface PlanPick { name: string }
 
 /** 短字段清洗：去空白 + 截断（AI 爱写长句） */
@@ -37,24 +62,28 @@ export function extractJson(txt: string): any | null {
 
 /** 给 AI 的任务书（看图前排段；纯字符串，可单测"约束有没有写进提示词"） */
 export function aiPrompt(n: number, topic: string): string {
-  const want = Math.min(8, Math.max(3, n))
+  const cat = PLAN_LAYOUTS
+    .map((l) => `  · ${l.id}（${l.name}，${l.minImg === l.maxImg ? l.minImg : l.minImg + '~' + l.maxImg} 张图）：${l.look}`)
+    .join('\n')
   return [
     '你是「日报落地页」的排版编排员。用户挑好了 ' + n + ' 张素材图（下面按顺序编号 1..' + n + '），主题是「' + (topic || '（未给）') + '」。',
-    '请**先看图**，再给一份分段方案（JSON）。',
+    '请**先看图**，再给一份分段方案（JSON）。**每一段都要从下面的结构库里挑一个 `layout`** —— 整份要有变化，别 8 段一个样。',
+    '',
+    '【段结构库】（`layout` 只能取这些 id；**每段的图数必须与该结构匹配**）',
+    cat,
     '',
     '硬约束（违反即作废）：',
-    '1. segments 数组 3~8 段（这批素材建议 ' + want + ' 段）；**每张图至少出现一次**；单段最多 2 张图（"imgs" 写 1..' + n + ' 的编号）。',
-    '2. 第一段 kind="cover"，最后一段 kind="end"，中间 kind="feature"。',
-    '3. 每段 title = **两行短句**（每行 ≤12 个汉字），像报纸小标题；不要长句、不要感叹号堆砌。',
-    '4. 每段 points 最多 3 组、每组两个短词（各 ≤8 字），如 ["手切现片","立盘不掉"]；**只写你在图里真看到的东西**，不许编门店名/评分/价格/销量。',
-    '5. kicker = 段上的小标签（≤20 字，如「后厨 · 手作」）；只有封面给 stamp（≤10 字，如「封面故事」）。',
-    '6. form 决定这一段**长什么样**（相邻段不要连续相同）："overlay"=满幅大图（图吃满整段，文字贴在图下沿的深色衬条上）'
-    + '｜"sticker"=贴纸标题（标题成纸色贴纸块）｜"vertical"=竖排标题（标题竖排在图右侧，字小，只适合短句）。'
-    + 'place："cover"=图铺满｜"mat"=相纸留边（图缩一圈带白边）。',
+    '1. segments 数组 2~8 段；**每张图至少用一次**（可以重复用）；单段图数必须等于所选结构允许的张数。',
+    '2. 首段当封面（用 hero / sticker / split / vertical 之一），末段建议用 quote 或 hero 收尾。',
+    '3. **至少用到 3 种不同 layout，且相邻两段 layout 不能相同**（这是"看起来不重样"的关键）。',
+    '4. 每段 title = **两行短句**（每行 ≤12 个汉字），像报纸小标题；不要长句、不要感叹号堆砌。',
+    '5. 每段 points 最多 3 组、每组两个短词（各 ≤8 字），如 ["手切现片","立盘不掉"]；**只写你在图里真看到的东西**，不许编门店名/评分/价格/销量。',
+    '6. kicker = 段上的小标签（≤20 字，如「后厨 · 手作」）；封面可给 stamp（≤10 字，如「封面故事」）。'
+    + ' place 取 "cover"（图铺满）或 "mat"（相纸留边）。',
     '7. 简体中文，不用 emoji。',
     '',
     '只输出 JSON（不要解释、不要 markdown 代码块）：',
-    '{"motion":"calm|normal|lively","segments":[{"kind":"cover","kicker":"...","stamp":"...","title":["第一行","第二行"],"imgs":[1],"points":[["短词","短词"]],"form":"overlay","place":"cover"}]}',
+    '{"motion":"calm|normal|lively","segments":[{"layout":"hero","kicker":"...","stamp":"...","title":["第一行","第二行"],"imgs":[1],"points":[["短词","短词"]],"place":"cover"}]}',
   ].join('\n')
 }
 
@@ -72,14 +101,16 @@ export function normMotion(v: any): string {
  * · **覆盖面兜底**：AI 漏掉的图各自补一段（宁可多一段，也不让用户挑的素材白挑）。
  * 段数上限 10（引擎是保底模板，段太多会拖时长）。
  */
-export function normSegs(raw: any, n: number, topic: string): { segs: any[]; added: number } {
+export function normSegs(raw: any, n: number, topic: string): { segs: any[]; added: number; fixes: string[] } {
   const list = Array.isArray(raw?.segments) ? raw.segments : (Array.isArray(raw) ? raw : [])
   const out: any[] = []
+  const fixes: string[] = []
   for (const it of list) {
     if (!it || typeof it !== 'object') continue
+    // ★L2：单段最多 4 张图（grid4），越界/重复的先清掉
     const imgs = Array.from(new Set((Array.isArray(it.imgs) ? it.imgs : [])
       .map((x: any) => parseInt(x, 10))
-      .filter((x: number) => x >= 1 && x <= n))).slice(0, 2)
+      .filter((x: number) => x >= 1 && x <= n))).slice(0, 4)
     if (!imgs.length) continue
     const k0 = String(it.kind || '')
     const kind = ['cover', 'feature', 'end'].indexOf(k0) >= 0 ? k0 : 'feature'
@@ -88,16 +119,29 @@ export function normSegs(raw: any, n: number, topic: string): { segs: any[]; add
     const pts = (Array.isArray(it.points) ? it.points : [])
       .map((p: any) => (Array.isArray(p) ? [clip(p[0], 8), clip(p[1], 8)] : [clip(p, 8), '']))
       .filter((p: string[]) => !!p[0]).slice(0, 3)
-    const form = PLAN_FORMS.indexOf(String(it.form)) >= 0 ? String(it.form) : 'overlay'
+    // ★L2：结构白名单 + **图数必须匹配** —— 不合规就换成"按图数最合适"的那个（不静默丢整段）
+    const want = String(it.layout || '')
+    const meta = PLAN_LAYOUTS.filter((x) => x.id === want)[0]
+    let layout = ''
+    if (meta && imgs.length >= meta.minImg && imgs.length <= meta.maxImg) {
+      layout = meta.id
+    } else {
+      layout = layoutForCount(imgs.length)
+      if (want) fixes.push(`段${out.length + 1}：AI 要「${meta ? meta.name : want}」但给了 ${imgs.length} 张图 ⇒ 改用「${(PLAN_LAYOUTS.filter((x) => x.id === layout)[0] || {}).name}」`)
+      else fixes.push(`段${out.length + 1}：AI 没给结构 ⇒ 按 ${imgs.length} 张图用「${(PLAN_LAYOUTS.filter((x) => x.id === layout)[0] || {}).name}」`)
+    }
+    const form = ['hero', 'sticker', 'vertical'].indexOf(layout) >= 0
+      ? (layout === 'hero' ? 'overlay' : layout)
+      : (PLAN_FORMS.indexOf(String(it.form)) >= 0 ? String(it.form) : 'overlay')
     const place = PLAN_PLACES.indexOf(String(it.place)) >= 0 ? String(it.place) : 'cover'
     out.push({
-      kind,
+      kind, layout, form,
       kicker: clip(it.kicker, 20) || `日报 · ${topic || '素材记录'}`,
       stamp: kind === 'cover' ? clip(it.stamp, 10) : '',
-      title, imgs, points: pts, form, place,
+      title, imgs, points: pts, place,
     })
   }
-  if (!out.length) return { segs: [], added: 0 }
+  if (!out.length) return { segs: [], added: 0, fixes }
   // ⚠️ 先补漏图、**最后**才钉首尾 —— 顺序反了会出事：只有 1 段时 out[0] 先被设成 cover、
   //    紧接着"末段=end"又把它改成 end（单段方案首尾同段，首段必须是封面）。
   const used = new Set<number>()
@@ -106,15 +150,35 @@ export function normSegs(raw: any, n: number, topic: string): { segs: any[]; add
   for (let k = 1; k <= n && out.length < 10; k++) {
     if (used.has(k)) continue
     out.push({
-      kind: 'feature', kicker: `日报 · ${topic || '素材记录'}`, stamp: '',
+      kind: 'feature', layout: 'hero', kicker: `日报 · ${topic || '素材记录'}`, stamp: '',
       title: ['现场一张', `${k} / ${n}`], imgs: [k], points: [], form: 'overlay', place: 'cover',
     })
     added++
   }
+  // ★L2：**保证"看起来不重样"** —— 若整份只有 1~2 种结构，就把"单图段"按序轮换成不同结构。
+  //   为什么在服务端做：AI 有时整份只给 hero（本地实测过），那样用户看到的就是"又一个同款"。
+  const ROT = ['hero', 'sticker', 'vertical', 'split']
+  const distinct = new Set(out.map((s) => String(s.layout)))
+  if (distinct.size < 3 && out.length >= 3) {
+    let r = 0
+    for (let i = 0; i < out.length; i++) {
+      const s = out[i]
+      if ((s.imgs || []).length !== 1) continue
+      let pk = ROT[r % ROT.length]
+      r++
+      if (i > 0 && String(out[i - 1].layout) === pk) { pk = ROT[r % ROT.length]; r++ }
+      if (String(s.layout) !== pk) {
+        s.layout = pk
+        s.form = pk === 'hero' ? 'overlay' : pk
+        distinct.add(pk)
+      }
+    }
+    if (distinct.size >= 3) fixes.push('整份结构太单一 ⇒ 已把单图段轮换成不同结构（' + [...distinct].join(' / ') + '）')
+  }
   out[0].kind = 'cover'
   out[0].stamp = out[0].stamp || '封面故事'
   if (out.length > 1) out[out.length - 1].kind = 'end'
-  return { segs: out, added }
+  return { segs: out, added, fixes }
 }
 
 /** 把段数组组装成引擎配置（风格固定 = DAILY_STYLE） */
@@ -140,15 +204,17 @@ export function buildDailyPlan(names: string[], topicRaw: string) {
     const kind = i === 0 ? 'cover' : (i === names.length - 1 ? 'end' : 'feature')
     const t1 = topic ? topic.slice(0, 6) : (kind === 'cover' ? '这几张' : '现场记录')
     const t2 = topic && topic.length > 6 ? topic.slice(6, 12) : (kind === 'cover' ? '值得一看' : `${i + 1} / ${names.length}`)
+    // ★L2：保底版式也走**结构库**（单图段轮换 4 种结构）—— 免得"AI 挂了就整份一个样"
+    const layout = i === 0 ? 'hero' : (['sticker', 'vertical', 'split'][i % 3])
     return {
-      kind,
+      kind, layout,
       kicker: `日报 · ${topic || '素材记录'} · 其${CN[i] || i + 1}`,
       stamp: kind === 'cover' ? '第 01 期' : '',
       title: [t1, t2],
       imgs: [i + 1],
       points: [['实拍', '原图'], ['细节', '特写'], ['现场', '记录']],
       place: 'cover',
-      form: i === 0 ? 'overlay' : (i === 1 ? 'sticker' : 'vertical'),
+      form: layout === 'hero' ? 'overlay' : layout,
       src: [nm],    // 只在生成时用来记录对应素材（不进 HTML）；**统一是数组**（与 attachSrc 同形）
     }
   })
@@ -168,18 +234,31 @@ export const FORM_ALIASES: Record<string, string> = {
   贴纸: 'sticker', 贴纸标题: 'sticker', sticker: 'sticker',
   竖排: 'vertical', 竖排标题: 'vertical', vertical: 'vertical',
 }
+/** ★L2：人话 → 结构 id（`改 3 版式=四宫格` 用；结构名与人话别名都收） */
+export const LAYOUT_ALIASES: Record<string, string> = {
+  满幅: 'hero', 压字: 'hero', 满幅压字: 'hero', 大图: 'hero', hero: 'hero',
+  贴纸: 'sticker', 贴纸标题: 'sticker', sticker: 'sticker',
+  竖排: 'vertical', 竖排标题: 'vertical', vertical: 'vertical',
+  左右: 'split', 图文左右: 'split', split: 'split',
+  双图: 'stack2', 上下双图: 'stack2', stack2: 'stack2',
+  三图: 'grid3', 三图拼版: 'grid3', grid3: 'grid3',
+  四宫格: 'grid4', 四图: 'grid4', grid4: 'grid4',
+  引文: 'quote', 引文页: 'quote', quote: 'quote',
+}
 export const MOTION_ALIASES: Record<string, string> = {
   稳: 'calm', 慢: 'calm', 安静: 'calm', calm: 'calm',
   正常: 'normal', normal: 'normal',
   活泼: 'lively', 快: 'lively', 热闹: 'lively', lively: 'lively',
 }
 
+/** ★L2：清单里直接显示**结构名**（用户要能一眼看出"这份换了几种版式"） */
 export function layoutLabel(s: any): string {
   const k = KIND_LABEL[String(s.kind)] || '正片'
-  const f = (s.imgs || []).length >= 2 ? '双图并排' : '单图通栏'
-  const form = FORM_LABEL[String(s.form)] || FORM_LABEL.overlay
+  const meta = PLAN_LAYOUTS.filter((x) => x.id === String(s.layout))[0]
+  const n = (s.imgs || []).length
+  const f = meta ? `${meta.name}（${n} 图）` : (n >= 2 ? `双图并排（${n} 图）` : '单图通栏（1 图）')
   const mat = String(s.place) === 'mat' ? ' · 相纸留边' : ''
-  return `${k} · ${f} · ${form}${mat}`
+  return `${k} · ${f}${mat}`
 }
 export function durOf(kind: string): number { return kind === 'cover' ? 3.4 : 3.2 }
 export function planDuration(plan: any): number {
@@ -297,7 +376,7 @@ export function applyDailyEdit(plan: any, raw: string, picks: PlanPick[] = []): 
   }
 
   // ③ 改第 n 段的某个字段
-  m = /^改\s*第?\s*(\d+)\s*段?\s*(标题|标签|角标|信息点|用图|版式|类型)\s*[=:：]\s*([\s\S]+)$/.exec(s)
+  m = /^改\s*第?\s*(\d+)\s*段?\s*(标题|标签|角标|信息点|用图|版式|结构|类型)\s*[=:：]\s*([\s\S]+)$/.exec(s)
   if (!m) return { matched: false, ok: false, msg: '' }
   const i = parseInt(m[1], 10) - 1
   const field = m[2]
@@ -329,17 +408,42 @@ export function applyDailyEdit(plan: any, raw: string, picks: PlanPick[] = []): 
     return { matched: true, ok: true, msg: `${head}信息点 → ${pts.map((p) => p.join('·')).join(' ｜ ') || '（清空）'}`, plan: next }
   }
   if (field === '用图') {
-    const nums = Array.from(new Set((val.match(/\d+/g) || []).map((x) => parseInt(x, 10)).filter((x) => x >= 1 && x <= maxImg))).slice(0, 2)
+    // ★L2：单段最多 4 张（grid4）；图数变了 ⇒ 结构自动跟着换（免得图数与结构打架）
+    const nums = Array.from(new Set((val.match(/\d+/g) || []).map((x) => parseInt(x, 10)).filter((x) => x >= 1 && x <= maxImg))).slice(0, 4)
     if (!nums.length) return { matched: true, ok: false, msg: `图号要写在 1~${maxImg} 之间（本方案共 ${maxImg} 张素材）` }
     seg.imgs = nums
     seg.src = picks.length ? nums.map((x) => picks[x - 1]?.name || '').filter(Boolean) : seg.src
-    return { matched: true, ok: true, msg: `${head}用图 → ${nums.join('+')}`, plan: next }
+    const meta = PLAN_LAYOUTS.filter((x) => x.id === String(seg.layout))[0]
+    let extra = ''
+    if (!meta || nums.length < meta.minImg || nums.length > meta.maxImg) {
+      const lid = layoutForCount(nums.length)
+      seg.layout = lid
+      seg.form = lid === 'hero' ? 'overlay' : (['sticker', 'vertical'].indexOf(lid) >= 0 ? lid : 'overlay')
+      extra = `（图数变了 ⇒ 结构自动换成「${(PLAN_LAYOUTS.filter((x) => x.id === lid)[0] || {}).name}」）`
+    }
+    return { matched: true, ok: true, msg: `${head}用图 → ${nums.join('+')}${extra}`, plan: next }
   }
-  if (field === '版式') {
-    const f = FORM_ALIASES[val.replace(/\s+/g, '')]
-    if (!f) return { matched: true, ok: false, msg: `不认识的版式「${val}」—— 可选：满幅 / 贴纸 / 竖排` }
-    seg.form = f
-    return { matched: true, ok: true, msg: `${head}版式 → ${FORM_LABEL[f]}`, plan: next }
+  if (field === '版式' || field === '结构') {
+    const key = val.replace(/\s+/g, '')
+    const lid = LAYOUT_ALIASES[key]
+    if (lid) {
+      const meta = PLAN_LAYOUTS.filter((x) => x.id === lid)[0]!
+      const have = (seg.imgs || []).length
+      if (have < meta.minImg || have > meta.maxImg) {
+        const need = meta.minImg === meta.maxImg ? String(meta.minImg) : (meta.minImg + '~' + meta.maxImg)
+        return { matched: true, ok: false, msg: `「${meta.name}」要 ${need} 张图，这段现在是 ${have} 张 —— 先用 \`改 ${i + 1} 用图=…\` 把图配好` }
+      }
+      seg.layout = lid
+      seg.form = lid === 'hero' ? 'overlay' : (['sticker', 'vertical'].indexOf(lid) >= 0 ? lid : 'overlay')
+      return { matched: true, ok: true, msg: `${head}结构 → ${meta.name}`, plan: next }
+    }
+    const fid = FORM_ALIASES[key]
+    if (fid) {
+      seg.form = fid
+      seg.layout = fid === 'overlay' ? 'hero' : fid
+      return { matched: true, ok: true, msg: `${head}版式 → ${FORM_LABEL[fid]}`, plan: next }
+    }
+    return { matched: true, ok: false, msg: `不认识的版式/结构「${val}」—— 可选：${PLAN_LAYOUTS.map((x) => x.name).join(' / ')}` }
   }
   if (field === '类型') {
     const k = KIND_ALIASES[val.replace(/\s+/g, '')]

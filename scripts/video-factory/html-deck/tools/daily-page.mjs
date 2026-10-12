@@ -51,6 +51,46 @@ const IMG_DIR = String(cfg.imageDir || 'images')
 const segs = Array.isArray(cfg.segments) ? cfg.segments : []
 if (!segs.length) { console.log('✗ 配置里没有 segments'); process.exit(1) }
 
+/* ═══════════ ★VF_DAILY_L2（2026-10-12 用户「说 L2 大胆试」）：段**结构库** ═══════════
+   病灶（用户原话「你是不是把设计说的很死，我看它设计跟你的一模一样」）：
+   老实现**只有一套骨架** —— 每段都是"图 + 标题 + 信息点"同一个 grid，`form/place` 只改三处 CSS，
+   于是两份产物连 `<style>` 都逐字节相同（md5 一致），AI 的自由度只剩文字。
+   现口径：引擎提供 **8 种真实结构**，AI 按素材挑（见 daily-plan.ts 的同名白名单，两处必须一致）：
+
+     hero     满幅压字  1 图   图吃满整段，文字贴下沿深色衬带
+     sticker  贴纸标题  1 图   标题是纸色贴块 + 朱红硬投影
+     vertical 竖排标题  1 图   竖排标题占独立一列，图在左
+     split    图文左右  1 图   竖屏也左右分栏（字左图右）
+     stack2   上下双图  2 图   竖屏上下 / 横屏左右
+     grid3    三图拼版  3 图   1 大 + 2 小
+     grid4    四宫格    4 图   2×2
+     quote    引文页    0~1 图 大字居中 + 落款（图作窄条）
+
+   ⚠️ 兼容：老方案没有 `layout` 字段 ⇒ 按 `form` 与图数**推导**（见 layoutOf），行为不变。
+   ⚠️ 结构只决定"怎么排"，**皮肤（纸/朱红/字体）仍由 meta 定**（L4 才放开皮肤）。 */
+const LAYOUTS = {
+  hero:     { name: '满幅压字', minImg: 1, maxImg: 1 },
+  sticker:  { name: '贴纸标题', minImg: 1, maxImg: 1 },
+  vertical: { name: '竖排标题', minImg: 1, maxImg: 1 },
+  split:    { name: '图文左右', minImg: 1, maxImg: 1 },
+  stack2:   { name: '上下双图', minImg: 2, maxImg: 2 },
+  grid3:    { name: '三图拼版', minImg: 3, maxImg: 3 },
+  grid4:    { name: '四宫格',   minImg: 4, maxImg: 4 },
+  quote:    { name: '引文页',   minImg: 0, maxImg: 1 },
+}
+const FORM_IDS = { hero: 'overlay', sticker: 'sticker', vertical: 'vertical' }
+const layoutOf = (s) => {
+  const l = String(s.layout || '')
+  if (LAYOUTS[l]) return l
+  const n = (Array.isArray(s.imgs) ? s.imgs : []).length
+  if (n >= 4) return 'grid4'
+  if (n === 3) return 'grid3'
+  if (n === 2) return 'stack2'
+  const f = String(s.form || '')
+  if (f === 'sticker' || f === 'vertical') return f
+  return 'hero'
+}
+
 // ── 字数体检（R11）：不合规只警告，不阻断（人要能看见） ──
 const warns = []
 segs.forEach((s, i) => {
@@ -65,9 +105,14 @@ segs.forEach((s, i) => {
     if (big.length > 8) warns.push(`段${n} 信息点${k + 1} 大字 ${big.length} 字 > 8`)
     if (small.length > 8) warns.push(`段${n} 信息点${k + 1} 小字 ${small.length} 字 > 8`)
   })
+  const lay = layoutOf(s)
+  const lim = LAYOUTS[lay]
   const imgs = Array.isArray(s.imgs) ? s.imgs : []
-  if (!imgs.length) warns.push(`段${n} 没有图（imgs 为空）`)
-  if (imgs.length > 2) warns.push(`段${n} 图数 ${imgs.length} > 2（模板只支持 1~2 张）`)
+  if (!imgs.length && lim.minImg > 0) warns.push(`段${n} 没有图（imgs 为空），但结构「${lim.name}」要 ${lim.minImg}~${lim.maxImg} 张`)
+  if (imgs.length > Math.max(4, lim.maxImg)) warns.push(`段${n} 图数 ${imgs.length} 超过 ${lim.name} 的 ${lim.maxImg} 张（多的会被丢掉）`)
+  if (imgs.length && (imgs.length < lim.minImg || imgs.length > lim.maxImg)) {
+    warns.push(`段${n} 图数 ${imgs.length} 与结构「${lim.name}」(${lim.minImg}~${lim.maxImg}) 不匹配 —— 实际按 n${Math.min(imgs.length, lim.maxImg)} 渲染`)
+  }
 })
 
 // ── 时间轴（段时长 → data-start/data-duration + __seek 映射） ──
@@ -84,17 +129,22 @@ const TOTAL = +acc.toFixed(2)
 const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
 function segBody(s, sc) {
+  const layout = layoutOf(s)
+  const lim = LAYOUTS[layout]
+  const form = FORM_IDS[layout] || String(s.form || 'overlay')
   const title = (s.title || []).map((line, j) => j === 0 ? `<span>${esc(line)}</span>` : `<span><em>${esc(line)}</em></span>`).join('')
-  const imgs = (Array.isArray(s.imgs) ? s.imgs : []).slice(0, 2)
+  // ★VF_DAILY_L2：每段图数按**该结构**的上限收（grid4 可到 4 张）
+  const imgs = (Array.isArray(s.imgs) ? s.imgs : []).slice(0, lim.maxImg)
   // ★VF_DAILY_V2：图槽真的挂上 images/N.jpg（缺图时 onerror 自己摘掉 ⇒ 退回渐变占位，不裂图）
   const figs = imgs.map((n) => `<div class="fig" style="background:var(--g${n % 3})">`
     + `<img class="ph" src="${IMG_DIR}/${n}.jpg" alt="" loading="lazy" onerror="this.remove()"></div>`).join('')
   const pts = (Array.isArray(s.points) ? s.points : []).slice(0, 3)
     .map((p) => `<div class="col"><b>${esc(p && p[0])}</b><i>${esc(p && p[1])}</i></div>`).join('')
-  return `<section class="sec" data-seg="${sc.i + 1}" data-start="${sc.start}" data-duration="${sc.dur}"`
-    + ` data-place="${esc(s.place || 'cover')}" data-form="${esc(s.form || 'overlay')}">`
-    + `<div class="head"><span class="kick">${esc(s.kicker || '')}</span>`
+  const head = `<div class="head"><span class="kick">${esc(s.kicker || '')}</span>`
     + (s.stamp ? `<span class="stamp">${esc(s.stamp)}</span>` : '') + `</div>`
+  return `<section class="sec" data-seg="${sc.i + 1}" data-start="${sc.start}" data-duration="${sc.dur}"`
+    + ` data-place="${esc(s.place || 'cover')}" data-form="${esc(form)}" data-layout="${layout}">`
+    + head
     + `<h2>${title}</h2>`
     + `<div class="figs n${imgs.length}">${figs}</div>`
     + `<div class="cols c${pts.length}">${pts}</div>`
@@ -108,6 +158,7 @@ const html = `<!DOCTYPE html>
 <title>${esc(META.title)}</title>
 <!-- 由 temp/_exp/template/daily.mjs 生成（日报落地页模板 · 阶段 1）
      段：${segs.length} · 总时长：${TOTAL}s · 动效档：${String(cfg.motion || 'normal')}
+     结构（★VF_DAILY_L2 段结构库）：${segs.map((s) => layoutOf(s)).join(' → ')}
      图片槽位：${IMG_DIR}/ 目录，命名 1..N.jpg（${segs.map((s) => (s.imgs || []).join('+')).join(' / ')}）
      契约：section.sec[data-seg][data-start][data-duration][data-place][data-form]；时间轴 window.__seek(t)
      合规目标：R1~R14（见 docs/exp/响应式段规范-v1.md） -->
@@ -209,6 +260,30 @@ ${warns.length ? '<!-- ⚠️ 字数体检警告：\n     ' + warns.join('\n    
   .sec[data-place="mat"] .figs{padding:clamp(8px,1.1vmin,16px)}
   .sec[data-place="mat"] .fig{outline:clamp(4px,0.7vmin,8px) solid #fff;border-radius:1px;
     box-shadow:0 16px 32px rgba(60,40,20,.16)}
+
+  /* ═══ ★VF_DAILY_L2 结构库（8 种；全部走 grid，不用绝对定位 ⇒ 越界/溢出闸门照旧管用）═══
+     hero/sticker/vertical 三条就是上面 V3 那三段 CSS（故意复用，别重复定义）；下面是新增的 5 条。 */
+  /* split 图文左右：竖屏也分栏（字左 / 图右） */
+  .sec[data-layout="split"]{grid-template-columns:minmax(0,1.04fr) minmax(0,1fr);
+    grid-template-rows:auto minmax(0,1fr) auto;grid-template-areas:"head head" "title fig" "cols fig"}
+  /* grid3 三图拼版（竖屏：左 1 大 + 右 2 小） */
+  .figs.n3{grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr) minmax(0,1fr)}
+  .figs.n3 .fig:nth-child(1){grid-row:1 / span 2}
+  /* grid4 四宫格 */
+  .figs.n4{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:minmax(0,1fr) minmax(0,1fr)}
+  /* quote 引文页：大字 + 图作窄条。
+     ⚠️ 踩过的坑（截图上看出来的）：把 title 行设成 1fr ⇒ overlay 的暗衬带（跨 title+cols 两行）
+     会把**剩下的空间全吃成一大块黑**。正确做法：图占弹性 1fr，**文字行 auto（贴紧）**。 */
+  .sec[data-layout="quote"]{grid-template-columns:minmax(0,1fr);
+    grid-template-rows:auto minmax(0,1fr) auto auto;grid-template-areas:"head" "fig" "title" "cols"}
+  .sec[data-layout="quote"] h2{font-size:clamp(34px,5.6vmin,72px);line-height:1.24;padding-bottom:.10em}
+  .sec[data-layout="quote"] .cols{grid-template-columns:1fr;padding-top:calc(var(--gap) * .7)}
+  .figs.n0{display:none}
+  /* 横屏：grid3 改"上 1 通栏 + 下 2 并排"（避免三根细条）；grid4 保持 2×2 */
+  @media (min-aspect-ratio:1/1){
+    .figs.n3{grid-template-columns:minmax(0,1fr) minmax(0,1fr);grid-template-rows:minmax(0,1.08fr) minmax(0,1fr)}
+    .figs.n3 .fig:nth-child(1){grid-row:1;grid-column:1 / span 2}
+  }
 
   .cols{grid-area:cols;display:grid;grid-template-columns:1.45fr 1fr 1fr;gap:var(--gap);align-self:end;
     border-top:1px solid var(--line);padding-top:var(--gap)}
