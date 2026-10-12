@@ -351,9 +351,10 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
     await saveDailyDraft(ctx.prisma, uid, d)
     try { ctx.log?.(uid, '[日报落地页] 起稿（v2 · 第 1 步 主题）') } catch { /* ignore */ }
     return '📄「日报落地页」第 1 步 / 共 4 步 · **这一期做什么**（本轮只出 HTML 文件，不出视频）\n\n'
-      + '回我一句话主题就行，例如：`京味铜锅涮肉`、`门店秋季新品`、`周末探店记录`。\n'
-      + '（不想给主题就回 `跳过` —— 标题会用中性占位文案，并且我会如实告诉你）\n'
-      + '（想退出：回「取消」）'
+      + '👉 **请直接在下面输入框回一句话**（不是再点按钮）：例如 `京味铜锅涮肉`、`门店秋季新品`、`周末探店记录`。\n'
+      + '· 不想给主题就回 `跳过` —— 标题会用中性占位文案，我会如实告诉你；\n'
+      + '· 不想先说主题、直接挑图也行：回 `1,3,5` 或 `自动`，我按没主题处理（★2026-10-12 补：用户实测"卡在第 1 步"，就是以为点了按钮就会自己往下走）；\n'
+      + '· 想退出：回「取消」。'
   }
 
   if (!d) return null
@@ -367,15 +368,25 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
 
   /* ── 第 1 步：主题 ── */
   if (d.step === 'topic') {
-    d.topic = DAILY_SKIP_RE.test(bare) ? '' : raw.replace(/\s+/g, ' ').slice(0, 24)
+    // ★2026-10-12 补（用户实测"卡在第 1 步"）：主题这一步**只回序号/自动**也放行 ——
+    //   当作用户不想说主题，直接进第 2 步那套解析（不然用户会以为"点了按钮就该自己往下走"）。
+    const picksOnly = /^[\d\s,，、]+$/.test(bare) || /^自动$/.test(bare)
     d.source = d.source || { kind: 'repo' }
-    const names = await listDailyImages(uid, LIST_SHOWN, d.source.kind === 'subdir' ? d.source.value : '')
+    if (!picksOnly) {
+      d.topic = DAILY_SKIP_RE.test(bare) ? '' : raw.replace(/\s+/g, ' ').slice(0, 24)
+      const names = await listDailyImages(uid, LIST_SHOWN, d.source.kind === 'subdir' ? d.source.value : '')
+      d.step = 'pick'
+      await saveDailyDraft(ctx.prisma, uid, d)
+      if (!names.length) {
+        return '📄 第 2 步 / 共 4 步 · 选素材\n⚠️ 你的个人仓库里还没有**图片** —— 先去「个人仓库」上传几张，再回来说一次「日报落地页」。'
+      }
+      return materialsReply(d, names, d.source)
+    }
+    d.topic = ''
     d.step = 'pick'
     await saveDailyDraft(ctx.prisma, uid, d)
-    if (!names.length) {
-      return '📄 第 2 步 / 共 4 步 · 选素材\n⚠️ 你的个人仓库里还没有**图片** —— 先去「个人仓库」上传几张，再回来说一次「日报落地页」。'
-    }
-    return materialsReply(d, names, d.source)
+    try { ctx.log?.(uid, '[日报落地页] 第 1 步收到的是序号/自动 → 跳过主题，直接选素材') } catch { /* ignore */ }
+    // 落到下面的"第 2 步"分派：把这句话当序号用（不浪费用户这一次输入）
   }
 
   /* ── 第 2 步：选素材（手动；来源可切换） ── */
