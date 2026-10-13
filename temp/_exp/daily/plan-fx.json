@@ -1,0 +1,16 @@
+{
+  "meta": { "issue": "第 04 期", "title": "切分型自检 · 条分/百叶/拼片", "theme": "tea-green" },
+  "motion": "normal",
+  "imageDir": "images",
+  "segments": [
+    { "kind": "cover",   "layout": "hero",     "kicker": "切分 · 条分",  "stamp": "封面", "title": ["条分五条", "从左到右"], "imgs": [1], "points": [["甲", "壹"]], "fx": "slats#0", "form": "overlay", "place": "cover" },
+    { "kind": "feature", "layout": "split",    "kicker": "切分 · 条分",  "stamp": "",     "title": ["条分四条", "自底向上"], "imgs": [2], "points": [["乙", "贰"]], "fx": "slats#2", "form": "overlay", "place": "cover" },
+    { "kind": "feature", "layout": "vertical", "kicker": "切分 · 条分",  "stamp": "",     "title": ["条分三条", "宽条"],     "imgs": [3], "points": [["丙", "叁"]], "fx": "slats#1", "form": "vertical", "place": "cover" },
+    { "kind": "feature", "layout": "split",    "kicker": "切分 · 百叶",  "stamp": "",     "title": ["百叶四条", "自上而下"], "imgs": [4], "points": [["丁", "肆"]], "fx": "blinds#0", "form": "overlay", "place": "cover" },
+    { "kind": "feature", "layout": "sticker",  "kicker": "切分 · 百叶",  "stamp": "",     "title": ["百叶三条", "自底向上"], "imgs": [5], "points": [["戊", "伍"]], "fx": "blinds#2", "form": "sticker", "place": "cover" },
+    { "kind": "feature", "layout": "grid3",    "kicker": "切分 · 百叶",  "stamp": "",     "title": ["百叶两条", "厚条"],     "imgs": [6], "points": [["己", "陆"]], "fx": "blinds#1", "form": "overlay", "place": "mat" },
+    { "kind": "feature", "layout": "stack2",   "kicker": "切分 · 拼片",  "stamp": "",     "title": ["拼片三阶", "错峰入场"], "imgs": [7], "points": [["庚", "柒"]], "fx": "mosaic#0", "form": "overlay", "place": "cover" },
+    { "kind": "feature", "layout": "grid4",    "kicker": "切分 · 拼片",  "stamp": "",     "title": ["拼片四阶", "细密"],     "imgs": [8], "points": [["辛", "捌"]], "fx": "mosaic#1", "form": "overlay", "place": "cover" },
+    { "kind": "end",     "layout": "vertical", "kicker": "切分 · 拼片",  "stamp": "下期", "title": ["拼片五阶", "收尾"],     "imgs": [9], "points": [["壬", "玖"]], "fx": "mosaic#2", "form": "vertical", "place": "cover" }
+  ]
+}

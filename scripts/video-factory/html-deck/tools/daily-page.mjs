@@ -344,9 +344,17 @@ function figHTML(n, fx, fv) {
       const p = i * w
       const d = (i * (up ? 0.05 : 0.05)).toFixed(3)
       const pos = ((i / Math.max(1, N - 1)) * 100).toFixed(2)
+      // ⚠️⚠️ ★VF_DAILY_V18（2026-10-13 用户实测「还是 4.5.10.11 空的 就一个黄底」）：**绝对定位的条块必须给全尺寸**！
+      //   病灶（就是个真 bug，不是动画态）：`.vc` 是 `position:absolute` 的**空元素** ——
+      //     · 条分只写了 `left/width`，没写 `top/height` ⇒ 空元素 `height:auto` = **0** ⇒ 整条不可见；
+      //     · 百叶只写了 `top/height`，没写 `left/width` ⇒ 空元素 `width:auto` = **0** ⇒ 整条不可见；
+      //     · 拼片四边都给全了 ⇒ **只有它正常**（这就是"6/12 有图、4/5/10/11 只有一个黄底"的全部原因，
+      //       黄底 = `.fig` 的 `background:var(--gN)` 占位渐变，不是素材）。
+      //   为什么闸门漏了：探针只量 `img.ph`（切分型没有 img）与越界/溢出 —— **0 尺寸元素既不越界也不溢出**，
+      //   覆盖率探针也只算 img。⇒ 已配 `temp/_exp/daily/probe-vfx.mjs` 专量"切分块有没有面积、面积和不和"。
       out += fx === 'slats'
-        ? `<i class="vc" data-up="${up ? 1 : 0}" style="left:${p.toFixed(3)}%;width:${w.toFixed(3)}%;--d:${up ? ((N - 1 - i) * 0.05).toFixed(3) : d};background-size:${N * 100}% 100%;background-position:${pos}% 0"></i>`
-        : `<i class="vc" data-up="${up ? 1 : 0}" style="top:${p.toFixed(3)}%;height:${w.toFixed(3)}%;--d:${up ? ((N - 1 - i) * 0.05).toFixed(3) : d};background-size:100% ${N * 100}%;background-position:0 ${pos}%"></i>`
+        ? `<i class="vc" data-up="${up ? 1 : 0}" style="top:0;height:100%;left:${p.toFixed(3)}%;width:${w.toFixed(3)}%;--d:${up ? ((N - 1 - i) * 0.05).toFixed(3) : d};background-size:${N * 100}% 100%;background-position:${pos}% 0"></i>`
+        : `<i class="vc" data-up="${up ? 1 : 0}" style="left:0;width:100%;top:${p.toFixed(3)}%;height:${w.toFixed(3)}%;--d:${up ? ((N - 1 - i) * 0.05).toFixed(3) : d};background-size:100% ${N * 100}%;background-position:0 ${pos}%"></i>`
     }
     return `<div class="fig vfx" data-fvv="${v}" style="${bg};--img:var(--img${n})">${out}</div>`
   }
@@ -740,9 +748,26 @@ ${BODIES.join('\n\n')}
 </html>
 `
 
+// ── ★VF_DAILY_V18 生成期自检：**切分块的四边尺寸必须给全** ──
+//   为什么加（用户实测「还是 4.5.10.11 空的 就一个黄底」）：`.vc` 是 `position:absolute` 的**空元素**，
+//   条分只给 left/width ⇒ height:auto = 0；百叶只给 top/height ⇒ width:auto = 0 ⇒ **整段只剩占位渐变**。
+//   这种"0 尺寸元素"既不越界也不溢出、又不在 `img.ph` 统计里 ⇒ 所有既有闸门**全绿也照样漏掉**。
+//   所以在**生成的那一刻**静态体检一遍（不依赖浏览器、零成本）：缺哪条边就点名。
+const vfxBad = []
+for (const m of html.matchAll(/<i class="vc"[^>]*style="([^"]*)"/g)) {
+  const st = m[1]
+  const miss = ['left', 'top', 'width', 'height'].filter((k) => !new RegExp('(^|;)' + k + ':').test(st))
+  if (miss.length) vfxBad.push(miss.join('/'))
+}
+const vfxNote = vfxBad.length
+  ? '切分块缺尺寸 ' + vfxBad.length + ' 个（缺：' + Array.from(new Set(vfxBad)).join('、') + '）—— 这些段只会显示占位底色'
+  : '通过'
+
 const OUT = path.resolve(outIdx >= 0 ? argv[outIdx + 1] : path.join(HERE, 'out', path.basename(cfgFile, '.json') + '.html'))
 fs.mkdirSync(path.dirname(OUT), { recursive: true })
 fs.writeFileSync(OUT, html, 'utf8')
 console.log('✅ 生成：' + path.relative(REPO, OUT) + '（' + scenes.length + ' 段 · ' + TOTAL + 's · 动效档 ' + String(cfg.motion || 'normal') + '）')
 if (warns.length) { console.log('⚠️ 字数体检（R11）' + warns.length + ' 条：'); warns.forEach((w) => console.log('   · ' + w)) }
 else console.log('   R11 字数体检：通过')
+if (vfxBad.length) console.log('⚠️ 切分块自检（V18）：' + vfxNote)
+else console.log('   V18 切分块自检：通过（条分/百叶/拼片四边尺寸齐全）')
