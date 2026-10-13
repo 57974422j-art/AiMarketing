@@ -187,6 +187,30 @@ const IMG_NAME = (n) => {
    服务端排好的 `s.fx` 优先（它要拿这个序列做"与上一份相似度"自检与重掷）；没给才走这里。 */
 const FX_QUIET = ['zout', 'zin', 'pan', 'wipe']
 const FX_CUT = ['slats', 'blinds', 'mosaic']
+/* ═══ ★VF_DAILY_V21（2026-10-14 用户原话「依然是文字排版同质化严重」「AI 自主设计这里卡得还是太死」）═══
+   把"文字层"从"每结构一套写死"改成**可参数化**（结构 × 文字层 × 字号档）：
+     · `type`  文字层风格：band（默认·深色衬带）/ poster（海报式）/ editorial（杂志式）/ list（清单式）
+     · `scale` 字号档：0.9 / 1 / 1.15 / 1.3 —— 只影响**这一段**标题与数字的大小
+   两条硬护栏（照旧不破闸门）：
+     ① 信息点字号**下限仍是 22px**（R3）⇒ 字号档只作用在标题/数字，不缩小字；
+     ② 标题**下限 40px**（首段主标题 R3 判据）⇒ 用 max(40px, …) 兜住，缩不到违规。 */
+const TEXT_TYPES = ['band', 'poster', 'editorial', 'list']
+const TSCALES = [0.9, 1, 1.15, 1.3]
+/**
+ * ★V21：**标题字号 = 基准（结构+文字层）× 字号档**，算好后写成段上的**内联 --title**。
+ *   为什么用内联：试过用 CSS 覆盖，被 quote / vertical 两处写死的字面字号打架（实测那两类段
+ *   标题恒定 40.3px / 30px，ts 调到 1.3 也不动）—— 内联优先级最高，一次性根治这类"谁盖谁"的问题。
+ *   下限：第 1 段 40px（闸门 R3 判"竖屏主标题 ≥40"）、其余段 30px（仍远高于信息点的 22px 下限）。
+ */
+function titleCss(i, layout, form, type, ts) {
+  let b = { min: 44, vmin: 7, max: 92 }                          // 默认（衬带/海报/杂志）
+  if (type === 'list') b = { min: 34, vmin: 4.6, max: 58 }       // 清单式：标题收成"小标"
+  if (layout === 'quote') b = { min: 34, vmin: 5.6, max: 72 }    // 引用页：沿用原基准
+  if (form === 'vertical') b = { min: 30, vmin: 3.4, max: 50 }   // 竖排：沿用原基准
+  const floor = i === 0 ? 40 : 30
+  const f = (x) => String(Math.round(x * 100) / 100)
+  return `clamp(max(${floor}px, calc(${b.min}px * ${f(ts)})), calc(${b.vmin}vmin * ${f(ts)}), calc(${b.max}px * ${f(ts)}))`
+}
 /** 切分型**唯一的名额**落在哪一段：封面(0) 或 收尾(n-1)；-1 = 本片一次都不用。
  *  ⚠️ 必须**惰性求值**：`FX_SEED` 在本文件后面才声明，这里直接算会踩 TDZ（ReadonlyError）。 */
 const cutSlotOf = () => {
@@ -437,6 +461,9 @@ function segBody(s, sc) {
   const cutSlot = cutSlotOf()
   const fx = fxOk ? fxSplit[0] : (sc.i === cutSlot ? FX_CUT[FX_SEED % FX_CUT.length] : FX_QUIET[(FX_SEED + sc.i) % FX_QUIET.length])
   const fv = fxOk ? (parseInt(fxSplit[1] || '0', 10) || 0) : ((FX_SEED + sc.i) % 2)
+  // ★V21：文字层与字号档（服务端排好的优先；没给就是默认 band/1 —— 与旧产物逐字节一致）
+  const tType = TEXT_TYPES.indexOf(String(s.type || '')) >= 0 ? String(s.type) : 'band'
+  const tScale = (() => { const v = Number(s.scale); return TSCALES.indexOf(v) >= 0 ? v : 1 })()
   const figs = imgs.map((n) => figHTML(n, fx, fv)).join('')
   const pts = (Array.isArray(s.points) ? s.points : []).slice(0, 3)
     .map((p) => `<div class="col"><b>${esc(p && p[0])}</b><i>${esc(p && p[1])}</i></div>`).join('')
@@ -444,6 +471,7 @@ function segBody(s, sc) {
     + (s.stamp ? `<span class="stamp">${esc(s.stamp)}</span>` : '') + `</div>`
   return `<section class="sec" data-seg="${sc.i + 1}" data-start="${sc.start}" data-duration="${sc.dur}"`
     + ` data-place="${esc(s.place || 'cover')}" data-form="${esc(form)}" data-layout="${layout}"`
+    + ` data-type="${tType}" style="--ts:${tScale};--title:${titleCss(sc.i, layout, form, tType, tScale)}"`
     + ` data-fx="${fx}" data-fv="${fv}" data-scrim="${esc(s.scrim || 'soft')}">`
     + head
     + `<h2>${title}</h2>`
@@ -653,7 +681,8 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
   .sec[data-form="vertical"]{grid-template-columns:minmax(0,1fr) auto;
     grid-template-rows:auto minmax(0,1fr) auto;grid-template-areas:"head head" "fig title" "cols cols"}
   .sec[data-form="vertical"] h2{writing-mode:vertical-rl;text-orientation:upright;
-    font-size:clamp(30px,3.4vmin,50px);letter-spacing:.08em;align-self:start;justify-self:end;
+    /* ★V21：字号同样改读 --title（竖排基准 30/3.4vmin/50 已搬进 titleCss） */
+    font-size:var(--title);letter-spacing:.08em;align-self:start;justify-self:end;
     padding-left:calc(var(--gap) * .6)}
   /* place=mat：相纸感（图缩一圈、白边、方角） */
   .sec[data-place="mat"] .figs{padding:clamp(8px,1.1vmin,16px)}
@@ -685,7 +714,9 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
      会把**剩下的空间全吃成一大块黑**。正确做法：图占弹性 1fr，**文字行 auto（贴紧）**。 */
   .sec[data-layout="quote"]{grid-template-columns:minmax(0,1fr);
     grid-template-rows:auto minmax(0,1fr) auto auto;grid-template-areas:"head" "fig" "title" "cols"}
-  .sec[data-layout="quote"] h2{font-size:clamp(34px,5.6vmin,72px);line-height:1.24;padding-bottom:.10em}
+  /* ★V21：字号改成读 --title（引擎按"结构×文字层×字号档"算好、以内联形式写在段上）；
+     这里只保留引用页自己的排版特征（行高/下留白）。原来写死 clamp(34px,5.6vmin,72px) 会把字号档吃掉。 */
+  .sec[data-layout="quote"] h2{font-size:var(--title);line-height:1.24;padding-bottom:.10em}
   .sec[data-layout="quote"] .cols{grid-template-columns:1fr;padding-top:calc(var(--gap) * .7)}
   .figs.n0{display:none}
   /* 横屏：grid3 改"上 1 通栏 + 下 2 并排"（避免三根细条）；grid4 保持 2×2 */
@@ -741,6 +772,44 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
   .sec[data-layout="hero"] h2 span:last-child{position:relative}
   .sec[data-layout="hero"] h2 span:last-child::after{content:"";display:block;width:clamp(46px,7vmin,96px);
     height:clamp(3px,.5vmin,6px);background:var(--rule);margin-top:.28em;opacity:.85}
+
+  /* ═══ ═══ ★VF_DAILY_V21 文字层参数化（用户：「依然是文字排版同质化严重」）═══════
+     原来"文字层随结构"是把 8 种结构各写死一套 ⇒ **同结构永远同一张脸**。现在拆成两级：
+       结构（怎么摆图） × 文字层（字怎么说话） × 字号档（这一段多大）。
+     这里只动**排版与装饰**：不改元素外框、不加绝对定位、不缩到违规字号 ⇒ 三档闸门照旧管用。
+     定义在"文字层随结构"**之后** ⇒ 同特异性时后者胜（想覆盖某个结构就在这后面加）。
+     字号档实现：只重定义 --title（各结构若另设 --title 也在同一处跟着 --ts 走）。 */
+  /* ⚠️ 踩过的坑（probe-type 量出来的）：刚开始想用 CSS 覆盖来"把字号档接上去"，结果被
+     quote / vertical 两处**写死的字面字号**（clamp(34px,5.6vmin,72px) / clamp(30px,3.4vmin,50px)）
+     打架（实测：这两类段的标题恒定 40.3px / 30px，ts 调到 1.3 也不动）。
+     现口径（简单且不可能再打架）：**字号基准由引擎按"结构+文字层"算好，直接写成段上的内联 --title**
+     —— 内联优先级最高，CSS 里谁也别想盖它；那两处结构改成 font-size:var(--title)，只保留各自的排版特征。
+     内联样式在 segBody 里生成（见 titleCss）。 */
+
+  /* band（默认）：深色衬带 —— 现有观感，不加规则 */
+
+  /* poster 海报式：标题紧排、色块撤掉只留朱红行、信息点**右对齐竖排**（像海报角标） */
+  .sec[data-type="poster"] h2{letter-spacing:-.02em;line-height:.98}
+  .sec[data-type="poster"] h2 em{background:none;color:var(--rule);padding:0}
+  .sec[data-type="poster"] .head .kick{border-bottom:0;letter-spacing:.22em}
+  .sec[data-type="poster"] .cols{display:flex;flex-direction:column;gap:.26em;align-items:flex-end;border-top:0;padding-top:0}
+  .sec[data-type="poster"] .col{flex-direction:column;align-items:flex-end;text-align:right;gap:.05em}
+  .sec[data-type="poster"] .col b{font-family:var(--fsans);font-size:var(--label)}
+
+  /* editorial 杂志式：抬头细线 + 段号、信息点**两列小栏**（像刊物信息栏） */
+  .sec[data-type="editorial"] .head{border-bottom:1px solid var(--line);padding-bottom:.34em}
+  .sec[data-type="editorial"] h2{line-height:1.1}
+  .sec[data-type="editorial"] h2 span:first-child::before{content:"§ ";color:var(--rule);font-family:var(--fsans)}
+  .sec[data-type="editorial"] .cols{display:grid;grid-template-columns:1fr 1fr;gap:.44em 1.1em;border-top:1px solid var(--line)}
+  .sec[data-type="editorial"] .col{flex-direction:column;gap:.08em;align-items:flex-start}
+  .sec[data-type="editorial"] .col b{font-family:var(--fsans);font-size:var(--label)}
+
+  /* list 清单式：标题收成**小标**、信息点成为主体（左侧朱红竖线 + 每条一道虚线下划） */
+  /* 清单式的"标题收成小标"由 titleCss 的基准（34/4.6vmin/58）负责，这里只管排版与装饰 */
+  .sec[data-type="list"] h2{letter-spacing:.01em}
+  .sec[data-type="list"] .cols{display:flex;flex-direction:column;gap:.42em;border-left:clamp(3px,.5vmin,6px) solid var(--rule);padding-left:.7em}
+  .sec[data-type="list"] .col{flex-direction:row;align-items:baseline;gap:.55em;border-bottom:1px dashed var(--line);padding-bottom:.34em}
+  .sec[data-type="list"] .col b{font-family:var(--fsans);font-size:var(--label);min-width:2.4em}
 ${AI_CSS.length ? '\n  /* ══ ★VF_DAILY_L3：AI 自写段的 CSS（选择器都带 .aiN- / .sec[data-seg="N"] 前缀）══ */\n' + AI_CSS.join('\n') : ''}
 </style>
 </head>

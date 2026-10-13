@@ -4370,6 +4370,19 @@ PUBLISH_DRAFT.delete(uidW)
               log: (u: number | string, s: string) => { try { vfLog(u, s) } catch { /* ignore */ } },
             })
             if (_rDL) { wfEarlyReply = _rDL; finalResult = _rDL }
+            // ★VF_DAILY_V21（2026-10-14 用户实测「就感觉漏，AI 直接接管开始编了」）：
+            //   消息长得像**日报线的编辑命令**（`改 <n> …` / `删 <n>` / `动效=…`）但本线**没接管**
+            //   （典型：在**上一单**上改 —— 那一单交付后就不再保留可编辑上下文）⇒ **绝不允许落到主 AI**。
+            //   为什么必须拦：系统提示里写着"日报落地页：素材卡→方案卡→确认卡"，AI 会**自己编一张卡**出来
+            //   （实测过：它回"素材已选好，进入第 2 步"），用户以为改成功了 —— 其实是漏了。
+            //   同类事故仓库里早有记录（VF_NOLEAK_V1），这里补上本线自己那一条。
+            if (!_rDL && !wfEarlyReply && /^\s*(改\s*第?\s*\d+|删\s*第?\s*\d+|动效\s*[=:：])/.test(String(userMessage || '').trim())) {
+              wfEarlyReply = '⚠️ 这条像是在改「日报落地页」的方案，但**我没有正在改的那一单**。\n'
+                + '常见原因：在**上一单**上改 —— 那一单交付后就不再保留可编辑上下文。\n'
+                + '· 要改**刚交付的那版** ⇒ 在**交付卡**上点「✏️ 编辑」（那一单还在，能改文字/版式/类型、能删段）；\n'
+                + '· 要改**新的一单** ⇒ 说「日报落地页」→ 勾素材 → 在方案卡上点「✏️ 编辑」。'
+              try { vfLog(uidVF2, '[日报落地页-DIAG] 编辑命令未被接管 → 已拦截（不落 AI，防它自己编卡）') } catch { /* ignore */ }
+            }
             try { vfLog(uidVF2, `[日报落地页-DIAG] hit=true entry=${!!stdCmdHit && stdCmdHit.id === 'daily'} r=${_rDL ? 'ok' : 'null'}`) } catch { /* ignore */ }
           }
         } catch (eDL: any) {

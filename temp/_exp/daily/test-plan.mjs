@@ -15,6 +15,7 @@ import {
   DAILY_FX, DAILY_FX_POOL, assignFx, planFingerprint, similarity, rerollPlan, scrimFor,
   DAILY_FX_QUIET, DAILY_FX_CUT, fxCutSlot,
   cmdOf, cmdDel, cmdMotion, applyEditBatch,
+  assignTextLayer, PLAN_TEXT_TYPES, PLAN_TSCALES,
 } from './run/daily-plan.js'
 
 let pass = 0, fail = 0
@@ -533,6 +534,54 @@ console.log('\n=== 13. V20：卡片「✏️ 编辑」= 命令拼装 + 批量执
   const done = buildDoneCardPayload({ name: 'a.html', viewUrl: 'v', segs: 3, skin: 's', by: 'ai',
     segsBrief: [{ i: 1, title: ['甲'], points: [], kind: 'cover', layout: 'hero' }] })
   eq(done.segsBrief.length, 1, '交付卡带 segsBrief（交付之后仍能编辑）')
+}
+
+console.log('\n=== 14. V21：拖拽排序（排序=）+ 文字层参数化（type/scale）===')
+{
+  const mkPlan = () => ({ meta: { theme: 'tea-green' }, segments: [
+    { kind: 'cover', layout: 'hero', title: ['甲', '乙'], points: [['a', 'b']], imgs: [1] },
+    { kind: 'feature', layout: 'split', title: ['丙', '丁'], points: [['c', 'd']], imgs: [2] },
+    { kind: 'end', layout: 'sticker', title: ['戊'], points: [], imgs: [3] },
+  ] })
+  const picks = [{ name: '1.jpg' }, { name: '2.jpg' }, { name: '3.jpg' }]
+
+  const r1 = applyEditBatch(mkPlan(), '排序=3,1,2', picks)
+  ok(r1.ok && r1.plan.segments.map((s) => s.title[0]).join('') === '戊甲丙', '排序=3,1,2 ⇒ 段序真的换了')
+  ok(r1.plan.segments[0].kind === 'cover' && r1.plan.segments[2].kind === 'end', '位置语义跟着走（首=封面、末=结尾）')
+  ok(!applyEditBatch(mkPlan(), '排序=1,2', picks).ok, '排序段号写不全 ⇒ 报错（不静默乱排）')
+  ok(!applyEditBatch(mkPlan(), '排序=1,1,3', picks).ok, '排序有重复 ⇒ 报错')
+
+  // 卡片 UI 的真实顺序：**改 → 删 → 排序**（排序必须是最后一条）
+  const r4 = applyEditBatch(mkPlan(), '改 1 标题=暮色/铜锅\n删 2\n排序=2,1', picks)
+  ok(r4.ok, '改+删+排序 三条一起发 ⇒ 全过')
+  ok(r4.plan.segments.length === 2 && r4.plan.segments.map((s) => s.title[0]).join('') === '戊暮色',
+    '删掉第 2 段后，把剩下的两段对调')
+
+  const r5 = applyEditBatch(mkPlan(), '改 2 文字层=海报式', picks)
+  ok(r5.ok && r5.plan.segments[1].type === 'poster', '文字层=海报式 ⇒ type=poster')
+  ok(!applyEditBatch(mkPlan(), '改 2 文字层=不存在', picks).ok, '不认识的文字层 ⇒ 报错（并列可选项）')
+  const r7 = applyEditBatch(mkPlan(), '改 2 字号=1.15', picks)
+  ok(r7.ok && r7.plan.segments[1].scale === 1.15, '字号档=1.15 ⇒ 写进这一段')
+  ok(!applyEditBatch(mkPlan(), '改 2 字号=3', picks).ok, '不在档位里的字号 ⇒ 报错（不让它放大到破闸门）')
+
+  // assignTextLayer：没指定的轮换、相邻不同、已指定的不动
+  const segs = [{}, {}, {}, {}, {}]
+  assignTextLayer(segs, 0)
+  const ids = segs.map((s) => s.type)
+  eq(new Set(ids).size, 4, '5 段轮换出 4 种文字层（一份里 4 张脸）')
+  ok(ids.every((x, i) => i === 0 || x !== ids[i - 1]), '相邻段文字层必不同')
+  const segs2 = [{ type: 'list' }, {}, { type: 'list' }]
+  assignTextLayer(segs2, 0)
+  ok(segs2[0].type === 'list' && segs2[2].type === 'list', '已指定的段不动（尊重 AI/用户）')
+  ok(segs2[1].type !== 'list', '没指定的那段与相邻的错开')
+
+  // 提示词要真的把新旋钮写给 AI（不然等于没加）
+  const p = aiPrompt(6, '铜锅')
+  ok(p.includes('【文字层】') && p.includes('poster') && p.includes('editorial') && p.includes('list'), '提示词里有文字层库（4 种）')
+  ok(p.includes('【字号档】') && p.includes('1.15'), '提示词里有字号档')
+  ok(p.includes('"type":"poster"'), 'JSON 样例里带 type 字段（模型照着写）')
+  eq(PLAN_TEXT_TYPES.length, 4, '四个文字层（与引擎 TEXT_TYPES 同名同数）')
+  eq(PLAN_TSCALES.length, 4, '四档字号（与引擎 TSCALES 同名同数）')
 }
 
 console.log(`\n结果：通过 ${pass} · 失败 ${fail}`)

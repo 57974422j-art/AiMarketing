@@ -12,7 +12,7 @@
  *        这样触发的是页面真正的响应式断点（而不是把 1280 宽的版硬塞进小框）。
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { cmdDel, cmdOf } from '@/lib/agent/daily-plan'
+import { cmdDel, cmdOf, PLAN_TEXT_TYPES, PLAN_TSCALES } from '@/lib/agent/daily-plan'
 
 const KIND_CN: Record<string, string> = { cover: '封面', feature: '正片', end: '结尾' }
 const LAYOUT_CN: Array<{ id: string; name: string }> = [
@@ -39,16 +39,33 @@ export function DailyEditPanel({ segs, onSend, onClose }: {
     t2: String((Array.isArray(s?.title) ? s.title[1] : '') || ''),
     // 卡片里的信息点是 "大字·小字"（用 · 连的）⇒ 命令口径是 "大字,小字;大字,小字"
     pts: (Array.isArray(s?.points) ? s.points : []).map((p: any) => String(p || '').replace(/·/g, ',')).join(';'),
+    imgs: (Array.isArray(s?.imgs) ? s.imgs : []).join(','),
     layout: String(s?.layout || ''),
     kind: String(s?.kind || ''),
+    // ★V21：文字层 + 字号档（治"同质化"的两个旋钮）
+    type: String(s?.type || 'band'),
+    scale: Number(s?.scale) || 1,
   })), [segs])
   const [rows, setRows] = useState(() => base.map((r) => ({ ...r, del: false })))
-  useEffect(() => { setRows(base.map((r) => ({ ...r, del: false }))) }, [base])
+  const [drag, setDrag] = useState<number | null>(null)
+  useEffect(() => {
+    // ⚠️ 依赖用 base 的“指纹”而不是 base 本身：父组件每次渲染都会新建数组，否则会把用户的拖拽顺序冲掉
+    setRows(base.map((r) => ({ ...r, del: false })))
+  }, [base.map((r) => r.i).join(',')])
 
   const set = (i: number, patch: any) => setRows((rs) => rs.map((r) => (r.i === i ? { ...r, ...patch } : r)))
+  /** 拖拽/上下移：只动**本地面板里的行序**，提交时翻译成 `排序=` 一条命令 */
+  const move = (from: number, to: number) => setRows((rs) => {
+    if (to < 0 || to >= rs.length || from === to) return rs
+    const next = rs.slice()
+    const [x] = next.splice(from, 1)
+    next.splice(to, 0, x)
+    return next
+  })
   const cmds = useMemo(() => {
     const edits: string[] = []
     const dels: number[] = []
+    const typeCn = (id: string) => (PLAN_TEXT_TYPES.find((t) => t.id === id)?.name || '')
     rows.forEach((r) => {
       const o = base.find((x) => x.i === r.i)
       if (!o) return
@@ -57,11 +74,23 @@ export function DailyEditPanel({ segs, onSend, onClose }: {
       const t0 = [o.t1, o.t2].map((x) => String(x || '').trim()).filter(Boolean)
       if (t.length && t.join('/') !== t0.join('/')) edits.push(cmdOf(r.i, '标题', t.join('/')))
       if (String(r.pts || '').trim() !== String(o.pts || '').trim() && String(r.pts || '').trim()) edits.push(cmdOf(r.i, '信息点', r.pts))
+      if (String(r.imgs || '').trim() && String(r.imgs || '').trim() !== String(o.imgs || '').trim()) edits.push(cmdOf(r.i, '用图', String(r.imgs)))
       if (r.kind && r.kind !== o.kind) edits.push(cmdOf(r.i, '类型', KIND_CN[r.kind] || r.kind))
       if (r.layout && r.layout !== o.layout) edits.push(cmdOf(r.i, '版式', layoutNameOf(r.layout) || r.layout))
+      if (r.type && r.type !== o.type) edits.push(cmdOf(r.i, '文字层', typeCn(r.type) || r.type))
+      if (Number(r.scale) !== Number(o.scale)) edits.push(cmdOf(r.i, '字号', String(r.scale)))
     })
     // ⚠️ 顺序：**先改后删**，且删除按段号**从大到小** —— 否则删掉一段会把后面的段号整体前移，改错对象
     dels.sort((a, b) => b - a).forEach((n) => edits.push(cmdDel(n)))
+    // ★V21 拖拽排序：**放在最后一条**（改/删都做完之后再排）。
+    //   值必须是"执行到这条时"的段号 —— 即**删完之后**的序号，所以这里把存活行的原始段号
+    //   映射成它们删后位置（存活顺序 = 原始顺序），再按用户拖出来的顺序列出来。
+    const alive = rows.filter((r) => !r.del)
+    const posAfterDel = new Map<number, number>()
+    alive.slice().sort((a, b) => a.i - b.i).forEach((r, k) => posAfterDel.set(r.i, k + 1))
+    const want = alive.map((r) => posAfterDel.get(r.i) || 0)
+    const isIdentity = want.every((v, k) => v === k + 1)
+    if (!isIdentity && want.length >= 2 && want.every((v) => v > 0)) edits.push('排序=' + want.join(','))
     return edits
   }, [rows, base])
 
@@ -69,16 +98,27 @@ export function DailyEditPanel({ segs, onSend, onClose }: {
   return (
     <div className="mb-2 p-2 rounded-lg border border-emerald-400/30 bg-black/20">
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[11px] text-emerald-200">✏️ 编辑（改完点「保存修改」，我先回方案、你确认后再重出文件）</span>
+        <span className="text-[11px] text-emerald-200">✏️ 编辑（改文字/版式/文字层/字号、删段、拖拽调顺序 —— 改完点「保存修改」）</span>
         <button onClick={onClose} className="text-[10px] text-gray-400 hover:text-gray-200">收起</button>
       </div>
       <div className="space-y-2 max-h-80 overflow-y-auto">
-        {rows.map((r) => (
-          <div key={r.i} className={`p-2 rounded border ${r.del ? 'border-red-400/40 opacity-50' : 'border-white/10'}`}>
+        {rows.map((r, idx) => (
+          <div key={r.i}
+            draggable
+            onDragStart={() => setDrag(idx)}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => { e.preventDefault(); if (drag !== null) { move(drag, idx); setDrag(null) } }}
+            onDragEnd={() => setDrag(null)}
+            className={`p-2 rounded border ${r.del ? 'border-red-400/40 opacity-50' : (drag === idx ? 'border-emerald-400/50' : 'border-white/10')}`}>
             <div className="flex items-center gap-2 mb-1">
+              <span className="text-[10px] text-gray-500 cursor-grab" title="按住拖动可调整段顺序">⠿</span>
               <span className="text-[10px] text-gray-400">第 {r.i} 段</span>
               {layoutNameOf(r.layout) ? <span className="text-[10px] text-gray-500">· {layoutNameOf(r.layout)}</span> : null}
               {KIND_CN[r.kind] ? <span className="text-[10px] text-gray-500">· {KIND_CN[r.kind]}</span> : null}
+              <button onClick={() => move(idx, idx - 1)} disabled={idx === 0}
+                className="text-[10px] px-1 rounded border border-white/15 text-gray-300 disabled:opacity-30">↑</button>
+              <button onClick={() => move(idx, idx + 1)} disabled={idx === rows.length - 1}
+                className="text-[10px] px-1 rounded border border-white/15 text-gray-300 disabled:opacity-30">↓</button>
               <label className="ml-auto text-[10px] text-red-300 flex items-center gap-1 cursor-pointer">
                 <input type="checkbox" checked={r.del} onChange={(e) => set(r.i, { del: e.target.checked })} />
                 删这段
@@ -90,7 +130,7 @@ export function DailyEditPanel({ segs, onSend, onClose }: {
             </div>
             <input value={r.pts} disabled={r.del} onChange={(e) => set(r.i, { pts: e.target.value })} className={cls + ' mb-1'}
               placeholder="信息点：大字,小字;大字,小字（分号分组，可清空）" />
-            <div className="flex gap-1">
+            <div className="grid grid-cols-2 gap-1 mb-1">
               <select value={r.layout} disabled={r.del} onChange={(e) => set(r.i, { layout: e.target.value })} className={cls}>
                 <option value="">版式（不改）</option>
                 {LAYOUT_CN.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
@@ -101,6 +141,19 @@ export function DailyEditPanel({ segs, onSend, onClose }: {
                 <option value="feature">正片</option>
                 <option value="end">结尾</option>
               </select>
+            </div>
+            <div className="grid grid-cols-3 gap-1">
+              {/* ★V21：文字层（治"同质化"）与字号档（逐段大小） */}
+              <select value={r.type} disabled={r.del} onChange={(e) => set(r.i, { type: e.target.value })} className={cls}
+                title="文字层：同一结构换文字层 = 完全不同的观感">
+                {PLAN_TEXT_TYPES.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+              <select value={String(r.scale)} disabled={r.del} onChange={(e) => set(r.i, { scale: Number(e.target.value) })} className={cls}
+                title="字号档：只影响这一段标题/数字的大小">
+                {PLAN_TSCALES.map((v) => <option key={v} value={String(v)}>{v === 1 ? '字号 默认' : '字号 ×' + v}</option>)}
+              </select>
+              <input value={r.imgs} disabled={r.del} onChange={(e) => set(r.i, { imgs: e.target.value })} className={cls}
+                placeholder="用图号 如 2,4" title="图片槽位：换这一段用哪几张图（逗号分隔）" />
             </div>
           </div>
         ))}
@@ -113,7 +166,7 @@ export function DailyEditPanel({ segs, onSend, onClose }: {
           保存修改{cmds.length ? `（${cmds.length} 处）` : ''}
         </button>
         <span className="text-[10px] text-gray-500">
-          段内字号/位置这类"自由排版"暂不支持（那是下一档）；这里改的是文字、版式、类型与删段。
+          拖 ⠿ 或点 ↑↓ 调段顺序；改完我先回方案卡，你点「✅ 生成 HTML」再重出文件。
         </span>
       </div>
     </div>

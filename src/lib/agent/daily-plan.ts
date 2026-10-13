@@ -155,6 +155,13 @@ export function aiPrompt(n: number, topic: string, opts?: { lastTheme?: string }
     '',
     '【皮肤库】（**按素材气质挑一个**放进 `theme`）',
     PLAN_THEMES.map((t) => `  · ${t.id}（${t.name}）：${t.look}`).join('\n'),
+    // ★VF_DAILY_V21（2026-10-14 用户「依然是文字排版同质化严重」）：**文字层**是新旋钮 ——
+    //   结构决定"图怎么摆"，文字层决定"字怎么说话"；同一结构配不同文字层 = 完全不同的观感。
+    '【文字层】（可选，每段 `type`；**这是"看着像同一套"的主要来源**，请把相邻段配成不同的）：',
+    PLAN_TEXT_TYPES.map((t) => `  · ${t.id}（${t.name}）：${t.look}`).join('\n'),
+    '  不确定就留空 —— 服务端会按段序自动轮换四种，保证一份里不只有一张脸。',
+    '【字号档】（可选，每段 `scale`，只影响**这一段**标题/数字的大小）：' + PLAN_TSCALES.join(' | ')
+    + '　（1 = 默认；想强调某段可用 1.15 / 1.3，想让它"退后"用 0.9。信息点字号有 22px 下限，不会变小到看不清）',
     last
       ? `⚠️ 上一次你交付用的是「${themeName(last)}」（${last}）—— **这次必须换一个不同的皮肤**，`
         + '否则两份产物看着像同一套（用户原话：「感觉没什么区别」）。除非这批素材的气质明显更适合它。'
@@ -196,7 +203,7 @@ export function aiPrompt(n: number, topic: string, opts?: { lastTheme?: string }
       + '图片用 `<img src="images/N.jpg">` + `object-fit:cover`。',
     '',
     '只输出 JSON（不要解释、不要 markdown 代码块）：',
-    '{"theme":"night-gold","motion":"calm|normal|lively","segments":[{"layout":"hero","kicker":"...","stamp":"...","title":["第一行","第二行"],"imgs":[1],"points":[["短词","短词"]],"place":"cover"}]}',
+    '{"theme":"night-gold","motion":"calm|normal|lively","segments":[{"layout":"hero","type":"poster","scale":1.15,"kicker":"...","stamp":"...","title":["第一行","第二行"],"imgs":[1],"points":[["短词","短词"]],"place":"cover"}]}',
   ].join('\n')
 }
 
@@ -261,6 +268,11 @@ export function normSegs(raw: any, n: number, topic: string): { segs: any[]; add
       stamp: kind === 'cover' ? clip(it.stamp, 10) : '',
       title, imgs, points: pts, place,
     }
+    // ★V21：文字层与字号档 —— 白名单收口（AI 写错/写别的字眼 ⇒ 当没写，交给 assignTextLayer 兜底轮换）
+    const ty = String(it.type || '').trim().toLowerCase()
+    if (PLAN_TEXT_TYPES.some((x) => x.id === ty)) o.type = ty
+    const sc = Number(it.scale)
+    if (PLAN_TSCALES.some((x) => Math.abs(x - sc) < 0.001)) o.scale = sc
     if (typeof it.html === 'string' && it.html.trim()) {
       o.html = it.html.slice(0, 6000)
       if (typeof it.css === 'string' && it.css.trim()) o.css = it.css.slice(0, 6000)
@@ -378,6 +390,43 @@ export const DAILY_FX = ['zout', 'zin', 'pan', 'wipe', 'slats', 'blinds', 'mosai
  *       ⇒ **整片最多 1 次**，且只允许落在**封面（第 1 段）或收尾（最后一段）**；段数 < 6 一次都不用。
  *   `offset` 仍是"每份不同"的种子：同一 offset 结果可复现（供相似度自检与重掷）。
  */
+/**
+ * ★VF_DAILY_V21（2026-10-14 用户原话「依然是文字排版同质化严重」「AI 自主设计这里卡得还是太死」）：
+ *   **文字层参数化** —— 结构（8 种，怎么摆图）× 文字层（4 种，字怎么说话）× 字号档（4 档）。
+ *   引擎侧有同一张单（`daily-page.mjs` 的 `TEXT_TYPES/TSCALES`），两处必须一致。
+ */
+export const PLAN_TEXT_TYPES = [
+  { id: 'band', name: '衬带式', look: '标题压深色衬带（默认，最稳）' },
+  { id: 'poster', name: '海报式', look: '标题紧排大字、信息点右下角标（有气势）' },
+  { id: 'editorial', name: '杂志式', look: '抬头细线 + 段号、信息点两列小栏（像刊物）' },
+  { id: 'list', name: '清单式', look: '标题收成小标、信息点当主体（菜品/清单类好用）' },
+]
+export const PLAN_TSCALES = [0.9, 1, 1.15, 1.3]
+export const TEXT_LAYER_ALIASES: Record<string, string> = {
+  衬带: 'band', 衬带式: 'band', 默认: 'band', band: 'band',
+  海报: 'poster', 海报式: 'poster', 大字: 'poster', poster: 'poster',
+  杂志: 'editorial', 杂志式: 'editorial', 刊物: 'editorial', editorial: 'editorial',
+  清单: 'list', 清单式: 'list', 列表: 'list', list: 'list',
+}
+/**
+ * 给**没指定**文字层的段轮换填一个（服务端兜底）—— 这样即使 AI 什么都不说，一份里也不会只有一张脸。
+ * 规则：按 seed 轮换 4 种，**相邻段必不同**；同 seed 同结果（可复现、可单测）；已指定过的段不动。
+ */
+export function assignTextLayer(segs: any[], offset = 0): void {
+  const list = Array.isArray(segs) ? segs : []
+  const ids = PLAN_TEXT_TYPES.map((t) => t.id)
+  const off = Math.abs(offset)
+  list.forEach((s, i) => {
+    const cur = String(s.type || '')
+    if (ids.indexOf(cur) >= 0) return
+    let k = 0
+    let id = ids[(off + i) % ids.length]
+    const prev = i > 0 ? String(list[i - 1].type || '') : ''
+    while (id === prev && k++ < ids.length) id = ids[(off + i + k) % ids.length]
+    s.type = id
+  })
+}
+
 export const DAILY_FX_QUIET = ['zout', 'zin', 'pan', 'wipe']
 export const DAILY_FX_CUT = ['slats', 'blinds', 'mosaic']
 /**
@@ -633,6 +682,9 @@ export function buildPlanCardPayload(plan: any, o: {
       //   卡片上的"编辑"面板要**回填**这三个字段（不然用户改版式/类型时不知道现在是什么）
       kind: String(s.kind || ''),
       layout: String(s.layout || ''),
+      // ★V21：编辑面板要回填文字层与字号档
+      type: String(s.type || 'band'),
+      scale: Number(s.scale) || 1,
       title: Array.isArray(s.title) ? s.title.map((x: any) => String(x)) : [String(s.title || '')],
       points: (Array.isArray(s.points) ? s.points : []).map((p: any) => (Array.isArray(p) ? p.filter(Boolean).join('·') : String(p))),
       imgs: Array.isArray(s.imgs) ? s.imgs : [],
@@ -743,7 +795,7 @@ export function buildDoneCardPayload(o: {
  *   设计取舍：不做富文本编辑器，而是**复用已有的 `applyDailyEdit` 命令词**（`改 <n> 字段=值` / `删 <n>`），
  *   所以服务端解析器一行都不用改；面板只管把"用户改了什么"翻译成这几条命令。
  */
-export function cmdOf(n: number, field: '标题' | '标签' | '角标' | '信息点' | '用图' | '版式' | '类型', value: string): string {
+export function cmdOf(n: number, field: '标题' | '标签' | '角标' | '信息点' | '用图' | '版式' | '类型' | '文字层' | '字号', value: string): string {
   return `改 ${Number(n)} ${field}=${String(value == null ? '' : value).trim()}`
 }
 export function cmdDel(n: number): string { return `删 ${Number(n)}` }
@@ -757,7 +809,14 @@ export function cmdMotion(v: string): string { return `动效=${String(v || '').
  *   · 一条都没匹配上 ⇒ `matched:false`（交回主流程，本线不吞消息）。
  */
 export function applyEditBatch(plan: any, raw: string, picks: PlanPick[] = []): { matched: boolean; ok: boolean; msg: string; plan?: any } {
-  const cmds = String(raw || '').split(/[\n;；]+/).map((x) => x.trim()).filter(Boolean)
+  // ⚠️ 拆命令的**唯一正确口径**（用户 2026-10-14 实测「编辑后保存可能有问题…感觉漏」）：
+  //   信息点命令里 `;` 是**分组符**（`改 3 信息点=甲,乙;丙,丁`）—— 第一版把 `;` 也当命令分隔符 ⇒
+  //   第 6 段那种"两组信息点"被劈成两条，后半条不像命令 ⇒ **第二组被吞**（复现见 temp/_exp/daily/check-edit.mjs）。
+  //   现口径：**只按换行拆**；`;`/`；` 后面**只有当紧跟"改/删/动效"**时才算命令分隔（两者兼顾）。
+  const cmds = String(raw || '')
+    .split(/\r?\n+/)
+    .flatMap((line) => line.split(/(?<=[;；])(?=\s*(?:改|删|动效))/))
+    .map((x) => x.trim()).filter(Boolean)
   if (!cmds.length) return { matched: false, ok: false, msg: '' }
   let cur = plan
   const done: string[] = []
@@ -811,6 +870,27 @@ export function applyDailyEdit(plan: any, raw: string, picks: PlanPick[] = []): 
     return { matched: true, ok: true, msg: `已改：动效档 → ${m[1]}`, plan: next }
   }
 
+  // ★VF_DAILY_V21（2026-10-14 用户「模块可以拖拽能调整」）：**重排整段顺序**。
+  //   口径：`排序=3,1,2` —— 值是**执行到这条命令时**的段号，必须 1..N 的一个排列（不重不漏）。
+  //   为什么不做"拖拽 ID"：段本身没有稳定 id（就是数组下标），用排列表达最直白，也最好校验。
+  //   卡片上的拖拽把这条放在**最后一条**命令（改/删都做完之后再排），语义不会打架。
+  m = /^排序\s*[=:：]\s*([\d,，\s]+)$/.exec(s)
+  if (m) {
+    const nums = String(m[1]).split(/[,，\s]+/).map((x) => parseInt(x, 10)).filter((x) => Number.isFinite(x) && x > 0)
+    const n = src.length
+    const want = Array.from({ length: n }, (_, i) => i + 1)
+    const same = nums.length === n && want.every((v) => nums.includes(v))
+    if (!same) {
+      return { matched: true, ok: false, msg: `排序要写全 ${n} 段的段号（1..${n}，不重不漏），例如 \`排序=` + want.join(',') + '`' }
+    }
+    if (nums.every((v, i) => v === i + 1)) return { matched: true, ok: true, msg: '顺序没变（无需重排）', plan: { ...plan, segments: src } }
+    // 位置语义跟着走：第一段=封面、最后一段=结尾（与删段后"新首段顶上当封面"同一口径）
+    const next = nums.map((v, i) => ({
+      ...src[v - 1],
+      kind: i === 0 ? 'cover' : (i === nums.length - 1 ? 'end' : 'feature'),
+    }))
+    return { matched: true, ok: true, msg: '段序已按你的拖拽重排：' + nums.join(' → '), plan: { ...plan, segments: next } }
+  }
   // ② 删第 n 段
   m = /^删\s*第?\s*(\d+)\s*段?\s*$/.exec(s)
   if (m) {
@@ -824,7 +904,7 @@ export function applyDailyEdit(plan: any, raw: string, picks: PlanPick[] = []): 
   }
 
   // ③ 改第 n 段的某个字段
-  m = /^改\s*第?\s*(\d+)\s*段?\s*(标题|标签|角标|信息点|用图|版式|结构|类型)\s*[=:：]\s*([\s\S]+)$/.exec(s)
+  m = /^改\s*第?\s*(\d+)\s*段?\s*(标题|标签|角标|信息点|用图|版式|结构|类型|文字层|字号)\s*[=:：]\s*([\s\S]+)$/.exec(s)
   if (!m) return { matched: false, ok: false, msg: '' }
   const i = parseInt(m[1], 10) - 1
   const field = m[2]
@@ -832,6 +912,23 @@ export function applyDailyEdit(plan: any, raw: string, picks: PlanPick[] = []): 
   if (!(i >= 0 && i < segCount)) return { matched: true, ok: false, msg: `没有第 ${m[1]} 段（本方案 ${segCount} 段）` }
   const seg = segs[i]
   const head = `已改：第 ${i + 1} 段`
+
+  // ★VF_DAILY_V21：文字层（治"同质化"的两个新旋钮）—— 只动排版，不动结构
+  if (field === '文字层') {
+    const id = TEXT_LAYER_ALIASES[val] || TEXT_LAYER_ALIASES[val.toLowerCase()] || ''
+    if (!id) {
+      return { matched: true, ok: false, msg: `不认识的文字层「${val}」—— 可选：` + PLAN_TEXT_TYPES.map((t) => `${t.name}(${t.id})`).join(' / ') }
+    }
+    seg.type = id
+    return { matched: true, ok: true, msg: `${head}文字层 → ${(PLAN_TEXT_TYPES.find((t) => t.id === id) || {}).name || id}`, plan: next }
+  }
+  if (field === '字号') {
+    const v = Number(val.replace(/[×xX倍]/g, ''))
+    const hit = PLAN_TSCALES.find((x) => Math.abs(x - v) < 0.001)
+    if (!hit) return { matched: true, ok: false, msg: `字号档只能给 ${PLAN_TSCALES.join(' / ')}（1 = 默认；只影响这一段标题的大小）` }
+    seg.scale = hit
+    return { matched: true, ok: true, msg: `${head}字号档 → ${hit}`, plan: next }
+  }
 
   if (field === '标题') {
     const lines = val.split(/[/｜|]/).map((x) => clip(x, 12)).filter(Boolean).slice(0, 2)

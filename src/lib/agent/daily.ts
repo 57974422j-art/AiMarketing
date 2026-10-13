@@ -36,7 +36,7 @@ import { listAllObjects } from '@/lib/oss'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 import { dashscopeFunctionCall } from '@/lib/ai-providers'
 // ★纯函数层（零依赖、可单测：temp/_exp/daily/test-plan.mjs）
-import { DAILY_STYLE, aiPrompt, extractJson, normSegs, normMotion, normTheme, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel } from './daily-plan'
+import { DAILY_STYLE, aiPrompt, extractJson, normSegs, normMotion, normTheme, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer } from './daily-plan'
 import type { PlanBy } from './daily-plan'
 
 export { DAILY_STYLE }
@@ -587,12 +587,22 @@ async function runPlan(ctx: DailyCtx, d: DailyDraft, src: DailySource, picked: s
   // ★VF_DAILY_V13（用户：「低相似度」）：① 先按"素材+主题"的稳定散列排**效果序**（每份不同）；
   //   ② 与**上一份**比相似度（皮肤 20% / 结构序 50% / 效果序 30%），>0.70 就**重掷**（换效果序+单图段结构），
   //      取"更不像"的那次；③ 记下这一份的指纹，供下一份比较。
-  assignFx(plan.segments, (() => {
+  const fxSeed = (() => {
     let h = 5381
     const key = picked.join('|') + '|' + (d.topic || '')
     for (let i = 0; i < key.length; i++) h = ((h * 33) ^ key.charCodeAt(i)) >>> 0
     return h
-  })())
+  })()
+  assignFx(plan.segments, fxSeed)
+  // ★VF_DAILY_V21（2026-10-14 用户「依然是文字排版同质化严重」）：**文字层也轮换** ——
+  //   AI 没指定 type 的段，服务端按 seed 轮换四种（相邻段必不同）；指定过的段不动。
+  //   这样"结构 8 种"之外又多一维（文字层 4 种），一份里不会只有一张脸。
+  assignTextLayer(plan.segments, fxSeed)
+  try {
+    const faces = plan.segments.map((s: any) => String(s.type || 'band'))
+    ctx.log?.(uid, `[日报落地页] 文字层序 ${faces.slice(0, 8).join('/')}${faces.length > 8 ? ' …' : ''}`
+      + ` ｜ 一份里 ${new Set(faces).size} 种（结构 ${new Set(plan.segments.map((s: any) => String(s.layout || '-'))).size} 种）`)
+  } catch { /* ignore */ }
   const fpPrev = await lastFp(ctx.prisma, uid)
   let sim = similarity(planFingerprint(plan, rot.theme), fpPrev)
   let rerollNote = ''
@@ -894,6 +904,8 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Pr
       label: layoutLabel(s),
       kind: String(s.kind || ''),
       layout: String(s.layout || ''),
+      type: String(s.type || 'band'),
+      scale: Number(s.scale) || 1,
       title: (Array.isArray(s.title) ? s.title : [s.title]).map((x: any) => String(x == null ? '' : x)),
       points: (Array.isArray(s.points) ? s.points : []).map((p: any) => (Array.isArray(p) ? p.filter(Boolean).join('·') : String(p))),
       imgs: Array.isArray(s.imgs) ? s.imgs : [],
