@@ -724,9 +724,42 @@ async function generateVerified(ctx: DailyCtx, plan: any): Promise<{ ok: boolean
  *   取图：本机素材直接读文件；仓库素材走 OSS 签名地址 fetch（600 秒够用）。
  *   失败**不影响**交付（调用方兜住，回落到"配图版"）。
  */
-async function buildSingleFile(uid: number | string, buf: Buffer | undefined, picks: DailyPick[]): Promise<{ name: string; embedded: number } | null> {
+/**
+ * ★VF_DAILY_V19（2026-10-13 用户拍板「A 执行」= 本地镜像 + 同级扁平图）：
+ *   把所选 N 张素材**入库成同级扁平名**（`gen_日期_序号.jpg`，不带子目录）—— 这样：
+ *     · HTML 与图在**同一个平铺文件夹**里 ⇒ 客户端镜像拍平也照样能一起落地、相对引用天然可解析；
+ *     · 三个"禁 `/`"的接口（读/删/短链）都能过 ⇒ 图能被取到、能删、能发人。
+ *   取图：本机素材直接读文件；仓库素材走 `getObject`（**不是**签名 URL + fetch，少一次网络往返）。
+ *   失败**不拦交付**：取不到的那张留空名 ⇒ 引擎回落老口径（占位色块），卡上如实报"入库 x/N"。
+ */
+async function publishPickedImages(uid: number | string, picks: DailyPick[]): Promise<string[]> {
+  const out: string[] = []
+  for (let i = 0; i < picks.length; i++) {
+    const p = picks[i]
+    let buf: Buffer | null = null
+    try {
+      if (p.local && p.abs && fs.existsSync(p.abs)) buf = fs.readFileSync(p.abs)
+      else {
+        const { getObject } = await import('@/lib/oss')
+        buf = await getObject(p.key)
+      }
+    } catch { buf = null }
+    if (!buf || !buf.length) { out.push(''); continue }
+    const png = buf[0] === 0x89 && buf[1] === 0x50
+    try {
+      const saved = await saveToPersonalRepo({
+        userId: uid, buffer: buf, ext: png ? 'png' : 'jpg',
+        mime: png ? 'image/png' : 'image/jpeg', gen: true,
+      })
+      out.push(String(saved?.name || ''))
+    } catch { out.push('') }
+  }
+  return out
+}
+
+async function buildSingleFile(uid: number | string, buf: Buffer | undefined, picks: DailyPick[], refOf?: (n: number) => string): Promise<{ name: string; embedded: number } | null> {
   if (!buf || !buf.length || !picks.length) return null
-  const imgs: Array<{ n: number; mime: string; b64: string; bytes: number }> = []
+  const imgs: Array<{ n: number; mime: string; b64: string; bytes: number; ref?: string }> = []
   for (let i = 0; i < picks.length; i++) {
     const p = picks[i]
     let b: Buffer | null = null
@@ -743,7 +776,11 @@ async function buildSingleFile(uid: number | string, buf: Buffer | undefined, pi
     // ★V16：**先压再嵌**（否则超 12MB 预算的后半段图会被跳过 = 用户看到的"部分图没有"）
     if (b.length > 900 * 1024) b = await shrinkForEmbed(b)
     const png = b[0] === 0x89 && b[1] === 0x50
-    imgs.push({ n: i + 1, mime: png ? 'image/png' : 'image/jpeg', b64: b.toString('base64'), bytes: b.length })
+    // ★V19（A′）：内嵌也要按**同一套引用名**替换（配图版用的是同级扁平名，不再写死 images/N.jpg）
+    imgs.push({
+      n: i + 1, mime: png ? 'image/png' : 'image/jpeg', b64: b.toString('base64'), bytes: b.length,
+      ref: (refOf && refOf(i + 1)) || `images/${i + 1}.jpg`,
+    })
   }
   if (!imgs.length) return null
   // 预算放到 24MB（压过之后 10 张通常只有 3~5MB；这只是"最后一道保险"，不要它再成为丢图原因）
@@ -761,6 +798,18 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Pr
     await clearDailyDraft(ctx.prisma, uid)
     return '⚠️ 方案丢了（草稿异常），本单已取消。再说一次「日报落地页」重来。'
   }
+  // ★VF_DAILY_V19（A′）：**先**把所选图入库成同级扁平名，**再**生成 HTML —— HTML 直接引用这些名字，
+  //   于是"页面 + 它用的图"在仓库里是同一层的平铺文件，客户端镜像会把它们放进同一个文件夹。
+  //   失败不拦交付（计 0 张，卡上如实报）。
+  let imageNames: string[] = []
+  try {
+    imageNames = await publishPickedImages(uid, picks)
+    const okN = imageNames.filter(Boolean).length
+    try { ctx.log?.(uid, `[日报落地页] 图片入库 ${okN}/${picks.length} 张（同级扁平名，供本地镜像同目录落地）`) } catch { /* ignore */ }
+  } catch (e: any) {
+    try { ctx.log?.(uid, '[日报落地页] 图片入库失败（不影响交付）：' + String(e?.message || e).slice(0, 120)) } catch { /* ignore */ }
+  }
+  if (imageNames.some(Boolean)) plan.imageNames = imageNames
   // ★L3/B：走"生成 → 真浏览器逐段体检 → 不合格段逐段退回 L2 模板 → 重生"（纯模板件自动跳过体检）
   const r = await generateVerified(ctx, plan)
   if (!r.ok || !r.name) {
@@ -790,7 +839,7 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Pr
   // ★VF_DAILY_V8：单文件版（图内嵌）—— 失败不影响交付，只是回落到"配图版"
   let single: { name: string; embedded: number } | null = null
   try {
-    single = await buildSingleFile(uid, r.buf, picks)
+    single = await buildSingleFile(uid, r.buf, picks, (n: number) => String(imageNames[n - 1] || ''))
     if (single) try { ctx.log?.(uid, `[日报落地页] 单文件版已生成 ${single.name}（内嵌真图 ${single.embedded} 张）`) } catch { /* ignore */ }
   } catch (e: any) {
     try { ctx.log?.(uid, '[日报落地页] 单文件版生成失败（不影响交付）：' + String(e?.message || e).slice(0, 120)) } catch { /* ignore */ }
@@ -817,11 +866,15 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Pr
     singleUrl: singleOk ? oneView : '',
     singleDlUrl: singleOk ? oneDl : '',
     plainUrl: stdView,
-    // ★VF_HTMLVIEW_V1（2026-10-13「先看说原因或者完成原有规划」）：**站内两条同源出口**。
-    //   预览要看的默认是**单文件版**（图内嵌，能直接看到画面）；它拿不到就退回落配图版。
-    apiView: `/api/storage/file?userId=${uid}&name=${encodeURIComponent(singleOk ? (single as any).name : r.name)}`,
-    previewPath: `/preview/repo?userId=${uid}&name=${encodeURIComponent(singleOk ? (single as any).name : r.name)}`,
+    // ★VF_HTMLVIEW_V1 → ★VF_DAILY_V19（A′）修正：**站内预览走"配图版 + 服务端改写"出口**。
+    //   为什么改：单文件版是几 MB 的 data: 内嵌 HTML，塞进 `srcDoc` 又大又慢（客户端里还可能是空白）；
+    //   配图版只引用扁平图名，由 `/api/storage/htmlview` 在**服务端**把相对图名换成本站签名短链
+    //   （`/f/<uid>/<图名>?t=…`，**不需要 cookie**）⇒ 卡内 iframe（sandbox 无同源）也能正常出图。
+    apiView: `/api/storage/htmlview?userId=${uid}&name=${encodeURIComponent(r.name)}`,
+    previewPath: `/preview/repo?userId=${uid}&name=${encodeURIComponent(r.name)}`,
     imgCount: picks.length,
+    // ★V19：这批图的扁平名（客户端据此把图一起镜像到本地同一文件夹）
+    imgNames: imageNames.filter(Boolean),
     embedded: singleOk ? (single as any).embedded : 0,
     segs: plan.segments.length,
     skin: themeName(plan?.meta?.theme),
@@ -830,7 +883,10 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Pr
     structures: new Set(plan.segments.map((s: any) => String(s.layout || '-'))).size,
     note: (r.note || 'R1~R14 通过').trim(),
     dropped: r.dropped || [],
-    ordered: picks.map((p, i) => `${i + 1}.jpg ← ${p.name}`),
+    // ★V19（A′）：对照表改成"**仓库里的同级图名** ← 原素材名"（不再教用户建 images/ 文件夹）
+    ordered: imageNames.some(Boolean)
+      ? picks.map((p, i) => `${imageNames[i] || '（未入库）'} ← ${p.name}`)
+      : picks.map((p, i) => `${i + 1}.jpg ← ${p.name}`),
   }))
 }
 

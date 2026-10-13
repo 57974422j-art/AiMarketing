@@ -34,17 +34,27 @@ export default function RepoPreviewPage() {
   const viewUrl = ready && uid && name
     ? `/api/storage/file?userId=${uid}&name=${encodeURIComponent(name)}`
     : ''
+  // ★VF_DAILY_V19（A′）：HTML **带图**直出 —— 走服务端改写出口（把相对图名换本站签名短链）。
+  //   为什么：客户端/卡内是 `iframe sandbox=allow-scripts srcDoc`（无同源）⇒ 相对图名解析不到、
+  //   `/api/storage/file` 又要 cookie；而 `/f/…?t=签名` 不要 cookie ⇒ 稳定出图。
+  //   非 HTML 文件照旧走原出口（htmlview 是给 HTML 用的）。
+  const isHtml = /\.html?$/i.test(String(name || ''))
+  const fetchUrl = ready && uid && name
+    ? (isHtml
+      ? `/api/storage/htmlview?userId=${uid}&name=${encodeURIComponent(name)}`
+      : `/api/storage/file?userId=${uid}&name=${encodeURIComponent(name)}`)
+    : ''
   const dlUrl = viewUrl ? viewUrl + '&download=1' : ''
   // ★与交付卡同一口径：**父页 fetch + srcDoc**（不靠 iframe 自己带 cookie），
   //   并如实显示失败原因（不然用户只看到一片空白，无从判断是"没登录"还是"文件坏了"）。
   const [html, setHtml] = useState('')
   const [err, setErr] = useState('')
   useEffect(() => {
-    if (!viewUrl) return
+    if (!fetchUrl) return
     let dead = false
     ;(async () => {
       try {
-        const r = await fetch(viewUrl, { credentials: 'include' })
+        const r = await fetch(fetchUrl, { credentials: 'include' })
         if (!r.ok) { if (!dead) setErr('读取失败（HTTP ' + r.status + (r.status === 401 ? ' · 未登录' : '') + '）'); return }
         const t = await r.text()
         if (dead) return
@@ -53,7 +63,7 @@ export default function RepoPreviewPage() {
       } catch (e: any) { if (!dead) setErr('读取失败：' + String(e?.message || e)) }
     })()
     return () => { dead = true }
-  }, [viewUrl])
+  }, [fetchUrl])
 
   return (
     <div className="min-h-screen bg-black/95 text-gray-200 flex flex-col">

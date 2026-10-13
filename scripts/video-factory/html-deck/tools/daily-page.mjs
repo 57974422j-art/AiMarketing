@@ -169,6 +169,30 @@ const MOTION = {
   lively: { zoom: 1.12, dmul: 0.7, gap: 520, dur: -0.04 },    // 活：推近大、错峰快
 }[String(cfg.motion || 'normal')] || { zoom: 1.07, dmul: 1, gap: 700, dur: 0 }
 const IMG_DIR = String(cfg.imageDir || 'images')
+/* ═══ ★VF_DAILY_V19（2026-10-13 用户拍板「A′ = 本地镜像 + 同级扁平图」）═══
+   图引用改成**同级扁平名**（如 `gen_20261013_016_p1.jpg`，不带子目录）。
+   为什么必须扁平（三条硬约束，都是探过的）：
+     · 客户端本地镜像把目录**拍平**（electron/main.js `path.basename()` ⇒ 目录被静默丢掉）；
+     · 读 `api/storage/file`、删 `api/storage/delete`、短链 `/f` **三处正则都禁 `/`** ⇒ `images/1.jpg` 取不到；
+     · 客户端渲染是 http(s)+srcDoc（不是 file://，且 file:// 导航被拦）⇒ 相对引用只会打到服务器站点。
+   扁平后：HTML 与图落在**同一个平铺文件夹**里，相对引用天然可解析、也能被镜像一起带走。
+   `cfg.imageNames` = 图号 1..N 的名字表；缺项退回老口径 `images/N.jpg`（旧档照旧能开）。 */
+const IMG_NAME = (n) => {
+  const t = Array.isArray(cfg.imageNames) ? String(cfg.imageNames[n - 1] || '') : ''
+  return t || `${IMG_DIR}/${n}.jpg`
+}
+/* ═══ ★VF_DAILY_V19 效果配额（用户：「这个不能大范围使用，10 个里面有一个就行。这一半都这样视频最后做出来会很不好看」）═══
+   口径：**安静组**（回拉/推近/横移）承担绝大多数；**切分型**（条分/百叶/拼片）整片**最多 1 次**，
+   且只允许出现在**封面（第 1 段）或收尾（最后一段）**；段数 < 6 的短片一次都不用（短片没有"呼吸空间"）。
+   服务端排好的 `s.fx` 优先（它要拿这个序列做"与上一份相似度"自检与重掷）；没给才走这里。 */
+const FX_QUIET = ['zout', 'zin', 'pan', 'wipe']
+const FX_CUT = ['slats', 'blinds', 'mosaic']
+/** 切分型**唯一的名额**落在哪一段：封面(0) 或 收尾(n-1)；-1 = 本片一次都不用。
+ *  ⚠️ 必须**惰性求值**：`FX_SEED` 在本文件后面才声明，这里直接算会踩 TDZ（ReadonlyError）。 */
+const cutSlotOf = () => {
+  const n = Array.isArray(cfg.segments) ? cfg.segments.length : 0
+  return n < 6 ? -1 : ((FX_SEED % 2) ? n - 1 : 0)
+}
 
 const segs = Array.isArray(cfg.segments) ? cfg.segments : []
 if (!segs.length) { console.log('✗ 配置里没有 segments'); process.exit(1) }
@@ -203,7 +227,7 @@ const LAYOUTS = {
 const FORM_IDS = { hero: 'overlay', sticker: 'sticker', vertical: 'vertical' }
 // ★VF_DAILY_V11：**图片动效轮换**（按段序，确定性）—— 治用户「不要都一个效果吧，这个效果感觉有点怪」。
 //   zout=回拉（原效果）· zin=推近 · pan=横移取景。三种都用同一套"外框=图框"的几何（见 CSS）。
-const FX = ['zout', 'zin', 'pan', 'slats', 'blinds', 'mosaic']
+const FX = ['zout', 'zin', 'pan', 'wipe', 'slats', 'blinds', 'mosaic']
 const layoutOf = (s) => {
   const l = String(s.layout || '')
   if (LAYOUTS[l]) return l
@@ -378,7 +402,7 @@ function figHTML(n, fx, fv) {
   //   现象就是用户说的「**部分图有、部分没有**」（录屏第 9 帧两个图位空着、封面段却有图）。
   //   改成 `loading="eager"` + `decoding="sync"`：一次全部解码，滚动到哪里都是现成的。
   return `<div class="fig" style="${bg}" data-fvv="${v}">`
-    + `<img class="ph" src="${IMG_DIR}/${n}.jpg" alt="" loading="eager" decoding="sync" onerror="this.remove()"></div>`
+    + `<img class="ph" src="${IMG_NAME(n)}" alt="" loading="eager" decoding="sync" onerror="this.remove()"></div>`
 }
 
 function segBody(s, sc) {
@@ -409,8 +433,10 @@ function segBody(s, sc) {
   const fxRaw = String(s.fx || '')
   const fxSplit = fxRaw.split('#')
   const fxOk = FX.indexOf(fxSplit[0]) >= 0
-  const fx = fxOk ? fxSplit[0] : FX[(FX_SEED + sc.i) % FX.length]
-  const fv = fxOk ? (parseInt(fxSplit[1] || '0', 10) || 0) : ((FX_SEED + sc.i) % 3)
+  // ★V19 配额兜底：服务端没排 fx 时才轮到引擎自己取 —— 安静组轮着来，切分型**只给一个名额**
+  const cutSlot = cutSlotOf()
+  const fx = fxOk ? fxSplit[0] : (sc.i === cutSlot ? FX_CUT[FX_SEED % FX_CUT.length] : FX_QUIET[(FX_SEED + sc.i) % FX_QUIET.length])
+  const fv = fxOk ? (parseInt(fxSplit[1] || '0', 10) || 0) : ((FX_SEED + sc.i) % 2)
   const figs = imgs.map((n) => figHTML(n, fx, fv)).join('')
   const pts = (Array.isArray(s.points) ? s.points : []).slice(0, 3)
     .map((p) => `<div class="col"><b>${esc(p && p[0])}</b><i>${esc(p && p[1])}</i></div>`).join('')
@@ -437,7 +463,7 @@ const IMG_VARS = (() => {
   segs.forEach((s) => (s.imgs || []).forEach((x) => { if (x > maxN) maxN = x }))
   maxN = Math.min(24, maxN)
   const out = []
-  for (let i = 1; i <= maxN; i++) out.push(`--img${i}:url(${IMG_DIR}/${i}.jpg);`)
+  for (let i = 1; i <= maxN; i++) out.push(`--img${i}:url(${IMG_NAME(i)});`)
   return out.join(' ')
 })()
 
@@ -449,7 +475,7 @@ const html = `<!DOCTYPE html>
 <!-- 由 temp/_exp/template/daily.mjs 生成（日报落地页模板 · 阶段 1）
      段：${segs.length} · 总时长：${TOTAL}s · 动效档：${String(cfg.motion || 'normal')}
      结构（★VF_DAILY_L2 段结构库）：${segs.map((s) => layoutOf(s)).join(' → ')}${AI_USED.length ? '（其中 ' + AI_USED.length + ' 段为 ★L3 AI 自写）' : ''}
-     图片槽位：${IMG_DIR}/ 目录，命名 1..N.jpg（${segs.map((s) => (s.imgs || []).join('+')).join(' / ')}）
+     图片槽位：${Array.isArray(cfg.imageNames) && cfg.imageNames.length ? '与页面**同级**的扁平图名（A′）' : IMG_DIR + '/ 目录，命名 1..N.jpg'}（${segs.map((s) => (s.imgs || []).join('+')).join(' / ')}）
      契约：section.sec[data-seg][data-start][data-duration][data-place][data-form]；时间轴 window.__seek(t)
      合规目标：R1~R14（见 docs/exp/响应式段规范-v1.md） -->
 ${warns.length ? '<!-- ⚠️ 字数体检警告：\n     ' + warns.join('\n     ') + '\n-->' : ''}
@@ -538,6 +564,21 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
      object-position 只改**框内**取景，不动元素的框 ⇒ 不会露边。 */
   .sec[data-fx="zin"] .fig .ph{--z:calc(1 + (var(--mz) - 1)*var(--sp))}
   .sec[data-fx="pan"] .fig .ph{--z:1.06;object-position:calc(34% + 32% * var(--sp)) 50%}
+  /* ═══ ★VF_DAILY_V19 安静组新增：**裁切擦显 wipe** ═══
+     用户原话「这个（切分型）不能大范围使用，10 个里面有一个就行…不然视频最后做出来会很不好看」
+     ⇒ 安静组只有 回拉/推近/横移 三种，15 段里必然循环得能看出来。加这一种"一条硬边扫过去"：
+     · 与切分型的本质区别：**只有一条边在动**，不是"一块块往上贴" ⇒ 出片不花；
+     · 不位移、不缩放元素外框（只裁框内的图）⇒ 越界/溢出/覆盖率闸门照旧管用；
+     · 变体：fv=0 自左向右、fv=1 自上向下（同一 id 也有两种样子）。 */
+  /* ⚠️ 擦完的**时机**踩过坑（probe-wipe 量出来的）：原来写成 clamp(0, var(--sp), 1) ⇒ 要等整段
+     走完才擦干净，实测**末态还差 10~15%**（出片里就是"定格那一角永远是空的"）。
+     改成 var(--sp) * 2.4 ⇒ 段内约 42%（≈1.3s）擦完，与切分型的 *3.6 同一思路：
+     留给观众一个"擦干净之后稳定看着图"的尾段。
+     ⚠️⚠️ 本段 CSS 在 JS 模板字符串里 —— 注释里**绝不能出现反引号**（连"举例"也不行：
+     第一次就写成 "原来写 [反引号]clamp(...)[反引号]" ⇒ 模板串提前闭合 ⇒ SyntaxError ⇒
+     引擎一个字都不出）。已把 node --check daily-page.mjs 加进自检清单。 */
+  .sec[data-fx="wipe"] .fig .ph{clip-path:inset(0 calc(100% * (1 - clamp(0, calc(var(--sp) * 2.4), 1))) 0 0)}
+  .sec[data-fv="1"][data-fx="wipe"] .fig .ph{clip-path:inset(0 0 calc(100% * (1 - clamp(0, calc(var(--sp) * 2.4), 1))) 0)}
   /* ═══ ★VF_DAILY_V13 切分型入场：条分(slats) / 百叶(blinds) / 拼片(mosaic) ═══
      每块 .vc 用 --img（=var(--imgN)，整图只声明一次）＋ background-size/position 取景，
      揭示只用 clip-path（自顶向下展开，按 --d 错峰）—— 不动元素外框 ⇒ 不触发越界闸门，

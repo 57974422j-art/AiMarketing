@@ -1994,7 +1994,9 @@ function VfDailyPlanCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
      `content-type: text/html; charset=utf-8` + `inline` ⇒ 浏览器**渲染**，不再变下载）；
    · ⬇ 下载 HTML：同短链 + `&dl=1`（那条才是 attachment）；
    · 🔁 再做一份：重发入口命令（入口本来就是"作废旧单重起"，所以这条总是有效）。 */
-function VfDailyDoneCard({ vj, onSend }: { vj: any; onSend: (m: string) => void }) {
+/** ★VF_DAILY_V19：交付卡自己的镜像去重表（本组件在**模块级**，借不到主组件里的 MIRRORED_ONCE） */
+const DAILY_MIRRORED = new Set<string>()
+function VfDailyDoneCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => void; userId?: number | string }) {
   const viewUrl = String(vj?.viewUrl || '')
   const dlUrl = String(vj?.dlUrl || '')
   const ordered: string[] = Array.isArray(vj?.ordered) ? vj.ordered.map((x: any) => String(x)) : []
@@ -2048,13 +2050,31 @@ function VfDailyDoneCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
     setCopied(ok ? tag : 'fail:' + tag)
     setTimeout(() => setCopied(''), 2000)
   }
+  // ★VF_DAILY_V19（A′，用户 2026-10-13 定案「A 执行」）：
+  //   交付后把**配图版 HTML + 它引用的每张图**一起镜像到客户端本地仓库 ——
+  //   镜像会把目录拍平（electron/main.js `path.basename`），而我们的图名本来就是**同级扁平名**
+  //   ⇒ 落地后 HTML 与图正好在**同一个文件夹**，双击就能看、离线也能看（A 的本体）。
+  //   单文件版不镜像（几 MB 的 data: 内嵌件，判读/同步都累赘）。
+  useEffect(() => {
+    if (!userId) return
+    const names = [String(vj?.plainName || ''), ...(Array.isArray(vj?.imgNames) ? vj.imgNames.map((x: any) => String(x)) : [])]
+      .filter(Boolean)
+    names.forEach((nm) => {
+      const sig = 'daily:' + nm + ':' + (vj?.plainName || '')
+      if (DAILY_MIRRORED.has(sig)) return
+      DAILY_MIRRORED.add(sig)
+      try { (window as any).electronAPI?.storageMirror?.(`/api/storage/file?userId=${userId}&name=${encodeURIComponent(nm)}`) } catch { /* 镜像失败不影响交付 */ }
+    })
+  }, [userId, vj?.plainName])
   return (
     <div className="mb-2 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06]">
       <div className="text-xs text-emerald-300 mb-1">📄 日报落地页 · {String(vj?.hint || '第 3 步 / 共 3 步 · 已生成并交付')}</div>
       {/* ★V16：**两份文件分别标名** —— 用户实测「下载后分不清哪份是单文件版」导致以为丢图 */}
       <div className="text-[11px] text-gray-100 mb-1">
         ✅ 单文件版：{String(vj?.name || '')}
-        {vj?.plainName ? <span className="text-gray-500">　｜　配图版：{String(vj.plainName)}（需自建 images/）</span> : null}
+        {vj?.plainName
+          ? <span className="text-gray-500">　｜　配图版：{String(vj.plainName)}（图与页面同级，客户端会自动镜像到本地同一文件夹）</span>
+          : null}
       </div>
       <div className="text-[10px] text-gray-400 mb-2">{String(vj?.facts || '')}</div>
       {vj?.imgMsg ? <div className="text-[10px] text-emerald-300/80 mb-2">{String(vj.imgMsg)}</div> : null}
@@ -2103,7 +2123,7 @@ function VfDailyDoneCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
               : (pvHtml
                 ? <iframe sandbox="allow-scripts" srcDoc={pvHtml} title="daily-preview"
                     className="w-full h-[70vh] rounded-lg border border-white/15 bg-white" />
-                : <div className="text-[10px] text-gray-400 py-6 text-center">预览加载中…（单文件版较大，可能要几秒）</div>)}
+                : <div className="text-[10px] text-gray-400 py-6 text-center">预览加载中…（图走签名短链，通常 1~2 秒）</div>)}
             {pvHtml && !pvErr
               ? <div className="text-[10px] text-gray-500 mt-1">
                   卡内预览（动效照跑、脚本跑在沙箱里）；看不全就往里滚。要发给别人用下面的短链。
@@ -2116,7 +2136,7 @@ function VfDailyDoneCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
         ? (
           <details className="mb-2">
             <summary className="text-[10px] text-gray-400 cursor-pointer">
-              配图版（体积小，需自建 images/ 文件夹）与命名对照表
+              配图版（体积小）与图的命名对照（图已入库 · 与页面同级 · 客户端自动镜像到本地同一文件夹）
             </summary>
             {vj?.plainUrl
               ? <div className="text-[10px] text-gray-400 mt-1">
@@ -4341,7 +4361,7 @@ function AgentPageInner() {
         {/* ★VF_DAILY_V6（2026-10-12 用户定案「第二步怎么回的是文字…没有前台卡片了？」）：日报落地页第 2 步也出卡 */}
         if (_vj && _vj.step === 'daily_plan') return <VfDailyPlanCard vj={_vj} onSend={sendMessage} />
         {/* ★VF_DAILY_V7（2026-10-13「是最后一步都是文字」）：第 3 步＝交付卡（预览/下载/再做一份） */}
-        if (_vj && _vj.step === 'daily_done') return <VfDailyDoneCard vj={_vj} onSend={sendMessage} />
+        if (_vj && _vj.step === 'daily_done') return <VfDailyDoneCard vj={_vj} onSend={sendMessage} userId={user?.id} />
         {/* ★VF_PPT_UI_V1（2026-10-06 用户定案「彻底拆开」）：【PPT 成片】独立线两张卡 */}
         if (_vj && _vj.step === 'ppt_setup') return <VfPptCard vj={_vj} onSend={sendMessage} />
         if (_vj && _vj.step === 'ppt_confirm') {

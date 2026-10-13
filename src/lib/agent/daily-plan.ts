@@ -368,28 +368,54 @@ export function planFromCaptions(captions: string, n: number, topic = ''): { seg
  *     ② 给每份产物算**指纹**（皮肤 + 结构序 + 效果序）；
  *     ③ 与**上一份**比相似度，太像就**重掷**（换效果序 / 换单图段结构 / 换皮肤），并如实告知。
  */
-export const DAILY_FX = ['zout', 'zin', 'pan', 'slats', 'blinds', 'mosaic']
+export const DAILY_FX = ['zout', 'zin', 'pan', 'wipe', 'slats', 'blinds', 'mosaic']
+/**
+ * ★VF_DAILY_V19（2026-10-13 用户定案「这个（切分型）不能大范围使用哦，10 个里面有一个就行。
+ *   这一半都这样，视频最后做出来会很不好看」）：
+ *   **效果分两组 + 名额制**：
+ *     · 安静组 `zout/zin/pan`（回拉/推近/横移）—— 承担绝大多数段，观感稳、出片不花；
+ *     · 切分型 `slats/blinds/mosaic`（条分/百叶/拼片）—— 成片里是"一块块往上贴"，
+ *       ⇒ **整片最多 1 次**，且只允许落在**封面（第 1 段）或收尾（最后一段）**；段数 < 6 一次都不用。
+ *   `offset` 仍是"每份不同"的种子：同一 offset 结果可复现（供相似度自检与重掷）。
+ */
+export const DAILY_FX_QUIET = ['zout', 'zin', 'pan', 'wipe']
+export const DAILY_FX_CUT = ['slats', 'blinds', 'mosaic']
 /**
  * ★V13b（2026-10-13 用户实测 14 段的那份：「一次任务不要出现 2 次同一风格就没意思了」）：
  *   效果池 = **id × 变体**（同一 id 也有不同条数/方向/幅度）⇒ 12 个"看起来不一样"的入场。
- *   排布规则：**相邻段 id 必不同**；池子轮两遍 ⇒ 14 段时每个 id 最多出现 3 次、但**变体不同**。
+ *   （V19 起分配走"安静组为主 + 切分型限 1 次"，此常量保留给"白名单校验/单测"用。）
  */
 export const DAILY_FX_POOL = (() => {
   const out: string[] = []
   for (let v = 0; v < 2; v++) for (const id of DAILY_FX) out.push(id + '#' + v)
   return out
 })()
-/** 按 offset 轮换效果序（相邻段必不同；offset 不同 ⇒ 两份片子的效果序不同） */
+/** 切分型的**唯一名额**落在哪一段：-1 = 本片不用；否则为段下标（0=封面 / n-1=收尾） */
+export function fxCutSlot(n: number, offset = 0): number {
+  const total = Number(n) || 0
+  if (total < 6) return -1                      // 短片没有"呼吸空间"，一次都不用
+  return (Math.abs(offset) % 2) ? total - 1 : 0
+}
+/** 按 offset 排效果序（安静组为主 + 切分型最多 1 次；相邻段 id 必不同；同 offset 同结果） */
 export function assignFx(segs: any[], offset = 0): void {
-  const n = DAILY_FX_POOL.length
-  segs.forEach((s, i) => {
-    let idx = (((offset + i) % n) + n) % n
-    // 相邻段 id 相同就顺延一格（保证"连着两段同一风格"不会出现）
-    if (i > 0) {
-      const prevId = String(segs[i - 1].fx || '').split('#')[0]
-      for (let k = 0; k < 3 && String(DAILY_FX_POOL[idx]).split('#')[0] === prevId; k++) idx = (idx + 1) % n
+  const list = Array.isArray(segs) ? segs : []
+  const slot = fxCutSlot(list.length, offset)
+  const off = Math.abs(offset)
+  list.forEach((s, i) => {
+    if (i === slot) {
+      s.fx = DAILY_FX_CUT[off % DAILY_FX_CUT.length] + '#' + ((off >> 1) % 2)
+      return
     }
-    s.fx = DAILY_FX_POOL[idx]
+    // 安静组轮换：id 相邻必不同（切分型 id 与安静组天然不同，所以不用额外避让）
+    let k = i
+    let id = DAILY_FX_QUIET[(((off + k) % DAILY_FX_QUIET.length) + DAILY_FX_QUIET.length) % DAILY_FX_QUIET.length]
+    const prevId = i > 0 ? String(list[i - 1].fx || '').split('#')[0] : ''
+    let guard = 0
+    while (id === prevId && guard++ < DAILY_FX_QUIET.length) {
+      k++
+      id = DAILY_FX_QUIET[(((off + k) % DAILY_FX_QUIET.length) + DAILY_FX_QUIET.length) % DAILY_FX_QUIET.length]
+    }
+    s.fx = id + '#' + ((off + i) % 2)
   })
 }
 export function planFingerprint(plan: any, skin = ''): string {
@@ -445,8 +471,10 @@ export function scrimFor(lums: number[]): 'none' | 'soft' {
   return avg < 118 ? 'none' : 'soft'
 }
 
-/** 把段数组组装成引擎配置（★L4：皮肤由 AI 挑，`theme` / `custom` 透传给引擎做对比度体检） */
-export function buildPlanFromSegs(segs: any[], topicRaw: string, motion = 'normal', theme?: string, custom?: any): any {
+/** 把段数组组装成引擎配置（★L4：皮肤由 AI 挑，`theme` / `custom` 透传给引擎做对比度体检）
+ *  ★V19（A′）：`imageNames` = 图号 1..N 对应的**同级扁平图名**（`gen_..._p1.jpg`）。
+ *  给了它就按它引用（HTML 里的图与页面同级、无子目录）；不给则沿用老口径 `images/N.jpg`。 */
+export function buildPlanFromSegs(segs: any[], topicRaw: string, motion = 'normal', theme?: string, custom?: any, imageNames?: string[]): any {
   const topic = String(topicRaw || '').trim().slice(0, 24)
   const meta: any = {
     issue: '第 01 期',
@@ -461,6 +489,8 @@ export function buildPlanFromSegs(segs: any[], topicRaw: string, motion = 'norma
     meta,
     motion: normMotion(motion),
     imageDir: 'images',
+    // ★V19（A′）：只在真的给了名字表时才写这一项 —— 免得旧链路（无图名表）产物发生变化
+    ...(Array.isArray(imageNames) && imageNames.length ? { imageNames } : {}),
     segments: segs,
   }
 }
@@ -616,15 +646,18 @@ export function buildPlanCardPayload(plan: any, o: {
  */
 export function embedImages(
   html: string,
-  imgs: Array<{ n: number; mime: string; b64: string; bytes?: number }>,
+  imgs: Array<{ n: number; mime: string; b64: string; bytes?: number; ref?: string }>,
   cap = 12 * 1024 * 1024,
+  refOf?: (im: { n: number; ref?: string }) => string,
 ): { html: string; embedded: number; skipped: number } {
   let out = String(html || '')
   let used = 0
   let embedded = 0
   let skipped = 0
   for (const im of imgs) {
-    const ref = `images/${im.n}.jpg`
+    // ★V19（A′）：引用名可能是**同级扁平名**（`gen_..._p1.jpg`）⇒ 优先用 im.ref，
+    //   其次用调用方给的 refOf，最后才是老口径 `images/N.jpg`（旧档照旧能嵌）。
+    const ref = String(im.ref || (refOf ? refOf(im) : '') || `images/${im.n}.jpg`)
     if (!out.includes(ref)) { skipped++; continue }
     const size = typeof im.bytes === 'number' ? im.bytes : Math.floor((im.b64.length * 3) / 4)
     if (used + size > cap) { skipped++; continue }
@@ -649,6 +682,8 @@ export function buildDoneCardPayload(o: {
   /** ★VF_DAILY_V8：单文件版（图已内嵌）—— `plainUrl` 是"配图版"（需 images/ 文件夹） */
   singleName?: string; singleUrl?: string; singleDlUrl?: string; plainUrl?: string
   imgCount?: number; embedded?: number
+  /** ★V19（A′）：这批图的**同级扁平仓库名**（客户端拿它把图一起镜像到本地同一文件夹） */
+  imgNames?: string[]
   /** ★VF_HTMLVIEW_V1（2026-10-13）：**站内预览**两条同源出口（不再依赖外链/客户端行为）——
    *  `apiView` = `/api/storage/file?…`（HTML 流式 inline 直出，卡内 iframe 用）；
    *  `previewPath` = `/preview/repo?…`（整页预览，给"新窗口打开"）。 */
@@ -662,10 +697,15 @@ export function buildDoneCardPayload(o: {
   if (o.note) facts.push(String(o.note).trim())
   const total = Number(o.imgCount || 0)
   const emb = Number(o.embedded || 0)
+  const pub = Array.isArray(o.imgNames) ? o.imgNames.filter(Boolean).length : 0
   let imgMsg = ''
-  if (emb && total && emb >= total) imgMsg = '真图已内嵌（单文件即看）'
-  else if (emb) imgMsg = `真图内嵌 ${emb}/${total} 张（其余仍需 images/ 文件夹）`
-  else if (total) imgMsg = '未内嵌真图（预览里是占位色块；要真图需按对照表建 images/）'
+  // ★V19（A′，用户 2026-10-13 定案「A 执行」）：图**与页面同级**存在你的个人仓库里
+  //   ⇒ 客户端会自动把它们镜像到同一个平铺文件夹（打开就是真图、离线也能看、不用建 images/）。
+  if (pub && total && pub >= total) imgMsg = '真图已随件入库（与页面同级）· 客户端自动镜像到本地同一文件夹'
+  else if (pub) imgMsg = `真图入库 ${pub}/${total} 张（其余仍是占位色块）`
+  else if (emb && total && emb >= total) imgMsg = '真图已内嵌（单文件即看）'
+  else if (emb) imgMsg = `真图内嵌 ${emb}/${total} 张`
+  else if (total) imgMsg = '未取到真图（预览里是占位色块）'
   return {
     step: 'daily_done',
     proto: 'VF_DAILY_FORM',
@@ -680,11 +720,13 @@ export function buildDoneCardPayload(o: {
     previewPath: o.previewPath || '',
     facts: facts.join(' · '),
     imgMsg,
+    imgNames: Array.isArray(o.imgNames) ? o.imgNames : [],
     dropped: Array.isArray(o.dropped) ? o.dropped : [],
     ordered: Array.isArray(o.ordered) ? o.ordered : [],
     expiresDays: days,
     note: '链接 ' + days + ' 天有效，可以发给别人；过期后再说一次「日报落地页」重做就有新链接。'
-      + ' 文件同时在你的**个人仓库 · 生成素材组**。',
+      + ' 页面与它用的图**同级**存在你的**个人仓库 · 生成素材组**，客户端会自动镜像到本地同一个文件夹'
+      + '（打开就是真图，不用再建 images/ 文件夹）。',
   }
 }
 

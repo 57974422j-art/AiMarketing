@@ -13,6 +13,7 @@ import {
   buildPlanCardPayload, normTheme, themeName, PLAN_THEMES,
   embedImages, buildDoneCardPayload, rotateTheme, planFromCaptions, PLAN_PLACES, byLabel,
   DAILY_FX, DAILY_FX_POOL, assignFx, planFingerprint, similarity, rerollPlan, scrimFor,
+  DAILY_FX_QUIET, DAILY_FX_CUT, fxCutSlot,
 } from './run/daily-plan.js'
 
 let pass = 0, fail = 0
@@ -329,7 +330,8 @@ console.log('\n=== 10. 交付：单文件内嵌 embedImages + 交付卡 buildDon
   ok(card2.imgMsg.includes('已内嵌'), '全嵌 ⇒ 明说"真图已内嵌"')
 
   const card3 = buildDoneCardPayload({ name: 'a.html', viewUrl: 'v', segs: 2, skin: 's', by: 'fallback', imgCount: 6, embedded: 0 })
-  ok(card3.imgMsg.includes('未内嵌') && card3.facts.includes('系统保底版式'), '没嵌成 ⇒ 如实说（用户不会以为坏了）')
+  // ★V19：文案改了（"未嵌"→"未取到真图"）—— 断言跟着口径走，别让文案改动制造假红
+  ok(card3.imgMsg.includes('未取到真图') && card3.facts.includes('系统保底版式'), '没取到真图 ⇒ 如实说（用户不会以为坏了）')
   ok(card3.note.includes('7 天有效'), '有效期写在卡里')
 
   const card4 = buildDoneCardPayload({ name: 'a.html', viewUrl: 'v', segs: 3, skin: 's', by: 'ai', imgCount: 6, embedded: 2 })
@@ -390,8 +392,10 @@ console.log('\n=== 13. ★V13 多样性：效果序 / 指纹 / 相似度 / 重�
   const mk = (layouts) => ({ meta: { theme: 'tea-green' }, segments: layouts.map((l) => ({ layout: l, imgs: [1] })) })
   const p1 = mk(['hero', 'vertical', 'split', 'sticker'])
   assignFx(p1.segments, 0)
-  ok(p1.segments.map((s) => s.fx).join(',') === DAILY_FX_POOL.slice(0, 4).join(','), '效果序按 offset 轮换（相邻段不同）')
-  ok(new Set(p1.segments.map((s) => String(s.fx).split('#')[0])).size === 4, '相邻段效果 id 必不同')
+  // ★V19：口径改成"安静组为主 + 切分型限 1 次" ⇒ 不再断言"等于池子前 4 个"，而是断言配额与规则
+  ok(p1.segments.map((s) => String(s.fx).split('#')[0]).every((x) => DAILY_FX_QUIET.includes(x)),
+    '4 段（<6）⇒ 全走安静组，一个切分型都没有')
+  ok(new Set(p1.segments.map((s) => String(s.fx).split('#')[0])).size >= 3, '相邻段效果 id 必不同（4 段至少 3 种）')
   const p2 = mk(['hero', 'vertical', 'split', 'sticker']); assignFx(p2.segments, 3)
   ok(p2.segments[0].fx !== p1.segments[0].fx, 'offset 不同 ⇒ 效果序整体平移（两份不会一模一样）')
   const fp1 = planFingerprint(p1, 'tea-green')
@@ -428,6 +432,64 @@ console.log('\n=== 14. ★V15 R5′ 暗衬档 + 空列按构造消除 ===')
     { kind: 'end', layout: 'quote', title: ['壬癸', '子丑'], imgs: [3], points: [] },
   ] }, 3, '')
   eq(g2.segs[1].layout, 'split', '有信息点的 split 原样保留（不乱改）')
+}
+
+console.log('\n=== 12. V19（A′）：效果配额 + 同级扁平图名 + 交付卡口径 ===')
+{
+  // ── 效果配额（用户原话：「这个不能大范围使用哦，10 个里面有一个就行」）──
+  eq(fxCutSlot(4, 0), -1, '4 段短片：切分型一个名额都不给（-1）')
+  eq(fxCutSlot(6, 0), 0, '6 段（刚好到线）：给一个名额，落在封面')
+  ok(fxCutSlot(15, 0) === 0 && fxCutSlot(15, 1) === 14, '15 段：名额在封面(0)/收尾(14) 二选一（按 offset 奇偶）')
+
+  const a = Array.from({ length: 15 }, () => ({}))
+  assignFx(a, 0)
+  const aIds = a.map((s) => String(s.fx).split('#')[0])
+  const aCuts = aIds.filter((x) => DAILY_FX_CUT.includes(x))
+  eq(aCuts.length, 1, '15 段里切分型**只出现 1 次**（≈"10 个里 1 个"）')
+  eq(aIds[0], aCuts[0], '这一次落在封面（offset 偶数）')
+  eq(aIds.filter((x) => DAILY_FX_QUIET.includes(x)).length, 14, '其余 14 段全是安静组（回拉/推近/横移）')
+  ok(aIds.every((x, i) => i === 0 || x !== aIds[i - 1]), '相邻段 id 必不同（不会连着两段一个风格）')
+  ok(a.every((s) => DAILY_FX_POOL.includes(String(s.fx))), '全部落在白名单（id#变体）里')
+
+  const b = Array.from({ length: 15 }, () => ({}))
+  assignFx(b, 1)
+  const bIds = b.map((s) => String(s.fx).split('#')[0])
+  ok(bIds.filter((x) => DAILY_FX_CUT.includes(x))[0] === bIds[14], 'offset 奇数 ⇒ 名额落到收尾')
+
+  const c = Array.from({ length: 15 }, () => ({}))
+  assignFx(c, 0)
+  eq(c.map((s) => s.fx).join(), a.map((s) => s.fx).join(), '同 offset 同结果（可复现）')
+  const d = Array.from({ length: 15 }, () => ({}))
+  assignFx(d, 4)
+  ok(d.map((s) => s.fx).join() !== a.map((s) => s.fx).join(), '不同 offset ⇒ 效果序不同（两份不重样）')
+
+  const small = Array.from({ length: 4 }, () => ({}))
+  assignFx(small, 0)
+  ok(small.every((s) => DAILY_FX_QUIET.includes(String(s.fx).split('#')[0])), '4 段短片：一个切分型都没有')
+
+  // ── 同级扁平图名（A′）：内嵌要按**同一套引用名**替换 ──
+  const html2 = '<img class="ph" src="gen_x_p1.jpg"><style>:root{--img1:url(gen_x_p1.jpg);--img2:url(gen_x_p2.jpg)}</style>'
+  const e2 = embedImages(html2, [{ n: 1, mime: 'image/jpeg', b64: 'AAA', bytes: 10, ref: 'gen_x_p1.jpg' }], 1024 * 1024)
+  eq(e2.embedded, 1, '扁平名（img 标签 + --img 变量）都能被内嵌')
+  ok(!e2.html.includes('gen_x_p1.jpg') && e2.html.includes('gen_x_p2.jpg'), '替换掉的那张干净、没数据的图名保持原样')
+  // 老档（images/N.jpg）不能因为这次改动而失效
+  const e3 = embedImages('<img src="images/2.jpg">', [{ n: 2, mime: 'image/jpeg', b64: 'BBB', bytes: 10 }], 1024 * 1024)
+  eq(e3.embedded, 1, '没给 ref ⇒ 退回老口径 images/N.jpg（旧档照旧能嵌）')
+
+  // ── 交付卡：图入库口径 ──
+  const card5 = buildDoneCardPayload({ name: 'gen_x.html', viewUrl: 'v', segs: 3, skin: 's', by: 'ai',
+    imgCount: 2, imgNames: ['gen_x_p1.jpg', 'gen_x_p2.jpg'] })
+  ok(card5.imgMsg.includes('随件入库') && card5.imgMsg.includes('镜像'), '图入库 ⇒ 卡上说清"随件入库 + 客户端自动镜像"')
+  eq(card5.imgNames.length, 2, '卡里带**图名表**（客户端据此把图一起镜像到本地同一文件夹）')
+  ok(card5.note.includes('不用再建 images/'), '卡里不再教用户建 images/ 文件夹')
+  const card6 = buildDoneCardPayload({ name: 'gen_x.html', viewUrl: 'v', segs: 3, skin: 's', by: 'ai', imgCount: 2, imgNames: ['a.jpg', ''] })
+  ok(card6.imgMsg.includes('1/2'), '只入库一半 ⇒ 如实报 "1/2"')
+
+  // ── cfg 透传：只在真给了图名表时才写（旧链路零变化）──
+  const cfgOld = buildPlanFromSegs([{ title: ['a'], imgs: [1], points: [] }], 't')
+  ok(!('imageNames' in cfgOld), '没给图名表 ⇒ cfg 里不出现 imageNames（旧链路产物一字不变）')
+  const cfgNew = buildPlanFromSegs([{ title: ['a'], imgs: [1], points: [] }], 't', 'normal', 'paper-daily', undefined, ['gen_x_p1.jpg'])
+  eq((cfgNew.imageNames || [])[0], 'gen_x_p1.jpg', '给了图名表 ⇒ 透传进 cfg（引擎据此引用）')
 }
 
 console.log(`\n结果：通过 ${pass} · 失败 ${fail}`)
