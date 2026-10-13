@@ -364,8 +364,13 @@ function figHTML(n, fx, fv) {
     }
     return `<div class="fig vfx" data-fvv="${v}" style="${bg};--img:var(--img${n})">${out}</div>`
   }
+  // ⚠️ ★VF_DAILY_V17（2026-10-13 用户录屏实证）：**不要用 loading="lazy"**！
+  //   图本来就在文件里（单文件版是内嵌 data:、配图版是同目录文件，都没有网络请求）⇒ 懒加载**零收益**；
+  //   但在"长页面滚动 / 客户端 webview"里会出现"该显示时还没解码 ⇒ 空图位"，
+  //   现象就是用户说的「**部分图有、部分没有**」（录屏第 9 帧两个图位空着、封面段却有图）。
+  //   改成 `loading="eager"` + `decoding="sync"`：一次全部解码，滚动到哪里都是现成的。
   return `<div class="fig" style="${bg}" data-fvv="${v}">`
-    + `<img class="ph" src="${IMG_DIR}/${n}.jpg" alt="" loading="lazy" onerror="this.remove()"></div>`
+    + `<img class="ph" src="${IMG_DIR}/${n}.jpg" alt="" loading="eager" decoding="sync" onerror="this.remove()"></div>`
 }
 
 function segBody(s, sc) {
