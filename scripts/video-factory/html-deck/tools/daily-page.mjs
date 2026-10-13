@@ -421,13 +421,31 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
   @media (min-aspect-ratio:1/1){ .figs.n2{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) minmax(0,1fr)} }
   .fig{min-height:0;position:relative;overflow:hidden;border-radius:3px;margin-top:8px;
     box-shadow:0 22px 44px rgba(60,40,20,.18), 0 1px 0 rgba(255,255,255,.4) inset;
-    transform:scale(calc(var(--mz) - (var(--mz) - 1)*var(--sp))) rotate(-.25deg);filter:saturate(.94) contrast(1.04)}
+    transform:rotate(-.25deg);filter:saturate(.94) contrast(1.04)}
   .fig::before{content:"";position:absolute;left:14px;top:14px;width:16px;height:16px;
     border-left:2px solid rgba(255,255,255,.75);border-top:2px solid rgba(255,255,255,.75)}
   .fig::after{content:"";position:absolute;right:14px;bottom:14px;width:16px;height:16px;
     border-right:2px solid rgba(255,255,255,.75);border-bottom:2px solid rgba(255,255,255,.75)}
   /* ★VF_DAILY_V2：真图槽（images/N.jpg）；img 被 onerror 摘掉时露出下面的渐变占位 */
-  .fig .ph{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+  /* ═══ ★VF_DAILY_V10（2026-10-13 用户那份**带真图**的产物被闸门抓到"越界 1 处"）═══
+     病灶：推近放大原来是加在 .fig（图框）上的 ⇒ 变换后的外框长到画布外（竖屏实测 img.ph
+     [-2,43,722,1025]、横屏 [-23,64,1303,445]）。视觉上被 overflow:hidden 裁掉看不出来，
+     但**外框确实出去了**（V3 那轮只在满幅段把放大挪进图内，其它结构漏了）。
+     正解：**放大多少，就把图的内缩按同比例缩进去** —— 内缩 = 50% − 50%/zoom（图框的 1/zoom，居中），
+     再按 --mz 放大 ⇒ 变换后的外框**恰好等于图框**：既不越界、导出时也不会有边缘渗漏。
+     （calc() 除以 var 在 Chromium 里可用；万一不支持，内缩退化成 0 ⇒ 回到老行为，不会更糟。 */
+  .fig .ph{--z:calc(var(--mz) - (var(--mz) - 1)*var(--sp));   /* 当前缩放（随时间从 --mz 收到 1） */
+    position:absolute;left:50%;top:50%;width:calc(100% / var(--z));height:calc(100% / var(--z));
+    object-fit:cover;display:block;transform:translate(-50%,-50%) scale(var(--z))}
+  /* ⚠️ 这里踩过两次（都是探针抓出来的，闸门看不见）：
+     ① 内缩写死按 --mz（不跟当前缩放）⇒ 动画末尾图只铺 93.5%，四周露一圈边；
+     ② 想用 inset + width:auto;height:auto 让图自动收缩 —— img 是 **replaced element**，
+        width:auto 会退回**固有尺寸**（1×1 的占位图就是 1px）⇒ 图几乎看不见，而闸门只报"缺图 0"。
+     现写法：尺寸 = 图框/当前缩放（百分比按图框算），居中，再放大回当前缩放 ⇒ 变换后外框**正好等于图框**。
+     （本文件这段 CSS 全在 JS 模板字符串里：注释里**不能出现反引号**，否则整段 JS 语法错、引擎直接不出文件。） */
+  /* ⚠️ 内缩必须跟着**当前缩放**走（不能写死按 --mz）：动画末尾 z→1，若内缩还按 1.07 算，
+     图只铺 93.5% ⇒ 四周露一圈纸色/渐变边。闸门测不到这个（它只测越界/压图/字号）——
+     所以配了 temp/_exp/daily/probe-cover.mjs 专门量"图是否铺满图框"。 */
 
   /* ═══ ★VF_DAILY_V3（2026-10-12 用户定案「排版要真的不一样」）═══
      form / place 以前只是写在标签上、看不出差别；现在**真的换版式**。

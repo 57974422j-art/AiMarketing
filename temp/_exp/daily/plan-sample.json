@@ -1,0 +1,12 @@
+{
+  "meta": { "issue": "第 01 期", "accent": "#C6392B", "paper": "#F5F1E8", "title": "日报落地页 · 京味铜锅涮肉" },
+  "motion": "normal",
+  "imageDir": "images",
+  "segments": [
+    { "kind": "cover", "kicker": "第 01 期 · 京味", "stamp": "封面故事", "title": ["凌晨四点", "第一锅汤"], "imgs": [1], "points": [["四点起火", "老汤先滚"], ["手切现片", "立盘不掉"], ["七上八下", "毛肚最佳"]], "form": "overlay", "place": "cover" },
+    { "kind": "feature", "kicker": "后厨 · 手作", "stamp": "", "title": ["刀起刀落", "薄如纸片"], "imgs": [2, 3], "points": [["现切现摆", "纹理分明"], ["铜锅炭火", "滚而不沸"]], "form": "sticker", "place": "cover" },
+    { "kind": "feature", "kicker": "蘸料 · 自调", "stamp": "", "title": ["一碗蘸料", "各凭口味"], "imgs": [4], "points": [["麻酱韭花", "腐乳香菜"], ["先涮后蘸", "别搅锅底"]], "form": "vertical", "place": "mat" },
+    { "kind": "feature", "kicker": "门店 · 环境", "stamp": "", "title": ["木桌长凳", "热气腾腾"], "imgs": [5, 6], "points": [["临街窗位", "看得见锅"]], "form": "overlay", "place": "cover" },
+    { "kind": "end", "kicker": "日报 · 收尾", "stamp": "", "title": ["今日收锅", "明日再来"], "imgs": [1], "points": [], "form": "sticker", "place": "cover" }
+  ]
+}

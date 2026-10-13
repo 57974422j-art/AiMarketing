@@ -1,0 +1,12 @@
+{
+  "meta": { "issue": "第 02 期", "accent": "#C6392B", "paper": "#F5F1E8", "title": "日报落地页 · 版式组合自检" },
+  "motion": "normal",
+  "imageDir": "images",
+  "segments": [
+    { "kind": "cover", "kicker": "第 02 期 · 版式", "stamp": "封面故事", "title": ["满幅大图", "贴下沿衬条"], "imgs": [1], "points": [["实拍", "原图"]], "form": "overlay", "place": "cover" },
+    { "kind": "feature", "kicker": "版式 · 贴纸", "stamp": "", "title": ["贴纸标题", "纸色底块"], "imgs": [2], "points": [["相纸", "留边"]], "form": "sticker", "place": "mat" },
+    { "kind": "feature", "kicker": "版式 · 竖排", "stamp": "", "title": ["竖排小标题", "图在左"], "imgs": [3], "points": [], "form": "vertical", "place": "cover" },
+    { "kind": "feature", "kicker": "版式 · 双图", "stamp": "", "title": ["双图并排", "贴纸标题"], "imgs": [4, 5], "points": [["左图", "右图"], ["并排", "对照"]], "form": "sticker", "place": "cover" },
+    { "kind": "end", "kicker": "版式 · 收尾", "stamp": "", "title": ["满幅收尾", "留边相纸"], "imgs": [6], "points": [["结束", "下一期"]], "form": "overlay", "place": "mat" }
+  ]
+}
