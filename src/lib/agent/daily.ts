@@ -36,7 +36,7 @@ import { listAllObjects } from '@/lib/oss'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 import { dashscopeFunctionCall } from '@/lib/ai-providers'
 // ★纯函数层（零依赖、可单测：temp/_exp/daily/test-plan.mjs）
-import { DAILY_STYLE, aiPrompt, extractJson, normSegs, normMotion, normTheme, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, applyDailyEdit, buildPlanCardPayload } from './daily-plan'
+import { DAILY_STYLE, aiPrompt, extractJson, normSegs, normMotion, normTheme, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages } from './daily-plan'
 
 export { DAILY_STYLE }
 
@@ -535,6 +535,39 @@ async function generateVerified(ctx: DailyCtx, plan: any): Promise<{ ok: boolean
   return { ok: false, note, dropped, error: '体检回落轮次用尽' }
 }
 
+/**
+ * ★VF_DAILY_V8（2026-10-13 用户原话「纯 HTML 打开都看不到图片 是否需要一个文件夹包才可以」）：
+ *   再出一份**单文件版**——把 `images/N.jpg` 引用换成**内嵌 base64** ⇒ 打开预览/双击文件就能看到真图，
+ *   不用建 `images/` 文件夹、发人也只发一个文件（代价是文件变大，所以带上限：超预算的图不嵌）。
+ *   取图：本机素材直接读文件；仓库素材走 OSS 签名地址 fetch（600 秒够用）。
+ *   失败**不影响**交付（调用方兜住，回落到"配图版"）。
+ */
+async function buildSingleFile(uid: number | string, buf: Buffer | undefined, picks: DailyPick[]): Promise<{ name: string; embedded: number } | null> {
+  if (!buf || !buf.length || !picks.length) return null
+  const imgs: Array<{ n: number; mime: string; b64: string; bytes: number }> = []
+  for (let i = 0; i < picks.length; i++) {
+    const p = picks[i]
+    let b: Buffer | null = null
+    try {
+      if (p.local && p.abs && fs.existsSync(p.abs)) b = fs.readFileSync(p.abs)
+      else {
+        const { signedUrl } = await import('@/lib/oss')
+        const u = await signedUrl(p.key, 600)
+        const res = await fetch(u)
+        if (res.ok) b = Buffer.from(await res.arrayBuffer())
+      }
+    } catch { b = null }
+    if (!b || !b.length) continue
+    const png = b[0] === 0x89 && b[1] === 0x50
+    imgs.push({ n: i + 1, mime: png ? 'image/png' : 'image/jpeg', b64: b.toString('base64'), bytes: b.length })
+  }
+  if (!imgs.length) return null
+  const rc = embedImages(buf.toString('utf8'), imgs)
+  if (!rc.embedded) return null
+  const saved = await saveToPersonalRepo({ userId: uid, buffer: Buffer.from(rc.html, 'utf8'), ext: 'html', mime: 'text/html', gen: true })
+  return { name: String(saved?.name || ''), embedded: rc.embedded }
+}
+
 /** ★VF_DAILY_V6：真的生成 HTML 入库（**卡片按钮 `at:'go'` 与打字 `确认` 两条路共用**） */
 async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Promise<string> {
   const uid = ctx.uid
@@ -559,36 +592,57 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Pr
   //   校验签名后 302 跳到真地址（不代理流量、无状态；7 天有效、可发人）。
   //   OSS 原始地址与内部路径只写进**服务端日志**（排障用），不出现在聊天里。
   const key = `storage/${uid}/${r.name}`
-  let viewPath = ''
-  let dlPath = ''
-  try {
-    const { fileLinkPath } = await import('@/lib/file-link')
-    viewPath = fileLinkPath(uid, r.name, 7 * 86400)
-    dlPath = viewPath + (viewPath.includes('?') ? '&' : '?') + 'dl=1'
-  } catch { /* 极端情况下退回下面的 api 路径 */ }
   const base = String(ctx.origin || '').replace(/\/+$/, '')
   const abs = (p: string) => (p ? (base ? base + p : p) : '')
+  let link: any = null
+  try { link = await import('@/lib/file-link') } catch { /* 极端情况下退回下面的 api 路径 */ }
+  const linkOf = (nm: string) => {
+    let p = ''
+    try { p = link ? link.fileLinkPath(uid, nm, 7 * 86400) : '' } catch { p = '' }
+    return { view: p, dl: p ? p + (p.includes('?') ? '&' : '?') + 'dl=1' : '' }
+  }
   const apiPath = `/api/storage/file?userId=${uid}&name=${encodeURIComponent(r.name)}&download=1`
-  const ordered = picks.map((p, i) => `${i + 1}.jpg ← ${p.name}`).join('\n　')
-  try { ctx.log?.(uid, `[日报落地页] 交付：${key} ｜ 短链 ${viewPath || apiPath}`) } catch { /* ignore */ }
-  const viewUrl = abs(viewPath) || apiPath
-  const dlUrl = abs(dlPath)
+  // ★VF_DAILY_V8：单文件版（图内嵌）—— 失败不影响交付，只是回落到"配图版"
+  let single: { name: string; embedded: number } | null = null
+  try {
+    single = await buildSingleFile(uid, r.buf, picks)
+    if (single) try { ctx.log?.(uid, `[日报落地页] 单文件版已生成 ${single.name}（内嵌真图 ${single.embedded} 张）`) } catch { /* ignore */ }
+  } catch (e: any) {
+    try { ctx.log?.(uid, '[日报落地页] 单文件版生成失败（不影响交付）：' + String(e?.message || e).slice(0, 120)) } catch { /* ignore */ }
+  }
+  const std = linkOf(r.name)
+  const stdView = abs(std.view) || apiPath
+  const stdDl = abs(std.dl)
+  const one = single && single.name ? linkOf(single.name) : { view: '', dl: '' }
+  const oneView = abs(one.view)
+  const oneDl = abs(one.dl)
+  const singleOk = !!(single && single.name && oneView)
+  try { ctx.log?.(uid, `[日报落地页] 交付：${key} ｜ 短链 ${std.view || apiPath}`) } catch { /* ignore */ }
   // ★L3/B：如实报"AI 自写了几段 / 哪几段没过体检被退回模板"（回落过的段此时已经没有 html 字段）
   const aiSegs = plan.segments.filter((s: any) => s && typeof s.html === 'string' && s.html.trim()).length
-  const dropLine = (r.dropped && r.dropped.length)
-    ? '\n⚠️ **渲染体检回落**：' + r.dropped.join('；') + '\n（这几段已改用模板结构，其余段保留 AI 自己的写法）\n'
-    : ''
-  return '✅ **日报落地页 HTML 已生成**（' + plan.segments.length + ' 段 · 皮肤 ' + themeName(plan?.meta?.theme)
-    + ' · ' + (d.planBy === 'ai' ? 'AI 看素材编排' : '系统保底版式')
-    + (aiSegs ? ' · AI 自写 ' + aiSegs + ' 段' : '')
-    + ' · 结构 ' + Array.from(new Set(plan.segments.map((s: any) => String(s.layout || '-')))).length + ' 种'
-    + ' · ' + (r.note || 'R1~R14 通过').trim() + '）\n' + dropLine + '\n'
-    + '▶ **打开预览（浏览器直接渲染）**：\n' + viewUrl
-    + (dlUrl ? '\n\n⬇ **下载这个 HTML 文件**：\n' + dlUrl : '')
-    + '\n\n（链接 7 天有效，可以发给别人；过期后回来说一次「日报落地页」重做一份就有新链接。）\n'
-    + '**换成真图（2 步）**：① 下载后用浏览器打开预览（上下滚动 = 预览模式，每段自动循环）；'
-    + '② 在同目录建 `images/` 文件夹，把图按下面对应关系命名放进：\n　' + ordered + '\n\n'
-    + '文件同时存在你的**个人仓库 · 生成素材组**。想再做一份：再说一次「日报落地页」。'
+  // ★VF_DAILY_V7：最后一步也出**卡**（原来是纯文本 ⇒ 用户说"最后一步都是文字"）。
+  //   卡里三个动作：▶ 打开预览（403/410 页面也是 HTML ⇒ 浏览器直接渲染）/ ⬇ 下载 / 🔁 再做一份；
+  //   事实行与体检回落、真图命名对照全在卡里（不再往聊天里倒一大段文字）。
+  try { ctx.log?.(uid, `[日报落地页] 交付卡已发（${r.name} · ${plan.segments.length} 段 · 结构 ${new Set(plan.segments.map((s: any) => String(s.layout || '-'))).size} 种）`) } catch { /* ignore */ }
+  return 'VF_JSON:' + JSON.stringify(buildDoneCardPayload({
+    name: r.name,
+    viewUrl: stdView,
+    dlUrl: stdDl,
+    singleName: singleOk ? (single as any).name : '',
+    singleUrl: singleOk ? oneView : '',
+    singleDlUrl: singleOk ? oneDl : '',
+    plainUrl: stdView,
+    imgCount: picks.length,
+    embedded: singleOk ? (single as any).embedded : 0,
+    segs: plan.segments.length,
+    skin: themeName(plan?.meta?.theme),
+    by: d.planBy === 'ai' ? 'ai' : 'fallback',
+    aiSegs,
+    structures: new Set(plan.segments.map((s: any) => String(s.layout || '-'))).size,
+    note: (r.note || 'R1~R14 通过').trim(),
+    dropped: r.dropped || [],
+    ordered: picks.map((p, i) => `${i + 1}.jpg ← ${p.name}`),
+  }))
 }
 
 export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {

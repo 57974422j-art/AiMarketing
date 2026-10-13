@@ -403,6 +403,81 @@ export function buildPlanCardPayload(plan: any, o: {
 }
 
 /**
+ * ★VF_DAILY_V8（2026-10-13 用户原话「纯 HTML 打开都看不到图片 是否需要一个文件夹包才可以」）：
+ *   把生成好的 HTML 里 `images/N.jpg` 引用**换成内嵌 data URI** ⇒ **单文件双击即看真图**，
+ *   不用再建 `images/` 文件夹、发人也只用发一个文件。
+ *   纯字符串替换（零依赖、可单测）；带总量上限（超预算的图**不嵌**，保持原相对路径 ⇒ 部分内嵌也是好的，
+ *   只是这层事实由调用方如实报给用户）。
+ */
+export function embedImages(
+  html: string,
+  imgs: Array<{ n: number; mime: string; b64: string; bytes?: number }>,
+  cap = 12 * 1024 * 1024,
+): { html: string; embedded: number; skipped: number } {
+  let out = String(html || '')
+  let used = 0
+  let embedded = 0
+  let skipped = 0
+  for (const im of imgs) {
+    const ref = `images/${im.n}.jpg`
+    if (!out.includes(ref)) { skipped++; continue }
+    const size = typeof im.bytes === 'number' ? im.bytes : Math.floor((im.b64.length * 3) / 4)
+    if (used + size > cap) { skipped++; continue }
+    used += size
+    out = out.split(ref).join(`data:${im.mime};base64,${im.b64}`)
+    embedded++
+  }
+  return { html: out, embedded, skipped }
+}
+
+/**
+ * ★VF_DAILY_V7（2026-10-13 用户原话「不是第二步都是文字，是最后一步都是文字，而且▶ **打开预览**…这个也是下载 并不是展示」）：
+ *   交付这一步（第 3 步）也出**卡**（同族：素材卡 → 方案卡 → **交付卡**）。
+ *   卡里带：预览地址（浏览器直接渲染）/ 下载地址 / 真图命名对照 / 事实行（段数·皮肤·结构·体检）。
+ *   纯函数 ⇒ 可单测；前端 `VfDailyDoneCard` 按 `step:'daily_done'` 渲染。
+ */
+export function buildDoneCardPayload(o: {
+  name: string; viewUrl: string; dlUrl?: string
+  segs: number; skin: string; by: 'ai' | 'fallback'
+  aiSegs?: number; structures?: number; note?: string; dropped?: string[]; ordered?: string[]
+  expiresDays?: number
+  /** ★VF_DAILY_V8：单文件版（图已内嵌）—— `plainUrl` 是"配图版"（需 images/ 文件夹） */
+  singleName?: string; singleUrl?: string; singleDlUrl?: string; plainUrl?: string
+  imgCount?: number; embedded?: number
+}): any {
+  const days = o.expiresDays || 7
+  const facts: string[] = [o.segs + ' 段', '皮肤 ' + o.skin,
+    o.by === 'ai' ? 'AI 看素材编排' : '系统保底版式']
+  if (o.aiSegs) facts.push('AI 自写 ' + o.aiSegs + ' 段')
+  if (o.structures) facts.push('结构 ' + o.structures + ' 种')
+  if (o.note) facts.push(String(o.note).trim())
+  const total = Number(o.imgCount || 0)
+  const emb = Number(o.embedded || 0)
+  let imgMsg = ''
+  if (emb && total && emb >= total) imgMsg = '真图已内嵌（单文件即看）'
+  else if (emb) imgMsg = `真图内嵌 ${emb}/${total} 张（其余仍需 images/ 文件夹）`
+  else if (total) imgMsg = '未内嵌真图（预览里是占位色块；要真图需按对照表建 images/）'
+  return {
+    step: 'daily_done',
+    proto: 'VF_DAILY_FORM',
+    hint: '第 3 步 / 共 3 步 · 已生成并交付',
+    name: o.singleName || o.name,
+    plainName: o.name,
+    viewUrl: o.singleUrl || o.viewUrl,
+    dlUrl: o.singleDlUrl || o.dlUrl || '',
+    plainUrl: o.singleUrl ? o.viewUrl : '',
+    plainDlUrl: o.singleUrl ? (o.dlUrl || '') : '',
+    facts: facts.join(' · '),
+    imgMsg,
+    dropped: Array.isArray(o.dropped) ? o.dropped : [],
+    ordered: Array.isArray(o.ordered) ? o.ordered : [],
+    expiresDays: days,
+    note: '链接 ' + days + ' 天有效，可以发给别人；过期后再说一次「日报落地页」重做就有新链接。'
+      + ' 文件同时在你的**个人仓库 · 生成素材组**。',
+  }
+}
+
+/**
  * ★逐段微调（用户 2026-10-12 定案后补做）：把一句人话改成方案的局部手术。
  * 支持（`第`/`段` 可省）：
  *   `改 <n> 标题=行1/行2` · `改 <n> 标签=后厨 · 手作` · `改 <n> 角标=封面故事`

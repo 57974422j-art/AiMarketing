@@ -1985,6 +1985,86 @@ function VfDailyPlanCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
   )
 }
 
+/* ★VF_DAILY_V7（2026-10-13 用户原话「不是第二步都是文字，是最后一步都是文字，而且▶ 打开预览…这个也是下载 并不是展示」）：
+   日报落地页第 3 步＝**交付卡**（同族：素材卡 → 方案卡 → 交付卡）。
+   · ▶ 打开预览：`<a target="_blank">` 指向本站短链 `/f/<uid>/<名>?t=…`（服务端已强制
+     `content-type: text/html; charset=utf-8` + `inline` ⇒ 浏览器**渲染**，不再变下载）；
+   · ⬇ 下载 HTML：同短链 + `&dl=1`（那条才是 attachment）；
+   · 🔁 再做一份：重发入口命令（入口本来就是"作废旧单重起"，所以这条总是有效）。 */
+function VfDailyDoneCard({ vj, onSend }: { vj: any; onSend: (m: string) => void }) {
+  const viewUrl = String(vj?.viewUrl || '')
+  const dlUrl = String(vj?.dlUrl || '')
+  const ordered: string[] = Array.isArray(vj?.ordered) ? vj.ordered.map((x: any) => String(x)) : []
+  const dropped: string[] = Array.isArray(vj?.dropped) ? vj.dropped.map((x: any) => String(x)) : []
+  const [copied, setCopied] = useState('')
+  const copy = async (s: string, tag: string) => {
+    try { await navigator.clipboard.writeText(s); setCopied(tag); setTimeout(() => setCopied(''), 1500) } catch { /* 剪贴板不可用就算了 */ }
+  }
+  return (
+    <div className="mb-2 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06]">
+      <div className="text-xs text-emerald-300 mb-1">📄 日报落地页 · {String(vj?.hint || '第 3 步 / 共 3 步 · 已生成并交付')}</div>
+      <div className="text-[11px] text-gray-100 mb-1">✅ {String(vj?.name || '')}</div>
+      <div className="text-[10px] text-gray-400 mb-2">{String(vj?.facts || '')}</div>
+      {vj?.imgMsg ? <div className="text-[10px] text-emerald-300/80 mb-2">{String(vj.imgMsg)}</div> : null}
+      {dropped.length
+        ? <div className="text-[10px] text-amber-300 mb-2">⚠️ 渲染体检回落：{dropped.join('；')}（这几段已改用模板结构，其余段保留 AI 自己的写法）</div>
+        : null}
+      <div className="flex flex-wrap gap-2 mb-2">
+        {viewUrl
+          ? <a href={viewUrl} target="_blank" rel="noopener noreferrer"
+              className="px-4 py-2 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100 text-sm font-medium">
+              ▶ 打开预览{vj?.plainUrl ? '（含真图）' : ''}
+            </a>
+          : null}
+        {dlUrl
+          ? <a href={dlUrl}
+              className="px-3 py-2 rounded-lg text-xs border border-white/15 text-gray-200 hover:bg-white/[0.08]">
+              ⬇ 下载 HTML{vj?.plainUrl ? '（单文件）' : ''}
+            </a>
+          : null}
+        <button onClick={() => onSend('日报落地页')}
+          className="px-3 py-2 rounded-lg text-xs border border-white/15 text-gray-200 hover:bg-white/[0.08]">
+          🔁 再做一份
+        </button>
+      </div>
+      {vj?.plainUrl
+        ? (
+          <div className="text-[10px] text-gray-500 mb-2">
+            另有一份**配图版**（体积小，需按下面对照表建 `images/` 文件夹）：
+            <a href={String(vj.plainUrl)} target="_blank" rel="noopener noreferrer" className="text-emerald-300 hover:underline ml-1">打开</a>
+            {vj?.plainDlUrl
+              ? <a href={String(vj.plainDlUrl)} className="text-emerald-300 hover:underline ml-2">下载</a>
+              : null}
+          </div>
+        )
+        : null}
+      {ordered.length
+        ? (
+          <details className="mb-2">
+            <summary className="text-[10px] text-gray-400 cursor-pointer">
+              换成真图：下载后建 `images/` 文件夹，按「序号 ← 文件名」放进去（点开看对照表）
+            </summary>
+            <div className="mt-1 text-[10px] text-gray-300 leading-5">{ordered.join('　·　')}</div>
+          </details>
+        )
+        : null}
+      {viewUrl
+        ? (
+          <div className="flex items-center gap-2">
+            <input readOnly value={viewUrl}
+              className="flex-1 min-w-0 text-[10px] bg-black/30 border border-white/10 rounded px-2 py-1 text-gray-400" />
+            <button onClick={() => copy(viewUrl, 'v')}
+              className="text-[10px] px-2 py-1 rounded border border-white/15 text-gray-300 hover:bg-white/[0.08]">
+              {copied === 'v' ? '已复制' : '复制地址'}
+            </button>
+          </div>
+        )
+        : null}
+      <div className="text-[10px] text-gray-500 mt-1">{String(vj?.note || '')}</div>
+    </div>
+  )
+}
+
 function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => void; userId?: number | string }) {
   const step = String(vj?.step || 'film_mat')
   const images: any[] = Array.isArray(vj?.images) ? vj.images : []
@@ -4181,6 +4261,8 @@ function AgentPageInner() {
           return <VfFilmCard vj={_vj} onSend={sendMessage} userId={user?.id} />
         {/* ★VF_DAILY_V6（2026-10-12 用户定案「第二步怎么回的是文字…没有前台卡片了？」）：日报落地页第 2 步也出卡 */}
         if (_vj && _vj.step === 'daily_plan') return <VfDailyPlanCard vj={_vj} onSend={sendMessage} />
+        {/* ★VF_DAILY_V7（2026-10-13「是最后一步都是文字」）：第 3 步＝交付卡（预览/下载/再做一份） */}
+        if (_vj && _vj.step === 'daily_done') return <VfDailyDoneCard vj={_vj} onSend={sendMessage} />
         {/* ★VF_PPT_UI_V1（2026-10-06 用户定案「彻底拆开」）：【PPT 成片】独立线两张卡 */}
         if (_vj && _vj.step === 'ppt_setup') return <VfPptCard vj={_vj} onSend={sendMessage} />
         if (_vj && _vj.step === 'ppt_confirm') {
