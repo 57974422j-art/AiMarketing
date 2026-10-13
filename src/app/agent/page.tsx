@@ -2023,8 +2023,27 @@ function VfDailyDoneCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
     } catch (e: any) { setPvErr('读取失败：' + String(e?.message || e)) }
   }
   const [copied, setCopied] = useState('')
+  // ★VF_HTMLVIEW_V2（2026-10-13 用户实测「复制下载地址 点击也没反应、复制不了」）：
+  //   老写法只试 `navigator.clipboard`，在**非 https / 客户端 webview / 无权限**时它直接 reject，
+  //   而我们把异常吞掉了 ⇒ 按钮"点了没反应"。现在：① 先试 clipboard；② 失败退回
+  //   `textarea + execCommand('copy')`（老办法但覆盖面广）；③ 都失败就**如实显示"复制失败"**，
+  //   并把输入框改成点击即全选（用户手动 Ctrl+C 也能拿走）。
   const copy = async (s: string, tag: string) => {
-    try { await navigator.clipboard.writeText(s); setCopied(tag); setTimeout(() => setCopied(''), 1500) } catch { /* 剪贴板不可用就算了 */ }
+    let ok = false
+    try { await navigator.clipboard.writeText(s); ok = true } catch { ok = false }
+    if (!ok) {
+      try {
+        const ta = document.createElement('textarea')
+        ta.value = s
+        ta.style.position = 'fixed'; ta.style.left = '-9999px'; ta.style.top = '0'
+        document.body.appendChild(ta)
+        ta.focus(); ta.select()
+        ok = document.execCommand('copy')
+        document.body.removeChild(ta)
+      } catch { ok = false }
+    }
+    setCopied(ok ? tag : 'fail:' + tag)
+    setTimeout(() => setCopied(''), 2000)
   }
   return (
     <div className="mb-2 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06]">
@@ -2048,16 +2067,26 @@ function VfDailyDoneCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
               ↗ 新窗口打开
             </a>
           : null}
-        {dlUrl
-          ? <a href={dlUrl}
-              className="px-3 py-2 rounded-lg text-xs border border-white/15 text-gray-200 hover:bg-white/[0.08]">
-              ⬇ 下载 HTML{vj?.plainUrl ? '（单文件）' : ''}
-            </a>
-          : null}
         <button onClick={() => onSend('日报落地页')}
           className="px-3 py-2 rounded-lg text-xs border border-white/15 text-gray-200 hover:bg-white/[0.08]">
           🔁 再做一份
         </button>
+      </div>
+      {/* ★VF_HTMLVIEW_V2：按用户口径**精简下载入口** —— 「产物自动存到本地仓库，HTML 不用这么多下载口」
+          所以：一个"下载单文件"（要发给别人/归档时才用）+ "复制分享链接"；配图版与命名对照表收进折叠里。 */}
+      <div className="flex flex-wrap items-center gap-2 mb-2">
+        <span className="text-[10px] text-gray-500">已存入你的个人仓库 · 生成素材组</span>
+        {dlUrl
+          ? <a href={dlUrl} className="text-[10px] px-2 py-1 rounded border border-white/15 text-gray-300 hover:bg-white/[0.08]">
+              ⬇ 下载单文件
+            </a>
+          : null}
+        {viewUrl
+          ? <button onClick={() => copy(viewUrl, 'v')}
+              className="text-[10px] px-2 py-1 rounded border border-white/15 text-gray-300 hover:bg-white/[0.08]">
+              {copied === 'v' ? '已复制' : (copied === 'fail:v' ? '复制失败（点下面地址框全选）' : '复制分享链接')}
+            </button>
+          : null}
       </div>
       {showPv && apiView
         ? (
@@ -2076,37 +2105,31 @@ function VfDailyDoneCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
           </div>
         )
         : null}
-      {vj?.plainUrl
-        ? (
-          <div className="text-[10px] text-gray-500 mb-2">
-            另有一份**配图版**（体积小，需按下面对照表建 `images/` 文件夹）：
-            <a href={String(vj.plainUrl)} target="_blank" rel="noopener noreferrer" className="text-emerald-300 hover:underline ml-1">打开</a>
-            {vj?.plainDlUrl
-              ? <a href={String(vj.plainDlUrl)} className="text-emerald-300 hover:underline ml-2">下载</a>
-              : null}
-          </div>
-        )
-        : null}
-      {ordered.length
+      {(vj?.plainUrl || ordered.length)
         ? (
           <details className="mb-2">
             <summary className="text-[10px] text-gray-400 cursor-pointer">
-              换成真图：下载后建 `images/` 文件夹，按「序号 ← 文件名」放进去（点开看对照表）
+              配图版（体积小，需自建 images/ 文件夹）与命名对照表
             </summary>
-            <div className="mt-1 text-[10px] text-gray-300 leading-5">{ordered.join('　·　')}</div>
+            {vj?.plainUrl
+              ? <div className="text-[10px] text-gray-400 mt-1">
+                  配图版：
+                  <a href={String(vj.plainUrl)} target="_blank" rel="noopener noreferrer" className="text-emerald-300 hover:underline ml-1">打开</a>
+                  {vj?.plainDlUrl
+                    ? <a href={String(vj.plainDlUrl)} className="text-emerald-300 hover:underline ml-2">下载</a>
+                    : null}
+                </div>
+              : null}
+            {ordered.length
+              ? <div className="mt-1 text-[10px] text-gray-300 leading-5">命名对照：{ordered.join('　·　')}</div>
+              : null}
           </details>
         )
         : null}
       {viewUrl
         ? (
-          <div className="flex items-center gap-2">
-            <input readOnly value={viewUrl}
-              className="flex-1 min-w-0 text-[10px] bg-black/30 border border-white/10 rounded px-2 py-1 text-gray-400" />
-            <button onClick={() => copy(viewUrl, 'v')}
-              className="text-[10px] px-2 py-1 rounded border border-white/15 text-gray-300 hover:bg-white/[0.08]">
-              {copied === 'v' ? '已复制' : '复制地址'}
-            </button>
-          </div>
+          <input readOnly value={viewUrl} onFocus={(e) => e.currentTarget.select()}
+            className="w-full text-[10px] bg-black/30 border border-white/10 rounded px-2 py-1 text-gray-400 mb-1" />
         )
         : null}
       <div className="text-[10px] text-gray-500 mt-1">{String(vj?.note || '')}</div>

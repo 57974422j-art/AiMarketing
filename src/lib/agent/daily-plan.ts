@@ -128,6 +128,9 @@ export function aiPrompt(n: number, topic: string, opts?: { lastTheme?: string }
   const cat = PLAN_LAYOUTS
     .map((l) => `  · ${l.id}（${l.name}，${l.minImg === l.maxImg ? l.minImg : l.minImg + '~' + l.maxImg} 张图）：${l.look}`)
     .join('\n')
+  // ★VF_DAILY_V11（2026-10-13 用户实测「本次只有 3 页，还没它 7 页规划的好；**页数多不是问题、少反而是问题**，
+  //   这个是为了做视频用的」）：段数下限**按素材量算**（不再是"2~8 段"这种给 AI 留空子的写法）。
+  const minSegs = Math.min(16, Math.max(6, Math.ceil(n * 1.5)))
   const last = String(opts?.lastTheme || '')
   return [
     '你是「日报落地页」的排版编排员。用户挑好了 ' + n + ' 张素材图（下面按顺序编号 1..' + n + '），主题是「' + (topic || '（未给）') + '」。',
@@ -146,7 +149,12 @@ export function aiPrompt(n: number, topic: string, opts?: { lastTheme?: string }
     '  系统会做对比度体检（正文/底 ≥4.5、次要 ≥3.0、强调 ≥2.0），不达标会自动换回预设皮肤。',
     '',
     '硬约束（违反即作废）：',
-    '1. segments 数组 2~8 段；**每张图至少用一次**（可以重复用）；单段图数必须等于所选结构允许的张数。',
+    '1. **段数是这份片的时长来源**：segments **至少 ' + minSegs + ' 段**、最多 16 段。'
+    + '这是**给视频用的** —— 段数多不是问题，**段数少才是缺点**（片长不够、节奏干）。'
+    + '**每张图至少用一次**（可重复用）；单段图数必须等于所选结构允许的张数。',
+    '1b. **每段以 1~2 张图为主**；`grid3` / `grid4`（3~4 图拼版）整份**各最多用 1 次** ——'
+    + '★常见错误：把 6 张图用 2 个拼版段塞完（就 3 段）⇒ 直接判不合格。'
+    + '宁可多排几段、每段 1~2 张，也不要"少段 + 大拼版"。',
     '2. 首段当封面（用 hero / sticker / split / vertical 之一），末段建议用 quote 或 hero 收尾。',
     '3. **至少用到 3 种不同 layout，且相邻两段 layout 不能相同**（这是"看起来不重样"的关键）。',
     '4. 每段 title = **两行短句**（每行 ≤12 个汉字），像报纸小标题；不要长句、不要感叹号堆砌。',
@@ -273,6 +281,12 @@ export function normSegs(raw: any, n: number, topic: string): { segs: any[]; add
   out[0].kind = 'cover'
   out[0].stamp = out[0].stamp || '封面故事'
   if (out.length > 1) out[out.length - 1].kind = 'end'
+  // ★VF_DAILY_V11：段数不够就**如实写进 fixes**（卡头会显示）—— 不闷着，
+  //   也不硬塞"补段"（补出来的是空壳，反而更难看）：让用户一眼知道"这份片长偏短，可以重排"。
+  const minSegs = Math.min(16, Math.max(6, Math.ceil(n * 1.5)))
+  if (out.length < minSegs) {
+    fixes.push(`AI 只排了 ${out.length} 段（${n} 张素材，期望 ≥${minSegs} 段）⇒ 这份片长会偏短，可回「重选」重排`)
+  }
   return { segs: out, added, fixes }
 }
 

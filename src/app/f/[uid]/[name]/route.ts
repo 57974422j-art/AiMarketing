@@ -1,7 +1,10 @@
 /**
  * ★VF_FILELINK_V1：个人仓库文件的**短链出口**（对外只露本站域名）。
- *   `GET /f/<uid>/<文件名>?t=<过期>.<签名>`            → 浏览器直接打开（302 → OSS 签名地址，Content-Type 已存 text/html ⇒ 渲染）
- *   `GET /f/<uid>/<文件名>?t=<过期>.<签名>&dl=1`       → 同上但带 attachment ⇒ 点了存文件
+ *   `GET /f/<uid>/<文件名>?t=<过期>.<签名>`            → **本站流式直出**（按扩展名给 MIME + inline ⇒ 浏览器直接渲染）
+ *   `GET /f/<uid>/<文件名>?t=<过期>.<签名>&dl=1`       → 同一条流 + attachment ⇒ 点了存文件
+ *   ⚠️ V1/V2 曾是"302 到 OSS 签名地址"（V2 还想让 OSS 覆写响应头）—— 实测 OSS **拒绝**覆写 content-type
+ *      （`InvalidRequest / Can not override response header on content-type`，EC 0017-00000902）
+ *      ⇒ 四条入口全废。现口径见下面 V3 的注释：自己取、自己设头。
  *
  * 为什么这样做（用户 2026-10-12 原话：「你至少包装一下 怎么这么现实出来了 连我服务器地址什么都搞出来了」）：
  *   原来交付回复里贴的是 OSS 原始签名地址（桶名/区域/OSSAccessKeyId/内部 key 全暴露）。
@@ -10,7 +13,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyFileLink } from '@/lib/file-link'
-import { signedUrl, getOSSClient } from '@/lib/oss'
+import { signedUrl } from '@/lib/oss'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -52,25 +55,38 @@ export async function GET(req: NextRequest, ctx: { params: { uid: string; name: 
 
   const key = `storage/${uid}/${name}`
   const dl = req.nextUrl.searchParams.get('dl') === '1'
-  // ★VF_FILELINK_V2（2026-10-13 用户实测「▶ 打开预览（浏览器直接渲染）这个也是下载 并不是展示」）：
-  //   病灶：以前预览分支只做 302 到签名地址，**响应头听 OSS 里存的那份** —— 我们上传 HTML 时用的
-  //   Content-Type 常常是 `application/octet-stream`（或浏览器不认的），于是浏览器一律**下载**。
-  //   修法：签名时**强制覆写响应头**（`response.content-type` + `inline`）：
-  //     · 预览：按扩展名给出正确 MIME（.html ⇒ text/html; charset=utf-8）+ `inline; filename*=UTF-8''…`
-  //     · 下载：仍 `attachment`（点"下载"就该存文件）
-  //   为什么按扩展名而不是一律 text/html：这个出口也给 jpg/mp4/pdf 用（一律 text/html 会把图片也弄坏）。
+  // ★VF_FILELINK_V3（2026-10-13 用户实测，**推翻 V2 的修法**）：
+  //   V2 是"签名时覆写响应头（response.content-type）"+ 302 到 OSS。实测 OSS **直接拒绝**：
+  //     `<Code>InvalidRequest</Code><Message>Can not override response header on content-type</Message>`
+  //     `EC 0017-00000902`（HostId 就是我们那个桶）
+  //   ⇒ 打开预览 / 下载 / 配图版 / 手动复制出去的地址 **四条全废**（用户看到的就是这段 XML）。
+  //   现口径：**本站流式代理** —— 我们自己取对象、自己设 `Content-Type`，不再 302、不再求 OSS 改头：
+  //     · 预览：`Content-Type: text/html; charset=utf-8` + `inline`（按扩展名给 MIME，jpg/mp4 也不会被弄坏）
+  //     · 下载（`dl=1`）：同一条流 + `attachment` 文件名
+  //   代价：字节过一下我们的服务器（HTML 几 MB，可接受）；换来的是"链接在浏览器、在客户端都用得住"。
   const mime = mimeOf(name)
-  let url = ''
+  let resp: Response | null = null
   try {
-    const oss = await getOSSClient()
-    const cd = (dl ? 'attachment' : 'inline') + `; filename*=UTF-8''${encodeURIComponent(name)}`
-    url = oss.signatureUrl(key, {
-      expires: 7 * 86400,
-      response: { 'content-type': mime, 'content-disposition': cd },
-    })
-  } catch {
-    try { url = await signedUrl(key, 3600) } catch { url = '' }
+    const url = await signedUrl(key, 300)          // 服务端内部取用，5 分钟足够
+    resp = await fetch(url)
+    if (!resp.ok) resp = null
+  } catch { resp = null }
+  if (!resp || !resp.body) {
+    // 兜底：连取都取不到时，退回老口径的 302（至少还有一线生机），并如实说清
+    try {
+      const url = await signedUrl(key, 3600)
+      return NextResponse.redirect(url, 302)
+    } catch {
+      return new NextResponse('文件暂时拿不到（存储未配置或对象不存在）', { status: 502 })
+    }
   }
-  if (!url) return new NextResponse('文件暂时拿不到（存储未配置或对象不存在）', { status: 502 })
-  return NextResponse.redirect(url, 302)
+  const headers: Record<string, string> = {
+    'Content-Type': mime,
+    'Content-Disposition': (dl ? 'attachment' : 'inline') + `; filename*=UTF-8''${encodeURIComponent(name)}`,
+    // 分享链接：允许浏览器自己缓存一会儿（不要 public，避免中间层串号 —— 见 api/storage/file 的 PRIVCACHE 记录）
+    'Cache-Control': 'private, max-age=300',
+  }
+  const len = resp.headers.get('content-length')
+  if (len) headers['Content-Length'] = len
+  return new NextResponse(resp.body as any, { headers })
 }

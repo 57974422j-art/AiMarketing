@@ -56,7 +56,21 @@ ok(new Set(g.segs.map((s) => s.layout)).size >= 3, '★L2：整份至少 3 种�
     { kind: 'end', layout: 'quote', title: ['壬癸', '子丑'], imgs: [6], points: [] },
   ] }, 6, '')
   eq(g2.segs.map((s) => s.layout).join(','), 'hero,grid4,quote', '★L2：AI 明确指定的三种结构原样保留（改动最小）')
-  eq(g2.fixes.length, 0, '★L2：合规时 fixes 为空（不乱报）')
+  // ★VF_DAILY_V11：现在多了一条"段数不足"的如实告知（用户：「页数多不是问题、少反而是问题」）——
+  //   所以"合规"要按新口径理解：结构/图数都对 ⇒ **除段数提示外不报别的**。
+  const other = g2.fixes.filter((x) => !x.includes('片长会偏短'))
+  eq(other.length, 0, '★L2：合规时除"段数提示"外不报别的（不乱报）')
+  ok(g2.fixes.some((x) => x.includes('片长会偏短')), '★V11：段数不足 ⇒ 如实提示（3 段 < 期望 ≥9 段）', JSON.stringify(g2.fixes))
+}
+{
+  // ★V11：段数够时**不许**再报"片长偏短"（否则就是噪音）
+  const many = { segments: [] }
+  for (let i = 1; i <= 9; i++) many.segments.push({ kind: i === 1 ? 'cover' : 'feature', layout: 'hero', title: ['甲乙', '丙丁'], imgs: [(i % 6) + 1], points: [] })
+  const g3 = normSegs(many, 6, '')
+  ok(!g3.fixes.some((x) => x.includes('片长会偏短')), '★V11：9 段（≥期望）⇒ 不报"片长偏短"')
+  ok(aiPrompt(6, '铜锅').includes('至少 9 段'), '★V11：提示词写明段数下限（6 张 ⇒ ≥9 段）')
+  ok(aiPrompt(6, '铜锅').includes('最多 16 段'), '★V11：提示词写明段数上限 16')
+  ok(aiPrompt(6, '铜锅').includes('少才是缺点'), '★V11：提示词说明"段少是缺点"（给视频用的口径）')
 }
 
 console.log('\n=== 3. normSegs：坏输入（越界/重复/3 张/超长/非法枚举）===')

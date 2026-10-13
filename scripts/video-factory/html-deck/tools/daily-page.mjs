@@ -201,6 +201,9 @@ const LAYOUTS = {
   quote:    { name: '引文页',   minImg: 0, maxImg: 1 },
 }
 const FORM_IDS = { hero: 'overlay', sticker: 'sticker', vertical: 'vertical' }
+// ★VF_DAILY_V11：**图片动效轮换**（按段序，确定性）—— 治用户「不要都一个效果吧，这个效果感觉有点怪」。
+//   zout=回拉（原效果）· zin=推近 · pan=横移取景。三种都用同一套"外框=图框"的几何（见 CSS）。
+const FX = ['zout', 'zin', 'pan']
 const layoutOf = (s) => {
   const l = String(s.layout || '')
   if (LAYOUTS[l]) return l
@@ -338,7 +341,8 @@ function segBody(s, sc) {
   const head = `<div class="head"><span class="kick">${esc(s.kicker || '')}</span>`
     + (s.stamp ? `<span class="stamp">${esc(s.stamp)}</span>` : '') + `</div>`
   return `<section class="sec" data-seg="${sc.i + 1}" data-start="${sc.start}" data-duration="${sc.dur}"`
-    + ` data-place="${esc(s.place || 'cover')}" data-form="${esc(form)}" data-layout="${layout}">`
+    + ` data-place="${esc(s.place || 'cover')}" data-form="${esc(form)}" data-layout="${layout}"`
+    + ` data-fx="${FX[sc.i % FX.length]}">`
     + head
     + `<h2>${title}</h2>`
     + `<div class="figs n${imgs.length}">${figs}</div>`
@@ -437,6 +441,14 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
   .fig .ph{--z:calc(var(--mz) - (var(--mz) - 1)*var(--sp));   /* 当前缩放（随时间从 --mz 收到 1） */
     position:absolute;left:50%;top:50%;width:calc(100% / var(--z));height:calc(100% / var(--z));
     object-fit:cover;display:block;transform:translate(-50%,-50%) scale(var(--z))}
+  /* ★VF_DAILY_V11：**图片动效按段轮换**（原来所有段都是同一种"回拉"，用户觉得"都一个效果、有点怪"）。
+     · zout（默认）= 回拉：从 --mz 收到 1；
+     · zin        = 推近：从 1 涨到 --mz；
+     · pan        = 横移取景：缩放钉在 1.06，靠 object-position 从偏左移到居中（画面"扫"过去）。
+     三种都保持"外框 = 图框"（尺寸 = 图框/当前缩放，再 scale 回去）⇒ 越界闸门与覆盖率探针照旧管用；
+     object-position 只改**框内**取景，不动元素的框 ⇒ 不会露边。 */
+  .sec[data-fx="zin"] .fig .ph{--z:calc(1 + (var(--mz) - 1)*var(--sp))}
+  .sec[data-fx="pan"] .fig .ph{--z:1.06;object-position:calc(34% + 32% * var(--sp)) 50%}
   /* ⚠️ 这里踩过两次（都是探针抓出来的，闸门看不见）：
      ① 内缩写死按 --mz（不跟当前缩放）⇒ 动画末尾图只铺 93.5%，四周露一圈边；
      ② 想用 inset + width:auto;height:auto 让图自动收缩 —— img 是 **replaced element**，
@@ -457,8 +469,12 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
   /* ⚠️ 踩过的坑（实测）：满幅图的"推近"若加在图框上，横屏会算出 3px 越界（图框比视口宽）。
      所以满幅段把推近**移到框内的图**上 —— 被 .fig 的 overflow:hidden 裁掉，版面不动。 */
   .sec[data-form="overlay"] .fig{margin-top:0;transform:rotate(-.25deg)}
-  .sec[data-form="overlay"] .fig .ph{transform:scale(calc(var(--mz) - (var(--mz) - 1)*var(--sp)));
-    transition:none}
+  /* ⚠️ V10/V11 修正：这里原来还有一条 .sec[data-form="overlay"] .fig .ph { transform:scale(...) }
+     （V3 时代"把推近挪进图内"留下的）。它把基类的几何（含 translate(-50%,-50%)）**整条覆盖掉** ⇒
+     overlay 段的 transform 永远按"回拉"公式算、而 width 用的是按当前动效算的 --z
+     ⇒ 两者**打架**：动画中途会露边（探针实测 sp=0 段5 覆盖 0.935 / sp=0.5 段3 覆盖 1.024）。
+     现在删掉 —— 几何只在基类 .fig .ph 一处定义，动效只改 --z 或 object-position。
+     （注：本段 CSS 在 JS 模板字符串里，注释里**不能出现反引号**，否则引擎直接不出文件。） */
   /* 标题与信息点共用**一条**暗衬带（::after 跨两行、把中间的行距也盖住）——
      否则两个深色块中间露一条纸色缝，看着像"两个灰盒子"（截图上看过一眼就不想要了）。 */
   .sec[data-form="overlay"]::after{content:"";grid-row:3 / span 2;grid-column:1;

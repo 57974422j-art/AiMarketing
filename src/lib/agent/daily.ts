@@ -44,7 +44,9 @@ export const DAILY_TAG = 'vf_draft_daily'
 export const DAILY_PREFIX = '日报落地页草稿:'
 /** 入口词（与 standard-commands.ts 的 text **一字不差**；比对时去空白） */
 export const DAILY_ENTRY = ['日报落地页', '日报页', '做日报页']
-export const DAILY_MAX_PICK = 6
+// ★VF_DAILY_V11（2026-10-13 用户「页数多不是问题、少反而是问题；这个是为了做视频用的」）：
+//   可勾素材从 6 张放到 **10 张** —— 段数按素材量走（prompt 里的下限 = 张数×1.5），素材多一点才有段数空间。
+export const DAILY_MAX_PICK = 10
 /** 首次列出的张数（免得刷屏） */
 const LIST_SHOWN = 12
 /** 指定来源（子目录/本机）时最多列出多少张 */
