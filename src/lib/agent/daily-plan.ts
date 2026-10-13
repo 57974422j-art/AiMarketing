@@ -362,10 +362,28 @@ export function planFromCaptions(captions: string, n: number, topic = ''): { seg
  *     ③ 与**上一份**比相似度，太像就**重掷**（换效果序 / 换单图段结构 / 换皮肤），并如实告知。
  */
 export const DAILY_FX = ['zout', 'zin', 'pan', 'slats', 'blinds', 'mosaic']
-/** 按 offset 轮换效果序（相邻段必然不同；offset 不同 ⇒ 两份片子的效果序不同） */
+/**
+ * ★V13b（2026-10-13 用户实测 14 段的那份：「一次任务不要出现 2 次同一风格就没意思了」）：
+ *   效果池 = **id × 变体**（同一 id 也有不同条数/方向/幅度）⇒ 12 个"看起来不一样"的入场。
+ *   排布规则：**相邻段 id 必不同**；池子轮两遍 ⇒ 14 段时每个 id 最多出现 3 次、但**变体不同**。
+ */
+export const DAILY_FX_POOL = (() => {
+  const out: string[] = []
+  for (let v = 0; v < 2; v++) for (const id of DAILY_FX) out.push(id + '#' + v)
+  return out
+})()
+/** 按 offset 轮换效果序（相邻段必不同；offset 不同 ⇒ 两份片子的效果序不同） */
 export function assignFx(segs: any[], offset = 0): void {
-  const n = DAILY_FX.length
-  segs.forEach((s, i) => { s.fx = DAILY_FX[(((offset + i) % n) + n) % n] })
+  const n = DAILY_FX_POOL.length
+  segs.forEach((s, i) => {
+    let idx = (((offset + i) % n) + n) % n
+    // 相邻段 id 相同就顺延一格（保证"连着两段同一风格"不会出现）
+    if (i > 0) {
+      const prevId = String(segs[i - 1].fx || '').split('#')[0]
+      for (let k = 0; k < 3 && String(DAILY_FX_POOL[idx]).split('#')[0] === prevId; k++) idx = (idx + 1) % n
+    }
+    s.fx = DAILY_FX_POOL[idx]
+  })
 }
 export function planFingerprint(plan: any, skin = ''): string {
   const segs: any[] = Array.isArray(plan?.segments) ? plan.segments : []

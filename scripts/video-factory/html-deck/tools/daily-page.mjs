@@ -331,36 +331,40 @@ const FX_SEED = (() => {
  *   · 揭示只用 clip-path（不改元素外框）⇒ 不会把"越界"闸门顶翻。
  *   · 切分型没有 img 元素：图缺失时只是不上色，露出 .fig 的渐变占位（不裂图）。
  */
-function figHTML(n, fx) {
+function figHTML(n, fx, fv) {
   const bg = `background:var(--g${n % 3})`
+  const v = Math.max(0, Math.min(2, Number(fv) || 0))
   if (fx === 'slats' || fx === 'blinds') {
-    const N = fx === 'slats' ? 5 : 4
+    // 变体：条数 + 展开方向（用户：「一次任务不要出现 2 次同一风格」⇒ 同一个 id 也换个样子）
+    const N = fx === 'slats' ? (5 - v) : (4 - v)
+    const up = v === 2
     const w = 100 / N
     let out = ''
     for (let i = 0; i < N; i++) {
       const p = i * w
-      const d = (i * 0.05).toFixed(3)
+      const d = (i * (up ? 0.05 : 0.05)).toFixed(3)
       const pos = ((i / Math.max(1, N - 1)) * 100).toFixed(2)
       out += fx === 'slats'
-        ? `<i class="vc" style="left:${p.toFixed(3)}%;width:${w.toFixed(3)}%;--d:${d};background-size:${N * 100}% 100%;background-position:${pos}% 0"></i>`
-        : `<i class="vc" style="top:${p.toFixed(3)}%;height:${w.toFixed(3)}%;--d:${d};background-size:100% ${N * 100}%;background-position:0 ${pos}%"></i>`
+        ? `<i class="vc" data-up="${up ? 1 : 0}" style="left:${p.toFixed(3)}%;width:${w.toFixed(3)}%;--d:${up ? ((N - 1 - i) * 0.05).toFixed(3) : d};background-size:${N * 100}% 100%;background-position:${pos}% 0"></i>`
+        : `<i class="vc" data-up="${up ? 1 : 0}" style="top:${p.toFixed(3)}%;height:${w.toFixed(3)}%;--d:${up ? ((N - 1 - i) * 0.05).toFixed(3) : d};background-size:100% ${N * 100}%;background-position:0 ${pos}%"></i>`
     }
-    return `<div class="fig vfx" style="${bg};--img:var(--img${n})">${out}</div>`
+    return `<div class="fig vfx" data-fvv="${v}" style="${bg};--img:var(--img${n})">${out}</div>`
   }
   if (fx === 'mosaic') {
-    const N = 3, w = 100 / N
+    const N = 3 + v                     // 3×3 / 4×4 / 5×5
+    const w = 100 / N
     let out = ''
     for (let r = 0; r < N; r++) {
       for (let c = 0; c < N; c++) {
-        const d = ((r * N + c) * 0.04).toFixed(3)
+        const d = ((r * N + c) * 0.03).toFixed(3)
         const px = ((c / (N - 1)) * 100).toFixed(2)
         const py = ((r / (N - 1)) * 100).toFixed(2)
         out += `<i class="vc" style="left:${(c * w).toFixed(3)}%;top:${(r * w).toFixed(3)}%;width:${w.toFixed(3)}%;height:${w.toFixed(3)}%;--d:${d};background-size:${N * 100}% ${N * 100}%;background-position:${px}% ${py}%"></i>`
       }
     }
-    return `<div class="fig vfx" style="${bg};--img:var(--img${n})">${out}</div>`
+    return `<div class="fig vfx" data-fvv="${v}" style="${bg};--img:var(--img${n})">${out}</div>`
   }
-  return `<div class="fig" style="${bg}">`
+  return `<div class="fig" style="${bg}" data-fvv="${v}">`
     + `<img class="ph" src="${IMG_DIR}/${n}.jpg" alt="" loading="lazy" onerror="this.remove()"></div>`
 }
 
@@ -388,15 +392,20 @@ function segBody(s, sc) {
   // ★VF_DAILY_V2：图槽真的挂上 images/N.jpg（缺图时 onerror 自己摘掉 ⇒ 退回渐变占位，不裂图）
   // ★V13：动效按"份 seed + 段序"取（不再所有段一个效果；每份片子的顺序也不同）
   //   ★V13b：**服务端排好的 s.fx 优先**（它要拿这个序列做"与上一份相似度"自检与重掷）；没给才自己轮换。
-  const fx = FX.indexOf(String(s.fx || '')) >= 0 ? String(s.fx) : FX[(FX_SEED + sc.i) % FX.length]
-  const figs = imgs.map((n) => figHTML(n, fx)).join('')
+  //   fx 允许带变体：`slats#2` = 条分 + 第 3 种参数（条数/方向/密度）—— 同一 id 换个样子 ⇒ 一份里不重样。
+  const fxRaw = String(s.fx || '')
+  const fxSplit = fxRaw.split('#')
+  const fxOk = FX.indexOf(fxSplit[0]) >= 0
+  const fx = fxOk ? fxSplit[0] : FX[(FX_SEED + sc.i) % FX.length]
+  const fv = fxOk ? (parseInt(fxSplit[1] || '0', 10) || 0) : ((FX_SEED + sc.i) % 3)
+  const figs = imgs.map((n) => figHTML(n, fx, fv)).join('')
   const pts = (Array.isArray(s.points) ? s.points : []).slice(0, 3)
     .map((p) => `<div class="col"><b>${esc(p && p[0])}</b><i>${esc(p && p[1])}</i></div>`).join('')
   const head = `<div class="head"><span class="kick">${esc(s.kicker || '')}</span>`
     + (s.stamp ? `<span class="stamp">${esc(s.stamp)}</span>` : '') + `</div>`
   return `<section class="sec" data-seg="${sc.i + 1}" data-start="${sc.start}" data-duration="${sc.dur}"`
     + ` data-place="${esc(s.place || 'cover')}" data-form="${esc(form)}" data-layout="${layout}"`
-    + ` data-fx="${fx}">`
+    + ` data-fx="${fx}" data-fv="${fv}">`
     + head
     + `<h2>${title}</h2>`
     + `<div class="figs n${imgs.length}">${figs}</div>`
@@ -522,6 +531,13 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
      也不会把"覆盖率"弄乱（切分型没有 img.ph，探针自然跳过它）。 */
   .fig.vfx .vc{position:absolute;background-image:var(--img);background-repeat:no-repeat;
     clip-path:inset(calc(100% * (1 - clamp(0, calc((var(--sp) - var(--d)) * 3.6), 1))) 0 0 0)}
+  /* 拼片/条分在"完全展开"后不该有缝：用 0.6px 的负向外描边把接缝压住 */
+  /* ★V13b 变体：方向（自底向上）与**轻幅度**推近/回拉/横移 —— 同一 id 换个样子，
+     让"一份 14 段"也凑不出两个一模一样的入场（用户：「一次任务不要出现 2 次同一风格」）。 */
+  .fig.vfx .vc[data-up="1"]{clip-path:inset(0 0 calc(100% * (1 - clamp(0, calc((var(--sp) - var(--d)) * 3.6), 1))) 0)}
+  .sec[data-fv="2"][data-fx="zin"] .fig .ph{--z:calc(1 + (var(--mz) - 1) * 0.45 * var(--sp))}
+  .sec[data-fv="2"][data-fx="zout"] .fig .ph{--z:calc(var(--mz) - (var(--mz) - 1) * 0.45 * var(--sp))}
+  .sec[data-fv="2"][data-fx="pan"] .fig .ph{object-position:calc(66% - 32% * var(--sp)) 50%}
   /* 拼片/条分在"完全展开"后不该有缝：用 0.6px 的负向外描边把接缝压住 */
   .fig.vfx .vc{outline:0.6px solid transparent;outline-offset:-0.6px}
   /* ⚠️ 这里踩过两次（都是探针抓出来的，闸门看不见）：
