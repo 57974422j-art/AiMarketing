@@ -923,6 +923,20 @@ def fx_on():
     return SHOW_FX
 
 
+# ══════════════ ★VF_SCRIM_SWITCH_V1（2026-10-09 用户定案「餐饮需要亮，不要给图片加暗黑效果」）══════════════
+# 背景：素材/视频镜上那层"带状渐变遮罩"（`scrim_boxes`，★VF_SCRIM_V1）原来是**无条件**加的 ——
+#   对深底科技风是加分；但**餐饮/美食要亮**时它就成了"暗黑效果"，
+#   而且它还是"几条黑杠"的来源（16 段近似渐变，段边界每 ~15px 出现一条更暗的线，已实测）。
+# 控制方式（三处任选，JSON 优先）：storyboard 根级 `"scrim": "off"` ／ CLI `--no-scrim`。
+# ⚠️ 默认**开**（True）⇒ 不设这个开关时**一个字节都不变**（零回归）。
+SHOW_SCRIM = True
+
+
+def scrim_on():
+    """本片是否给素材/视频镜加"压暗遮罩"（★VF_SCRIM_SWITCH_V1）。"""
+    return SHOW_SCRIM
+
+
 # 静态化用的三条正则（只匹配**纯表达式**，不动几何/颜色/滤镜结构）：
 # ★VF_FX_SWITCH_V2（2026-10-09 用户实测「关闭特效后每帧上有几条黑杠」）：
 #   原来这里是 `_FX_ALPHA_RE = re.compile(r":alpha='[^']*'")` —— **无差别**删掉所有 `:alpha='…'`。
@@ -1845,6 +1859,9 @@ def scrim_boxes(W, H, mat=None, steps=16, top_ratio=0.22, bot_ratio=0.30,
     "深色素材别再压成一片黑"的口径）。
     返回 drawbox 串列表（调用方统一过 ★VF_FILTERJOIN_V1 的空串清洗）。
     """
+    # ★VF_SCRIM_SWITCH_V1：整片关掉压暗遮罩（餐饮/美食要亮）⇒ 直接不产出任何 drawbox
+    if not scrim_on():
+        return []
     lum = int((mat or {}).get('lum', 160) or 160)
     k = 0.35 if lum < 78 else 1.0
     top_h = min(max(2, int(H * top_ratio)), H)
@@ -3738,9 +3755,15 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
             #   → 拼出来是 `...,drawbox=...:t=fill,,drawbox=...` → ffmpeg 把中间那个空串当成滤镜名
             #   → 「No such filter: ''」整镜失败。**逗号必须在 join 时统一加，元素自己不许带尾逗号。**
             # ★VF_NOBLACKBOX_V1：同 _editorial_bigtext —— 实心通栏黑带 → 上下渐隐的蒙版带
-            _band_box = ','.join(_text_scrim_filters(0, max(0, _btop), W, int(_bh),
-                                                    'black@0.62', steps=9, amax=0.62, fade='center'))
-            print('[VF] 素材自带内容多 → 大字走【下三分之一 + 全宽底衬带】（避免与素材文字纠缠）')
+            # ★VF_KILLBARS_V1（2026-10-09 用户定案「先删除黑杠」）：**底衬带整体不再产出**。
+            #   根因（实测 + 代码）：这条"全宽底衬带"由 `_text_scrim_filters(steps=9, fade='center')`
+            #   用 9 段 drawbox 近似渐变，而它每段画的是 `bh + 1` 行 ⇒ **段边界那一行两段重叠、α 相加**
+            #   ⇒ 每隔 ~15px 出现一条明显更暗的横线（用户看到的"几条黑杠"：
+            #   实测 y=399/414/429/444/459/474/489，间距 15px，落在 55%–68% 的大字带）。
+            #   用户已确认「大字自带黑描边 + 阴影，关掉压暗也能看清」⇒ 这里直接**不画底衬带**。
+            #   （不是"修边界"而是"删除"：少一层叠在素材上的半透明黑，画面更亮，符合餐饮口径。）
+            _band_box = ''
+            print('[VF] ★VF_KILLBARS_V1 大字不再加【全宽底衬带】（黑杠根因：分段蒙版段间重叠；改靠描边+阴影）')
         elif _lowc:
             # ★VF_TEXTCONTRAST_V1（2026-10-01）：落点低对比（灰字压暗底 / 白字压亮底）→ 加一条**渐隐底衬带**
             #   把字托出来。**绝不实心黑框**（老板明确讨厌）—— 走 _text_scrim_filters 的上下渐隐蒙版。
@@ -3750,9 +3773,10 @@ def card_bgimage(shot, th, W, H, fps):  # noqa: C901
             _rows_b = max(1, len(_lines))
             _btop = int(H * 0.5 - _gap_b * _rows_b * 0.5) - int(fs * 0.30)
             _bh = _gap_b * _rows_b + int(fs * 0.60)
-            _band_box = ','.join(_text_scrim_filters(0, max(0, _btop), W, int(_bh),
-                                                     _sc, steps=9, amax=0.45, fade='center'))
-            print('[VF] ★VF_TEXTCONTRAST_V1 落点低对比 → 大字加【渐隐底衬带】(%s)，绝不实心黑框' % _sc)
+            # ★VF_KILLBARS_V1（2026-10-09 用户定案「先删除黑杠」）：同上一处 —— 底衬带不再产出。
+            #   黑杠 = 这条 9 段蒙版的段边界重叠（每段画 bh+1 行 ⇒ α 相加 ⇒ 每 ~15px 一条暗线）。
+            _band_box = ''
+            print('[VF] ★VF_KILLBARS_V1 落点低对比：**不再加渐隐底衬带**（黑杠根因，改靠描边+阴影托字）')
         # ★VF_NOBIGTEXT_FIX_V1（2026-10-02 真渲抓到的**真崩溃**）：`len(_lines) <= 1` 时 `_lines[0]`
         #   在"本镜没有 text（只有副标）"下会 IndexError → 整镜渲染失败。改成 `== 1`（空列表走 else）。
         _rev = _reveal_seq(shot, font, fs, txc, dur, text=_lines[0], box=_boxc, y_off=_yoff,
@@ -4601,22 +4625,29 @@ def _text_scrim_filters(x, y, w, h, color, steps=7, amax=None, fade='down'):
     amax = max(0.10, min(0.72, float(amax)))
     steps = max(3, int(steps))
     _h = max(steps, int(h))
-    bh = max(2, int(_h / steps))
     out = []
+    # ★VF_KILLBARS_V1（2026-10-09 用户定案「先删除黑杠」）：**段几何改成"严格相接、不重叠"**。
+    #   原来是 `bh = int(_h/steps)` 且每段画 `bh + 1` 行 ⇒ 相邻两段在边界行**重叠**，
+    #   两个半透明黑叠加（α 相加）⇒ 每隔一"段"就出现一条更暗的横线（用户实测：每 15px 一条）。
+    #   现在按"整段边界"取整（y_i = y + i*_h/steps，y_{i+1} = y + (i+1)*_h/steps，h = y_{i+1} - y_i）：
+    #   **既不重叠（没有暗线）也不留缝（不会出现亮缝）**；alpha 梯度完全不变。
+    _ya, _yb = int(y), int(y) + int(_h)
     for i in range(steps):
         k = (i + 1) / float(steps)
+        _y0 = _ya + int(_h * i / steps)
+        _y1 = _ya + int(_h * (i + 1) / steps)
+        if _y1 <= _y0:
+            continue
         if fade == 'down':
             _a = amax * k * k
-            _yy = int(y) + i * bh
         elif fade == 'up':
             _a = amax * (1.0 - k) * (1.0 - k)
-            _yy = int(y) + (_h - (i + 1) * bh)
         else:
             # 'center'：两边淡、中间实 —— 给"底衬带"用（托住大字，又不出现上下两条硬边）
             _a = amax * (1.0 - abs(2.0 * (i + 0.5) / steps - 1.0))
-            _yy = int(y) + i * bh
         out.append('drawbox=x=%d:y=%d:w=%d:h=%d:color=%s:t=fill'
-                   % (int(x), max(0, _yy), int(w), bh + 1, _css((r, g, b), max(0.015, _a))))
+                   % (int(x), max(0, min(_y0, _yb - 1)), int(w), max(1, _y1 - _y0),
+                      _css((r, g, b), max(0.015, _a))))
     return out
 
 
@@ -6313,6 +6344,9 @@ def main():
     # ★VF_FX_SWITCH_V1（2026-10-08 用户定案「另加一个『特效：开 / 关』」）：整片静态（不淡入/不逐字浮现/…）
     ap.add_argument('--no-fx', action='store_true',
                     help='★VF_FX_SWITCH_V1：整片静态排版（storyboard 根级 "fx": "off" 等效）')
+    # ★VF_SCRIM_SWITCH_V1（2026-10-09 用户定案「餐饮需要亮，不要给图片加暗黑效果」）
+    ap.add_argument('--no-scrim', action='store_true',
+                    help='★VF_SCRIM_SWITCH_V1：素材/视频镜**不压暗**（不叠带状渐变遮罩；餐饮/美食用，画面更亮）')
     ap.add_argument('--sub-size', default='0', help='字幕字号（0 = 按分辨率自适应）')
     ap.add_argument('--selftest', action='store_true')
     # ★VF_BANNER_V1：顶部固定标题总开关（storyboard 里的 banner 字段优先；CLI 关掉则一律不画）
@@ -6495,7 +6529,7 @@ def main():
     #    ⇒ **开关根本不生效**（用户拿「画面大字：不加」的截图来问，根因就在这里；
     #    同理"特效=关"若不提前也一样不生效）。现在统一提到这里：
     #    PPT 抽帧（--ppt-preview）/ 样板镜 / 正式出片 三条路都在其后。**别再挪回去。**
-    global SHOW_OVERLAY_TEXT, SHOW_FX
+    global SHOW_OVERLAY_TEXT, SHOW_FX, SHOW_SCRIM
     if a.no_bigtext or (sb.get('overlay_text') is False):
         SHOW_OVERLAY_TEXT = False
         print('[VF] ★画面大字=关（本次不把大字压在素材/视频上；独立文字卡与字幕保留）')
@@ -6505,6 +6539,12 @@ def main():
     if getattr(a, 'no_fx', False) or (str(sb.get('fx') or '').strip().lower() in ('off', 'none', 'false', '0')):
         SHOW_FX = False
         print('[VF] ★特效=关（本次全片静态：不淡入/不逐字浮现/不滑入/不生长/不推拉/数字不滚动/列表不逐条）')
+    # ★VF_SCRIM_SWITCH_V1（2026-10-09 用户定案「餐饮需要亮，不要给图片加暗黑效果」）：
+    #   storyboard 根级 `"scrim": "off"` 或 CLI `--no-scrim`（任一为关即关）→ 素材/视频镜**不压暗**。
+    #   默认（没写/写 on）⇒ SHOW_SCRIM 保持 True ⇒ 一个字节都不变（零回归）。
+    if getattr(a, 'no_scrim', False) or (str(sb.get('scrim') or '').strip().lower() in ('off', 'none', 'false', '0')):
+        SHOW_SCRIM = False
+        print('[VF] ★压暗遮罩=关（本次素材/视频镜**不压暗** —— 餐饮/美食观感，画面更亮、也没有那几条黑杠）')
 
     # ★VF_TINT_V1（2026-09-20，C4 主色底板）：取前几张素材的平均色，混进“卡片底板色”
     #   → 纯色卡（title/list/number/end）跟着素材色相走，整片视觉统一。取色失败不影响出片。
