@@ -1944,6 +1944,24 @@ ipcMain.handle('app:clear-session', async () => {
   try { await session.defaultSession.clearStorageData({ storages: ['cookies'] }); await session.defaultSession.clearCookies() } catch {}
   return { success: true }
 })
+/**
+ * ★VF_CLIENT_MIRROR_V2（2026-10-14 用户定案「5 打包吧」= 客户端 ①②③）：
+ *   把服务端给的名字压成"**本地仓库目录内**的安全相对路径"。
+ *   老的写法是 `path.basename()` —— 目录被**静默丢掉**（`images/1.jpg` 落成本地 `1.jpg`），
+ *   于是"页面与它引用的图在同级/子目录"这件事在本地永远不成立。现在：
+ *     · 允许 `images/1.jpg` / `gen_x_1.jpg` 这类相对名（**保留安全子路径并建目录**）；
+ *     · 仍然挡穿越：去盘符/绝对路径/`.`/`..`/反斜杠；段名字符集与**服务端读删接口一致**（`A-Za-z0-9._-`）；
+ *     · 只要有一段不合法 ⇒ **退回"只取文件名"**（= 今天的行为），保证不比现在差（不会因为新逻辑把能下的变成下不了）。
+ */
+function safeRelName(raw) {
+  const s = String(raw || '').replace(/\\/g, '/').replace(/^\/+/, '')
+  const parts = s.split('/').map((x) => x.trim()).filter(Boolean)
+  if (!parts.length) return ''
+  const clean = parts.filter((x) => x !== '.' && x !== '..' && /^[A-Za-z0-9._\-]+$/.test(x))
+  if (!clean.length) return ''
+  return clean.length === parts.length ? clean.join('/') : clean[clean.length - 1]
+}
+
 ipcMain.handle('storage:mirror', async (_event, url) => {
   await ensureUserResolved(2500).catch(() => {})   // USER_READY_V1：本地仓库按 userId 分目录
   // 2026-09-03: 本地仓库镜像（单向 OSS→本地）——上传/生成成功后下载素材到本地仓库
@@ -1962,11 +1980,12 @@ ipcMain.handle('storage:mirror', async (_event, url) => {
     const u = new URL(fullUrl)
     // 只取文件名（防 ../ 穿越）；查询串里的 name 优先（/api/storage/file?name=xxx.mp4）
     const rawName = u.searchParams.get('name') || decodeURIComponent(u.pathname.split('/').pop() || '')
-    const name = path.basename(String(rawName))
+    // ★VF_CLIENT_MIRROR_V2（2026-10-14）：保子路径（原来 path.basename 会把 `images/` 这类目录静默丢掉）
+    const name = safeRelName(rawName)
     if (!name) return { success: false, error: '无文件名' }
     const dest = path.join(getLocalStorageDir(), name)   // ISO_GETTER_FIX_V1
     if (fs.existsSync(dest)) return { success: true, path: dest, cached: true }
-    fs.mkdirSync(getLocalStorageDir(), { recursive: true })
+    fs.mkdirSync(path.dirname(dest), { recursive: true })   // ★V2：子目录也要建（原来只建根目录）
     const cookie = await getServerCookie().catch(() => '')
     const resp = await fetch(fullUrl, { headers: cookie ? { cookie } : {} })
     if (!resp.ok) return { success: false, error: 'HTTP ' + resp.status + '（未登录/鉴权失败）' }
@@ -1980,6 +1999,26 @@ ipcMain.handle('storage:mirror', async (_event, url) => {
     // 如实写日志（含落盘路径与大小）—— 以后"到底下没下下来"有据可查，不靠猜
     try { buLog('[storage:mirror] 已镜像到本地仓库: ' + dest + ' (' + (buf.length / 1048576).toFixed(1) + 'MB)') } catch (e) {}
     return { success: true, path: dest, size: buf.length }
+  } catch (e) { return { success: false, error: String((e && e.message) || e) } }
+})
+
+// ★VF_CLIENT_OPENLOCAL_V1（2026-10-14 用户定案「5 打包吧」= 客户端 ①②③ 里的 ②）：
+//   为什么要它：客户端里预览 HTML 走的是"父页 fetch + iframe srcDoc"（**沙箱无同源**）⇒
+//   页面里那些**相对图名**（A′ 的同级扁平图）在 iframe 里解析不到；而 file:// 导航又被
+//   will-navigate 拦（安全）。用户要的"双击本地产物、离线也能看真图"必须**用系统默认程序打开本地文件**：
+//   `shell.openPath` 是交给**系统浏览器**打开 ⇒ HTML 与它同级的图/子目录图都能正常解析，
+//   而且不经过我们的沙箱与 CSP（这条正是"data: 内嵌版在客户端里显示不出来"的另一条出路）。
+//   注意：只允许打开**本地仓库目录内**的文件（safeRelName 压过的相对路径），不接任意路径。
+ipcMain.handle('storage:open-local', async (_e, name) => {
+  try {
+    const rel = safeRelName(name)
+    if (!rel) return { success: false, error: '无文件名' }
+    const p = path.join(getLocalStorageDir(), rel)
+    if (!fs.existsSync(p)) return { success: false, error: '本地还没有这份文件（先让它镜像下来）：' + rel }
+    const r = await shell.openPath(p)          // 空串 = 成功；非空 = 系统给的错误文案
+    if (r) return { success: false, error: String(r) }
+    try { buLog('[storage:open-local] 已用系统程序打开: ' + p) } catch (e) {}
+    return { success: true, path: p }
   } catch (e) { return { success: false, error: String((e && e.message) || e) } }
 })
 

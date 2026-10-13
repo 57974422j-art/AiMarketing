@@ -7,6 +7,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 2026-08-31: Browser Use 登记（bu_profile/browser-profile 登录）——之前未暴露按钮失效
   buOpen: () => ipcRenderer.invoke('bu:open'),
   storageMirror: (url) => ipcRenderer.invoke('storage:mirror', url),
+  // ★VF_CLIENT_OPENLOCAL_V1（2026-10-14）：用**系统默认程序**打开本地仓库里的文件
+  //   （HTML ⇒ 系统浏览器，同目录/子目录的图都能解析 ⇒ "双击本地产物离线看真图"）
+  openLocalRepo: (name) => ipcRenderer.invoke('storage:open-local', name),
   // ★VF_SBDUMP_V1（2026-09-29 用户定案）：把「图视混剪」的分镜留一份到本机（排查画面/排版问题用，
   //   开发机可用 scripts/vf-local.mjs --sb 该文件 直接复现渲染）
   vfSaveStoryboard: (payload) => ipcRenderer.invoke('vf:save-storyboard', payload),
