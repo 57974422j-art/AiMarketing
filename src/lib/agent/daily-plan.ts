@@ -16,9 +16,23 @@
  */
 export const DAILY_STYLE = { id: 'paper-daily', name: '暖纸日报', accent: '#C6392B', paper: '#F5F1E8' }
 
+/**
+ * ★VF_DAILY_V12：方案来源三档 —— 用户要能一眼分辨"这份是谁排的"。
+ *   `ai`       = AI 看素材后编排（最佳）
+ *   `captions` = AI 没排出（超时/截断），但**看图这一步成功了** ⇒ 按"看图摘要"重排（有真内容）
+ *   `fallback` = 连看图都没有 ⇒ 系统保底版式（占位文案）
+ */
+export type PlanBy = 'ai' | 'captions' | 'fallback'
+export function byLabel(by: any): string {
+  return by === 'ai' ? 'AI 看素材编排'
+    : (by === 'captions' ? '按看图摘要排（AI 未产出）' : '系统保底版式')
+}
+
 /** 段级排版可选值（引擎 data-form / data-place 的白名单） */
 export const PLAN_FORMS = ['overlay', 'sticker', 'vertical']
-export const PLAN_PLACES = ['cover', 'mat']
+// ★VF_DAILY_V12（2026-10-13 用户：「主题明确的图不怕遮挡、完全可以显示全图」）：
+//   `contain` = **整张不裁**（留纸色边）——白底产品图/主体集中时用；`mat` = 铺满+相纸白边；`cover` = 铺满裁切。
+export const PLAN_PLACES = ['cover', 'mat', 'contain']
 
 /**
  * ★VF_DAILY_L4（2026-10-12 用户「说 L4 大胆试」）：**皮肤库** —— 与引擎
@@ -160,7 +174,9 @@ export function aiPrompt(n: number, topic: string, opts?: { lastTheme?: string }
     '4. 每段 title = **两行短句**（每行 ≤12 个汉字），像报纸小标题；不要长句、不要感叹号堆砌。',
     '5. 每段 points 最多 3 组、每组两个短词（各 ≤8 字），如 ["手切现片","立盘不掉"]；**只写你在图里真看到的东西**，不许编门店名/评分/价格/销量。',
     '6. kicker = 段上的小标签（≤20 字，如「后厨 · 手作」）；封面可给 stamp（≤10 字，如「封面故事」）。'
-    + ' place 取 "cover"（图铺满）或 "mat"（相纸留边）。',
+    + ' place 三选一：`"cover"` 图铺满（裁切，适合满幅实拍）｜`"mat"` 铺满+相纸白边｜'
+    + '**`"contain"` 整张不裁**（留纸色边）—— ★**白底产品图 / 主体集中 / 主体靠边**的图**要用 contain**，'
+    + '别裁掉主体；图文左右(split)与竖排(vertical)段也优先 contain。',
     '7. 简体中文，不用 emoji。',
     '',
     '【可选·★L3：你自己写某几段的 HTML（想自由发挥就写，不想写就只用 layout）】',
@@ -290,6 +306,54 @@ export function normSegs(raw: any, n: number, topic: string): { segs: any[]; add
   return { segs: out, added, fixes }
 }
 
+/**
+ * ★VF_DAILY_V12（2026-10-13 用户实测「⚠️ AI 这轮没排出方案…好像 AI 没排字，但还是做出来了」）：
+ *   **看图摘要兜底** —— 文字模型超时 / 吐不出 JSON 时，拿**视觉模型逐图读出来的内容**直接排一份
+ *   **有真内容**的方案（标题与信息点都来自"图里真看到了什么"），不再退回
+ *   "现场记录 N / N" 那种空壳占位（用户一眼就看出"AI 没排字"）。
+ *   纯函数（零依赖、可单测）＋确定性（同一份摘要 ⇒ 同一份方案，出片可复现）。
+ *   摘要格式（aiPlanSegments 里就是这么要求的）：第一行总述；之后逐行 `N. 这张拍的是什么`。
+ */
+export function planFromCaptions(captions: string, n: number, topic = ''): { segments: any[]; used: number } {
+  const lines = String(captions || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean)
+  let head = ''
+  const caps: Record<number, string> = {}
+  for (const ln of lines) {
+    const m = /^(\d{1,2})\s*[.、)．:：]\s*(.+)$/.exec(ln)
+    if (m) {
+      const k = parseInt(m[1], 10)
+      if (k >= 1 && k <= 60 && !caps[k]) caps[k] = clip(m[2], 24)
+    } else if (!head) head = clip(ln, 24)
+  }
+  const kicker = clip(topic || head || '实拍记录', 20)
+  const minSegs = Math.min(16, Math.max(6, Math.ceil(n * 1.5)))
+  const total = Math.min(16, Math.max(minSegs, n))
+  const ROT = ['hero', 'vertical', 'split', 'sticker']
+  const segments: any[] = []
+  for (let i = 0; i < total; i++) {
+    const img = (i % Math.max(1, n)) + 1                 // 素材不够就循环用；相邻两段的图号必然不同
+    const cap = caps[img] || `第 ${img} 张`
+    const parts = cap.split(/[，,、·／/｜|；;：:\s]+/).filter(Boolean)
+    const t1 = clip(parts[0] || cap, 10)
+    const t2 = clip(parts.slice(1).join(''), 10) || clip(head || '实拍记录', 10)
+    const pts: string[][] = []
+    if (parts.length >= 2) pts.push([clip(parts[0], 8), clip(parts[1], 8)])
+    if (parts.length >= 3) pts.push([clip(parts[2], 8), ''])
+    const layout = ROT[i % ROT.length]
+    segments.push({
+      kind: i === 0 ? 'cover' : (i === total - 1 ? 'end' : 'feature'),
+      layout,
+      form: layout === 'hero' ? 'overlay' : layout,
+      kicker, stamp: i === 0 ? '封面故事' : '',
+      title: [t1, t2], imgs: [img],
+      points: pts.filter((p) => p[0]),
+      // ★V12：兜底件一律 **contain**（整张不裁）—— 宁可留纸色边，也不把主体裁掉（这是"AI 没看成图"时的保命口径）
+      place: 'contain',
+    })
+  }
+  return { segments, used: Object.keys(caps).length }
+}
+
 /** 把段数组组装成引擎配置（★L4：皮肤由 AI 挑，`theme` / `custom` 透传给引擎做对比度体检） */
 export function buildPlanFromSegs(segs: any[], topicRaw: string, motion = 'normal', theme?: string, custom?: any): any {
   const topic = String(topicRaw || '').trim().slice(0, 24)
@@ -375,7 +439,8 @@ export function layoutLabel(s: any): string {
   const meta = PLAN_LAYOUTS.filter((x) => x.id === String(s.layout))[0]
   const n = (s.imgs || []).length
   const f = meta ? `${meta.name}（${n} 图）` : (n >= 2 ? `双图并排（${n} 图）` : '单图通栏（1 图）')
-  const mat = String(s.place) === 'mat' ? ' · 相纸留边' : ''
+  const mat = String(s.place) === 'mat' ? ' · 相纸留边'
+    : (String(s.place) === 'contain' ? ' · 整张不裁' : '')
   return `${k} · ${f}${mat}`
 }
 export function durOf(kind: string): number { return kind === 'cover' ? 3.4 : 3.2 }
@@ -384,7 +449,7 @@ export function planDuration(plan: any): number {
   return segs.reduce((a, s) => a + durOf(String(s.kind)), 0)
 }
 
-export function formatDailyPlan(plan: any, o: { topic: string; picks: PlanPick[]; by: 'ai' | 'fallback'; note?: string }): string {
+export function formatDailyPlan(plan: any, o: { topic: string; picks: PlanPick[]; by: PlanBy; note?: string }): string {
   const segs: any[] = Array.isArray(plan?.segments) ? plan.segments : []
   const total = planDuration(plan)
   const L: string[] = []
@@ -411,7 +476,9 @@ export function formatDailyPlan(plan: any, o: { topic: string; picks: PlanPick[]
   L.push('—'.repeat(28))
   L.push(o.by === 'ai'
     ? '（本方案由 **AI 看素材后编排**）'
-    : `（⚠️ AI 这轮没排出方案${o.note ? '：' + o.note : ''} → 用的是**系统保底版式**）`)
+    : (o.by === 'captions'
+      ? `（⚠️ AI 这轮没排出方案${o.note ? '（' + o.note + '）' : ''} → 已按**看图摘要**重排：标题与信息点都来自读图，不是占位）`
+      : `（⚠️ AI 这轮没排出方案${o.note ? '：' + o.note : ''} → 用的是**系统保底版式**）`))
   L.push('')
   L.push('回 `确认` 我就**生成 HTML 文件**；回 `重选` 重新挑素材；回 `取消` 退出。')
   L.push('微调（改完我重列一遍方案）：`改 3 标题=刀起刀落/薄如纸片`　`改 3 版式=竖排`　`改 3 用图=2,4`　'
@@ -426,7 +493,7 @@ export function formatDailyPlan(plan: any, o: { topic: string; picks: PlanPick[]
  *   前端 `VfDailyPlanCard` 按 `step:'daily_plan'` 渲染，按钮发 `VF_DAILY_FORM:{at:'go'|'back_mat'}`。
  */
 export function buildPlanCardPayload(plan: any, o: {
-  picks: PlanPick[]; by: 'ai' | 'fallback'; note?: string; hintExtra?: string; topic?: string
+  picks: PlanPick[]; by: PlanBy; note?: string; hintExtra?: string; topic?: string
 }): any {
   const segs: any[] = Array.isArray(plan?.segments) ? plan.segments : []
   const dur = planDuration(plan)
@@ -485,7 +552,7 @@ export function embedImages(
  */
 export function buildDoneCardPayload(o: {
   name: string; viewUrl: string; dlUrl?: string
-  segs: number; skin: string; by: 'ai' | 'fallback'
+  segs: number; skin: string; by: PlanBy
   aiSegs?: number; structures?: number; note?: string; dropped?: string[]; ordered?: string[]
   expiresDays?: number
   /** ★VF_DAILY_V8：单文件版（图已内嵌）—— `plainUrl` 是"配图版"（需 images/ 文件夹） */
@@ -498,7 +565,7 @@ export function buildDoneCardPayload(o: {
 }): any {
   const days = o.expiresDays || 7
   const facts: string[] = [o.segs + ' 段', '皮肤 ' + o.skin,
-    o.by === 'ai' ? 'AI 看素材编排' : '系统保底版式']
+    byLabel(o.by)]
   if (o.aiSegs) facts.push('AI 自写 ' + o.aiSegs + ' 段')
   if (o.structures) facts.push('结构 ' + o.structures + ' 种')
   if (o.note) facts.push(String(o.note).trim())

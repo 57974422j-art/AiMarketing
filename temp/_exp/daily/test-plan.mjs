@@ -11,7 +11,7 @@ import {
   DAILY_STYLE, clip, extractJson, aiPrompt, normMotion, normSegs,
   buildPlanFromSegs, buildDailyPlan, formatDailyPlan, planDuration, layoutLabel, applyDailyEdit,
   buildPlanCardPayload, normTheme, themeName, PLAN_THEMES,
-  embedImages, buildDoneCardPayload, rotateTheme,
+  embedImages, buildDoneCardPayload, rotateTheme, planFromCaptions, PLAN_PLACES, byLabel,
 } from './run/daily-plan.js'
 
 let pass = 0, fail = 0
@@ -357,6 +357,31 @@ console.log('\n=== 11. 皮肤轮换 rotateTheme + 提示词带上次皮肤（VF_
   const p2 = aiPrompt(6, '铜锅', { lastTheme: 'paper-daily' })
   ok(p2.includes('必须换一个不同的皮肤') && p2.includes('暖纸日报'), '带上次皮肤 ⇒ 提示词要求换 + 写出上次是哪套')
   ok(p2.includes('night-gold') && p2.includes('tea-green'), '皮肤库 6 套仍然全在提示词里（AI 有得挑）')
+}
+
+console.log('\n=== 12. ★V12 看图摘要兜底 planFromCaptions + place=contain ===')
+{
+  const caps = '京味铜锅涮肉实拍\n1. 门店夜景门头\n2. 手切鲜羊肉，立盘不掉\n3. 冰碗虾滑，配紫苏叶\n'
+  const r = planFromCaptions(caps, 3, '铜锅涮肉')
+  ok(r.used === 3, '读到 3 张的内容')
+  ok(r.segments.length >= 6, '段数 ≥6（3 张素材 ⇒ 期望 ≥6 段）', String(r.segments.length))
+  ok(r.segments[0].kind === 'cover' && r.segments[r.segments.length - 1].kind === 'end', '首段封面 / 末段结尾')
+  ok(r.segments.every((s) => s.place === 'contain'), '兜底件一律 contain（不裁主体）')
+  const t = (r.segments[1].title || []).join('')
+  ok(t.includes('手切') || t.includes('鲜羊'), '标题来自读图内容（不是"现场记录 2/6"）', t)
+  ok(r.segments.some((s) => (s.points || []).length), '信息点也来自读图')
+  ok(new Set(r.segments.map((s) => s.imgs[0])).size >= 2, '素材不够时循环用图（相邻段不同图）')
+  ok(byLabel('captions').includes('看图摘要'), '来源标签：captions ⇒ 写明"按看图摘要排"')
+  ok(byLabel('ai').includes('AI') && byLabel('fallback').includes('保底'), '来源标签：ai / fallback 照旧')
+
+  const z = planFromCaptions('', 3, '')
+  ok(z.used === 0, '没摘要 ⇒ used=0（不假装有内容）')
+  ok(z.segments.every((s) => !!String((s.title || []).join('')).trim()), '没摘要也有标题（不会空标题）')
+
+  ok(PLAN_PLACES.indexOf('contain') >= 0, 'place 白名单加了 contain')
+  const g = normSegs({ segments: [{ kind: 'cover', layout: 'hero', title: ['甲乙', '丙丁'], imgs: [1], points: [], place: 'contain' }] }, 3, '')
+  eq(g.segs[0].place, 'contain', 'AI 写 place=contain 会被保留（不再被改回 cover）')
+  ok(layoutLabel({ kind: 'feature', imgs: [1], layout: 'split', place: 'contain' }).includes('整张不裁'), '清单里写"整张不裁"')
 }
 
 console.log(`\n结果：通过 ${pass} · 失败 ${fail}`)

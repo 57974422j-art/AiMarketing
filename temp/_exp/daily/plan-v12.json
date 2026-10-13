@@ -1,0 +1,13 @@
+{
+  "meta": { "issue": "第 04 期", "title": "日报落地页 · contain 与空列自检", "theme": "tea-green" },
+  "motion": "normal",
+  "imageDir": "images",
+  "segments": [
+    { "kind": "cover",   "layout": "hero",   "kicker": "自检 · contain", "stamp": "封面故事", "title": ["整张不裁", "主体不切"], "imgs": [1], "points": [["产品图", "白底"], ["全图", "可见"]], "form": "overlay", "place": "contain" },
+    { "kind": "feature", "layout": "split",  "kicker": "自检 · 空列", "stamp": "", "title": ["左列没有", "信息点"], "imgs": [2], "points": [], "form": "overlay", "place": "contain" },
+    { "kind": "feature", "layout": "split",  "kicker": "自检 · 有信息点", "stamp": "", "title": ["左列有", "信息点"], "imgs": [3], "points": [["甲", "壹"], ["乙", "贰"]], "form": "overlay", "place": "contain" },
+    { "kind": "feature", "layout": "stack2", "kicker": "自检 · 双图", "stamp": "", "title": ["上下双图", "铺满裁切"], "imgs": [4, 5], "points": [["上", "下"]], "form": "overlay", "place": "cover" },
+    { "kind": "feature", "layout": "grid3",  "kicker": "自检 · 三图", "stamp": "", "title": ["三图拼版", "相纸留边"], "imgs": [1, 2, 3], "points": [["一", "壹"]], "form": "overlay", "place": "mat" },
+    { "kind": "end",     "layout": "quote",  "kicker": "自检 · 收尾", "stamp": "下一期", "title": ["整张不裁", "收尾"], "imgs": [6], "points": [["结束", "下期见"]], "form": "overlay", "place": "contain" }
+  ]
+}

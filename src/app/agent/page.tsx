@@ -1963,9 +1963,12 @@ function VfDailyPlanCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
           </div>
         ))}
       </div>
+      {/* ★VF_DAILY_V12：三档如实标注 —— ai / captions（看图摘要兜底）/ fallback（纯占位） */}
       {vj?.by === 'fallback'
-        ? <div className="text-[10px] text-amber-300 mb-2">⚠️ AI 这轮没排出方案（{String(vj?.note || '未知原因')}）→ 用的是系统保底版式</div>
-        : <div className="text-[10px] text-gray-500 mb-2">AI 看素材后编排{vj?.note ? `（${String(vj.note)}）` : ''}</div>}
+        ? <div className="text-[10px] text-amber-300 mb-2">⚠️ AI 这轮没排出方案（{String(vj?.note || '未知原因')}）→ 用的是系统保底版式（占位文案）</div>
+        : (vj?.by === 'captions'
+          ? <div className="text-[10px] text-amber-300 mb-2">⚠️ AI 这轮没排出方案（{String(vj?.note || '未知原因')}）→ 已按**看图摘要**重排：标题与信息点来自读图，不是占位</div>
+          : <div className="text-[10px] text-gray-500 mb-2">AI 看素材后编排{vj?.note ? `（${String(vj.note)}）` : ''}</div>)}
       <div className="text-[10px] text-gray-500 mb-2">
         想改某一段就直接发：<span className="text-gray-300">改 3 标题=第一行/第二行</span> ·{' '}
         <span className="text-gray-300">改 3 版式=竖排</span> · <span className="text-gray-300">改 3 用图=2,4</span> ·{' '}

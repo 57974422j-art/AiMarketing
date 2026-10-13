@@ -499,6 +499,16 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
   .sec[data-place="mat"] .figs{padding:clamp(8px,1.1vmin,16px)}
   .sec[data-place="mat"] .fig{outline:clamp(4px,0.7vmin,8px) solid #fff;border-radius:1px;
     box-shadow:0 16px 32px rgba(60,40,20,.16)}
+  /* ═══ ★VF_DAILY_V12（2026-10-13 用户：「主题明确的图不怕遮挡、完全可以显示全图」）═══
+     place=contain：**整张不裁**（白底产品图 / 主体集中 / 主体靠边的图用它，别把主体切掉）。
+     · 用 object-fit:contain ⇒ 图整个装进图框，四周留**纸色/暖白**底（不是透明、不是黑边）；
+     · 推近缩放照旧有效（框内整体放大，仍然整张可见），越界/覆盖率口径不变。 */
+  .sec[data-place="contain"] .fig{background:var(--paper2)}
+  .sec[data-place="contain"] .fig .ph{object-fit:contain}
+  /* split 图文左右：**没有信息点时标题垂直居中**（用户截图实测：左列只有标题 ⇒ 下方一大片死空档）。
+     .cols.c0 是"零信息点"时引擎给的空栏 ⇒ 直接隐藏，把高度让给标题行。 */
+  .sec[data-layout="split"] h2{align-self:center}
+  .sec[data-layout="split"] .cols.c0{display:none}
 
   /* ═══ ★VF_DAILY_L2 结构库（8 种；全部走 grid，不用绝对定位 ⇒ 越界/溢出闸门照旧管用）═══
      hero/sticker/vertical 三条就是上面 V3 那三段 CSS（故意复用，别重复定义）；下面是新增的 5 条。 */
