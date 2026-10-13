@@ -95,11 +95,40 @@ export function extractJson(txt: string): any | null {
   try { return JSON.parse(s.slice(i, j + 1)) } catch { return null }
 }
 
+/**
+ * ★VF_DAILY_V9（2026-10-13 用户原话「感觉没什么区别」）：
+ *   **皮肤轮换**决策（纯函数 ⇒ 可单测）。
+ *   病灶：两份产物的 `<style>` 里纸色/点缀/字体**逐字节相同** —— AI 每次都挑（或回落）默认的暖纸日报。
+ *   口径：
+ *     · AI 给了 `custom` 自定配色 ⇒ **不动**（本身就是"不一样"）；
+ *     · AI 挑的皮肤 ≠ 上一次用的 ⇒ 用它（尊重 AI 的判断）；
+ *     · 没挑 / 挑的还是上一次那套 ⇒ **换一个**（优先排除最近 2 次用过的，按 seed 稳定选 ⇒ 同输入同结果）。
+ *   `from` = 被换掉的那套（回话里要如实说"上次是它、这次换了"，用户才看得见变化）。
+ */
+export function rotateTheme(aiTheme: string, recent: string[], seed: string): { theme: string; rotated: boolean; from: string } {
+  const want = String(aiTheme || '')
+  const last = String(recent[0] || '')
+  if (want === 'custom') return { theme: 'custom', rotated: false, from: '' }
+  if (want && want !== last) return { theme: want, rotated: false, from: '' }
+  const ban = new Set(recent.slice(0, 2).filter(Boolean))
+  ban.add(want)
+  let pool = PLAN_THEMES.map((t) => t.id).filter((id) => id !== 'custom' && !ban.has(id))
+  if (!pool.length) pool = PLAN_THEMES.map((t) => t.id).filter((id) => id !== want && id !== 'custom')
+  if (!pool.length) return { theme: want || PLAN_THEMES[0].id, rotated: false, from: '' }
+  // 稳定散列（同 seed 同结果；不引第三方库）—— 让"这次挑哪套"看起来随机但可复现
+  let h = 5381
+  const s = String(seed || '')
+  for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0
+  const theme = pool[h % pool.length]
+  return { theme, rotated: !!want || !!last, from: last || want }
+}
+
 /** 给 AI 的任务书（看图前排段；纯字符串，可单测"约束有没有写进提示词"） */
-export function aiPrompt(n: number, topic: string): string {
+export function aiPrompt(n: number, topic: string, opts?: { lastTheme?: string }): string {
   const cat = PLAN_LAYOUTS
     .map((l) => `  · ${l.id}（${l.name}，${l.minImg === l.maxImg ? l.minImg : l.minImg + '~' + l.maxImg} 张图）：${l.look}`)
     .join('\n')
+  const last = String(opts?.lastTheme || '')
   return [
     '你是「日报落地页」的排版编排员。用户挑好了 ' + n + ' 张素材图（下面按顺序编号 1..' + n + '），主题是「' + (topic || '（未给）') + '」。',
     '请**先看图**，再给一份分段方案（JSON）。**每一段都要从下面的结构库里挑一个 `layout`** —— 整份要有变化，别 8 段一个样。',
@@ -107,8 +136,12 @@ export function aiPrompt(n: number, topic: string): string {
     '【段结构库】（`layout` 只能取这些 id；**每段的图数必须与该结构匹配**）',
     cat,
     '',
-    '【皮肤库】（**按素材气质挑一个**放进 `theme`；不挑就用 paper-daily）',
+    '【皮肤库】（**按素材气质挑一个**放进 `theme`）',
     PLAN_THEMES.map((t) => `  · ${t.id}（${t.name}）：${t.look}`).join('\n'),
+    last
+      ? `⚠️ 上一次你交付用的是「${themeName(last)}」（${last}）—— **这次必须换一个不同的皮肤**，`
+        + '否则两份产物看着像同一套（用户原话：「感觉没什么区别」）。除非这批素材的气质明显更适合它。'
+      : '（首次做：按素材气质挑即可。）',
     '  也可以给 `custom` 自定配色（4 个 hex：paper 底 / ink 正文 / dim 次要 / accent 点缀）——',
     '  系统会做对比度体检（正文/底 ≥4.5、次要 ≥3.0、强调 ≥2.0），不达标会自动换回预设皮肤。',
     '',

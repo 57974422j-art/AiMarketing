@@ -36,7 +36,7 @@ import { listAllObjects } from '@/lib/oss'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 import { dashscopeFunctionCall } from '@/lib/ai-providers'
 // ★纯函数层（零依赖、可单测：temp/_exp/daily/test-plan.mjs）
-import { DAILY_STYLE, aiPrompt, extractJson, normSegs, normMotion, normTheme, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages } from './daily-plan'
+import { DAILY_STYLE, aiPrompt, extractJson, normSegs, normMotion, normTheme, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme } from './daily-plan'
 
 export { DAILY_STYLE }
 
@@ -266,7 +266,7 @@ function toPicks(uid: number | string, src: DailySource, names: string[]): Daily
  *   两段式：① 视觉模型逐张读出"拍的是什么" ② **文字模型**（qwen3.8-flash，稳）据此出 JSON 方案。
  *   视觉不可用时**不判死**：退成"按主题+序号排"，并把原因如实写进方案卡。
  */
-export async function aiPlanSegments(picks: DailyPick[], topic: string): Promise<{ ok: boolean; segs?: any[]; error?: string; added?: number; fixes?: string[]; theme?: string; custom?: any; motion?: string; sawImages?: boolean; vlErr?: string }> {
+export async function aiPlanSegments(picks: DailyPick[], topic: string, lastTheme = ''): Promise<{ ok: boolean; segs?: any[]; error?: string; added?: number; fixes?: string[]; theme?: string; custom?: any; motion?: string; sawImages?: boolean; vlErr?: string }> {
   const n = picks.length
   if (!n) return { ok: false, error: '没有素材' }
 
@@ -309,7 +309,7 @@ export async function aiPlanSegments(picks: DailyPick[], topic: string): Promise
   } catch (e: any) { vlErr = String(e?.message || e).slice(0, 100) }
 
   // ② 让**文字模型**据此出 JSON 方案（有读图总结就带上；没有就按主题+序号排，并如实标注）
-  const prompt = aiPrompt(n, topic)
+  const prompt = aiPrompt(n, topic, { lastTheme })
     + (summary ? '\n\n【素材实拍内容（视觉模型逐张读出，写文案必须据此，不许编造看不到的东西）】\n' + summary : '')
   try {
     const res = await dashscopeFunctionCall([{ role: 'user', content: prompt }], [], 2600, 0.6, false)
@@ -421,6 +421,35 @@ function materialsReply(d: DailyDraft, names: string[], src: DailySource): strin
   return L.join('\n')
 }
 
+/**
+ * ★VF_DAILY_V9：皮肤轮换的"记住上次" —— 复用现成的 `AgentMemory`（tags 含「日报皮肤」）。
+ * 为什么用它：① 表已经存在、有索引，不用动 schema；② **不会污染用户画像** ——
+ * 画像注入只读 tags 含「画像 / agent_profile」的记录（route.ts 里那两行），这类记录看不见。
+ * 失败**不影响**交付（记不住就退化成"每次都按 seed 挑"，绝不因为写库失败拦住用户）。
+ */
+const SKIN_TAG = '日报皮肤'
+async function recentSkins(prisma: any, uid: number | string): Promise<string[]> {
+  try {
+    const rows = await prisma.agentMemory.findMany({
+      where: { userId: { in: [String(uid), String(Number(uid) || 0)] }, tags: { contains: SKIN_TAG } },
+      orderBy: { updatedAt: 'desc' }, take: 3,
+    })
+    return (rows || []).map((r: any) => String(r?.content || '').trim().split(/\s+/)[0]).filter(Boolean)
+  } catch { return [] }
+}
+async function rememberSkin(prisma: any, uid: number | string, theme: string): Promise<void> {
+  if (!theme) return
+  try {
+    const rows = await prisma.agentMemory.findMany({
+      where: { userId: { in: [String(uid), String(Number(uid) || 0)] }, tags: { contains: SKIN_TAG } },
+      orderBy: { updatedAt: 'desc' }, take: 1,
+    })
+    const first = (rows || [])[0]
+    if (first) await prisma.agentMemory.update({ where: { id: first.id }, data: { content: theme } })
+    else await prisma.agentMemory.create({ data: { userId: String(uid), content: theme, tags: SKIN_TAG } })
+  } catch { /* 记不住不影响交付 */ }
+}
+
 /** ★VF_DAILY_V5：挑完图 → AI 看素材排方案 → 返回"方案确认"回复。
  *  卡片协议串与"文字回序号"两条入口**共用这一份**（免得两处各排一遍、行为漂移）。 */
 async function runPlan(ctx: DailyCtx, d: DailyDraft, src: DailySource, picked: string[], note0 = ''): Promise<string> {
@@ -429,22 +458,33 @@ async function runPlan(ctx: DailyCtx, d: DailyDraft, src: DailySource, picked: s
   d.source = src
   d.names = picked
   try { ctx.log?.(uid, `[日报落地页] AI 看素材编排（${picks.length} 张，来源=${src.kind}）…`) } catch { /* ignore */ }
-  const ai = await aiPlanSegments(picks, d.topic || '')
+  // ★VF_DAILY_V9：把"上次用的皮肤"告诉 AI（提示词里明确要求换一个）——这是"看着像同一套"的第一道药
+  const recent = await recentSkins(ctx.prisma, uid)
+  const ai = await aiPlanSegments(picks, d.topic || '', recent[0])
+  // ★VF_DAILY_V9：第二道药 —— AI 没挑 / 挑的还是上一套 ⇒ **服务端强制换**（纯函数 rotateTheme，可复现）
+  const rot = rotateTheme(ai.ok ? String(ai.theme || '') : '', recent, picked.join('|') + '|' + (d.topic || ''))
   let plan: any
   let by: 'ai' | 'fallback'
   let note = ''
   if (ai.ok && ai.segs && ai.segs.length) {
     // ★L4：皮肤（theme / custom）来自 AI；引擎会做对比度体检，不达标自己在页头回落并写明
-    plan = buildPlanFromSegs(ai.segs, d.topic || '', ai.motion || 'normal', ai.theme, ai.custom)
+    // ★V9：换成 rot.theme（若 AI 的挑法被轮换否决，就**不带**它的自定配色 —— 否则两处打架）
+    plan = buildPlanFromSegs(ai.segs, d.topic || '', ai.motion || 'normal', rot.theme,
+      rot.theme === 'custom' ? ai.custom : undefined)
     by = 'ai'
     if (ai.added) note = `AI 漏了 ${ai.added} 张，已自动补段`
   } else {
     note = String(ai.error || '未知原因')
     const fb = buildDailyPlan(picked, d.topic || '')
-    plan = buildPlanFromSegs(fb.segments, d.topic || '', fb.motion)
+    plan = buildPlanFromSegs(fb.segments, d.topic || '', fb.motion, rot.theme)
     by = 'fallback'
     try { ctx.log?.(uid, '[日报落地页] AI 编排失败 → 保底版式：' + note) } catch { /* ignore */ }
   }
+  if (rot.theme) await rememberSkin(ctx.prisma, uid, rot.theme)
+  try {
+    ctx.log?.(uid, `[日报落地页] 皮肤 ${themeName(rot.theme)}${rot.rotated ? '（轮换：上次 ' + (themeName(rot.from) || '无') + '）' : ''}`
+      + (recent.length ? ' ｜ 近几次：' + recent.slice(0, 3).map(themeName).join(' → ') : ''))
+  } catch { /* ignore */ }
   attachSrc(plan, picks)
   d.plan = plan
   d.planBy = by
@@ -454,6 +494,8 @@ async function runPlan(ctx: DailyCtx, d: DailyDraft, src: DailySource, picked: s
   try { ctx.log?.(uid, `[日报落地页] 方案已排（${by}，${plan.segments.length} 段，看图=${ai.sawImages ? '是' : '否' + (ai.vlErr ? '（' + ai.vlErr + '）' : '')}）`) } catch { /* ignore */ }
   // ★VF_DAILY_V6：**"没看成图"要如实写在卡上**（不然用户以为 AI 真看过素材了）
   const extra: string[] = []
+  // ★VF_DAILY_V9：轮换过就**明说**（用户要能看见"这次跟上次不一样"，否则还是觉得像同款）
+  if (rot.rotated) extra.push('皮肤轮换：上次「' + (themeName(rot.from) || '未记录') + '」→ 这次「' + themeName(rot.theme) + '」')
   if (note0) extra.push(note0.replace(/\*\*/g, ''))
   if (ai.ok && !ai.sawImages) extra.push('这轮没看成图：' + (ai.vlErr || '未知原因') + '（方案按主题/序号排，文案请自己核一遍）')
   // ★L2：AI 给的结构与图数打架 / 整份结构太单一 ⇒ 我校正过，**如实写进卡头**（不闷着改）

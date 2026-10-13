@@ -503,6 +503,38 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
   .col b{font-size:var(--num);line-height:1.1}
   .col:nth-child(1) b{font-family:var(--fsans);color:var(--rule)}
   .col i{font-style:normal;font-size:var(--label);color:var(--dim)}
+
+  /* ═══ ★VF_DAILY_V9 文字层随结构（2026-10-13 用户原话「感觉没什么区别」）═══
+     诊断（拆过用户两份真产物）：结构确实换了（hero→grid3→split→vertical vs grid4→stack2→sticker），
+     但**"字的观感"完全没变** —— 所有结构的标签/标题/信息点都用同一套样式，第一眼就被认成同款。
+     这里给每条结构一套自己的**标签/标题/信息点**处理（只动装饰与排布：不加绝对定位、不缩字号 ⇒ 三档闸门照旧管用）。
+     规则写在**最后**（与本文件前面的同名选择器同特异性 ⇒ 后者胜）。 */
+  /* split 图文左右：标题每行带朱红竖线（像报纸栏头）＋信息点改"横排一行一条" */
+  .sec[data-layout="split"] h2 span{display:block;border-left:clamp(3px,.48vmin,6px) solid var(--rule);
+    padding-left:.3em;margin:.04em 0}
+  .sec[data-layout="split"] .cols{grid-template-columns:1fr}
+  .sec[data-layout="split"] .col{flex-direction:row;align-items:baseline;gap:.5em}
+  .sec[data-layout="split"] .col b::after{content:"·";margin-left:.32em;color:var(--rule)}
+  /* grid3 / grid4 多图拼版：信息点变**圆角胶囊**横排（图多时文字主动让位，字面清爽） */
+  .sec[data-layout="grid3"] .cols,.sec[data-layout="grid4"] .cols{display:flex;flex-wrap:wrap;gap:.5em;
+    border-top:0;padding-top:calc(var(--gap) * .6)}
+  .sec[data-layout="grid3"] .col,.sec[data-layout="grid4"] .col{flex-direction:row;align-items:baseline;gap:.42em;
+    border:1px solid var(--line);border-radius:999px;padding:.3em .72em}
+  .sec[data-layout="grid3"] h2 em,.sec[data-layout="grid4"] h2 em{box-shadow:none;color:var(--rule)}
+  /* 胶囊压在满幅段的暗衬带上时，边框要提亮（深色底上 .16 黑的线看不见） */
+  .sec[data-form="overlay"][data-layout="grid3"] .col,
+  .sec[data-form="overlay"][data-layout="grid4"] .col{border-color:rgba(255,255,255,.34)}
+  /* quote 引文页：标题前挂一个大引号 ＋ 信息点居中 */
+  .sec[data-layout="quote"] h2::before{content:"“";display:block;font-size:1.45em;line-height:.52;
+    color:var(--rule);opacity:.6;margin-bottom:.06em}
+  .sec[data-layout="quote"] .cols{justify-items:center;text-align:center}
+  /* stack2 上下双图：标题与信息点居中（"双图对开"的对称感） */
+  .sec[data-layout="stack2"] h2{text-align:center}
+  .sec[data-layout="stack2"] .cols{justify-items:center;text-align:center}
+  /* hero 满幅压字：标题再加一道**右侧朱红短标尺**，与 quote 的大引号区分开 */
+  .sec[data-layout="hero"] h2 span:last-child{position:relative}
+  .sec[data-layout="hero"] h2 span:last-child::after{content:"";display:block;width:clamp(46px,7vmin,96px);
+    height:clamp(3px,.5vmin,6px);background:var(--rule);margin-top:.28em;opacity:.85}
 ${AI_CSS.length ? '\n  /* ══ ★VF_DAILY_L3：AI 自写段的 CSS（选择器都带 .aiN- / .sec[data-seg="N"] 前缀）══ */\n' + AI_CSS.join('\n') : ''}
 </style>
 </head>
