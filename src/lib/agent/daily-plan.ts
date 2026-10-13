@@ -477,6 +477,10 @@ export function buildDoneCardPayload(o: {
   /** ★VF_DAILY_V8：单文件版（图已内嵌）—— `plainUrl` 是"配图版"（需 images/ 文件夹） */
   singleName?: string; singleUrl?: string; singleDlUrl?: string; plainUrl?: string
   imgCount?: number; embedded?: number
+  /** ★VF_HTMLVIEW_V1（2026-10-13）：**站内预览**两条同源出口（不再依赖外链/客户端行为）——
+   *  `apiView` = `/api/storage/file?…`（HTML 流式 inline 直出，卡内 iframe 用）；
+   *  `previewPath` = `/preview/repo?…`（整页预览，给"新窗口打开"）。 */
+  apiView?: string; previewPath?: string
 }): any {
   const days = o.expiresDays || 7
   const facts: string[] = [o.segs + ' 段', '皮肤 ' + o.skin,
@@ -500,6 +504,8 @@ export function buildDoneCardPayload(o: {
     dlUrl: o.singleDlUrl || o.dlUrl || '',
     plainUrl: o.singleUrl ? o.viewUrl : '',
     plainDlUrl: o.singleUrl ? (o.dlUrl || '') : '',
+    apiView: o.apiView || '',
+    previewPath: o.previewPath || '',
     facts: facts.join(' · '),
     imgMsg,
     dropped: Array.isArray(o.dropped) ? o.dropped : [],

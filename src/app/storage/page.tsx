@@ -341,7 +341,15 @@ export default function StoragePage() {
                     <span className="text-2xl">📄</span>
                   )}
                 </div>
-                <p className="text-[10px] text-gray-300 truncate cursor-pointer" onClick={()=>{window.open('/api/storage/file?userId='+userId+'&name='+encodeURIComponent(f.name),'_blank')}}>{f.name}</p>
+                {/* ★VF_HTMLVIEW_V1（2026-10-13 用户实测「个人仓库也打不开」）：.html 走**站内预览页**
+                    （`/preview/repo`，同源、服务端直出 text/html）；其它文件仍按老口径直接开/播。 */}
+                <p className="text-[10px] text-gray-300 truncate cursor-pointer" onClick={()=>{
+                  const isHtml = /\.(html?|svg)$/i.test(f.name)
+                  const url = isHtml
+                    ? '/preview/repo?userId='+userId+'&name='+encodeURIComponent(f.name)
+                    : '/api/storage/file?userId='+userId+'&name='+encodeURIComponent(f.name)
+                  window.open(url,'_blank')
+                }}>{f.name}</p>
                 <p className="text-[9px] text-gray-500">{fmt(f.size)}</p>
                 <div className="flex gap-1 mt-1">
                   {f.isVideo && (

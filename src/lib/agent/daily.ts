@@ -674,6 +674,10 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Pr
     singleUrl: singleOk ? oneView : '',
     singleDlUrl: singleOk ? oneDl : '',
     plainUrl: stdView,
+    // ★VF_HTMLVIEW_V1（2026-10-13「先看说原因或者完成原有规划」）：**站内两条同源出口**。
+    //   预览要看的默认是**单文件版**（图内嵌，能直接看到画面）；它拿不到就退回落配图版。
+    apiView: `/api/storage/file?userId=${uid}&name=${encodeURIComponent(singleOk ? (single as any).name : r.name)}`,
+    previewPath: `/preview/repo?userId=${uid}&name=${encodeURIComponent(singleOk ? (single as any).name : r.name)}`,
     imgCount: picks.length,
     embedded: singleOk ? (single as any).embedded : 0,
     segs: plan.segments.length,

@@ -8,6 +8,16 @@ const MIME_MAP: Record<string, string> = {
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
   // ★修（2026-10-10）：原来是 'image/webm'（webm 是**视频**容器）⇒ webp 会被浏览器当视频播放/直接下载
   gif: 'image/gif', webp: 'image/webp',
+  // ★VF_HTMLVIEW_V1（2026-10-13 用户实测「▶ 打开预览打不开报错，**可能是不支持HTML格式**；个人仓库也打不开」）：
+  //   病灶：这张表**根本没有 html** ⇒ 落到 `MIME_MAP[ext] || 'application/octet-stream'`
+  //   ⇒ 浏览器/客户端一律**下载**（或直接报"不支持HTML格式"）。
+  //   日报落地页交付的正是 .html ⇒ 预览永远打不开；个人仓库点文件名也走这条路由，同样打不开。
+  //   现在给 html/htm + 几个常见文本类补上正确 MIME；配合下面的"HTML 流式 inline 直出" ⇒ 同源直接渲染。
+  html: 'text/html; charset=utf-8', htm: 'text/html; charset=utf-8',
+  css: 'text/css; charset=utf-8', js: 'text/javascript; charset=utf-8',
+  json: 'application/json; charset=utf-8',
+  txt: 'text/plain; charset=utf-8', md: 'text/plain; charset=utf-8',
+  pdf: 'application/pdf', svg: 'image/svg+xml',
 }
 
 /** ★VF_PRIVCACHE_V1（2026-10-12 用户实测「我的账号上传正常，**其它账号在别的机器**上传缩略图是错的」）：
@@ -47,6 +57,24 @@ export async function GET(request: NextRequest) {
     if (isVideo && !isDownload) {
       const url = await signedUrl(key, 3600)
       return NextResponse.redirect(url, 302)
+    }
+
+    // ★VF_HTMLVIEW_V1：HTML**浏览**时由本站直接流式吐出（`text/html; charset=utf-8` + **不**带
+    //   Content-Disposition ⇒ 浏览器/客户端内联渲染）。
+    //   为什么不 302 到 OSS：OSS 里存的是上传时的 Content-Type（HTML 多半是 octet-stream）
+    //   ⇒ 跳过去还是"下载/不支持"。本站直出才拿得准；顺带**流式转发**（单文件版可能十几 MB，
+    //   不整块读进内存）。下载（download=1）仍走下面的 attachment 分支。
+    if (/\.(html?|svg)$/i.test(name) && !isDownload) {
+      const url = await signedUrl(key)
+      const resp = await fetch(url)
+      if (!resp.ok) throw new Error(`OSS读取失败: ${resp.status}`)
+      const headers: Record<string, string> = {
+        'Content-Type': mime,
+        'Cache-Control': 'private, max-age=60',
+      }
+      const len = resp.headers.get('content-length')
+      if (len) headers['Content-Length'] = len
+      return new NextResponse(resp.body as any, { headers })
     }
 
     // 视频下载

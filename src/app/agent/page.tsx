@@ -1996,6 +1996,32 @@ function VfDailyDoneCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
   const dlUrl = String(vj?.dlUrl || '')
   const ordered: string[] = Array.isArray(vj?.ordered) ? vj.ordered.map((x: any) => String(x)) : []
   const dropped: string[] = Array.isArray(vj?.dropped) ? vj.dropped.map((x: any) => String(x)) : []
+  // ★VF_HTMLVIEW_V1（2026-10-13 用户实测「打开预览打不开报错，可能是不支持HTML格式；个人仓库也打不开」）：
+  //   预览改成**站内同源**两条路，不再指望操作系统浏览器/客户端去开 OSS 外链：
+  //     · apiView     → `/api/storage/file?…`（服务端流式直出 `text/html`）⇒ **卡内 iframe** 直接渲染；
+  //     · previewPath → `/preview/repo?…`（整页预览）⇒ 给"新窗口打开"。
+  //   iframe 用 `sandbox="allow-scripts"`（不给 allow-same-origin）：AI 自写段的动效照跑，
+  //   但拿不到宿主应用的 DOM/Storage。
+  const apiView = String(vj?.apiView || '')
+  const previewPath = String(vj?.previewPath || '')
+  const openUrl = previewPath || viewUrl
+  const [showPv, setShowPv] = useState(false)
+  const [pvHtml, setPvHtml] = useState('')
+  const [pvErr, setPvErr] = useState('')
+  // ★为什么"父页 fetch + srcDoc"而不是 `<iframe src=…>`：
+  //   src 方式要靠 iframe 自己带着 cookie 去取（sandbox 无 same-origin 时这条链最不稳），
+  //   父页 fetch 用的是**当前登录会话**（同源、cookie 一定在），拿到文本再 srcDoc 渲染 ⇒ 两个变量都消掉。
+  const loadPv = async () => {
+    if (pvHtml || !apiView) return
+    setPvErr('')
+    try {
+      const r = await fetch(apiView, { credentials: 'include' })
+      if (!r.ok) { setPvErr('读取失败（HTTP ' + r.status + '）'); return }
+      const t = await r.text()
+      if (!t || t.length < 40) { setPvErr('文件内容是空的'); return }
+      setPvHtml(t)
+    } catch (e: any) { setPvErr('读取失败：' + String(e?.message || e)) }
+  }
   const [copied, setCopied] = useState('')
   const copy = async (s: string, tag: string) => {
     try { await navigator.clipboard.writeText(s); setCopied(tag); setTimeout(() => setCopied(''), 1500) } catch { /* 剪贴板不可用就算了 */ }
@@ -2010,10 +2036,16 @@ function VfDailyDoneCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
         ? <div className="text-[10px] text-amber-300 mb-2">⚠️ 渲染体检回落：{dropped.join('；')}（这几段已改用模板结构，其余段保留 AI 自己的写法）</div>
         : null}
       <div className="flex flex-wrap gap-2 mb-2">
-        {viewUrl
-          ? <a href={viewUrl} target="_blank" rel="noopener noreferrer"
+        {apiView
+          ? <button onClick={() => { setShowPv((v) => !v); void loadPv() }}
               className="px-4 py-2 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100 text-sm font-medium">
-              ▶ 打开预览{vj?.plainUrl ? '（含真图）' : ''}
+              {showPv ? '▾ 收起预览' : '▶ 在卡里预览'}{vj?.plainUrl ? '（含真图）' : ''}
+            </button>
+          : null}
+        {openUrl
+          ? <a href={openUrl} target="_blank" rel="noopener noreferrer"
+              className="px-3 py-2 rounded-lg text-xs border border-emerald-400/30 text-emerald-200 hover:bg-emerald-500/10">
+              ↗ 新窗口打开
             </a>
           : null}
         {dlUrl
@@ -2027,6 +2059,23 @@ function VfDailyDoneCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
           🔁 再做一份
         </button>
       </div>
+      {showPv && apiView
+        ? (
+          <div className="mb-2">
+            {pvErr
+              ? <div className="text-[10px] text-amber-300">⚠️ 预览加载不了：{pvErr}（可以点「↗ 新窗口打开」或下载）</div>
+              : (pvHtml
+                ? <iframe sandbox="allow-scripts" srcDoc={pvHtml} title="daily-preview"
+                    className="w-full h-[70vh] rounded-lg border border-white/15 bg-white" />
+                : <div className="text-[10px] text-gray-400 py-6 text-center">预览加载中…（单文件版较大，可能要几秒）</div>)}
+            {pvHtml && !pvErr
+              ? <div className="text-[10px] text-gray-500 mt-1">
+                  卡内预览（动效照跑、脚本跑在沙箱里）；看不全就往里滚。要发给别人用下面的短链。
+                </div>
+              : null}
+          </div>
+        )
+        : null}
       {vj?.plainUrl
         ? (
           <div className="text-[10px] text-gray-500 mb-2">
