@@ -35,7 +35,10 @@ for (const src of files) {
   const page = await browser.newPage()
   await page.setViewport({ width: 720, height: 1280, deviceScaleFactor: SCALE })
   await page.goto('file:///' + path.resolve(REPO, src).replace(/\\/g, '/'), { waitUntil: 'load' })
-  await page.addStyleTag({ content: '.kick,.stamp,.col,h2 span{opacity:1 !important;transform:none !important}' })
+  // ★v2（用户 2026-10-13 指出"部分图没有"后修正）：**把图槽整体隐藏再量**——
+  //   否则"图没就位时露出的暖色渐变占位"会被判成强调色（上一版 012 报 14.4% 就是这个污染）。
+  //   这把尺子的本意是量"**文字/装饰层的配色克制度**"，图槽不该参与。
+  await page.addStyleTag({ content: '.kick,.stamp,.col,h2 span{opacity:1 !important;transform:none !important} .fig{visibility:hidden !important}' })
   await new Promise((r) => setTimeout(r, 500))
   const accent = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--rule').trim())
   const png = await page.screenshot({ fullPage: true })

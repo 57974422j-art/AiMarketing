@@ -2051,7 +2051,11 @@ function VfDailyDoneCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
   return (
     <div className="mb-2 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06]">
       <div className="text-xs text-emerald-300 mb-1">📄 日报落地页 · {String(vj?.hint || '第 3 步 / 共 3 步 · 已生成并交付')}</div>
-      <div className="text-[11px] text-gray-100 mb-1">✅ {String(vj?.name || '')}</div>
+      {/* ★V16：**两份文件分别标名** —— 用户实测「下载后分不清哪份是单文件版」导致以为丢图 */}
+      <div className="text-[11px] text-gray-100 mb-1">
+        ✅ 单文件版：{String(vj?.name || '')}
+        {vj?.plainName ? <span className="text-gray-500">　｜　配图版：{String(vj.plainName)}（需自建 images/）</span> : null}
+      </div>
       <div className="text-[10px] text-gray-400 mb-2">{String(vj?.facts || '')}</div>
       {vj?.imgMsg ? <div className="text-[10px] text-emerald-300/80 mb-2">{String(vj.imgMsg)}</div> : null}
       {dropped.length

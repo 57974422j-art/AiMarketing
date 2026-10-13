@@ -518,6 +518,30 @@ async function pickLum(p: DailyPick): Promise<number> {
   } catch { return 0 }
 }
 
+/**
+ * ★VF_DAILY_V16（2026-10-13 用户实测：「我在客户端中**能看到部分图片、部分没有**」）：
+ *   病因：单文件版内嵌图有 **12MB 预算**（`embedImages` 的 cap），超预算的图**直接跳过**
+ *   ⇒ 10 张原图（每张 2~4MB）只嵌进前 4 张，其余留在 `images/N.jpg` 相对路径
+ *   ⇒ 单文件版里那些图位**什么都没有**（不是它没加，是超预算被跳过了）。
+ *   修法：**先压再嵌** —— 长边 ≤1600、q≈5（约 200~500KB/张）⇒ 10 张全部进得去，单文件仍在几 MB。
+ *   （缩图临时文件必须带正确后缀；踩过 `.img` 被 ffmpeg 判 Invalid data 的坑。）
+ */
+async function shrinkForEmbed(buf: Buffer): Promise<Buffer> {
+  try {
+    const tin = path.join(os.tmpdir(), `dsc_${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`)
+    const tout = tin + '.out.jpg'
+    try {
+      fs.writeFileSync(tin, buf)
+      spawnSync('ffmpeg', ['-v', 'error', '-y', '-i', tin, '-vf', 'scale=min(1600\\,iw):-2', '-q:v', '5', tout], { timeout: 20000 })
+      const out = fs.existsSync(tout) ? fs.readFileSync(tout) : null
+      return out && out.length && out.length < buf.length ? out : buf
+    } finally {
+      try { fs.unlinkSync(tin) } catch { /* ignore */ }
+      try { fs.unlinkSync(tout) } catch { /* ignore */ }
+    }
+  } catch { return buf }
+}
+
 /** ★VF_DAILY_V5：挑完图 → AI 看素材排方案 → 返回"方案确认"回复。
  *  卡片协议串与"文字回序号"两条入口**共用这一份**（免得两处各排一遍、行为漂移）。 */
 async function runPlan(ctx: DailyCtx, d: DailyDraft, src: DailySource, picked: string[], note0 = ''): Promise<string> {
@@ -716,11 +740,14 @@ async function buildSingleFile(uid: number | string, buf: Buffer | undefined, pi
       }
     } catch { b = null }
     if (!b || !b.length) continue
+    // ★V16：**先压再嵌**（否则超 12MB 预算的后半段图会被跳过 = 用户看到的"部分图没有"）
+    if (b.length > 900 * 1024) b = await shrinkForEmbed(b)
     const png = b[0] === 0x89 && b[1] === 0x50
     imgs.push({ n: i + 1, mime: png ? 'image/png' : 'image/jpeg', b64: b.toString('base64'), bytes: b.length })
   }
   if (!imgs.length) return null
-  const rc = embedImages(buf.toString('utf8'), imgs)
+  // 预算放到 24MB（压过之后 10 张通常只有 3~5MB；这只是"最后一道保险"，不要它再成为丢图原因）
+  const rc = embedImages(buf.toString('utf8'), imgs, 24 * 1024 * 1024)
   if (!rc.embedded) return null
   const saved = await saveToPersonalRepo({ userId: uid, buffer: Buffer.from(rc.html, 'utf8'), ext: 'html', mime: 'text/html', gen: true })
   return { name: String(saved?.name || ''), embedded: rc.embedded }
