@@ -570,7 +570,14 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
      否则两个深色块中间露一条纸色缝，看着像"两个灰盒子"（截图上看过一眼就不想要了）。 */
   .sec[data-form="overlay"]::after{content:"";grid-row:3 / span 2;grid-column:1;
     background:var(--scrim);z-index:0}
-  .sec[data-form="overlay"] h2,.sec[data-form="overlay"] .cols{position:relative;z-index:1}
+  /* ★VF_DAILY_V14（2026-10-13 用户截图：标题第二行"像被切"）：根因是**动画中途**标题下移 30px，
+     第二行会跑出暗衬带（落到照片上 ⇒ 一半暗一半亮 = 看着像被切）。判据测不到，人眼一秒就看见。
+     修法：**文字元素自带同色底**（底色跟着文字走，无论位移到哪都在），::after 那条带只负责补缝。 */
+  .sec[data-form="overlay"] h2,.sec[data-form="overlay"] .cols{position:relative;z-index:1;
+    background:var(--scrim)}
+  /* ★R5′ 半步：暗衬改**渐隐**（上淡下浓）—— 餐饮/美食要亮，别整块压黑（用户定案口径） */
+  .sec[data-form="overlay"]::after{background:linear-gradient(to bottom,
+    transparent 0%, var(--scrim) 42%, var(--scrim) 100%)}
   .sec[data-form="overlay"] h2{background:none;color:#fff;padding:.06em .26em .12em}
   .sec[data-form="overlay"] h2 em{box-shadow:inset 0 -.18em 0 rgba(230,150,120,.5)}
   .sec[data-form="overlay"] .cols{background:none;color:#fff;border-top:0;
@@ -635,6 +642,8 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
   .col:nth-child(1){--d:calc(.14 * ${MOTION.dmul})}
   .col:nth-child(2){--d:calc(.22 * ${MOTION.dmul})}
   .col:nth-child(3){--d:calc(.30 * ${MOTION.dmul})}
+  /* ★V14（三条闸门之一）：数字一律**等宽**（tabular-nums）—— 数字对齐是"专业感"最便宜的一处 */
+  .col b,.stamp,.kick{font-variant-numeric:tabular-nums}
   .col b{font-size:var(--num);line-height:1.1}
   .col:nth-child(1) b{font-family:var(--fsans);color:var(--rule)}
   .col i{font-style:normal;font-size:var(--label);color:var(--dim)}
