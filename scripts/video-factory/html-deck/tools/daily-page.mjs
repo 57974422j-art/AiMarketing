@@ -259,8 +259,9 @@ const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</
         ⇒ 这样出片确定性不会被破坏；
      ③ **段级回落**：任一条不满足 ⇒ **只有这一段**退回 L2 结构库的模板（其余段照旧），
         并把原因写进页头注释与 stdout（不静默）。
-   开关：`VF_DAILY_AIHTML=1`（环境变量）才接受 AI 段 —— 默认关 ⇒ 产品行为逐字不变，可先离线试。 */
-const AIHTML_ON = String(process.env.VF_DAILY_AIHTML || '') === '1'
+   开关：**两处任一为真**即接受 AI 段 —— ① `VF_DAILY_AIHTML=1`（环境变量，运维级总闸）；
+   ② `meta.aiHtml === true`（方案级，产品线自己说了算）。都不给 ⇒ 行为逐字不变（默认关）。 */
+const AIHTML_ON = String(process.env.VF_DAILY_AIHTML || '') === '1' || (cfg.meta && cfg.meta.aiHtml === true)
 
 function aiGuardHTML(n, html, css) {
   const h = String(html || '')

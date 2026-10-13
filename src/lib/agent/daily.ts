@@ -475,6 +475,66 @@ function planOut(d: DailyDraft, picks: DailyPick[], by: 'ai' | 'fallback', note:
     + formatDailyPlan(d.plan, { topic: d.topic || '', picks, by, note })
 }
 
+/**
+ * ★VF_DAILY_L3/B（2026-10-12 用户定案「行 B」）：生成 → **真浏览器逐段体检** → 不合格的段**逐段退回 L2 模板** → 重生。
+ * · 只在"有 AI 自写段"时才跑（纯模板件已离线全过，省 3~8 秒）；
+ * · 体检硬线只认**竖屏**（用户口径：竖屏为主），横屏结果只记日志；
+ * · 没装校验器 / 没浏览器 ⇒ **跳过体检并如实说明**（绝不因为体检环境缺失就把交付拦下）；
+ * · 最多重来 3 轮（每轮只动不合格的段），仍不过就按最佳结果交付并写清哪几段没过。
+ */
+async function generateVerified(ctx: DailyCtx, plan: any): Promise<{ ok: boolean; buf?: Buffer; name?: string; note: string; dropped: string[]; error?: string }> {
+  const repo = process.cwd()
+  const verifier = path.join(repo, 'scripts', 'video-factory', 'html-deck', 'tools', 'daily-verify.mjs')
+  const hasAI = Array.isArray(plan?.segments) && plan.segments.some((s: any) => s && typeof s.html === 'string' && s.html.trim())
+  const dropped: string[] = []
+  let note = ''
+  for (let round = 0; round < 3; round++) {
+    const g = generateDailyHtml(ctx.uid, plan)          // 只出到临时文件（还没落盘）
+    if (!g.ok || !g.name) return { ok: false, note, dropped, error: g.error }
+    const tmp = g.name
+    note = String(g.note || '').trim()
+    const store = async () => {
+      try {
+        const buf = fs.readFileSync(tmp)
+        const saved = await saveToPersonalRepo({ userId: ctx.uid, buffer: buf, ext: 'html', mime: 'text/html', gen: true })
+        return { ok: true, buf, name: saved.name, note, dropped }
+      } catch (e: any) {
+        return { ok: false, note, dropped, error: String(e?.message || e).slice(0, 200) }
+      } finally { try { fs.unlinkSync(tmp) } catch { /* ignore */ } }
+    }
+    if (!hasAI || !fs.existsSync(verifier)) {
+      if (hasAI) note += '（未装渲染校验器，跳过体检）'
+      return await store()
+    }
+    const r = spawnSync(process.execPath, [verifier, tmp, '--json'], { cwd: repo, encoding: 'utf8', timeout: 180000, maxBuffer: 16 * 1024 * 1024 })
+    if (r.status === 2) {
+      note += '（渲染体检未启用：' + String(r.stdout || r.stderr || '').trim().split('\n')[0].slice(0, 80) + '）'
+      return await store()
+    }
+    let parsed: any = null
+    try { parsed = JSON.parse(String(r.stdout || '').trim().split('\n').filter(Boolean).pop() || '') } catch { parsed = null }
+    if (!parsed) { note += '（体检结果解析失败，按现值交付）'; return await store() }
+    const bad: any[] = (parsed?.views?.v?.segs || []).filter((s: any) => !s.ok)
+    try { ctx.log?.(ctx.uid, `[日报落地页] 渲染体检 第${round + 1}轮：竖屏不合格 ${bad.length} 段` + (bad.length ? '（' + bad.map((b: any) => `段${b.seg}: ` + (b.reasons || []).join('；').slice(0, 70)).join(' | ') + '）' : '')) } catch { /* ignore */ }
+    if (!bad.length) return await store()
+    let healable = 0
+    for (const b of bad) {
+      const seg = plan?.segments?.[Number(b.seg) - 1]
+      if (seg && typeof seg.html === 'string' && seg.html.trim()) {
+        dropped.push(`段${b.seg}（${(b.reasons || []).join('；').slice(0, 70)}）`)
+        delete seg.html
+        delete seg.css
+        healable++
+      }
+    }
+    if (!healable || round === 2) {
+      note += '（仍有 ' + bad.length + ' 段未过体检：' + bad.map((b: any) => '段' + b.seg).join('、') + '）'
+      return await store()
+    }
+  }
+  return { ok: false, note, dropped, error: '体检回落轮次用尽' }
+}
+
 /** ★VF_DAILY_V6：真的生成 HTML 入库（**卡片按钮 `at:'go'` 与打字 `确认` 两条路共用**） */
 async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Promise<string> {
   const uid = ctx.uid
@@ -483,7 +543,8 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Pr
     await clearDailyDraft(ctx.prisma, uid)
     return '⚠️ 方案丢了（草稿异常），本单已取消。再说一次「日报落地页」重来。'
   }
-  const r = await buildAndStoreDaily(uid, plan)
+  // ★L3/B：走"生成 → 真浏览器逐段体检 → 不合格段逐段退回 L2 模板 → 重生"（纯模板件自动跳过体检）
+  const r = await generateVerified(ctx, plan)
   if (!r.ok || !r.name) {
     try { ctx.log?.(uid, '[日报落地页] 生成失败：' + String(r.error || '')) } catch { /* ignore */ }
     return '⚠️ HTML 生成失败：' + String(r.error || '未知原因') + '\n（可以回 `确认` 再试一次；若反复失败，把这句发给开发者）'
@@ -512,10 +573,16 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Pr
   try { ctx.log?.(uid, `[日报落地页] 交付：${key} ｜ 短链 ${viewPath || apiPath}`) } catch { /* ignore */ }
   const viewUrl = abs(viewPath) || apiPath
   const dlUrl = abs(dlPath)
+  // ★L3/B：如实报"AI 自写了几段 / 哪几段没过体检被退回模板"（回落过的段此时已经没有 html 字段）
+  const aiSegs = plan.segments.filter((s: any) => s && typeof s.html === 'string' && s.html.trim()).length
+  const dropLine = (r.dropped && r.dropped.length)
+    ? '\n⚠️ **渲染体检回落**：' + r.dropped.join('；') + '\n（这几段已改用模板结构，其余段保留 AI 自己的写法）\n'
+    : ''
   return '✅ **日报落地页 HTML 已生成**（' + plan.segments.length + ' 段 · 皮肤 ' + themeName(plan?.meta?.theme)
     + ' · ' + (d.planBy === 'ai' ? 'AI 看素材编排' : '系统保底版式')
+    + (aiSegs ? ' · AI 自写 ' + aiSegs + ' 段' : '')
     + ' · 结构 ' + Array.from(new Set(plan.segments.map((s: any) => String(s.layout || '-')))).length + ' 种'
-    + ' · ' + (r.note || 'R1~R14 通过').trim() + '）\n\n'
+    + ' · ' + (r.note || 'R1~R14 通过').trim() + '）\n' + dropLine + '\n'
     + '▶ **打开预览（浏览器直接渲染）**：\n' + viewUrl
     + (dlUrl ? '\n\n⬇ **下载这个 HTML 文件**：\n' + dlUrl : '')
     + '\n\n（链接 7 天有效，可以发给别人；过期后回来说一次「日报落地页」重做一份就有新链接。）\n'

@@ -122,6 +122,22 @@ export function aiPrompt(n: number, topic: string): string {
     + ' place 取 "cover"（图铺满）或 "mat"（相纸留边）。',
     '7. 简体中文，不用 emoji。',
     '',
+    '【可选·★L3：你自己写某几段的 HTML（想自由发挥就写，不想写就只用 layout）】',
+    '在某一段里加 `html`（该段内部片段）与 `css`（该段样式）两个字段即可，引擎会把它们放进这段，'
+      + '并用**真浏览器逐段体检**（越界/溢出/字号/文字折行/压图）；**不合格的那一段会自动退回上面的结构模板**（其他段不受影响）。',
+    '写 html/css 的硬契约（违反则该段被拒、退回模板）：',
+    '  a. 只给**段内**片段，不要 `<html>/<body>/<section>/<style>` 标签、不要 `<script>`、不要任何 on* 事件；',
+    '  b. CSS 每条选择器必须以 `.ai{N}-` 或 `.sec[data-seg="{N}"]` 开头（N=段号）——防止污染别段；',
+    '  c. 动画只能用 CSS 变量 `--sp`（0→1 段内进度）：如 `transform:translateY(calc(16px*(1 - var(--sp,1))))`；'
+      + '禁 JS / Math.random / Date.now / setTimeout / requestAnimationFrame；',
+    '  d. 禁外链（http/https、@import、外部字体）；禁 `position:absolute`（排版用 grid/flex/百分比/clamp）；',
+    '  e. 容器：外层 section 已有内边距与栅格 ⇒ 你的根元素用 `height:100%;box-sizing:border-box;min-height:0`，'
+      + '**别写 100vh**、别给 `.sec[data-seg=N]` 设高度（实测会把整段撑到溢出）；',
+    '  f. 颜色用主题变量：`var(--paper)`底 / `var(--ink)`正文 / `var(--dim)`次要 / `var(--rule)`点缀（写死颜色换皮肤时这段不跟着变）；',
+    '  g. **竖屏 720×1280 为主**（横屏 1280×720 也要成立，可用 `@media (min-aspect-ratio:1/1)`）；'
+      + '主标题 ≥40px、正文/标签 ≥22px；**短标签一律 `white-space:nowrap`**（不许为塞进去而折行/挤压）；'
+      + '图片用 `<img src="images/N.jpg">` + `object-fit:cover`。',
+    '',
     '只输出 JSON（不要解释、不要 markdown 代码块）：',
     '{"theme":"night-gold","motion":"calm|normal|lively","segments":[{"layout":"hero","kicker":"...","stamp":"...","title":["第一行","第二行"],"imgs":[1],"points":[["短词","短词"]],"place":"cover"}]}',
   ].join('\n')
@@ -174,12 +190,18 @@ export function normSegs(raw: any, n: number, topic: string): { segs: any[]; add
       ? (layout === 'hero' ? 'overlay' : layout)
       : (PLAN_FORMS.indexOf(String(it.form)) >= 0 ? String(it.form) : 'overlay')
     const place = PLAN_PLACES.indexOf(String(it.place)) >= 0 ? String(it.place) : 'cover'
-    out.push({
+    // ★L3：可选的"AI 自写段"（html/css）—— 只做体积截断，**合法性交给引擎的静态沙箱 + 真浏览器校验**
+    const o: any = {
       kind, layout, form,
       kicker: clip(it.kicker, 20) || `日报 · ${topic || '素材记录'}`,
       stamp: kind === 'cover' ? clip(it.stamp, 10) : '',
       title, imgs, points: pts, place,
-    })
+    }
+    if (typeof it.html === 'string' && it.html.trim()) {
+      o.html = it.html.slice(0, 6000)
+      if (typeof it.css === 'string' && it.css.trim()) o.css = it.css.slice(0, 6000)
+    }
+    out.push(o)
   }
   if (!out.length) return { segs: [], added: 0, fixes }
   // ⚠️ 先补漏图、**最后**才钉首尾 —— 顺序反了会出事：只有 1 段时 out[0] 先被设成 cover、
@@ -231,6 +253,8 @@ export function buildPlanFromSegs(segs: any[], topicRaw: string, motion = 'norma
     theme: String(theme || 'paper-daily'),
   }
   if (custom && typeof custom === 'object') meta.custom = custom
+  // ★L3：只要有一段带 html ⇒ 打开引擎的"AI 自写段"通道（方案级开关，不依赖服务器环境变量）
+  if (segs.some((x: any) => x && typeof x.html === 'string' && x.html.trim())) meta.aiHtml = true
   return {
     meta,
     motion: normMotion(motion),
