@@ -1,50 +1,68 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-mode="preview">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>暖食段 · 规范 v1 样本（c-warmfood）</title>
+<title>暖食段 · 规范 v1.2 样本（c-warmfood，升级自 v1）</title>
 <!--
-  图片槽位（当前全部为 CSS 渐变占位；真图到位后把 background-image 换成 url(...) 即可）：
-  1. 主视觉 · 铜锅炭火（4:3，cover）—— 满幅暖光，交代"这一桌"
-  2. 菜品 · 手切鲜羊肉（1:1，cover）
-  3. 菜品 · 冰盘虾滑（1:1，cover）
-  4. 菜品 · 黑千层毛肚（1:1，cover）
-  段契约：<section class="sec" data-seg="4" data-start="0" data-duration="3.2" data-place="cover" data-form="overlay">
-  时间轴：window.__seek(t)，t=0 为完整静止画面（所有元素可见，只是"未推入"状态）
+  c-warmfood · v1 → v1.2 升级（2026-10-13）
+  ─────────────────────────────────────────────────────────────
+  为什么升：v1 版被审核判为「结构/排版 ✅、**动效不足**」——R12 实测"文字位移 0"
+  （只有整块图片在做 scale/opacity 微动，字是钉死的）。这与用户观感一致（"字体动效有点不足"）。
+  这次只动三处，皮肤与版式**原样保留**：
+    ① 双模式（R11/R13）：默认 preview —— 三段纵向可滚动 + **rAF 自动循环**（人打开就能看见动效）；
+       一旦外部调用 window.__seek(t) ⇒ 切 film（叠放、按 data-start/duration 确定性出帧）。
+    ② 文字位移（R12）：标签/标题逐行/副文/指标全部**逐行升起**（`--sp` × 各自 `--d` 错开），
+       不再是整块淡入。
+    ③ 文字量（R11）：标题 ≤12 字、副文 ≤28 字、信息点 ≤3 条 × ≤8 字、每块 ≤2 行。
+  图片槽位（仍为 CSS 渐变占位；真图到位后换 url(...) 即可）：
+    1. 主视觉 · 铜锅炭火（4:3，cover）  2~4. 涮品三拼（1:1，cover）
+  段契约：<section class="sec" data-seg="N" data-start="秒" data-duration="秒" data-place="cover" data-form="overlay|sticker|vertical">
+  时间轴：window.__seek(t)（确定性；预览循环只服务人眼，不参与出片）
 -->
 <style>
   :root{
-    /* L0 皮肤：暖食（米黄纸底 + 焦糖橙强调） */
+    /* L0 皮肤：暖食（米黄纸底 + 焦糖橙强调）—— 与原 v1 一致，没动 */
     --bg:#FBF3E6; --bg2:#F4E3CB; --ink:#2A1C12; --dim:#6B5745; --accent:#C2410C; --accent2:#E8A33D;
-    --p:0;                                  /* 时间轴进度（由 __seek 写） */
+    --line:rgba(107,87,69,.22);
+    --sp:1; --d:0;                           /* ★v1.2：时间轴进度 + 每元素各自的错开延迟 */
     --gap: clamp(14px, 2.1vmin, 26px);
     --pad: clamp(20px, 3.2vmin, 44px);
-    --r: clamp(14px, 2.2vmin, 26px);        /* 圆角（非布局量，可用 px/vmin） */
-    --title: clamp(40px, 6.4vmin, 76px);    /* R3：竖屏主标题 ≥40px */
-    --lead: clamp(22px, 2.7vmin, 31px);     /* R3：正文 ≥22px */
-    --label: 22px;                          /* R3：标签 =22px，不下探 */
+    --r: clamp(14px, 2.2vmin, 26px);
+    --title: clamp(40px, 6.4vmin, 76px);     /* R3：竖屏主标题 ≥40px */
+    --h2: clamp(40px, 5.2vmin, 64px);        /* ★v1.2：二三级标题也守 40px 线（原 34px 会被判小字） */
+    --lead: clamp(22px, 2.7vmin, 31px);      /* R3：正文 ≥22px */
+    --label: 22px;                           /* R3：标签 =22px，不下探 */
     --value: clamp(26px, 3.2vmin, 38px);
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%}
   body{
     background:radial-gradient(115% 88% at 80% 6%, var(--bg2) 0%, var(--bg) 60%);
-    color:var(--ink); overflow:hidden;
+    color:var(--ink);
     font-family:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
     -webkit-font-smoothing:antialiased;
   }
+
+  /* ── ★v1.2 双模式（R11/R13）：preview 可滚动 · film 叠放确定性 ── */
+  html[data-mode="preview"] body{overflow-y:auto}
+  html[data-mode="preview"] .sec{position:relative;height:100vh;min-height:520px}
+  html[data-mode="preview"] .sec + .sec{border-top:1px solid var(--line)}
+  html[data-mode="film"] body{overflow:hidden;width:100vw;height:100vh}
+  html[data-mode="film"] .sec{position:absolute;inset:0;opacity:0;overflow:hidden}
+  html[data-mode="film"] .sec[data-live="1"]{opacity:1}
+  /* ★v1.2 踩坑记录（实测）：`.sec` 里做**文字位移**时，若不加 `overflow:hidden`，
+     行盒下移会把文档撑高（竖屏实测 overY=3px ⇒ 结构闸门判⚠️）。
+     出片态 = 一屏一帧 ⇒ 裁切是**正确**的；预览态不裁（要能滚动看全段）。 */
 
   /* ── R1 一屏一段：整段就是一个 grid，不滚动 ── */
   .sec{
     width:100%; height:100%; padding:var(--pad); gap:var(--gap);
     display:grid;
-    /* 竖屏：上文字 / 中主视觉 / 下拼图 / 底指标条（R4：底部 20% 有内容） */
     grid-template-columns:minmax(0,1fr);
     grid-template-rows:auto minmax(0,1.25fr) minmax(0,1fr) auto;
     grid-template-areas:"text" "main" "tiles" "kpis";
   }
-  /* 横屏：左字列 / 右图列（主视觉+拼图）/ 底指标条通栏（R4：底部 40% 有内容） */
   @media (min-aspect-ratio: 1/1){
     .sec{
       grid-template-columns:minmax(0,1.02fr) minmax(0,1fr);
@@ -53,26 +71,37 @@
     }
   }
 
+  /* ── ★v1.2 文字位移（R12）：逐行升起（`--sp` 到 `--d` 之后才起） ── */
+  .rise{
+    opacity:clamp(0, calc((var(--sp) - var(--d)) * 4), 1);
+    transform:translateY(calc(26px * (1 - clamp(0, calc((var(--sp) - var(--d)) * 4), 1))));
+  }
+
   .text{grid-area:text; display:flex; flex-direction:column; gap:var(--gap); min-width:0}
   .chip{
     align-self:flex-start; display:inline-flex; align-items:center; gap:10px;
     padding:8px 16px; border-radius:999px; background:rgba(194,65,12,.10);
     color:var(--accent); font-size:var(--label); font-weight:700; letter-spacing:.06em;
+    white-space:nowrap;
   }
   .chip i{width:10px;height:10px;border-radius:50%;background:var(--accent);display:inline-block}
   h1{font-size:var(--title); line-height:1.08; letter-spacing:.01em; font-weight:900}
+  h1 span,h2 span{display:block}
+  h2{font-size:var(--h2); line-height:1.14; font-weight:900}
   h1 em{
     font-style:normal;
     background:linear-gradient(transparent 62%, rgba(232,163,61,.55) 62%);
     padding:0 .12em;
   }
-  .lead{font-size:var(--lead); line-height:1.6; color:var(--dim); max-width:34ch}
+  /* R11：副文 ≤28 字、≤2 行 */
+  .lead{font-size:var(--lead); line-height:1.6; color:var(--dim); max-width:26ch;
+        display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden}
   .spacer{flex:1 1 auto; min-height:0}
 
-  /* ── 图槽（R7 素材槽位；R5 文字不压图：文字一律在图外 ── */
+  /* ── 图槽（R7；R5：文字一律在图外，不叠字） ── */
   .frame{position:relative; border-radius:var(--r); overflow:hidden;
-         box-shadow:0 18px 44px rgba(64,38,16,.16); transform:scale(calc(1.035 - .035 * var(--p)));
-         opacity:calc(.9 + .1 * var(--p));}
+         box-shadow:0 18px 44px rgba(64,38,16,.16);
+         transform:scale(calc(1.035 - .035 * var(--sp))); opacity:calc(.88 + .12 * var(--sp))}
   .main{grid-area:main; min-height:0;
         background:linear-gradient(150deg,#8C3B12 0%,#C2611C 42%,#E8A33D 100%)}
   .main::after{content:"";position:absolute;inset:auto 0 0 0;height:38%;
@@ -80,51 +109,139 @@
   .tiles{grid-area:tiles; min-height:0; display:grid; gap:var(--gap);
          grid-template-columns:repeat(3,minmax(0,1fr))}
   .tile{border-radius:var(--r); overflow:hidden; box-shadow:0 12px 28px rgba(64,38,16,.14);
-        transform:scale(calc(1.03 - .03 * var(--p))); opacity:calc(.9 + .1 * var(--p))}
+        transform:scale(calc(1.03 - .03 * var(--sp))); opacity:calc(.88 + .12 * var(--sp))}
   .t1{background:linear-gradient(160deg,#A8442A 0%,#D98545 100%)}
   .t2{background:linear-gradient(160deg,#C7B29A 0%,#EFE1CC 100%)}
   .t3{background:linear-gradient(160deg,#5E4632 0%,#9A7A56 100%)}
+  .t4{background:linear-gradient(160deg,#B4562A 0%,#E0A265 100%)}
+  .t5{background:linear-gradient(160deg,#6E5334 0%,#AE8C63 100%)}
 
+  /* ── R4 补纵深：底部指标条（两画幅都要有内容） ── */
   .kpis{grid-area:kpis; display:grid; gap:var(--gap); grid-template-columns:repeat(3,minmax(0,1fr));
-        padding-top:var(--gap); border-top:1px solid rgba(107,87,69,.22)}
-  .kpi{display:flex; flex-direction:column; gap:6px; opacity:calc(.92 + .08 * var(--p))}
-  .kpi b{font-size:var(--value); font-weight:900; color:var(--accent)}
-  .kpi span{font-size:var(--label); color:var(--dim)}
+        padding-top:var(--gap); border-top:1px solid var(--line)}
+  .kpi{display:flex; flex-direction:column; gap:6px}
+  .kpi b{font-size:var(--value); font-weight:900; color:var(--accent); white-space:nowrap}
+  .kpi span{font-size:var(--label); color:var(--dim); white-space:nowrap}
+
+  /* 段2：图文左右（结构变体，仍守 R3/R5）
+     ⚠️ R9 的 `data-form` 只允许 overlay|sticker|vertical ⇒ 结构变体走 `data-layout`（不污染契约字段） */
+  .sec[data-layout="split"]{grid-template-columns:minmax(0,1.04fr) minmax(0,1fr);
+    grid-template-rows:auto minmax(0,1fr) auto;grid-template-areas:"text text" "copy fig" "kpis kpis"}
+  .sec[data-layout="split"] .text{grid-area:text}
+  .sec[data-layout="split"] .main{grid-area:fig}
+  .sec[data-layout="split"] .tiles{display:none}
+  .sec[data-layout="split"] .copy{grid-area:copy; display:flex; flex-direction:column; gap:var(--gap); justify-content:flex-end}
+  .col{display:flex; flex-direction:column; gap:4px}
+  .col b{font-size:var(--value); font-weight:900}
+  .col i{font-style:normal; font-size:var(--label); color:var(--dim)}
 </style>
 </head>
 <body>
-  <section class="sec" data-seg="4" data-start="0" data-duration="3.2" data-place="cover" data-form="overlay">
+  <!-- ① 主段：满幅主视觉 + 三拼 + 指标条 -->
+  <section class="sec" data-seg="1" data-start="0" data-duration="3.2" data-place="cover" data-form="overlay">
     <div class="text">
-      <span class="chip"><i></i>京味涮肉 · 铜锅炭火</span>
-      <h1>一桌<em>滚烫</em><br />从铜锅开始</h1>
-      <p class="lead">清汤一盏，羊肉立盘不掉；虾滑冰碗盛装，毛肚七上八下。</p>
+      <span class="chip rise" style="--d:.02"><i></i>京味涮肉 · 铜锅炭火</span>
+      <h1><span class="rise" style="--d:.08">一桌<em>滚烫</em></span><span class="rise" style="--d:.16">从铜锅开始</span></h1>
+      <p class="lead rise" style="--d:.24">清汤一盏，羊肉立盘不掉；虾滑冰碗盛装，毛肚七上八下。</p>
       <div class="spacer"></div>
     </div>
-
     <div class="frame main"></div>
-
     <div class="tiles">
       <div class="frame tile t1"></div>
       <div class="frame tile t2"></div>
       <div class="frame tile t3"></div>
     </div>
-
     <div class="kpis">
-      <div class="kpi"><b>立盘不掉</b><span>手切鲜羊肉</span></div>
-      <div class="kpi"><b>冰碗盛装</b><span>虾滑配紫苏</span></div>
-      <div class="kpi"><b>七上八下</b><span>黑千层毛肚</span></div>
+      <div class="kpi rise" style="--d:.30"><b>立盘不掉</b><span>手切鲜羊肉</span></div>
+      <div class="kpi rise" style="--d:.38"><b>冰碗盛装</b><span>虾滑配紫苏</span></div>
+      <div class="kpi rise" style="--d:.46"><b>七上八下</b><span>黑千层毛肚</span></div>
+    </div>
+  </section>
+
+  <!-- ② 涮品段：图文左右（左两行信息点 / 右一大图） -->
+  <section class="sec" data-form="overlay" data-layout="split" data-seg="2" data-start="3.2" data-duration="3.2" data-place="cover">
+    <div class="text">
+      <span class="chip rise" style="--d:.02"><i></i>涮品 · 手切</span>
+      <h2><span class="rise" style="--d:.08">薄如纸片</span><span class="rise" style="--d:.16">立盘不掉</span></h2>
+    </div>
+    <div class="copy">
+      <div class="col rise" style="--d:.24"><b>手切鲜羊肉</b><i>三秒起花</i></div>
+      <div class="col rise" style="--d:.32"><b>黑千层毛肚</b><i>七上八下</i></div>
+    </div>
+    <div class="frame main"></div>
+    <div class="tiles">
+      <div class="frame tile t4"></div>
+      <div class="frame tile t5"></div>
+    </div>
+    <div class="kpis">
+      <div class="kpi rise" style="--d:.38"><b>清汤见底</b><span>不添水</span></div>
+      <div class="kpi rise" style="--d:.46"><b>先涮后蘸</b><span>麻酱韭花</span></div>
+      <div class="kpi rise" style="--d:.54"><b>一盘一涮</b><span>不混锅</span></div>
+    </div>
+  </section>
+
+  <!-- ③ 收尾段：单图 + 一句话 -->
+  <section class="sec" data-form="overlay" data-seg="3" data-start="6.4" data-duration="3.2" data-place="cover">
+    <div class="text">
+      <span class="chip rise" style="--d:.02"><i></i>收尾 · 火候</span>
+      <h1><span class="rise" style="--d:.08">火候<em>正好</em></span><span class="rise" style="--d:.16">趁热下筷</span></h1>
+      <p class="lead rise" style="--d:.24">汤滚三巡，肉香最足；这一桌，趁热最对味。</p>
+      <div class="spacer"></div>
+    </div>
+    <div class="frame main"></div>
+    <div class="tiles">
+      <div class="frame tile t2"></div>
+      <div class="frame tile t4"></div>
+      <div class="frame tile t1"></div>
+    </div>
+    <div class="kpis">
+      <div class="kpi rise" style="--d:.30"><b>汤滚三巡</b><span>火候正好</span></div>
+      <div class="kpi rise" style="--d:.38"><b>趁热下筷</b><span>香味最足</span></div>
+      <div class="kpi rise" style="--d:.46"><b>下期再见</b><span>暖食记录</span></div>
     </div>
   </section>
 
 <script>
-  /* 确定性时间轴：t=0 时画面已完整（元素全部可见），随 t 做轻微推入/浮现。
-     不用 requestAnimationFrame、不用随机、不联网 —— 渲染器给多少 t 就画多少。 */
-  window.__seek = function (t) {
-    var DUR = 3.2
-    var p = Math.max(0, Math.min(1, (Number(t) || 0) / DUR))
-    document.documentElement.style.setProperty('--p', p)
-  }
-  window.__seek(0)
+  /* 双模式（与 d-daily / e-neon 同一套写法）：
+     · preview —— 人打开文件就能看见动效：每段各自循环 0→1（错开 0.7s），rAF 驱动；
+     · film   —— 渲染器调用 window.__seek(t)：立刻停循环，按 data-start/duration 确定性出帧。
+     循环只服务人眼预览；出片只用 __seek ⇒ 确定性不受影响。禁用随机与网络。 */
+  (function () {
+    var SECS = [{ s: 0, d: 3.2 }, { s: 3.2, d: 3.2 }, { s: 6.4, d: 3.2 }]
+    var nodes = Array.prototype.slice.call(document.querySelectorAll('.sec'))
+    var D = 3200, GAP = 700, t0 = (window.performance && performance.now) ? performance.now() : 0
+
+    function paint(list) {                     // list: [{node, sp}]；--d 由元素内联各自持有
+      for (var i = 0; i < list.length; i++) list[i].node.style.setProperty('--sp', list[i].sp)
+    }
+    function loop(now) {
+      if (document.documentElement.dataset.mode === 'film') return   // 已切出片态 ⇒ 停
+      var out = []
+      for (var i = 0; i < nodes.length; i++) {
+        var t = ((now - t0 - i * GAP) % (D + GAP) + (D + GAP)) % (D + GAP)
+        out.push({ node: nodes[i], sp: Math.min(1, t / D) })
+      }
+      paint(out)
+      requestAnimationFrame(loop)
+    }
+
+    window.__seek = function (t) {             // 确定性出片：一被调用就切 film 并停循环
+      document.documentElement.dataset.mode = 'film'
+      t = Number(t) || 0
+      var idx = 0
+      for (var i = 0; i < SECS.length; i++) if (t >= SECS[i].s && t < SECS[i].s + SECS[i].d) idx = i
+      if (t >= SECS[SECS.length - 1].s + SECS[SECS.length - 1].d) idx = SECS.length - 1
+      var out = []
+      for (var k = 0; k < nodes.length; k++) {
+        var live = (k === idx)
+        nodes[k].dataset.live = live ? '1' : '0'
+        out.push({ node: nodes[k], sp: live ? Math.max(0, Math.min(1, (t - SECS[k].s) / SECS[k].d)) : 1 })
+      }
+      paint(out)
+    }
+
+    requestAnimationFrame(loop)                // 预览态开跑
+  })()
 </script>
 </body>
 </html>
