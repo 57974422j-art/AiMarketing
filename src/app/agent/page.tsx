@@ -2,6 +2,8 @@
 import React from 'react'
 
 import { useState, useRef, useEffect } from 'react'
+// ★VF_DAILY_V20：卡片上的「✏️ 编辑」与三档画幅预览（方案卡/交付卡/独立预览页共用一份）
+import { DailyEditPanel, DailyPreviewBox } from '@/components/daily-edit'
 import { useRouter } from 'next/navigation'
 import dynamic from 'next/dynamic'
 import { PLATFORM_NAMES, PLATFORMS } from '@/lib/agent/platforms'
@@ -1947,6 +1949,7 @@ function VfDailyPlanCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
   const segs: any[] = Array.isArray(vj?.segs) ? vj.segs : []
   const proto = String(vj?.proto || 'VF_DAILY_FORM')
   const send = (at: string) => onSend(proto + ':' + JSON.stringify({ at }))
+  const [showEdit, setShowEdit] = useState(false)   // ★VF_DAILY_V20：编辑面板开关
   return (
     <div className="mb-2 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06]">
       <div className="text-xs text-emerald-300 mb-2">📄 日报落地页 · {String(vj?.hint || '第 2 步 / 共 3 步 · 方案确认')}</div>
@@ -1969,6 +1972,10 @@ function VfDailyPlanCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
         : (vj?.by === 'captions'
           ? <div className="text-[10px] text-amber-300 mb-2">⚠️ AI 这轮没排出方案（{String(vj?.note || '未知原因')}）→ 已按**看图摘要**重排：标题与信息点来自读图，不是占位</div>
           : <div className="text-[10px] text-gray-500 mb-2">AI 看素材后编排{vj?.note ? `（${String(vj.note)}）` : ''}</div>)}
+      {/* ★VF_DAILY_V20：卡片上的「✏️ 编辑」—— 就地改文字/版式/类型、删段（提交的是既有命令串） */}
+      {showEdit
+        ? <DailyEditPanel segs={segs} onSend={onSend} onClose={() => setShowEdit(false)} />
+        : null}
       <div className="text-[10px] text-gray-500 mb-2">
         想改某一段就直接发：<span className="text-gray-300">改 3 标题=第一行/第二行</span> ·{' '}
         <span className="text-gray-300">改 3 版式=竖排</span> · <span className="text-gray-300">改 3 用图=2,4</span> ·{' '}
@@ -1978,6 +1985,12 @@ function VfDailyPlanCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
         <button onClick={() => send('go')}
           className="flex-1 px-4 py-2 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100 text-sm font-medium">
           ✅ 生成 HTML
+        </button>
+        <button onClick={() => setShowEdit((v) => !v)}
+          className={`px-3 py-2 rounded-lg text-xs border ${showEdit
+            ? 'border-emerald-400/40 text-emerald-100 bg-emerald-500/15'
+            : 'border-white/15 text-gray-200 hover:bg-white/[0.08]'}`}>
+          {showEdit ? '收起编辑' : '✏️ 编辑'}
         </button>
         <button onClick={() => send('back_mat')}
           className="px-3 py-2 rounded-lg text-xs border border-white/15 text-gray-200 hover:bg-white/[0.08]">
@@ -2001,6 +2014,9 @@ function VfDailyDoneCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) 
   const dlUrl = String(vj?.dlUrl || '')
   const ordered: string[] = Array.isArray(vj?.ordered) ? vj.ordered.map((x: any) => String(x)) : []
   const dropped: string[] = Array.isArray(vj?.dropped) ? vj.dropped.map((x: any) => String(x)) : []
+  // ★VF_DAILY_V20：交付卡上的「✏️ 编辑」（段表由载荷里的 segsBrief 提供）
+  const segsBrief: any[] = Array.isArray(vj?.segsBrief) ? vj.segsBrief : []
+  const [showEdit, setShowEdit] = useState(false)
   // ★VF_HTMLVIEW_V1（2026-10-13 用户实测「打开预览打不开报错，可能是不支持HTML格式；个人仓库也打不开」）：
   //   预览改成**站内同源**两条路，不再指望操作系统浏览器/客户端去开 OSS 外链：
   //     · apiView     → `/api/storage/file?…`（服务端流式直出 `text/html`）⇒ **卡内 iframe** 直接渲染；
@@ -2088,6 +2104,15 @@ function VfDailyDoneCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) 
               {showPv ? '▾ 收起预览' : '▶ 在卡里预览'}{vj?.plainUrl ? '（含真图）' : ''}
             </button>
           : null}
+        {/* ★VF_DAILY_V20：交付后仍可改 —— 编辑面板（改文字/版式/类型、删段 ⇒ 回方案，再点确认重出） */}
+        {segsBrief.length
+          ? <button onClick={() => setShowEdit((v) => !v)}
+              className={`px-3 py-2 rounded-lg text-xs border ${showEdit
+                ? 'border-emerald-400/40 text-emerald-100 bg-emerald-500/15'
+                : 'border-white/15 text-gray-200 hover:bg-white/[0.08]'}`}>
+              {showEdit ? '收起编辑' : '✏️ 编辑'}
+            </button>
+          : null}
         {openUrl
           ? <a href={openUrl} target="_blank" rel="noopener noreferrer"
               className="px-3 py-2 rounded-lg text-xs border border-emerald-400/30 text-emerald-200 hover:bg-emerald-500/10">
@@ -2115,18 +2140,19 @@ function VfDailyDoneCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) 
             </button>
           : null}
       </div>
+      {/* ★VF_DAILY_V20：编辑面板（改完回方案卡，用户再点确认才重出文件） */}
+      {showEdit && segsBrief.length
+        ? <DailyEditPanel segs={segsBrief} onSend={onSend} onClose={() => setShowEdit(false)} />
+        : null}
       {showPv && apiView
         ? (
           <div className="mb-2">
-            {pvErr
-              ? <div className="text-[10px] text-amber-300">⚠️ 预览加载不了：{pvErr}（可以点「↗ 新窗口打开」或下载）</div>
-              : (pvHtml
-                ? <iframe sandbox="allow-scripts" srcDoc={pvHtml} title="daily-preview"
-                    className="w-full h-[70vh] rounded-lg border border-white/15 bg-white" />
-                : <div className="text-[10px] text-gray-400 py-6 text-center">预览加载中…（图走签名短链，通常 1~2 秒）</div>)}
+            {/* ★VF_DAILY_V20：三档画幅切换（竖屏 9:16 / 横屏 16:9 / 横屏 4:3）——
+                只做**预览**：iframe 按真实像素排版后等比缩放，方便一眼看出横屏下的问题 */}
+            <DailyPreviewBox html={pvErr ? '' : pvHtml} err={pvErr} />
             {pvHtml && !pvErr
               ? <div className="text-[10px] text-gray-500 mt-1">
-                  卡内预览（动效照跑、脚本跑在沙箱里）；看不全就往里滚。要发给别人用下面的短链。
+                  卡内预览（动效照跑、脚本跑在沙箱里）；切画幅看横竖版差异，看不全就往里滚。要发给别人用下面的短链。
                 </div>
               : null}
           </div>

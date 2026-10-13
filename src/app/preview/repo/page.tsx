@@ -16,6 +16,8 @@
  *   · 顶部给"下载 / 复制直链 / 打开原图（裸文件）"三个出口 —— 老板要拿文件去用时不用回聊天里翻。
  */
 import { useEffect, useState } from 'react'
+// ★VF_DAILY_V20：画幅切换预览（与交付卡同一份组件）
+import { DailyPreviewBox } from '@/components/daily-edit'
 
 export default function RepoPreviewPage() {
   const [uid, setUid] = useState('')
@@ -97,12 +99,11 @@ export default function RepoPreviewPage() {
             或点上面的「⬇ 下载」把文件拿走。）
           </div>
         ) : html ? (
-          <iframe
-            sandbox="allow-scripts"
-            srcDoc={html}
-            className="flex-1 w-full bg-white"
-            title="repo-preview"
-          />
+          // ★VF_DAILY_V20：与交付卡同一套（含竖屏/横屏画幅切换）—— 这一页是"展示给别人看"用的，
+          //   所以画幅按钮放这里最合适：一眼看出横屏下的排版问题。
+          <div className="flex-1 overflow-y-auto px-3 py-2">
+            <DailyPreviewBox html={html} title="repo-preview" />
+          </div>
         ) : (
           <div className="flex-1 flex items-center justify-center text-sm text-gray-400">加载中…</div>
         )

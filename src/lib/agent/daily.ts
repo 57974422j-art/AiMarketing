@@ -36,7 +36,7 @@ import { listAllObjects } from '@/lib/oss'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 import { dashscopeFunctionCall } from '@/lib/ai-providers'
 // ★纯函数层（零依赖、可单测：temp/_exp/daily/test-plan.mjs）
-import { DAILY_STYLE, aiPrompt, extractJson, normSegs, normMotion, normTheme, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor } from './daily-plan'
+import { DAILY_STYLE, aiPrompt, extractJson, normSegs, normMotion, normTheme, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel } from './daily-plan'
 import type { PlanBy } from './daily-plan'
 
 export { DAILY_STYLE }
@@ -887,6 +887,17 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Pr
     ordered: imageNames.some(Boolean)
       ? picks.map((p, i) => `${imageNames[i] || '（未入库）'} ← ${p.name}`)
       : picks.map((p, i) => `${i + 1}.jpg ← ${p.name}`),
+    // ★VF_DAILY_V20：交付卡上也给一份**精简段表** —— 卡片上的"✏️ 编辑"面板靠它回填与生成命令
+    //   （不重新依赖方案卡；交付后用户仍能改标题/信息点/版式/类型，或删段）
+    segsBrief: plan.segments.map((s: any, i: number) => ({
+      i: i + 1,
+      label: layoutLabel(s),
+      kind: String(s.kind || ''),
+      layout: String(s.layout || ''),
+      title: (Array.isArray(s.title) ? s.title : [s.title]).map((x: any) => String(x == null ? '' : x)),
+      points: (Array.isArray(s.points) ? s.points : []).map((p: any) => (Array.isArray(p) ? p.filter(Boolean).join('·') : String(p))),
+      imgs: Array.isArray(s.imgs) ? s.imgs : [],
+    })),
   }))
 }
 
@@ -1064,8 +1075,9 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
     }
     if (!DAILY_YES_RE.test(bare)) {
       // ★逐段微调：`改 3 标题=…` / `改 3 版式=竖排` / `动效=活泼` / `删 3` —— 改完重列方案
+      // ★VF_DAILY_V20：改走 applyEditBatch ⇒ 卡片上的"编辑"面板可以**一次发多条**（改几段 + 删一段同时）
       const picksForEdit = toPicks(uid, d.source || { kind: 'repo' }, d.names || [])
-      const ed = applyDailyEdit(d.plan, raw, picksForEdit)
+      const ed = applyEditBatch(d.plan, raw, picksForEdit)
       if (ed.matched) {
         if (!ed.ok) return '⚠️ ' + ed.msg
         d.plan = ed.plan
@@ -1087,6 +1099,27 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
   //   旧实现只要有草稿（done 也留着）就 return 一句引导 ⇒ 那之后**用户说任何话都会被本线截住**
   //   （别的命令、普通聊天全进不来）。现口径：交付即清草稿、返回 null 交回主流程；
   //   想再做一份 ⇒ 说「日报落地页」会重新起稿（入口本来就是"作废旧单"）。
+  //
+  // ★VF_DAILY_V20（2026-10-13 用户「加一个编辑键…可以点了以后可编辑文字，可以删除」）：
+  //   交付卡上也能改 —— 所以 done 状态**不再立刻清草稿**，而是：
+  //     · 收到**编辑命令**（`改 <n> …` / `删 <n>`）⇒ 应用 → 回到 `review` → 重列方案
+  //       （用户看到改动后，自己点「✅ 生成 HTML」才重出文件；不偷偷重跑 AI/渲染）
+  //     · 其它任何消息 ⇒ 保留草稿但 **return null**（交回主流程，绝不吞消息 —— 这是 V5 那条红线）
+  //     · 入口词/退出词 仍在上面的分支里处理（重来 / 取消），语义不变。
+  if (d.step === 'done' && d.plan) {
+    const picksForEdit = toPicks(uid, d.source || { kind: 'repo' }, d.names || [])
+    const ed = applyEditBatch(d.plan, raw, picksForEdit)
+    if (ed.matched) {
+      if (!ed.ok) return '⚠️ ' + ed.msg
+      d.plan = ed.plan
+      d.step = 'review'
+      await saveDailyDraft(ctx.prisma, uid, d)
+      try { ctx.log?.(uid, '[日报落地页] 交付后编辑：' + ed.msg) } catch { /* ignore */ }
+      return planOut(d, picksForEdit, d.planBy || 'fallback', d.planNote || '', ed.msg)
+    }
+    await saveDailyDraft(ctx.prisma, uid, d)   // 保留草稿 ⇒ 下次还能改；但这条消息不归本线
+    return null
+  }
   await clearDailyDraft(ctx.prisma, uid)
   return null
 }

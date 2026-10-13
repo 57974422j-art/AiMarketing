@@ -629,6 +629,10 @@ export function buildPlanCardPayload(plan: any, o: {
     segs: segs.map((s, i) => ({
       i: i + 1,
       label: layoutLabel(s),
+      // ★VF_DAILY_V20（2026-10-13 用户「加一个编辑键，点了可编辑文字、可以删除」）：
+      //   卡片上的"编辑"面板要**回填**这三个字段（不然用户改版式/类型时不知道现在是什么）
+      kind: String(s.kind || ''),
+      layout: String(s.layout || ''),
       title: Array.isArray(s.title) ? s.title.map((x: any) => String(x)) : [String(s.title || '')],
       points: (Array.isArray(s.points) ? s.points : []).map((p: any) => (Array.isArray(p) ? p.filter(Boolean).join('·') : String(p))),
       imgs: Array.isArray(s.imgs) ? s.imgs : [],
@@ -684,6 +688,8 @@ export function buildDoneCardPayload(o: {
   imgCount?: number; embedded?: number
   /** ★V19（A′）：这批图的**同级扁平仓库名**（客户端拿它把图一起镜像到本地同一文件夹） */
   imgNames?: string[]
+  /** ★V20：精简段表（卡片上的"✏️ 编辑"面板回填用：段号/版式/类型/标题/信息点/图号） */
+  segsBrief?: any[]
   /** ★VF_HTMLVIEW_V1（2026-10-13）：**站内预览**两条同源出口（不再依赖外链/客户端行为）——
    *  `apiView` = `/api/storage/file?…`（HTML 流式 inline 直出，卡内 iframe 用）；
    *  `previewPath` = `/preview/repo?…`（整页预览，给"新窗口打开"）。 */
@@ -721,6 +727,7 @@ export function buildDoneCardPayload(o: {
     facts: facts.join(' · '),
     imgMsg,
     imgNames: Array.isArray(o.imgNames) ? o.imgNames : [],
+    segsBrief: Array.isArray(o.segsBrief) ? o.segsBrief : [],
     dropped: Array.isArray(o.dropped) ? o.dropped : [],
     ordered: Array.isArray(o.ordered) ? o.ordered : [],
     expiresDays: days,
@@ -728,6 +735,47 @@ export function buildDoneCardPayload(o: {
       + ' 页面与它用的图**同级**存在你的**个人仓库 · 生成素材组**，客户端会自动镜像到本地同一个文件夹'
       + '（打开就是真图，不用再建 images/ 文件夹）。',
   }
+}
+
+/**
+ * ★VF_DAILY_V20（2026-10-13 用户原话「加一个编辑键，可以点了以后可编辑文字，可以删除，但卡片可以做到吗？」）：
+ *   **卡片上的"编辑"面板 → 命令串** 的拼装口（纯函数，前后端共用一份口径 ⇒ 不会两处写法漂移）。
+ *   设计取舍：不做富文本编辑器，而是**复用已有的 `applyDailyEdit` 命令词**（`改 <n> 字段=值` / `删 <n>`），
+ *   所以服务端解析器一行都不用改；面板只管把"用户改了什么"翻译成这几条命令。
+ */
+export function cmdOf(n: number, field: '标题' | '标签' | '角标' | '信息点' | '用图' | '版式' | '类型', value: string): string {
+  return `改 ${Number(n)} ${field}=${String(value == null ? '' : value).trim()}`
+}
+export function cmdDel(n: number): string { return `删 ${Number(n)}` }
+export function cmdMotion(v: string): string { return `动效=${String(v || '').trim()}` }
+
+/**
+ * ★VF_DAILY_V20：**一次给多条编辑命令**（卡片上的编辑面板就是这么发的 —— 用户可能同时改了 3 段的标题 + 又删了 1 段）。
+ *   · 按 换行 / `;` / `；` 拆开，**顺序执行**（后一条基于前一条的结果）；
+ *   · 全部成功 ⇒ 只**重列一次**方案（msg 汇总改了哪些），不发一堆卡；
+ *   · 有一条没看懂/不合法 ⇒ `ok:false` 并点名那条（**不半途静默改一半**，免得用户以为没生效）；
+ *   · 一条都没匹配上 ⇒ `matched:false`（交回主流程，本线不吞消息）。
+ */
+export function applyEditBatch(plan: any, raw: string, picks: PlanPick[] = []): { matched: boolean; ok: boolean; msg: string; plan?: any } {
+  const cmds = String(raw || '').split(/[\n;；]+/).map((x) => x.trim()).filter(Boolean)
+  if (!cmds.length) return { matched: false, ok: false, msg: '' }
+  let cur = plan
+  const done: string[] = []
+  for (const c of cmds) {
+    const ed = applyDailyEdit(cur, c, picks)
+    if (!ed.matched) {
+      if (!done.length) return { matched: false, ok: false, msg: '' }   // 完全不像命令 ⇒ 交回主流程
+      // 已经改了几条 ⇒ **保留已生效的**，但把"这条没生效"明说（绝不静默改一半）
+      return { matched: true, ok: true, msg: done.join('；') + '；⚠️ 这条没生效（没看懂）：' + c, plan: cur }
+    }
+    if (!ed.ok) {
+      if (!done.length) return { matched: true, ok: false, msg: ed.msg }   // 第一条就不合法 ⇒ 整批不执行
+      return { matched: true, ok: true, msg: done.join('；') + '；⚠️ 这条没生效：' + ed.msg, plan: cur }
+    }
+    cur = ed.plan
+    done.push(ed.msg)
+  }
+  return { matched: true, ok: true, msg: done.join('；'), plan: cur }
 }
 
 /**

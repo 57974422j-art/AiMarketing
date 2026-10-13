@@ -14,6 +14,7 @@ import {
   embedImages, buildDoneCardPayload, rotateTheme, planFromCaptions, PLAN_PLACES, byLabel,
   DAILY_FX, DAILY_FX_POOL, assignFx, planFingerprint, similarity, rerollPlan, scrimFor,
   DAILY_FX_QUIET, DAILY_FX_CUT, fxCutSlot,
+  cmdOf, cmdDel, cmdMotion, applyEditBatch,
 } from './run/daily-plan.js'
 
 let pass = 0, fail = 0
@@ -490,6 +491,48 @@ console.log('\n=== 12. V19（A′）：效果配额 + 同级扁平图名 + 交�
   ok(!('imageNames' in cfgOld), '没给图名表 ⇒ cfg 里不出现 imageNames（旧链路产物一字不变）')
   const cfgNew = buildPlanFromSegs([{ title: ['a'], imgs: [1], points: [] }], 't', 'normal', 'paper-daily', undefined, ['gen_x_p1.jpg'])
   eq((cfgNew.imageNames || [])[0], 'gen_x_p1.jpg', '给了图名表 ⇒ 透传进 cfg（引擎据此引用）')
+}
+
+console.log('\n=== 13. V20：卡片「✏️ 编辑」= 命令拼装 + 批量执行 ===')
+{
+  eq(cmdOf(3, '标题', ' 刀起刀落/薄如纸片 '), '改 3 标题=刀起刀落/薄如纸片', '拼命令：两端空白去掉')
+  eq(cmdDel(5), '删 5', '删段命令')
+  eq(cmdMotion('活泼'), '动效=活泼', '动效命令')
+
+  const mkPlan = () => ({ meta: { theme: 'tea-green' }, segments: [
+    { kind: 'cover', layout: 'hero', title: ['甲', '乙'], points: [['a', 'b']], imgs: [1] },
+    { kind: 'feature', layout: 'split', title: ['丙', '丁'], points: [['c', 'd']], imgs: [2] },
+    { kind: 'end', layout: 'sticker', title: ['戊'], points: [], imgs: [3] },
+  ] })
+  const picks = [{ name: '1.jpg' }, { name: '2.jpg' }, { name: '3.jpg' }]
+
+  const b1 = applyEditBatch(mkPlan(), '改 2 标题=手切/羊肉\n改 1 标题=暮色/铜锅\n删 3', picks)
+  ok(b1.matched && b1.ok, '一次发三条（两改一删）⇒ 全部执行')
+  eq(b1.plan.segments.length, 2, '删掉一段后只剩 2 段')
+  eq(b1.plan.segments[0].title.join('/'), '暮色/铜锅', '第 1 段标题改到了')
+  eq(b1.plan.segments[1].title.join('/'), '手切/羊肉', '第 2 段标题也改到了')
+  ok(b1.msg.includes('已删掉第 3 段'), '汇总里写清删了哪一段')
+
+  // UI 的排序口径：先改后删（删按段号从大到小）⇒ 服务器顺序执行时不会"段号前移改错对象"
+  const b2 = applyEditBatch(mkPlan(), '改 3 标题=新的/结尾\n删 2', picks)
+  ok(b2.ok && b2.plan.segments[1].title.join('/') === '新的/结尾', '先改第 3 段再删第 2 段 ⇒ 改的是原第 3 段')
+
+  const b3 = applyEditBatch(mkPlan(), '改 2 标题=手切/羊肉\n这是一句普通聊天', picks)
+  ok(b3.matched && b3.ok, '一半命令一半闲聊 ⇒ 命令照样生效')
+  ok(b3.msg.includes('没生效'), '但**明说**那条没生效（绝不静默改一半）')
+
+  const b4 = applyEditBatch(mkPlan(), '这是一句普通聊天', picks)
+  ok(!b4.matched, '完全不是命令 ⇒ matched=false（交回主流程，本线不吞消息 —— V5 那条红线）')
+
+  const b5 = applyEditBatch(mkPlan(), '改 2 版式=四宫格', picks)
+  ok(b5.matched && !b5.ok, '第一条就不合法（1 张图排四宫格）⇒ 整批不执行并如实报错')
+
+  // 卡片载荷：编辑面板要回填的三件套
+  const pc = buildPlanCardPayload(mkPlan(), { picks, by: 'ai' })
+  ok(pc.segs.every((s) => 'kind' in s && 'layout' in s && 'label' in s), '方案卡每段带 kind/layout/label（面板回填用）')
+  const done = buildDoneCardPayload({ name: 'a.html', viewUrl: 'v', segs: 3, skin: 's', by: 'ai',
+    segsBrief: [{ i: 1, title: ['甲'], points: [], kind: 'cover', layout: 'hero' }] })
+  eq(done.segsBrief.length, 1, '交付卡带 segsBrief（交付之后仍能编辑）')
 }
 
 console.log(`\n结果：通过 ${pass} · 失败 ${fail}`)
