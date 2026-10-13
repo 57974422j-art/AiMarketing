@@ -2017,6 +2017,22 @@ function VfDailyDoneCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) 
   // ★VF_DAILY_V20：交付卡上的「✏️ 编辑」（段表由载荷里的 segsBrief 提供）
   const segsBrief: any[] = Array.isArray(vj?.segsBrief) ? vj.segsBrief : []
   const [showEdit, setShowEdit] = useState(false)
+  // ★VF_CLIENT_OPENLOCAL_V1（2026-10-14 用户定案「5 打包吧」）：本地打开（客户端新增能力）
+  const [localMsg, setLocalMsg] = useState('')
+  const openLocal = async () => {
+    const nm = String(vj?.plainName || '')
+    if (!nm) { setLocalMsg('这份没有配图版（只有单文件版），没法本地打开'); return }
+    if (!userId) { setLocalMsg('这个按钮只在**客户端**里有效（网页版没有本地仓库）'); return }
+    setLocalMsg('正在镜像页面与图到本地…')
+    // 先把**页面 + 它引用的每张图**镜像到本地（同一文件夹），再用系统默认程序打开
+    const names = [nm, ...(Array.isArray(vj?.imgNames) ? vj.imgNames.map((x: any) => String(x)) : [])].filter(Boolean)
+    for (const x of names) {
+      try { await (window as any).electronAPI?.storageMirror?.(`/api/storage/file?userId=${userId}&name=${encodeURIComponent(x)}`) } catch { /* 单张失败不打断 */ }
+    }
+    const r = await (window as any).electronAPI?.openLocalRepo?.(nm)
+    if (r && r.success) setLocalMsg('已用系统默认程序打开（离线看真图）：' + String(r.path || ''))
+    else setLocalMsg('打开失败：' + String((r && r.error) || '客户端不支持这个按钮（需要新版客户端）'))
+  }
   // ★VF_HTMLVIEW_V1（2026-10-13 用户实测「打开预览打不开报错，可能是不支持HTML格式；个人仓库也打不开」）：
   //   预览改成**站内同源**两条路，不再指望操作系统浏览器/客户端去开 OSS 外链：
   //     · apiView     → `/api/storage/file?…`（服务端流式直出 `text/html`）⇒ **卡内 iframe** 直接渲染；
@@ -2104,6 +2120,13 @@ function VfDailyDoneCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) 
               {showPv ? '▾ 收起预览' : '▶ 在卡里预览'}{vj?.plainUrl ? '（含真图）' : ''}
             </button>
           : null}
+        {/* ★VF_CLIENT_OPENLOCAL_V1：本地打开（客户端里点了会先镜像、再用系统浏览器打开 ⇒ 离线看真图） */}
+        {vj?.plainName
+          ? <button onClick={() => void openLocal()}
+              className="px-3 py-2 rounded-lg text-xs border border-white/15 text-gray-200 hover:bg-white/[0.08]">
+              📂 本地打开（离线看）
+            </button>
+          : null}
         {/* ★VF_DAILY_V20：交付后仍可改 —— 编辑面板（改文字/版式/类型、删段 ⇒ 回方案，再点确认重出） */}
         {segsBrief.length
           ? <button onClick={() => setShowEdit((v) => !v)}
@@ -2185,6 +2208,7 @@ function VfDailyDoneCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) 
             className="w-full text-[10px] bg-black/30 border border-white/10 rounded px-2 py-1 text-gray-400 mb-1" />
         )
         : null}
+      {localMsg ? <div className="text-[10px] text-amber-300 mt-1">{localMsg}</div> : null}
       <div className="text-[10px] text-gray-500 mt-1">{String(vj?.note || '')}</div>
     </div>
   )
