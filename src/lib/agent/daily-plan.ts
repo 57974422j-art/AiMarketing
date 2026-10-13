@@ -247,6 +247,13 @@ export function normSegs(raw: any, n: number, topic: string): { segs: any[]; add
       ? (layout === 'hero' ? 'overlay' : layout)
       : (PLAN_FORMS.indexOf(String(it.form)) >= 0 ? String(it.form) : 'overlay')
     const place = PLAN_PLACES.indexOf(String(it.place)) >= 0 ? String(it.place) : 'cover'
+    // ★V15（闸门②的"按构造消除"）：**空信息点的图文左右/竖排段 = 必然出现死空档**（用户截图那幅就是）。
+    //   这里不硬塞假信息点，直接换成"贴纸标题"（单图居中，没有空列）——空档就不存在了，且如实记进 fixes。
+    if (!pts.length && (layout === 'split' || layout === 'vertical')) {
+      const oldN = (PLAN_LAYOUTS.filter((x) => x.id === layout)[0] || {}).name || layout
+      layout = 'sticker'
+      fixes.push(`段${out.length + 1}：「${oldN}」没有信息点 ⇒ 换「贴纸标题」（避免大片空档）`)
+    }
     // ★L3：可选的"AI 自写段"（html/css）—— 只做体积截断，**合法性交给引擎的静态沙箱 + 真浏览器校验**
     const o: any = {
       kind, layout, form,
@@ -421,6 +428,21 @@ export function rerollPlan(plan: any, attempt = 1): { shifted: string } {
     if (String(s.layout) !== pk) { s.layout = pk; s.form = pk === 'hero' ? 'overlay' : pk }
   }
   return { shifted: '效果序 + 单图段结构' }
+}
+
+/**
+ * ★VF_DAILY_V15 · R5′（2026-10-13 用户定案「主题明确的图不怕遮挡、文字遮挡完全没关系」）：
+ *   按素材**平均亮度**决定这一段的暗衬档（纯函数、可单测）：
+ *     · 深色图（平均 <118）⇒ `none`：不加暗衬，白字靠**描边+阴影**（照片已经很深，再压暗就是把美食压黑）
+ *     · 亮图 ⇒ `soft`：走渐隐暗衬（白字在亮底上确实看不清）
+ *   ⚠️ 不是"随便允许压字"，而是**用数据换来的豁免**：亮度是服务端量出来的（ffmpeg 缩 1×1 灰度取字节），
+ *      渲染体检也只在 `data-scrim="none"` **且文字带阴影**时放行。
+ */
+export function scrimFor(lums: number[]): 'none' | 'soft' {
+  const v = (Array.isArray(lums) ? lums : []).filter((x) => typeof x === 'number' && x > 0)
+  if (!v.length) return 'soft'                    // 没量到 ⇒ 保守（保留暗衬）
+  const avg = v.reduce((a, b) => a + b, 0) / v.length
+  return avg < 118 ? 'none' : 'soft'
 }
 
 /** 把段数组组装成引擎配置（★L4：皮肤由 AI 挑，`theme` / `custom` 透传给引擎做对比度体检） */

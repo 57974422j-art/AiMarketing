@@ -12,7 +12,7 @@ import {
   buildPlanFromSegs, buildDailyPlan, formatDailyPlan, planDuration, layoutLabel, applyDailyEdit,
   buildPlanCardPayload, normTheme, themeName, PLAN_THEMES,
   embedImages, buildDoneCardPayload, rotateTheme, planFromCaptions, PLAN_PLACES, byLabel,
-  DAILY_FX, DAILY_FX_POOL, assignFx, planFingerprint, similarity, rerollPlan,
+  DAILY_FX, DAILY_FX_POOL, assignFx, planFingerprint, similarity, rerollPlan, scrimFor,
 } from './run/daily-plan.js'
 
 let pass = 0, fail = 0
@@ -406,6 +406,28 @@ console.log('\n=== 13. ★V13 多样性：效果序 / 指纹 / 相似度 / 重�
   ok(planFingerprint(p1, 'tea-green') !== before, '重掷后指纹确实变了（真的换了东西）')
   ok(p1.segments.every((s) => DAILY_FX_POOL.indexOf(s.fx) >= 0), '重掷后每段仍拿到合法效果（池内）')
   ok(similarity('', fp1) === 0, '没有上一份 ⇒ 相似度 0（首次做不触发重掷）')
+}
+
+console.log('\n=== 14. ★V15 R5′ 暗衬档 + 空列按构造消除 ===')
+{
+  eq(scrimFor([30, 60, 90]), 'none', '深色图 ⇒ 不加暗衬（白字本来就清楚）')
+  eq(scrimFor([200, 190]), 'soft', '亮图 ⇒ 保留渐隐暗衬（白字在亮底看不清）')
+  eq(scrimFor([90, 200]), 'soft', '一深一亮混段 ⇒ 保守（保留暗衬）')
+  eq(scrimFor([]), 'soft', '量不到亮度 ⇒ 保守（不赌）')
+  // ⚠️ 用 3 段样本（单段会被"首段=封面"等规则改写，不适合验这条）
+  const g = normSegs({ segments: [
+    { kind: 'cover', layout: 'hero', title: ['甲乙', '丙丁'], imgs: [1], points: [['甲', '乙']] },
+    { kind: 'feature', layout: 'split', title: ['戊己', '庚辛'], imgs: [2], points: [] },
+    { kind: 'end', layout: 'quote', title: ['壬癸', '子丑'], imgs: [3], points: [] },
+  ] }, 3, '')
+  eq(g.segs[1].layout, 'sticker', '空信息点的 split ⇒ 自动换贴纸标题（消灭空列）')
+  ok(g.fixes.some((x) => x.includes('空档')), '并如实记进 fixes', JSON.stringify(g.fixes))
+  const g2 = normSegs({ segments: [
+    { kind: 'cover', layout: 'hero', title: ['甲乙', '丙丁'], imgs: [1], points: [['甲', '乙']] },
+    { kind: 'feature', layout: 'split', title: ['戊己', '庚辛'], imgs: [2], points: [['甲', '乙']] },
+    { kind: 'end', layout: 'quote', title: ['壬癸', '子丑'], imgs: [3], points: [] },
+  ] }, 3, '')
+  eq(g2.segs[1].layout, 'split', '有信息点的 split 原样保留（不乱改）')
 }
 
 console.log(`\n结果：通过 ${pass} · 失败 ${fail}`)

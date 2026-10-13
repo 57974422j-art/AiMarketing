@@ -105,8 +105,17 @@ function measureFn() {
     if (sec.scrollWidth > sec.clientWidth + 1) over.push('x ' + sec.scrollWidth + '>' + sec.clientWidth)
     if (sec.scrollHeight > sec.clientHeight + 1) over.push('y ' + sec.scrollHeight + '>' + sec.clientHeight)
     // 压图：文字 ∩ 图片（文字自己有 ≥60% 不透明底衬则豁免）
+    // ★VF_DAILY_V15（2026-10-13 用户定案：R5′ —— 「主题明确的图不怕遮挡、文字遮挡完全没关系」）：
+    //   当服务端把该段标成 `data-scrim="none"`（= **量过图，确定是深色底**，服务端 scrimFor() 按亮度判定）
+    //   且文字自带**描边/阴影**时，**不再判压图**：深色照片本来就是白字最清楚的底，
+    //   再压一层暗衬反而把餐饮/美食压黑（用户：「餐饮需要亮，不要暗黑效果」）。
+    //   口径：不是"随便允许压字"，而是"**用数据换来的豁免**"（亮度是量出来的，不是 AI 说的）。
+    const noScrim = String(sec.dataset.scrim || '') === 'none'
     let hit = 0
     texts.forEach((t) => {
+      const cs = getComputedStyle(t.el)
+      const shadow = cs.textShadow && cs.textShadow !== 'none'
+      if (noScrim && shadow) return                       // R5′ 豁免（深色底 + 描边）
       const backer = (() => { let p = t.el; for (let k = 0; k < 4 && p && p !== document.body; k++) { if (alpha(getComputedStyle(p).backgroundColor) >= 0.6) return true; p = p.parentElement } return false })()
       if (backer) return
       imgs.forEach((m) => { if (m.el !== t.el && overlap(t.r, m.r) > Math.min(t.r.w * t.r.h, m.r.w * m.r.h) * 0.15) hit++ })

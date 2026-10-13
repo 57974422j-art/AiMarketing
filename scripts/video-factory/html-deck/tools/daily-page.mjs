@@ -405,7 +405,7 @@ function segBody(s, sc) {
     + (s.stamp ? `<span class="stamp">${esc(s.stamp)}</span>` : '') + `</div>`
   return `<section class="sec" data-seg="${sc.i + 1}" data-start="${sc.start}" data-duration="${sc.dur}"`
     + ` data-place="${esc(s.place || 'cover')}" data-form="${esc(form)}" data-layout="${layout}"`
-    + ` data-fx="${fx}" data-fv="${fv}">`
+    + ` data-fx="${fx}" data-fv="${fv}" data-scrim="${esc(s.scrim || 'soft')}">`
     + head
     + `<h2>${title}</h2>`
     + `<div class="figs n${imgs.length}">${figs}</div>`
@@ -578,6 +578,14 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
   /* ★R5′ 半步：暗衬改**渐隐**（上淡下浓）—— 餐饮/美食要亮，别整块压黑（用户定案口径） */
   .sec[data-form="overlay"]::after{background:linear-gradient(to bottom,
     transparent 0%, var(--scrim) 42%, var(--scrim) 100%)}
+  /* ═══ ★VF_DAILY_V15 · R5′（2026-10-13 用户定案「主题明确的图不怕遮挡，文字遮挡完全没关系」）═══
+     服务端量过每张图的**平均亮度**：深色底（<118）的段标 data-scrim="none" ⇒ **整块暗衬拿掉**
+     （白字在深色照片上本来就清楚，再压暗衬只会把餐饮/美食压黑），改用**描边+阴影**保证可读；
+     亮底图仍走上面的渐隐暗衬（那里白字确实看不清）。
+     ⚠️ 这是"用数据换来的豁免"：渲染体检（daily-verify.mjs）只在 scrim=none **且文字有阴影**时放行。 */
+  .sec[data-scrim="none"]::after{display:none}
+  .sec[data-scrim="none"] h2,.sec[data-scrim="none"] .cols{background:transparent;
+    text-shadow:0 2px 12px rgba(0,0,0,.75), 0 0 3px rgba(0,0,0,.65)}
   .sec[data-form="overlay"] h2{background:none;color:#fff;padding:.06em .26em .12em}
   .sec[data-form="overlay"] h2 em{box-shadow:inset 0 -.18em 0 rgba(230,150,120,.5)}
   .sec[data-form="overlay"] .cols{background:none;color:#fff;border-top:0;

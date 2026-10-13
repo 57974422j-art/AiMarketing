@@ -36,7 +36,7 @@ import { listAllObjects } from '@/lib/oss'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 import { dashscopeFunctionCall } from '@/lib/ai-providers'
 // ★纯函数层（零依赖、可单测：temp/_exp/daily/test-plan.mjs）
-import { DAILY_STYLE, aiPrompt, extractJson, normSegs, normMotion, normTheme, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan } from './daily-plan'
+import { DAILY_STYLE, aiPrompt, extractJson, normSegs, normMotion, normTheme, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor } from './daily-plan'
 import type { PlanBy } from './daily-plan'
 
 export { DAILY_STYLE }
@@ -492,6 +492,32 @@ async function rememberSkin(prisma: any, uid: number | string, theme: string): P
   } catch { /* 记不住不影响交付 */ }
 }
 
+/**
+ * ★VF_DAILY_V15 · R5′：量一张图的**平均亮度**（0~255）—— ffmpeg 缩成 1×1 灰度、读那 1 个字节。
+ * 便宜（几十毫秒）、确定（同图同值）、不引新依赖；读不到就返回 0（调用方按"没量到"保守处理）。
+ * ⚠️ 临时文件必须带正确后缀（`.jpg`）—— 早先我自己拼的 `.img` 让 ffmpeg 判 Invalid data（踩过）。
+ */
+async function pickLum(p: DailyPick): Promise<number> {
+  try {
+    let buf: Buffer | null = null
+    if (p.local && p.abs && fs.existsSync(p.abs)) buf = fs.readFileSync(p.abs)
+    else {
+      const { signedUrl } = await import('@/lib/oss')
+      const u = await signedUrl(p.key, 300)
+      const r = await fetch(u)
+      if (r.ok) buf = Buffer.from(await r.arrayBuffer())
+    }
+    if (!buf || !buf.length) return 0
+    const tin = path.join(os.tmpdir(), `dl_${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`)
+    try {
+      fs.writeFileSync(tin, buf)
+      const out = spawnSync('ffmpeg', ['-v', 'error', '-i', tin, '-vf', 'format=gray,scale=1:1', '-f', 'rawvideo', '-'], { timeout: 8000 })
+      const b = out.stdout
+      return b && b.length ? b[0] : 0
+    } finally { try { fs.unlinkSync(tin) } catch { /* ignore */ } }
+  } catch { return 0 }
+}
+
 /** ★VF_DAILY_V5：挑完图 → AI 看素材排方案 → 返回"方案确认"回复。
  *  卡片协议串与"文字回序号"两条入口**共用这一份**（免得两处各排一遍、行为漂移）。 */
 async function runPlan(ctx: DailyCtx, d: DailyDraft, src: DailySource, picked: string[], note0 = ''): Promise<string> {
@@ -562,6 +588,17 @@ async function runPlan(ctx: DailyCtx, d: DailyDraft, src: DailySource, picked: s
     ctx.log?.(uid, `[日报落地页] 皮肤 ${themeName(rot.theme)}${rot.rotated ? '（轮换：上次 ' + (themeName(rot.from) || '无') + '）' : ''}`
       + (recent.length ? ' ｜ 近几次：' + recent.slice(0, 3).map(themeName).join(' → ') : ''))
   } catch { /* ignore */ }
+  // ★VF_DAILY_V15 · R5′：量每张图的平均亮度 ⇒ 按段定暗衬档（深色图不加暗衬，白字靠描边+阴影）
+  try {
+    const lums = await Promise.all(picks.map((p) => pickLum(p)))
+    const byIdx = new Map<number, number>(picks.map((p, i) => [i + 1, lums[i]]))
+    plan.segments.forEach((s: any) => { s.scrim = scrimFor((s.imgs || []).map((x: number) => byIdx.get(x) || 0)) })
+    try {
+      const noScrim = plan.segments.map((s: any, i: number) => (s.scrim === 'none' ? i + 1 : 0)).filter(Boolean)
+      ctx.log?.(uid, `[日报落地页] R5′ 亮度 ${lums.map((v, i) => '#' + (i + 1) + '=' + v).join(' ')}`
+        + ` ｜ 不加暗衬的段：${noScrim.join(',') || '无'}`)
+    } catch { /* ignore */ }
+  } catch { /* 量不到 ⇒ 全走 soft（保守） */ }
   attachSrc(plan, picks)
   d.plan = plan
   d.planBy = by
