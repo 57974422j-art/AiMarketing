@@ -354,6 +354,57 @@ export function planFromCaptions(captions: string, n: number, topic = ''): { seg
   return { segments, used: Object.keys(caps).length }
 }
 
+/**
+ * ★VF_DAILY_V13（2026-10-13 用户：「我要的是**效果和多样性，低相似度**」）：
+ *   把"多样性"做成**可判定 + 可自愈**的三件套（纯函数、可单测）：
+ *     ① 效果序由服务端排（进计划 ⇒ 引擎照用，且能参与指纹）；
+ *     ② 给每份产物算**指纹**（皮肤 + 结构序 + 效果序）；
+ *     ③ 与**上一份**比相似度，太像就**重掷**（换效果序 / 换单图段结构 / 换皮肤），并如实告知。
+ */
+export const DAILY_FX = ['zout', 'zin', 'pan', 'slats', 'blinds', 'mosaic']
+/** 按 offset 轮换效果序（相邻段必然不同；offset 不同 ⇒ 两份片子的效果序不同） */
+export function assignFx(segs: any[], offset = 0): void {
+  const n = DAILY_FX.length
+  segs.forEach((s, i) => { s.fx = DAILY_FX[(((offset + i) % n) + n) % n] })
+}
+export function planFingerprint(plan: any, skin = ''): string {
+  const segs: any[] = Array.isArray(plan?.segments) ? plan.segments : []
+  return [
+    String(skin || plan?.meta?.theme || ''),
+    segs.map((s) => String(s.layout || '-')).join(','),
+    segs.map((s) => String(s.fx || '-')).join(','),
+  ].join('|')
+}
+/** 相似度 0~1（皮肤 20% / 结构序 50% / 效果序 30%）—— 只比"看得见的骨架"，不比文案 */
+export function similarity(a: string, b: string): number {
+  if (!a || !b) return 0
+  const pa = a.split('|'), pb = b.split('|')
+  if (pa.length < 3 || pb.length < 3) return 0
+  const same = (x: string, y: string) => (x && y && x === y ? 1 : 0)
+  const seq = (x: string, y: string) => {
+    const xs = x.split(','), ys = y.split(',')
+    if (!xs.length || !ys.length) return 0
+    let hit = 0
+    for (let i = 0; i < Math.min(xs.length, ys.length); i++) if (xs[i] === ys[i]) hit++
+    return hit / Math.max(xs.length, ys.length)
+  }
+  return 0.2 * same(pa[0], pb[0]) + 0.5 * seq(pa[1], pb[1]) + 0.3 * seq(pa[2], pb[2])
+}
+/** 重掷：换效果序偏移；单图段结构整体错位轮换（不动多图段，免得跟图数打架） */
+export function rerollPlan(plan: any, attempt = 1): { shifted: string } {
+  const segs: any[] = Array.isArray(plan?.segments) ? plan.segments : []
+  assignFx(segs, attempt * 2 + 1)
+  const ROT = ['hero', 'sticker', 'vertical', 'split']
+  let r = attempt
+  for (let i = 0; i < segs.length; i++) {
+    const s = segs[i]
+    if ((s.imgs || []).length !== 1) continue
+    const pk = ROT[(r++) % ROT.length]
+    if (String(s.layout) !== pk) { s.layout = pk; s.form = pk === 'hero' ? 'overlay' : pk }
+  }
+  return { shifted: '效果序 + 单图段结构' }
+}
+
 /** 把段数组组装成引擎配置（★L4：皮肤由 AI 挑，`theme` / `custom` 透传给引擎做对比度体检） */
 export function buildPlanFromSegs(segs: any[], topicRaw: string, motion = 'normal', theme?: string, custom?: any): any {
   const topic = String(topicRaw || '').trim().slice(0, 24)

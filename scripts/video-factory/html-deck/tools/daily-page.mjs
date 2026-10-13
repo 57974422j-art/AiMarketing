@@ -203,7 +203,7 @@ const LAYOUTS = {
 const FORM_IDS = { hero: 'overlay', sticker: 'sticker', vertical: 'vertical' }
 // ★VF_DAILY_V11：**图片动效轮换**（按段序，确定性）—— 治用户「不要都一个效果吧，这个效果感觉有点怪」。
 //   zout=回拉（原效果）· zin=推近 · pan=横移取景。三种都用同一套"外框=图框"的几何（见 CSS）。
-const FX = ['zout', 'zin', 'pan']
+const FX = ['zout', 'zin', 'pan', 'slats', 'blinds', 'mosaic']
 const layoutOf = (s) => {
   const l = String(s.layout || '')
   if (LAYOUTS[l]) return l
@@ -312,6 +312,58 @@ const AI_CSS = []
 const AI_FALLBACKS = []
 const AI_USED = []
 
+// ★VF_DAILY_V13（2026-10-13 用户：「我要的是效果和多样性，低相似度」）：
+//   每份产物的动效**起始偏移**不同（seed 由本片的 meta + 每段图号算出来，确定性 ⇒ 同输入同结果、
+//   不同输入顺序不同）—— 这样"上一份 vs 这一份"不会连动效顺序都一模一样。
+const FX_SEED = (() => {
+  try {
+    const key = JSON.stringify(cfg.meta || {}) + '|' + segs.map((s) => (s.imgs || []).join('-')).join(',')
+    let h = 5381
+    for (let i = 0; i < key.length; i++) h = ((h * 33) ^ key.charCodeAt(i)) >>> 0
+    return h % FX.length
+  } catch { return 0 }
+})()
+
+/**
+ * 图槽 HTML。三种"切分型"入场（条分 / 百叶 / 拼片）单独出结构：
+ *   · 用 CSS 变量 --imgN（在 :root 里**只写一次** url(images/N.jpg)）＋ background-position 取景，
+ *     把整图切成 N 块显示 ⇒ **单文件内嵌时 base64 只出现一次**（体积不翻倍）。
+ *   · 揭示只用 clip-path（不改元素外框）⇒ 不会把"越界"闸门顶翻。
+ *   · 切分型没有 img 元素：图缺失时只是不上色，露出 .fig 的渐变占位（不裂图）。
+ */
+function figHTML(n, fx) {
+  const bg = `background:var(--g${n % 3})`
+  if (fx === 'slats' || fx === 'blinds') {
+    const N = fx === 'slats' ? 5 : 4
+    const w = 100 / N
+    let out = ''
+    for (let i = 0; i < N; i++) {
+      const p = i * w
+      const d = (i * 0.05).toFixed(3)
+      const pos = ((i / Math.max(1, N - 1)) * 100).toFixed(2)
+      out += fx === 'slats'
+        ? `<i class="vc" style="left:${p.toFixed(3)}%;width:${w.toFixed(3)}%;--d:${d};background-size:${N * 100}% 100%;background-position:${pos}% 0"></i>`
+        : `<i class="vc" style="top:${p.toFixed(3)}%;height:${w.toFixed(3)}%;--d:${d};background-size:100% ${N * 100}%;background-position:0 ${pos}%"></i>`
+    }
+    return `<div class="fig vfx" style="${bg};--img:var(--img${n})">${out}</div>`
+  }
+  if (fx === 'mosaic') {
+    const N = 3, w = 100 / N
+    let out = ''
+    for (let r = 0; r < N; r++) {
+      for (let c = 0; c < N; c++) {
+        const d = ((r * N + c) * 0.04).toFixed(3)
+        const px = ((c / (N - 1)) * 100).toFixed(2)
+        const py = ((r / (N - 1)) * 100).toFixed(2)
+        out += `<i class="vc" style="left:${(c * w).toFixed(3)}%;top:${(r * w).toFixed(3)}%;width:${w.toFixed(3)}%;height:${w.toFixed(3)}%;--d:${d};background-size:${N * 100}% ${N * 100}%;background-position:${px}% ${py}%"></i>`
+      }
+    }
+    return `<div class="fig vfx" style="${bg};--img:var(--img${n})">${out}</div>`
+  }
+  return `<div class="fig" style="${bg}">`
+    + `<img class="ph" src="${IMG_DIR}/${n}.jpg" alt="" loading="lazy" onerror="this.remove()"></div>`
+}
+
 function segBody(s, sc) {
   const n = sc.i + 1
   // ★L3：AI 自写段优先（开关 + 静态沙箱都过才用）—— 不过就**只有这一段**回落 L2 结构
@@ -334,15 +386,17 @@ function segBody(s, sc) {
   // ★VF_DAILY_L2：每段图数按**该结构**的上限收（grid4 可到 4 张）
   const imgs = (Array.isArray(s.imgs) ? s.imgs : []).slice(0, lim.maxImg)
   // ★VF_DAILY_V2：图槽真的挂上 images/N.jpg（缺图时 onerror 自己摘掉 ⇒ 退回渐变占位，不裂图）
-  const figs = imgs.map((n) => `<div class="fig" style="background:var(--g${n % 3})">`
-    + `<img class="ph" src="${IMG_DIR}/${n}.jpg" alt="" loading="lazy" onerror="this.remove()"></div>`).join('')
+  // ★V13：动效按"份 seed + 段序"取（不再所有段一个效果；每份片子的顺序也不同）
+  //   ★V13b：**服务端排好的 s.fx 优先**（它要拿这个序列做"与上一份相似度"自检与重掷）；没给才自己轮换。
+  const fx = FX.indexOf(String(s.fx || '')) >= 0 ? String(s.fx) : FX[(FX_SEED + sc.i) % FX.length]
+  const figs = imgs.map((n) => figHTML(n, fx)).join('')
   const pts = (Array.isArray(s.points) ? s.points : []).slice(0, 3)
     .map((p) => `<div class="col"><b>${esc(p && p[0])}</b><i>${esc(p && p[1])}</i></div>`).join('')
   const head = `<div class="head"><span class="kick">${esc(s.kicker || '')}</span>`
     + (s.stamp ? `<span class="stamp">${esc(s.stamp)}</span>` : '') + `</div>`
   return `<section class="sec" data-seg="${sc.i + 1}" data-start="${sc.start}" data-duration="${sc.dur}"`
     + ` data-place="${esc(s.place || 'cover')}" data-form="${esc(form)}" data-layout="${layout}"`
-    + ` data-fx="${FX[sc.i % FX.length]}">`
+    + ` data-fx="${fx}">`
     + head
     + `<h2>${title}</h2>`
     + `<div class="figs n${imgs.length}">${figs}</div>`
@@ -353,6 +407,17 @@ function segBody(s, sc) {
 // ⚠️ 顺序很重要：**先把每段渲染出来**（AI 段的 CSS 会在这步被收集进 AI_CSS），
 //    再拼 HTML 模板 —— 否则 <style> 里的 `${AI_CSS}` 取值时还是空的（模板是从上往下算的）。
 const BODIES = segs.map((s, i) => segBody(s, scenes[i]))
+
+// ★VF_DAILY_V13：把用到的每张图**只声明一次**（切分型入场靠它取景；单文件内嵌时同一张图的
+//   base64 也就只出现一次 ⇒ 体积不因"切成 5 条"而翻 5 倍）。
+const IMG_VARS = (() => {
+  let maxN = 1
+  segs.forEach((s) => (s.imgs || []).forEach((x) => { if (x > maxN) maxN = x }))
+  maxN = Math.min(24, maxN)
+  const out = []
+  for (let i = 1; i <= maxN; i++) out.push(`--img${i}:url(${IMG_DIR}/${i}.jpg);`)
+  return out.join(' ')
+})()
 
 const html = `<!DOCTYPE html>
 <html lang="zh-CN" data-mode="preview">
@@ -373,6 +438,8 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
     --paper:${TH.paper}; --paper2:${TH.paper2}; --ink:${TH.ink}; --dim:${TH.dim};
     --rule:${TH.accent}; --line:${TH.line}; --scrim:${TH.scrim}; --on-accent:${TH.onAccent};
     --dots:${inkAlpha(TH.ink, 0.05)};
+    /* ★VF_DAILY_V13：每张图声明一次（切分型入场 / 单文件内嵌体积都靠这条） */
+    ${IMG_VARS}
     --fbody:${TH.font === 'sans' ? '"Noto Sans SC",system-ui,"PingFang SC",sans-serif' : '"Noto Serif SC","Songti SC",Georgia,serif'};
     --fsans:"Noto Sans SC",system-ui,sans-serif;
     --pad:clamp(24px,3.6vmin,50px); --gap:clamp(14px,2vmin,26px);
@@ -449,6 +516,14 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
      object-position 只改**框内**取景，不动元素的框 ⇒ 不会露边。 */
   .sec[data-fx="zin"] .fig .ph{--z:calc(1 + (var(--mz) - 1)*var(--sp))}
   .sec[data-fx="pan"] .fig .ph{--z:1.06;object-position:calc(34% + 32% * var(--sp)) 50%}
+  /* ═══ ★VF_DAILY_V13 切分型入场：条分(slats) / 百叶(blinds) / 拼片(mosaic) ═══
+     每块 .vc 用 --img（=var(--imgN)，整图只声明一次）＋ background-size/position 取景，
+     揭示只用 clip-path（自顶向下展开，按 --d 错峰）—— 不动元素外框 ⇒ 不触发越界闸门，
+     也不会把"覆盖率"弄乱（切分型没有 img.ph，探针自然跳过它）。 */
+  .fig.vfx .vc{position:absolute;background-image:var(--img);background-repeat:no-repeat;
+    clip-path:inset(calc(100% * (1 - clamp(0, calc((var(--sp) - var(--d)) * 3.6), 1))) 0 0 0)}
+  /* 拼片/条分在"完全展开"后不该有缝：用 0.6px 的负向外描边把接缝压住 */
+  .fig.vfx .vc{outline:0.6px solid transparent;outline-offset:-0.6px}
   /* ⚠️ 这里踩过两次（都是探针抓出来的，闸门看不见）：
      ① 内缩写死按 --mz（不跟当前缩放）⇒ 动画末尾图只铺 93.5%，四周露一圈边；
      ② 想用 inset + width:auto;height:auto 让图自动收缩 —— img 是 **replaced element**，

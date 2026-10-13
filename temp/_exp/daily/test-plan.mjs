@@ -12,6 +12,7 @@ import {
   buildPlanFromSegs, buildDailyPlan, formatDailyPlan, planDuration, layoutLabel, applyDailyEdit,
   buildPlanCardPayload, normTheme, themeName, PLAN_THEMES,
   embedImages, buildDoneCardPayload, rotateTheme, planFromCaptions, PLAN_PLACES, byLabel,
+  DAILY_FX, assignFx, planFingerprint, similarity, rerollPlan,
 } from './run/daily-plan.js'
 
 let pass = 0, fail = 0
@@ -382,6 +383,28 @@ console.log('\n=== 12. ★V12 看图摘要兜底 planFromCaptions + place=contai
   const g = normSegs({ segments: [{ kind: 'cover', layout: 'hero', title: ['甲乙', '丙丁'], imgs: [1], points: [], place: 'contain' }] }, 3, '')
   eq(g.segs[0].place, 'contain', 'AI 写 place=contain 会被保留（不再被改回 cover）')
   ok(layoutLabel({ kind: 'feature', imgs: [1], layout: 'split', place: 'contain' }).includes('整张不裁'), '清单里写"整张不裁"')
+}
+
+console.log('\n=== 13. ★V13 多样性：效果序 / 指纹 / 相似度 / 重掷 ===')
+{
+  const mk = (layouts) => ({ meta: { theme: 'tea-green' }, segments: layouts.map((l) => ({ layout: l, imgs: [1] })) })
+  const p1 = mk(['hero', 'vertical', 'split', 'sticker'])
+  assignFx(p1.segments, 0)
+  ok(p1.segments.map((s) => s.fx).join(',') === DAILY_FX.slice(0, 4).join(','), '效果序按 offset 轮换（相邻段不同）')
+  const p2 = mk(['hero', 'vertical', 'split', 'sticker']); assignFx(p2.segments, 3)
+  ok(p2.segments[0].fx !== p1.segments[0].fx, 'offset 不同 ⇒ 效果序整体平移（两份不会一模一样）')
+  const fp1 = planFingerprint(p1, 'tea-green')
+  ok(similarity(fp1, fp1) >= 0.999, '自己和自己 ≈ 100%')
+  const sFx = similarity(planFingerprint(p2, 'tea-green'), fp1)
+  ok(sFx > 0 && sFx < 1, '只换效果序 ⇒ 相似度在 0~1 之间（结构占大头）', sFx.toFixed(2))
+  const p3 = mk(['quote', 'grid3', 'stack2', 'grid4']); assignFx(p3.segments, 5)
+  const sAll = similarity(planFingerprint(p3, 'night-gold'), fp1)
+  ok(sAll < 0.35, '结构+皮肤+效果都不同 ⇒ 明显不像（<35%）', sAll.toFixed(2))
+  const before = planFingerprint(p1, 'tea-green')
+  rerollPlan(p1, 1)
+  ok(planFingerprint(p1, 'tea-green') !== before, '重掷后指纹确实变了（真的换了东西）')
+  ok(p1.segments.every((s) => DAILY_FX.indexOf(s.fx) >= 0), '重掷后每段仍拿到合法效果')
+  ok(similarity('', fp1) === 0, '没有上一份 ⇒ 相似度 0（首次做不触发重掷）')
 }
 
 console.log(`\n结果：通过 ${pass} · 失败 ${fail}`)

@@ -36,7 +36,7 @@ import { listAllObjects } from '@/lib/oss'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 import { dashscopeFunctionCall } from '@/lib/ai-providers'
 // ★纯函数层（零依赖、可单测：temp/_exp/daily/test-plan.mjs）
-import { DAILY_STYLE, aiPrompt, extractJson, normSegs, normMotion, normTheme, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel } from './daily-plan'
+import { DAILY_STYLE, aiPrompt, extractJson, normSegs, normMotion, normTheme, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan } from './daily-plan'
 import type { PlanBy } from './daily-plan'
 
 export { DAILY_STYLE }
@@ -447,6 +447,29 @@ function materialsReply(d: DailyDraft, names: string[], src: DailySource): strin
  * 失败**不影响**交付（记不住就退化成"每次都按 seed 挑"，绝不因为写库失败拦住用户）。
  */
 const SKIN_TAG = '日报皮肤'
+// ★VF_DAILY_V13：上一份的**指纹**（皮肤+结构序+效果序）—— 用来判"这份和上一份像不像"，太像就重掷
+const FP_TAG = '日报指纹'
+async function lastFp(prisma: any, uid: number | string): Promise<string> {
+  try {
+    const rows = await prisma.agentMemory.findMany({
+      where: { userId: { in: [String(uid), String(Number(uid) || 0)] }, tags: { contains: FP_TAG } },
+      orderBy: { updatedAt: 'desc' }, take: 1,
+    })
+    return String((rows || [])[0]?.content || '')
+  } catch { return '' }
+}
+async function rememberFp(prisma: any, uid: number | string, fp: string): Promise<void> {
+  if (!fp) return
+  try {
+    const rows = await prisma.agentMemory.findMany({
+      where: { userId: { in: [String(uid), String(Number(uid) || 0)] }, tags: { contains: FP_TAG } },
+      orderBy: { updatedAt: 'desc' }, take: 1,
+    })
+    const first = (rows || [])[0]
+    if (first) await prisma.agentMemory.update({ where: { id: first.id }, data: { content: fp } })
+    else await prisma.agentMemory.create({ data: { userId: String(uid), content: fp, tags: FP_TAG } })
+  } catch { /* 记不住不影响交付 */ }
+}
 async function recentSkins(prisma: any, uid: number | string): Promise<string[]> {
   try {
     const rows = await prisma.agentMemory.findMany({
@@ -511,6 +534,30 @@ async function runPlan(ctx: DailyCtx, d: DailyDraft, src: DailySource, picked: s
     }
   }
   if (rot.theme) await rememberSkin(ctx.prisma, uid, rot.theme)
+  // ★VF_DAILY_V13（用户：「低相似度」）：① 先按"素材+主题"的稳定散列排**效果序**（每份不同）；
+  //   ② 与**上一份**比相似度（皮肤 20% / 结构序 50% / 效果序 30%），>0.70 就**重掷**（换效果序+单图段结构），
+  //      取"更不像"的那次；③ 记下这一份的指纹，供下一份比较。
+  assignFx(plan.segments, (() => {
+    let h = 5381
+    const key = picked.join('|') + '|' + (d.topic || '')
+    for (let i = 0; i < key.length; i++) h = ((h * 33) ^ key.charCodeAt(i)) >>> 0
+    return h
+  })())
+  const fpPrev = await lastFp(ctx.prisma, uid)
+  let sim = similarity(planFingerprint(plan, rot.theme), fpPrev)
+  let rerollNote = ''
+  for (let k = 1; k <= 2 && sim > 0.7; k++) {
+    rerollPlan(plan, k)
+    const s2 = similarity(planFingerprint(plan, rot.theme), fpPrev)
+    if (s2 < sim) { sim = s2; rerollNote = `与上一份相似度 ${(sim * 100).toFixed(0)}% ⇒ 已重掷（效果序 + 单图段结构）` }
+    else break
+  }
+  if (!rerollNote && fpPrev && sim > 0.7) rerollNote = `与上一份仍像 ${(sim * 100).toFixed(0)}%（素材/主题太接近时难免，可回「重选」换一批图）`
+  await rememberFp(ctx.prisma, uid, planFingerprint(plan, rot.theme))
+  try {
+    ctx.log?.(uid, `[日报落地页] 多样性自检：与上一份相似度 ${(sim * 100).toFixed(0)}%`
+      + (rerollNote ? ' ⇒ ' + rerollNote : '') + ' ｜ 效果序 ' + plan.segments.slice(0, 6).map((s: any) => s.fx).join('/'))
+  } catch { /* ignore */ }
   try {
     ctx.log?.(uid, `[日报落地页] 皮肤 ${themeName(rot.theme)}${rot.rotated ? '（轮换：上次 ' + (themeName(rot.from) || '无') + '）' : ''}`
       + (recent.length ? ' ｜ 近几次：' + recent.slice(0, 3).map(themeName).join(' → ') : ''))
@@ -526,6 +573,8 @@ async function runPlan(ctx: DailyCtx, d: DailyDraft, src: DailySource, picked: s
   const extra: string[] = []
   // ★VF_DAILY_V9：轮换过就**明说**（用户要能看见"这次跟上次不一样"，否则还是觉得像同款）
   if (rot.rotated) extra.push('皮肤轮换：上次「' + (themeName(rot.from) || '未记录') + '」→ 这次「' + themeName(rot.theme) + '」')
+  // ★V13：把"多样性自检"的结果也如实写在卡上（用户要的正是"看着别像"）
+  if (rerollNote) extra.push(rerollNote)
   if (note0) extra.push(note0.replace(/\*\*/g, ''))
   if (ai.ok && !ai.sawImages) extra.push('这轮没看成图：' + (ai.vlErr || '未知原因') + '（方案按主题/序号排，文案请自己核一遍）')
   // ★L2：AI 给的结构与图数打架 / 整份结构太单一 ⇒ 我校正过，**如实写进卡头**（不闷着改）
