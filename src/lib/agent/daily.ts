@@ -1055,7 +1055,10 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
         return '⚠️ 这一单还不能出片：'
           + (d.step !== 'done'
             ? '还没生成 HTML（先点「✅ 生成 HTML」）。'
-            : '没有**单文件版**（出片只认"图已内嵌"的单文件版）—— 回上一步重新生成一份即可。')
+            : '（出片只认"图已内嵌"的**单文件版**）\n'
+              + '原因通常是这两种：① 这份页是**旧版本**（本次出片功能上线前）生成的 —— 旧草稿里不会记单文件版；'
+              + '② 单文件版当时没生成成功（图太多、超过内嵌预算）。\n'
+              + '**回上一步重新生成一份**（约 1 分钟）就能出片了。')
       }
       const { startDailyFilm, findRunningDailyFilm } = await import('./daily-film')
       const running = findRunningDailyFilm(uid)

@@ -2143,14 +2143,22 @@ function VfDailyDoneCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) 
             </a>
           : null}
         {/* ★VF_DAILYFILM_V2（2026-10-14 用户定案「先做1」）：**🎬 出片** —— 把这份日报页渲成视频。
-            只在"有单文件版"（`embedded>0`）时给：出片工具只认"图已内嵌"的单文件版（服务端还会再校验一次，
-            配图版会明确回绝，不会悄悄出个"图全丢"的片）。 */}
+            ⚠️ 口径修正（2026-10-14 用户实测「没有看到前台有出片按键」）：**这个按钮永远显示**。
+            原来只在 `embedded>0`（有单文件版）时才给 ⇒ 那份页的单文件版一旦没生成成功，按钮就**静默消失**，
+            用户只会以为"功能没上"，**完全不知道是为什么**（这次实测就是这么踩的）。
+            现在：没有单文件版 ⇒ 按钮**置灰 + 写明原因 + 告诉他怎么办**（回上一步重新生成一份）。 */}
         {Number(vj?.embedded) > 0 ? (
           <button onClick={() => onSend('VF_DAILY_FORM:' + JSON.stringify({ at: 'film' }))}
             className="px-3 py-2 rounded-lg text-xs border border-sky-400/40 text-sky-200 hover:bg-sky-500/10">
             🎬 出片（约 2 分钟）
           </button>
-        ) : null}
+        ) : (
+          <button disabled
+            title="出片只认「单文件版」（图已内嵌的那份）。这一单没有单文件版记录 —— 回上一步重新生成一份即可。"
+            className="px-3 py-2 rounded-lg text-xs border border-white/10 text-gray-500 cursor-not-allowed">
+            🎬 出片（需重新生成一份）
+          </button>
+        )}
         <button onClick={() => onSend('日报落地页')}
           className="px-3 py-2 rounded-lg text-xs border border-white/15 text-gray-200 hover:bg-white/[0.08]">
           🔁 再做一份
