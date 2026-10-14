@@ -2142,6 +2142,15 @@ function VfDailyDoneCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) 
               ↗ 新窗口打开
             </a>
           : null}
+        {/* ★VF_DAILYFILM_V2（2026-10-14 用户定案「先做1」）：**🎬 出片** —— 把这份日报页渲成视频。
+            只在"有单文件版"（`embedded>0`）时给：出片工具只认"图已内嵌"的单文件版（服务端还会再校验一次，
+            配图版会明确回绝，不会悄悄出个"图全丢"的片）。 */}
+        {Number(vj?.embedded) > 0 ? (
+          <button onClick={() => onSend('VF_DAILY_FORM:' + JSON.stringify({ at: 'film' }))}
+            className="px-3 py-2 rounded-lg text-xs border border-sky-400/40 text-sky-200 hover:bg-sky-500/10">
+            🎬 出片（约 2 分钟）
+          </button>
+        ) : null}
         <button onClick={() => onSend('日报落地页')}
           className="px-3 py-2 rounded-lg text-xs border border-white/15 text-gray-200 hover:bg-white/[0.08]">
           🔁 再做一份
@@ -2880,6 +2889,61 @@ function AgentPageInner() {
           }
         }
       } catch {}
+    }, 6000)
+    return () => { stopped = true; clearInterval(iv) }
+  }, [messages, user?.id])
+
+  // ★VF_DAILYFILM_V2（2026-10-14 用户定案「先做1」）：**日报出片**自动轮询 —— 范式同上面的 make_ai_video。
+  //   为什么必须有它：出片一次 ~125s > 客户端 120s 超时 ⇒ 服务端立刻回执（消息里带 VF_DAILY_FILM_TASK:{id}）
+  //   后台跑 ⇒ 前端每 6s 问一次进度，done 推成片卡、failed 推错误（带 tail）。
+  const handledDailyFilms = useRef(new Set<string>())
+  useEffect(() => {
+    const lastDf = [...messages].reverse().find(m => m.role === 'assistant' && m.content && m.content.includes('VF_DAILY_FILM_TASK:'))
+    if (!lastDf) return
+    const mDf = (lastDf.content || '').match(/VF_DAILY_FILM_TASK:(\{[^\n]*\})/)
+    if (!mDf) return
+    let tid = ''
+    try { tid = String(JSON.parse(mDf[1])?.id || '') } catch { tid = '' }
+    if (!tid) return
+    if (handledDailyFilms.current.has(tid)) return
+    let stopped = false
+    let ticks = 0
+    const iv = setInterval(async () => {
+      ticks++
+      if (ticks > 300) {
+        clearInterval(iv)
+        if (!stopped) {
+          setMessages(prev => [...prev, { id: 'df-' + Date.now(), role: 'assistant',
+            content: '⏱️ 这条出片任务等太久了（超过 30 分钟还没有结果）——可能服务器忙或中途中断了。\n可以让我重新出一次。' }])
+        }
+        return
+      }
+      try {
+        const r = await fetch('/api/agent/daily-film-status?userId=' + (user?.id || '') + '&taskId=' + tid, { credentials: 'include' }).then(x => x.json())
+        const t = r?.task
+        if (!t) return
+        if (t.status === 'done') {
+          clearInterval(iv)
+          handledDailyFilms.current.add(tid)
+          if (!stopped) {
+            setMessages(prev => {
+              const dup = prev.some((m: any) => typeof m.content === 'string'
+                && m.content.startsWith('VF_DAILY_FILM_DONE:') && m.content.includes(tid))
+              if (dup) return prev
+              return [...prev, { id: 'df-' + Date.now(), role: 'assistant',
+                content: 'VF_DAILY_FILM_DONE:' + JSON.stringify({ taskId: tid, url: t.url || '', repoName: t.repoName || '', elapsedSec: t.elapsedSec || 0 }) }]
+            })
+          }
+        } else if (t.status === 'failed') {
+          clearInterval(iv)
+          handledDailyFilms.current.add(tid)
+          if (!stopped) {
+            setMessages(prev => [...prev, { id: 'df-' + Date.now(), role: 'assistant',
+              content: '❌ 日报出片失败（已跑 ' + (t.elapsedSec || 0) + 's）\n'
+                + ((t.error || (t.tail || []).slice(-6).join('\n')) || '（无日志）') + '\n\n可以让我重试。' }])
+          }
+        }
+      } catch { /* 下一轮再试 */ }
     }, 6000)
     return () => { stopped = true; clearInterval(iv) }
   }, [messages, user?.id])
@@ -4376,6 +4440,37 @@ function AgentPageInner() {
 
   const renderContent = (content: string) => {
     if (!content) return null
+    // ★VF_DAILYFILM_V2（2026-10-14 用户定案「先做1」）：**日报出片**的两个标记 ——
+    //   ① 回执：内容是「人话 + `VF_DAILY_FILM_TASK:{...}`」，**标记只给上面那个轮询 effect 用**，不显示给用户；
+    //   ② 完成：`VF_DAILY_FILM_DONE:{...}` ⇒ 直接出成片卡（video + 入库名）。
+    if (content.includes('VF_DAILY_FILM_TASK:')) {
+      return <span className="whitespace-pre-wrap">{content.split('VF_DAILY_FILM_TASK:')[0].trim()}</span>
+    }
+    if (content.startsWith('VF_DAILY_FILM_DONE:')) {
+      try {
+        const df = JSON.parse(content.slice('VF_DAILY_FILM_DONE:'.length))
+        // 签名直链会过期；失效时回退到服务端接口地址（它每次重新签名 ⇒ 永远可用）
+        const apiSrc = df.repoName
+          ? '/api/storage/file?userId=' + (user?.id || '') + '&name=' + encodeURIComponent(String(df.repoName)) + '&download=1'
+          : ''
+        return (
+          <div className="mb-2 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06]">
+            <div className="text-xs text-emerald-300 mb-2">
+              🎬 日报成片已完成（**无配音无字幕** · 出片耗时 {Math.round(Number(df.elapsedSec) || 0)}s）
+            </div>
+            {df.url
+              ? <video src={String(df.url)} controls playsInline preload="metadata"
+                  className="w-full max-h-[420px] rounded-lg bg-black"
+                  onError={(e) => { const v = e.currentTarget as HTMLVideoElement; if (apiSrc && v.src !== apiSrc) v.src = apiSrc }} />
+              : <div className="text-xs text-amber-400">成片已生成，但播放链接缺失（{String(df.repoName || '未知')}）</div>}
+            {df.repoName
+              ? <div className="text-[10px] text-gray-500 mt-2">已入个人仓库：{String(df.repoName)}（在客户端里打开会自动同步到本地）</div>
+              : null}
+            <div className="text-[10px] text-gray-500 mt-1">下一步：配音 + 字幕（AI 写口播 → 你可以改 → TTS → 烧字幕）</div>
+          </div>
+        )
+      } catch { /* 解析失败就按普通文本显示 */ }
+    }
     // ★VF_EDIT_V1（2026-09-24）：卡片提交的协议串别把原文（一大坨 JSON）显示在气泡里 ——
     //   用户点「💾 保存修改」发的是 VF_EDIT:{edits:[…]}，这里给他看一句人话。
     if (content.startsWith('VF_EDIT:')) {

@@ -71,8 +71,13 @@ export interface DailyDraft {
   planBy?: PlanBy
   /** AI 失败原因（给人看的） */
   planNote?: string
-  /** 生成好的 HTML 在个人仓库里的文件名 */
+  /** 生成好的 HTML（**配图版**）在个人仓库里的文件名 */
   htmlName?: string
+  /** ★VF_DAILYFILM_V2（2026-10-14 用户定案「先做1」）：**单文件版**（图内嵌）的仓库文件名 ——
+   *  出片只认它（工具要求"单文件自足"：配图版的图在同级目录、渲不了）⇒ 没有就明确报错、不猜。 */
+  singleName?: string
+  /** ★VF_DAILYFILM_V2：最近一次出片任务 id（前端轮询 `/api/agent/daily-film-status` 用） */
+  filmTaskId?: string
 }
 
 export function newDailyDraft(): DailyDraft { return { step: 'topic' } }
@@ -915,6 +920,12 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Pr
   } catch (e: any) {
     try { ctx.log?.(uid, '[日报落地页] 单文件版生成失败（不影响交付）：' + String(e?.message || e).slice(0, 120)) } catch { /* ignore */ }
   }
+  // ★VF_DAILYFILM_V2：把**单文件版**的名字也记进草稿 —— 出片（`at:'film'`）只认它。
+  //   交付卡里虽然有 `name`（=单文件版名），但那是发给前端的；**服务端唯一能读的地方就是这个草稿**。
+  if (single && single.name) {
+    d.singleName = String(single.name)
+    await saveDailyDraft(ctx.prisma, uid, d)
+  }
   const std = linkOf(r.name)
   const stdView = abs(std.view) || apiPath
   const stdDl = abs(std.dl)
@@ -1016,10 +1027,14 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
      会互相抢消息；用自己的 `VF_DAILY_FORM`，前端靠卡里的 `proto` 字段发对应的串）。
      只在"等挑素材"这一步 + 来源是个人仓库时认；其它情况 return null 交回主流程。 ── */
   if (/^VF_DAILY_FORM\s*[:{]/.test(raw)) {
-    if (d.source && d.source.kind !== 'repo') return null
     let f: any = {}
     try { f = JSON.parse(raw.slice(raw.indexOf('{'))) } catch { /* ignore */ }
     const at = String(f?.at || 'mat')
+    // ★VF_DAILYFILM_V2（2026-10-14 接入出片时发现）：这道"非仓库来源"闸门原来挡在**最前面**，
+    //   但它其实只是为"素材卡（at:'mat'，勾选的是仓库里的图）"立的 —— 挡在门口会把
+    //   **出片（at:'film'）**也一起挡掉：本机/子目录来源的单子点「🎬 出片」会**毫无反应**。
+    //   现口径：**只挡 mat**，其余动作各自判前置条件（go 判 review+plan、film 判 done+singleName）。
+    if (d.source && d.source.kind !== 'repo' && at === 'mat') return null
     // ① 方案卡「✅ 生成 HTML」→ 真的生成（与打字 `确认` 同一份实现）
     if (at === 'go') {
       if (d.step !== 'review' || !d.plan) return null
@@ -1031,6 +1046,30 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
       d.plan = undefined
       await saveDailyDraft(ctx.prisma, uid, d)
       return await dailyMatCard(uid, d)
+    }
+    // ③ ★VF_DAILYFILM_V2（2026-10-14 用户定案「先做1」）：交付后**出片**（日报 HTML → mp4）。
+    //   为什么异步：出片一次 ~125s，而客户端 AI 接口超时是 120s ⇒ 同步走完**必然超时**。
+    //   口径同存片线的 make_ai_video：立刻回执（带任务 id）+ 前端轮询 `/api/agent/daily-film-status`。
+    if (at === 'film') {
+      if (d.step !== 'done' || !d.singleName) {
+        return '⚠️ 这一单还不能出片：'
+          + (d.step !== 'done'
+            ? '还没生成 HTML（先点「✅ 生成 HTML」）。'
+            : '没有**单文件版**（出片只认"图已内嵌"的单文件版）—— 回上一步重新生成一份即可。')
+      }
+      const { startDailyFilm, findRunningDailyFilm } = await import('./daily-film')
+      const running = findRunningDailyFilm(uid)
+      if (running) {
+        return '⏳ 上一次出片**还在跑**（' + running.id + '）—— 完成后会自动发卡片，不用重复点。\n\n'
+          + 'VF_DAILY_FILM_TASK:' + JSON.stringify({ id: running.id, name: running.htmlName, reuse: true })
+      }
+      const t = await startDailyFilm(uid, d.singleName)
+      d.filmTaskId = t.id
+      await saveDailyDraft(ctx.prisma, uid, d)
+      try { ctx.log?.(uid, '[日报落地页] 出片任务已起：' + t.id + '（' + d.singleName + '）') } catch { /* ignore */ }
+      return '🎬 **开始出片**（' + d.singleName + '）——大约 **2 分钟**'
+        + '（打包 → 用字闸门 → 引擎校验 → 渲染）。\n完事我会自动把成片发到这儿，**你可以先干别的**。\n\n'
+        + 'VF_DAILY_FILM_TASK:' + JSON.stringify({ id: t.id, name: d.singleName })
     }
     if (at !== 'mat' || d.step !== 'pick') return null
     const items = await dailyMatItems(uid, LIST_CAP)
