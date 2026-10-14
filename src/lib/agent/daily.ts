@@ -36,7 +36,7 @@ import { listAllObjects } from '@/lib/oss'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 import { dashscopeFunctionCall } from '@/lib/ai-providers'
 // ★纯函数层（零依赖、可单测：temp/_exp/daily/test-plan.mjs）
-import { DAILY_STYLE, aiPrompt, extractJson, normSegs, normMotion, normTheme, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer, checkDiversity, fixDiversity } from './daily-plan'
+import { DAILY_STYLE, aiPrompt, extractJson, normSegs, normMotion, normTheme, normFont, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, assignTextMotion, pickFont, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer, checkDiversity, fixDiversity } from './daily-plan'
 import type { PlanBy } from './daily-plan'
 
 export { DAILY_STYLE }
@@ -269,7 +269,7 @@ function toPicks(uid: number | string, src: DailySource, names: string[]): Daily
  *   两段式：① 视觉模型逐张读出"拍的是什么" ② **文字模型**（qwen3.8-flash，稳）据此出 JSON 方案。
  *   视觉不可用时**不判死**：退成"按主题+序号排"，并把原因如实写进方案卡。
  */
-export async function aiPlanSegments(picks: DailyPick[], topic: string, lastTheme = ''): Promise<{ ok: boolean; segs?: any[]; error?: string; added?: number; fixes?: string[]; theme?: string; custom?: any; motion?: string; sawImages?: boolean; vlErr?: string; captions?: string }> {
+export async function aiPlanSegments(picks: DailyPick[], topic: string, lastTheme = ''): Promise<{ ok: boolean; segs?: any[]; error?: string; added?: number; fixes?: string[]; theme?: string; custom?: any; font?: string; motion?: string; sawImages?: boolean; vlErr?: string; captions?: string }> {
   const n = picks.length
   if (!n) return { ok: false, error: '没有素材' }
 
@@ -335,8 +335,10 @@ export async function aiPlanSegments(picks: DailyPick[], topic: string, lastThem
       if (segs.length < 2) { lastErr = 'AI 的分段不合规（段数不足）'; continue }
       // ★L4：皮肤（AI 按素材挑；自定配色交给引擎做对比度体检）
       const th = normTheme(raw)
-      const allFixes = fixes.concat(th.fixes)
-      return { ok: true, segs, added, fixes: allFixes, theme: th.theme, custom: th.custom, motion: normMotion(raw?.motion), sawImages: !!summary, vlErr }
+      // ★VF_DAILY_V25（B1）：AI 挑的**字体配对**要收下来（提示词里问了它，以前这里没接 ⇒ 白问）
+      const fo = normFont(raw)
+      const allFixes = fixes.concat(th.fixes).concat(fo.fixes)
+      return { ok: true, segs, added, fixes: allFixes, theme: th.theme, custom: th.custom, font: fo.font, motion: normMotion(raw?.motion), sawImages: !!summary, vlErr }
     } catch (e: any) {
       lastErr = String(e?.message || e).slice(0, 120) + (attempt === 1 ? '（已重试一次）' : '')
     }
@@ -555,6 +557,16 @@ async function runPlan(ctx: DailyCtx, d: DailyDraft, src: DailySource, picked: s
   const ai = await aiPlanSegments(picks, d.topic || '', recent[0])
   // ★VF_DAILY_V9：第二道药 —— AI 没挑 / 挑的还是上一套 ⇒ **服务端强制换**（纯函数 rotateTheme，可复现）
   const rot = rotateTheme(ai.ok ? String(ai.theme || '') : '', recent, picked.join('|') + '|' + (d.topic || ''))
+  // ★VF_DAILY_V25：种子提前到"建 plan 之前"算 —— 因为**字体配对**要在建 plan 时就写进 meta
+  //   （原来这段在下面排效果序时才算；它只依赖 素材+主题，提前不影响可复现性）
+  const fxSeed = (() => {
+    let h = 5381
+    const key = picked.join('|') + '|' + (d.topic || '')
+    for (let i = 0; i < key.length; i++) h = ((h * 33) ^ key.charCodeAt(i)) >>> 0
+    return h
+  })()
+  // ★VF_DAILY_V25（B1）：字体配对 —— AI 挑的优先；与上一份同款就顺延一组（字体这条轴不能只跟着皮肤走）
+  const fp = pickFont({ want: (ai as any).font, themeId: rot.theme, recentThemes: recent, key: fxSeed })
   let plan: any
   // ★VF_DAILY_V12：多一档 `captions`（文字模型挂了，但**图已看过** ⇒ 用看图摘要排"有真内容"的方案）
   let by: 'ai' | 'captions' | 'fallback'
@@ -563,7 +575,7 @@ async function runPlan(ctx: DailyCtx, d: DailyDraft, src: DailySource, picked: s
     // ★L4：皮肤（theme / custom）来自 AI；引擎会做对比度体检，不达标自己在页头回落并写明
     // ★V9：换成 rot.theme（若 AI 的挑法被轮换否决，就**不带**它的自定配色 —— 否则两处打架）
     plan = buildPlanFromSegs(ai.segs, d.topic || '', ai.motion || 'normal', rot.theme,
-      rot.theme === 'custom' ? ai.custom : undefined)
+      rot.theme === 'custom' ? ai.custom : undefined, undefined, fp.font)
     by = 'ai'
     if (ai.added) note = `AI 漏了 ${ai.added} 张，已自动补段`
   } else {
@@ -572,36 +584,43 @@ async function runPlan(ctx: DailyCtx, d: DailyDraft, src: DailySource, picked: s
     //   用它排出有真标题/真信息点的方案（不再"现场记录 N/N"那种空壳占位）。
     const cap = planFromCaptions(ai.captions || '', picks.length, d.topic || '')
     if (cap.used > 0 && cap.segments.length >= 2) {
-      plan = buildPlanFromSegs(cap.segments, d.topic || '', 'normal', rot.theme)
+        plan = buildPlanFromSegs(cap.segments, d.topic || '', 'normal', rot.theme, undefined, undefined, fp.font)
       by = 'captions'
       note = note + ' ⇒ 已改用**看图摘要**重排（标题/信息点都来自读图，不是占位）'
       try { ctx.log?.(uid, `[日报落地页] AI 没排出 ⇒ 按看图摘要重排（读到 ${cap.used} 张的内容，${cap.segments.length} 段）`) } catch { /* ignore */ }
     } else {
       const fb = buildDailyPlan(picked, d.topic || '')
-      plan = buildPlanFromSegs(fb.segments, d.topic || '', fb.motion, rot.theme)
+      plan = buildPlanFromSegs(fb.segments, d.topic || '', fb.motion, rot.theme, undefined, undefined, fp.font)
       by = 'fallback'
       try { ctx.log?.(uid, '[日报落地页] AI 编排失败 → 保底版式：' + note) } catch { /* ignore */ }
     }
   }
   if (rot.theme) await rememberSkin(ctx.prisma, uid, rot.theme)
-  // ★VF_DAILY_V13（用户：「低相似度」）：① 先按"素材+主题"的稳定散列排**效果序**（每份不同）；
+  // ★VF_DAILY_V13（用户：「低相似度」）：① 按"素材+主题"的稳定散列排**效果序**（每份不同）；
   //   ② 与**上一份**比相似度（皮肤 20% / 结构序 50% / 效果序 30%），>0.70 就**重掷**（换效果序+单图段结构），
   //      取"更不像"的那次；③ 记下这一份的指纹，供下一份比较。
-  const fxSeed = (() => {
-    let h = 5381
-    const key = picked.join('|') + '|' + (d.topic || '')
-    for (let i = 0; i < key.length; i++) h = ((h * 33) ^ key.charCodeAt(i)) >>> 0
-    return h
-  })()
+  //   ⚠️ V25：种子本身已在上面（建 plan 之前）算好 —— 字体配对要用它（见 fp）。
   assignFx(plan.segments, fxSeed)
   // ★VF_DAILY_V21（2026-10-14 用户「依然是文字排版同质化严重」）：**文字层也轮换** ——
   //   AI 没指定 type 的段，服务端按 seed 轮换四种（相邻段必不同）；指定过的段不动。
   //   这样"结构 8 种"之外又多一维（文字层 4 种），一份里不会只有一张脸。
   assignTextLayer(plan.segments, fxSeed)
+  // ★VF_DAILY_V25：**文字动效**也轮换（用户点名的第四条轴）—— 七种入场动作、相邻必不同。
+  //   为什么必须服务端排：这是"相邻重复"这类问题**只有整片视角才看得见**的地方，
+  //   交给引擎兜底也行，但那样就没法在交付前的去同质化自检里一起看。
+  assignTextMotion(plan.segments, fxSeed)
   try {
+    // ★VF_DAILY_V25：日志按**用户点名的四条轴**打（去同质化的验收就是看这四行雷不雷同）
     const faces = plan.segments.map((s: any) => String(s.type || 'band'))
-    ctx.log?.(uid, `[日报落地页] 文字层序 ${faces.slice(0, 8).join('/')}${faces.length > 8 ? ' …' : ''}`
-      + ` ｜ 一份里 ${new Set(faces).size} 种（结构 ${new Set(plan.segments.map((s: any) => String(s.layout || '-'))).size} 种）`)
+    const tms = plan.segments.map((s: any) => String(s.tm || '-'))
+    const lays = plan.segments.map((s: any) => String(s.layout || '-'))
+    const fxs = plan.segments.map((s: any) => String(s.fx || '-').split('#')[0])
+    ctx.log?.(uid, `[日报落地页] 四轴 · 配色「${themeName(rot.theme)}」/ 字体「${plan.meta?.font || fp.font || '皮肤默认'}」`
+      + ` / 结构 ${new Set(lays).size} 种、文字层 ${new Set(faces).size} 种 / 文字动效 ${new Set(tms).size} 种、图效 ${new Set(fxs).size} 种`)
+    ctx.log?.(uid, `[日报落地页] 轴序 · 结构 ${lays.slice(0, 8).join('/')}${lays.length > 8 ? ' …' : ''}`)
+    ctx.log?.(uid, `[日报落地页] 轴序 · 文字层 ${faces.slice(0, 8).join('/')}${faces.length > 8 ? ' …' : ''}`
+      + ` ｜ 文字动效 ${tms.slice(0, 8).join('/')}${tms.length > 8 ? ' …' : ''}`)
+    if (fp.fixes.length) ctx.log?.(uid, '[日报落地页] 字体配对：' + fp.fixes.join('；'))
   } catch { /* ignore */ }
   // ★VF_DAILY_V22（用户定案「按 A 升级」）：**去同质化机器自检** —— 借 oil-ui 的硬规则
   //   「任意两个方向最多共享四项中的一项」。我们落在段落级：**相邻两段最多共享 1 项**

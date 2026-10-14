@@ -120,6 +120,43 @@ const THEMES = {
 }
 const DEFAULT_THEME = 'paper-daily'
 
+/* ═══ ★VF_DAILY_V25（2026-10-14 用户定案「B1+B2+B3，最大目的**去同质化**：文字 / 文字动效 / 配色 / 样式排版」）═══
+   **B1 字体配对**：原来字体只有 serif/sans 两种（`--fbody` 按 TH.font 二选一）⇒ "文字"这条轴几乎没变化。
+   现口径：字体家族库（4 族）+ **配对库**（标题 × 正文 × 标签 = 7 组），皮肤绑一个默认配对，AI 可用
+   `meta.font` 覆盖（白名单校验，非法就回落并如实记 note）。
+   字体栈里 Windows / macOS / Noto 三套名字都给（用户机器是 Windows，服务器是 Linux）——
+   缺哪个都不至于掉成系统默认丑字，最差也落在"衬线/无衬线"这一档，**变体之间的差异不会消失**。 */
+const FF = {
+  song: '"Source Han Serif SC","Noto Serif SC","Songti SC",SimSun,"宋体",Georgia,serif',
+  hei: '"Source Han Sans SC","Noto Sans SC","PingFang SC","Microsoft YaHei","微软雅黑",system-ui,sans-serif',
+  kai: 'KaiTi,STKaiti,"Kaiti SC","楷体","Noto Serif SC","Songti SC",serif',
+  fang: 'FangSong,STFangsong,"Fangsong SC","仿宋","Noto Serif SC","Songti SC",serif',
+}
+const FONT_PAIRS = {
+  'song-hei': { name: '宋黑', title: 'song', body: 'hei', label: 'hei' },   // 书名感：稳重
+  'hei-song': { name: '黑宋', title: 'hei', body: 'song', label: 'hei' },   // 招牌感：硬朗
+  'song-song': { name: '全宋', title: 'song', body: 'song', label: 'hei' }, // 书卷：安静
+  'hei-hei': { name: '全黑', title: 'hei', body: 'hei', label: 'hei' },     // 现代：干净
+  'kai-song': { name: '楷宋', title: 'kai', body: 'song', label: 'hei' },   // 手写感：文气
+  'fang-hei': { name: '仿黑', title: 'fang', body: 'hei', label: 'hei' },   // 公文感：克制
+  'kai-hei': { name: '楷黑', title: 'kai', body: 'hei', label: 'hei' },     // 题字感：市井
+}
+/** 老 6 套皮肤**保持原样**（serif→全宋 / sans→全黑，与改动前逐字节一致，老产物不失效）；
+ *  新 14 套显式铺开配对 —— 这样 20 套皮肤在"字体"这条轴上也是散的，而不是只有两种。 */
+const PAIR_OF = {
+  'paper-daily': 'song-song', 'night-gold': 'song-song', 'tea-green': 'song-song',
+  'blue-print': 'hei-hei', 'coral-warm': 'hei-hei', 'mono-print': 'hei-hei',
+  'copper-pot': 'kai-song', 'amber-cafe': 'song-hei', 'wine-red': 'hei-song',
+  'late-night': 'hei-hei', 'cinema-noir': 'hei-song', 'forest-ink': 'song-song',
+  'jiangnan': 'kai-song', 'bamboo': 'song-hei', 'sand-dune': 'fang-hei',
+  'mist-blue': 'hei-song', 'graphite': 'fang-hei', 'nordic': 'hei-hei',
+  'rose-milk': 'kai-hei', 'morandi': 'kai-song',
+}
+const pairStacks = (id) => {
+  const p = FONT_PAIRS[id] || FONT_PAIRS['song-song']
+  return { id, title: FF[p.title], body: FF[p.body], label: FF[p.label] }
+}
+
 /** 十六进制 → [r,g,b]（拿不到就 null） */
 function hex2rgb(h) {
   const m = /^#?([0-9a-f]{6})$/i.exec(String(h || '').trim())
@@ -165,8 +202,12 @@ function themeGrad(p, i, a) {
   ]
 }
 /** 把一套 4 色 token 补全成完整皮肤（并做对比度体检） */
-function completeTheme(id, name, font, paper, ink, dim, accent, g) {
+function completeTheme(id, name, font, paper, ink, dim, accent, g, pairId) {
   const th = { id, name, font, paper, ink, dim, accent, g }
+  // ★V25（B1）：字体配对 —— 皮肤带一个默认配对；老 6 套的默认与改动前**完全等价**
+  //   （serif⇒全宋 / sans⇒全黑），所以老产物不受影响。
+  th.pair = FONT_PAIRS[pairId] ? pairId : (font === 'sans' ? 'hei-hei' : 'song-song')
+  th.fontStack = pairStacks(th.pair)
   th.line = inkAlpha(ink, 0.16)
   th.paper2 = id === DEFAULT_THEME ? '#EDE7DA' : inkAlpha(ink, 0.05)
   // 暗衬带：浅底皮肤用暖黑，深底皮肤用纯黑（都要能压住照片）
@@ -181,20 +222,29 @@ function completeTheme(id, name, font, paper, ink, dim, accent, g) {
   return th
 }
 function themeById(id, gs) {
-  const t = THEMES[String(id || '')]
+  const key = String(id || '')
+  const t = THEMES[key]
   if (!t) return null
-  return completeTheme(String(id), t.name, t.font, t.paper, t.ink, t.dim, t.accent, gs || t.g)
+  return completeTheme(key, t.name, t.font, t.paper, t.ink, t.dim, t.accent, gs || t.g, PAIR_OF[key])
 }
 /** 最终皮肤：AI 自定配色 → 体检 → 不达标回落预设皮肤（全过程记进 themeNote） */
 let themeNote = ''
+let fontNote = ''
 function resolveTheme() {
   const want = String(META.theme || '')
   const base = themeById(want, null) || themeById(DEFAULT_THEME, null)
+  // ★V25（B1）：AI 可**直接指定字体配对**（`meta.font`），与皮肤解耦 —— 这是"文字"这条轴的第二层旋钮
+  const wantFont = String(META.font || '')
+  if (wantFont) {
+    if (FONT_PAIRS[wantFont]) { base.pair = wantFont; base.fontStack = pairStacks(wantFont) }
+    else fontNote = 'AI 要的字体配对「' + wantFont + '」不在库里 ⇒ 已用皮肤「' + base.name + '」的默认配对（' + base.pair + '）'
+  }
   const cu = META.custom && typeof META.custom === 'object' ? META.custom : null
   if (cu) {
     const okHex = ['paper', 'ink', 'dim', 'accent'].every((k) => !!hex2rgb(cu[k]))
     if (!okHex) { themeNote = 'AI 自定配色里有非 hex 值 ⇒ 已忽略自定配色'; return base }
-    const cand = completeTheme('custom', 'AI 自定配色', 'serif', cu.paper, cu.ink, cu.dim, cu.accent, base.g)
+    // 自定配色沿用**该皮肤的字体配对**（配色与字体解耦：AI 换色不该顺带把字体也换成默认）
+    const cand = completeTheme('custom', 'AI 自定配色', base.font, cu.paper, cu.ink, cu.dim, cu.accent, base.g, base.pair)
     if (!cand.fail.length) return cand
     themeNote = 'AI 自定配色对比度不达标（' + cand.fail.join('；') + '）⇒ 已回落「' + base.name + '」'
     return base
@@ -216,6 +266,7 @@ const TH = resolveTheme()
  */
 const PAPER_DARK = contrast('#FFFFFF', TH.paper) >= 4.5
 if (themeNote) console.log('   ⚠️ ' + themeNote)
+if (fontNote) console.log('   ⚠️ ' + fontNote)
 
 const MOTION = {
   calm: { zoom: 1.04, dmul: 1.35, gap: 900, dur: 0.14 },     // 稳：推近小、错峰慢
@@ -525,7 +576,7 @@ function segBody(s, sc) {
     + (s.stamp ? `<span class="stamp">${esc(s.stamp)}</span>` : '') + `</div>`
   return `<section class="sec" data-seg="${sc.i + 1}" data-start="${sc.start}" data-duration="${sc.dur}"`
     + ` data-place="${esc(s.place || 'cover')}" data-form="${esc(form)}" data-layout="${layout}"`
-    + ` data-type="${tType}" data-paper="${PAPER_DARK ? 'dark' : 'light'}" style="--ts:${tScale};--title:${titleCss(sc.i, layout, form, tType, tScale)}"`
+    + ` data-type="${tType}" data-paper="${PAPER_DARK ? 'dark' : 'light'}" data-tm="${segTm[sc.i]}" style="--ts:${tScale};--title:${titleCss(sc.i, layout, form, tType, tScale)}"`
     + ` data-fx="${fx}" data-fv="${fv}" data-scrim="${esc(s.scrim || 'soft')}">`
     + head
     + `<h2>${title}</h2>`
@@ -533,6 +584,22 @@ function segBody(s, sc) {
     + `<div class="cols c${pts.length}">${pts}</div>`
     + `</section>`
 }
+
+/* ═══ ★VF_DAILY_V25：文字动效的**整片排布**（引擎侧兜底）═══
+   服务端排好 `s.tm` 优先（它要拿这个序列做去同质化自检）；没给就按种子轮换。
+   硬约束：**相邻段必不同** —— 两段同动作最容易被一眼看成"同一页"。 */
+const TM = ['rise', 'push', 'drift', 'zoom', 'wipe', 'curtain', 'blur']
+const segTm = (() => {
+  const out = []
+  for (let i = 0; i < segs.length; i++) {
+    const raw = String(segs[i].tm || '')
+    let id = TM.indexOf(raw) >= 0 ? raw : TM[(((FX_SEED + i) % TM.length) + TM.length) % TM.length]
+    if (i > 0 && id === out[i - 1]) id = TM[(TM.indexOf(id) + 1) % TM.length]
+    if (i > 0 && id === out[i - 1]) id = TM[(TM.indexOf(id) + 1) % TM.length]   // TM 长度 > 2，最多两次必错开
+    out.push(id)
+  }
+  return out
+})()
 
 // ⚠️ 顺序很重要：**先把每段渲染出来**（AI 段的 CSS 会在这步被收集进 AI_CSS），
 //    再拼 HTML 模板 —— 否则 <style> 里的 `${AI_CSS}` 取值时还是空的（模板是从上往下算的）。
@@ -570,8 +637,9 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
     --dots:${inkAlpha(TH.ink, 0.05)};
     /* ★VF_DAILY_V13：每张图声明一次（切分型入场 / 单文件内嵌体积都靠这条） */
     ${IMG_VARS}
-    --fbody:${TH.font === 'sans' ? '"Noto Sans SC",system-ui,"PingFang SC",sans-serif' : '"Noto Serif SC","Songti SC",Georgia,serif'};
-    --fsans:"Noto Sans SC",system-ui,sans-serif;
+    --ftitle:${TH.fontStack.title};
+    --fbody:${TH.fontStack.body};
+    --fsans:${TH.fontStack.label};
     --pad:clamp(24px,3.6vmin,50px); --gap:clamp(14px,2vmin,26px);
     --title:clamp(44px,7vmin,92px); --label:22px; --num:clamp(30px,4.2vmin,56px);
     --mz:${MOTION.zoom};                    /* 动效档：推近幅度 */
@@ -623,10 +691,38 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
     opacity:clamp(0,calc((var(--sp) - .12)*4),1);
     transform:rotate(calc(-3deg + 3deg * clamp(0,calc((var(--sp) - .12)*4),1)))}
 
-  h2{grid-area:title;font-size:var(--title);line-height:1.14;font-weight:900;letter-spacing:-.01em}
+  h2{grid-area:title;font-size:var(--title);line-height:1.14;font-weight:900;letter-spacing:-.01em;
+    font-family:var(--ftitle)}
+  /* ═══ ★VF_DAILY_V25：**文字动效**（用户点名的去同质化四条轴之一）═══
+     病灶：全片文字只有"上滑淡入"一种动作（同一段代码对每段都成立）⇒ 看三段就腻。
+     现口径：入场**变量驱动** —— 基式只算"进度 k + 位移幅度(--tmx/--tmy) + 起始缩放(--tms0) + 遮罩(--tmclip)"，
+     data-tm 的 7 个变体只改这几个变量。**只用 transform/clip-path/filter**（不碰盒模型）
+     ⇒ 折行(R14)/越界/溢出这些闸门照旧管用（动画中途也不会撑破版面）。
+     ⚠️ 刻意不用 letter-spacing 做"展开"：那会**触发重排**，动画中途可能折行 —— 闸门抓不到"中途折行"。 */
+  .sec{--k:clamp(0,calc((var(--sp) - var(--d,0))*4),1);
+    --tmx:0px;--tmy:30px;--tmyc:20px;--tms0:1;--tmclip:none;--tmblur:0px;--tmf:0}
   h2 span{display:block;opacity:clamp(0,calc((var(--sp) - var(--d,0))*4),1);
-    transform:translateY(calc(30px*(1 - clamp(0,calc((var(--sp) - var(--d,0))*4),1))))}
+    clip-path:var(--tmclip);filter:blur(var(--tmblur));
+    /* ⚠️⚠️ V25 修（B3 矩阵 + find-overflow 抓出来）：x/y 位移**都必须乘 (1 - k)**。
+       我第一版把 --tmx 写成了裸的（没有乘 1-k）⇒ "推入/斜落"两型的标题**永久左移 44px / 右移 30px**
+       （末态也没归零）⇒ 竖排段溢出 11px、越界 1 个元素；而当时"楷体不溢出"只是**变体不同**的错觉
+       （同种子不同文件分到不同 tm），我一度误判成"字体宽度问题"。 */
+    transform:translate(calc(var(--tmx)*(1 - clamp(0,calc((var(--sp) - var(--d,0))*4),1))),
+        calc(var(--tmy)*(1 - clamp(0,calc((var(--sp) - var(--d,0))*4),1))))
+      scale(calc(var(--tms0) + (1 - var(--tms0))*clamp(0,calc((var(--sp) - var(--d,0))*4),1)))}
+  /* 变体（把"动作"换掉，其余一律不动） */
+  .sec[data-tm="rise"]{--tmx:0px;--tmy:30px;--tmyc:20px}
+  .sec[data-tm="push"]{--tmx:-44px;--tmy:0px;--tmyc:0px}
+  .sec[data-tm="drift"]{--tmx:30px;--tmy:-12px;--tmyc:-8px}
+  .sec[data-tm="zoom"]{--tmx:0px;--tmy:0px;--tmyc:0px;--tms0:.90}
+  .sec[data-tm="wipe"]{--tmx:0px;--tmy:0px;--tmyc:0px;--tmclip:inset(0 0 calc(100% * (1 - var(--k))) 0)}
+  .sec[data-tm="curtain"]{--tmx:0px;--tmy:0px;--tmyc:0px;--tmclip:inset(calc(100% * (1 - var(--k))) 0 0 0)}
+  .sec[data-tm="blur"]{--tmx:0px;--tmy:10px;--tmyc:6px;--tmblur:calc(14px * (1 - var(--k)))}
   h2 span:nth-child(2){--d:calc(.10 * ${MOTION.dmul})}
+  /* 逐行错峰的变体：第二行晚一点起（"两行像两口气"，与"整块一起动"完全不同的观感） */
+  .sec[data-tm="push"] h2 span:nth-child(2),
+  .sec[data-tm="drift"] h2 span:nth-child(2){--d:calc(.20 * ${MOTION.dmul})}
+  .sec[data-tm="curtain"] h2 span:nth-child(2){--d:calc(.26 * ${MOTION.dmul})}
   h2 em{font-style:normal;box-shadow:inset 0 -.22em 0 rgba(198,57,43,.35)}
 
   .figs{grid-area:fig;min-height:0;display:grid;gap:var(--gap);grid-template-columns:minmax(0,1fr)}
@@ -764,7 +860,12 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
   .sec[data-form="vertical"] h2{writing-mode:vertical-rl;text-orientation:upright;
     /* ★V21：字号同样改读 --title（竖排基准 30/3.4vmin/50 已搬进 titleCss） */
     font-size:var(--title);letter-spacing:.08em;align-self:start;justify-self:end;
-    padding-left:calc(var(--gap) * .6)}
+    padding-left:calc(var(--gap) * .6);
+    /* ★VF_DAILY_V25：竖排标题列**不许被压到小于内容宽**（图列是 minmax(0,1fr)，能缩到 0）。
+       ⚠️ 说清楚是哪儿的锅：竖排溢出那一例（溢出 x11 · 越界 1）**真因是 V25 的 --tmx 没归零**
+       —— 见下面 h2 span 那段的注释；这条 min-width 是**防御性**的（字体/文案变宽时也不会被挤出去），
+       别把它当那次事故的修复记。 */
+    min-width:max-content}
   /* place=mat：相纸感（图缩一圈、白边、方角） */
   .sec[data-place="mat"] .figs{padding:clamp(8px,1.1vmin,16px)}
   .sec[data-place="mat"] .fig{outline:clamp(4px,0.7vmin,8px) solid #fff;border-radius:1px;
@@ -810,9 +911,14 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
     border-top:1px solid var(--line);padding-top:var(--gap)}
   .cols.c2{grid-template-columns:1.45fr 1fr}
   .cols.c1{grid-template-columns:1fr}
+  /* ★V25：信息点跟着**同一个变体**走（幅度按 --tmyc 缩一档）—— 否则"标题换了动作、信息点还是老动作"，
+     一段里两种动作打架，看着像 bug 而不像设计。 */
   .col{display:flex;flex-direction:column;gap:2px;
     opacity:clamp(0,calc((var(--sp) - var(--d,0))*4),1);
-    transform:translateY(calc(20px*(1 - clamp(0,calc((var(--sp) - var(--d,0))*4),1))))}
+    clip-path:var(--tmclip);filter:blur(var(--tmblur));
+    transform:translate(calc(var(--tmx)*.6*(1 - clamp(0,calc((var(--sp) - var(--d,0))*4),1))),
+        calc(var(--tmyc)*(1 - clamp(0,calc((var(--sp) - var(--d,0))*4),1))))
+      scale(calc(var(--tms0) + (1 - var(--tms0))*clamp(0,calc((var(--sp) - var(--d,0))*4),1)))}
   .col:nth-child(1){--d:calc(.14 * ${MOTION.dmul})}
   .col:nth-child(2){--d:calc(.22 * ${MOTION.dmul})}
   .col:nth-child(3){--d:calc(.30 * ${MOTION.dmul})}
@@ -998,3 +1104,13 @@ if (warns.length) { console.log('⚠️ 字数体检（R11）' + warns.length + 
 else console.log('   R11 字数体检：通过')
 if (vfxBad.length) console.log('⚠️ 切分块自检（V18）：' + vfxNote)
 else console.log('   V18 切分块自检：通过（条分/百叶/拼片四边尺寸齐全）')
+// ── ★VF_DAILY_V25 生成期自检②：**文字动效不能相邻重复**（两段同动作 = 一眼看成同一页）──
+//   与 V18 同理：这种"重复"既不越界也不溢出，**所有既有闸门都是绿的**，只能在生成那一刻点出来。
+const tmDup = segTm.filter((x, i) => i > 0 && x === segTm[i - 1]).length
+const tmCount = Array.from(new Set(segTm)).length
+if (tmDup) console.log(`⚠️ 文字动效自检（V25）：相邻重复 ${tmDup} 处 —— 两段同动作会被当成同一页`)
+else console.log(`   V25 文字动效自检：通过（${tmCount}/${TM.length} 种 · 相邻不重复：${segTm.join(' → ')}）`)
+// ── ★V25 生成期自检③：字体配对（AI 要的必须在库里，且必须真的写进了 CSS 变量）──
+const pairOk = !!FONT_PAIRS[TH.pair]
+if (pairOk) console.log(`   V25 字体配对：${TH.pair}（${FONT_PAIRS[TH.pair].name}）· 皮肤「${TH.name}」`)
+else console.log(`⚠️ V25 字体配对：「${TH.pair}」不在库里 —— CSS 变量会掉回衬线默认值`)

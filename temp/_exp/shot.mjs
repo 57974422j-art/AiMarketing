@@ -246,6 +246,10 @@ for (const f of files) {
           map['k' + (i++)] = JSON.stringify({
             r: [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)],
             o: Math.round(eff(el) * 100), t: isText ? 1 : 0,
+            // ★V25（判据补盲）：把"**不改矩形**的运动"也记下来 —— 遮罩擦显(wipe/curtain)、
+            //   失焦(blur) 全程矩形不动，只看矩形会把它们误报成"文字仅淡入"（我这次就被这个误报惊到了）。
+            c: (cs.clipPath && cs.clipPath !== 'none' ? cs.clipPath : '') + '|'
+              + (cs.filter && cs.filter !== 'none' ? cs.filter : ''),
           })
         }
         return map
@@ -264,8 +268,9 @@ for (const f of files) {
         let rectMove = false
         for (let j = 0; j < 4; j++) if (Math.abs(va.r[j] - vb.r[j]) > 2) { rectMove = true; break }
         const fade = Math.abs(va.o - vb.o) > 8
-        if (rectMove || fade) moved++
-        if (va.t === 1 && rectMove) textRect++
+        const chgC = (va.c || '') !== (vb.c || '')          // ★V25：遮罩/失焦也算"动了"
+        if (rectMove || fade || chgC) moved++
+        if (va.t === 1 && (rectMove || chgC)) textRect++
         else if (va.t === 1 && fade) textFade++
       }
       return { ok: true, moved, textRect, textFade, total }

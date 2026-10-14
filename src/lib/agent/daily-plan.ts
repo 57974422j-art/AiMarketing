@@ -175,6 +175,32 @@ export function aiPrompt(n: number, topic: string, opts?: { lastTheme?: string }
     '',
     '【皮肤库】（**按素材气质挑一个**放进 `theme`）',
     PLAN_THEMES.map((t) => `  · ${t.id}（${t.name}）：${t.look}`).join('\n'),
+    // ★VF_DAILY_V25（B2：皮肤×题材"选择示例句"）—— 库里 20 套，光看名字 AI 挑不准；
+    //   给几组**典型题材 → 首选/备选**的对应，是把"挑皮肤"这件事从玄学变成查表。
+    '【挑皮肤的对照（先看题材，再定配色）】：',
+    '  · 火锅/烧烤/热食热菜 → copper-pot（铜锅炭火）或 paper-daily（暖纸日报）；',
+    '  · 咖啡/烘焙/面点/正餐 → amber-cafe（琥珀咖啡）或 sand-dune（沙丘暖沙）；',
+    '  · 酒/夜宵/居酒屋/夜场 → late-night（深夜食堂）或 night-gold（夜宴金）；',
+    '  · 茶/素食/清淡/自然 → tea-green（青瓷茶绿）、bamboo（竹青）、forest-ink（墨绿松林）；',
+    '  · 宴席/私房菜/年节 → wine-red（酒红宴席）；江南/茶点/文气 → jiangnan（江南宣纸）；',
+    '  · 甜品/饮品/少女向 → rose-milk（草莓奶昔）、coral-warm（柿橙暖场）；',
+    '  · 数码/办公/说明型 → blue-print（蓝图冷调）、mist-blue（雾蓝书页）、graphite（石墨办公）；',
+    '  · 纪实/高端/极简/影像感 → cinema-noir（胶片黑）、mono-print（素黑白）、nordic（北欧冷白）、morandi（莫兰迪灰粉）。',
+    // ★VF_DAILY_V25（B1：字体配对）—— 皮肤自带默认配对，这里给"想改字体时"的选项。
+    '【字体配对】（可选，放进 `font`；**皮肤自带默认配对**，只有明显不搭才改）',
+    PLAN_FONTS.map((f) => `  · ${f.id}（${f.name}）：${f.look}`).join('\n'),
+    // ★VF_DAILY_V25（文字动效）—— 第四条去同质化轴：入场动作。
+    '【文字动效】（可选，每段 `tm`；**相邻两段必须不同**，服务端会机器自检）',
+    PLAN_TM.map((t) => `  · ${t.id}（${t.name}）：${t.look}`).join('\n'),
+    '  留空则由服务端按段序轮换七种、并保证相邻不重复（不必自己排）。',
+    // ★VF_DAILY_V25（B3）：矩阵实测过了 —— 没有"禁用组合"，所以这里给的是**气质偏好**而不是红线。
+    '【皮肤明暗 × 结构（偏好，不是限制）】：',
+    '  · 深底皮肤（夜宴金/铜锅炭火/深夜食堂/胶片黑/墨绿松林/酒红宴席）：适合 hero（满幅）、stack2、quote、grid4'
+    + ' —— 压得住照片，静物与夜景更出彩；',
+    '  · 浅底皮肤（暖纸日报/北欧冷白/江南宣纸/雾蓝书页…）：适合 split（图文左右）、grid3、vertical（竖排）、sticker'
+    + ' —— 像报纸/画册，字和图各占一块，读起来最清楚。',
+    '  · 实测口径（别当玄学）：4 皮肤 × 8 结构 = 32 组合的标题对比度全都 ≥4.5，且**文字从不压在照片上**'
+    + '（结构会自带给文字用的衬带）⇒ 上面只是"更贴气质"的建议，**不会因为搭配而变得不可读**。',
     // ★VF_DAILY_V21（2026-10-14 用户「依然是文字排版同质化严重」）：**文字层**是新旋钮 ——
     //   结构决定"图怎么摆"，文字层决定"字怎么说话"；同一结构配不同文字层 = 完全不同的观感。
     '【文字层】（可选，每段 `type`；**这是"看着像同一套"的主要来源**，请把相邻段配成不同的）：',
@@ -301,6 +327,9 @@ export function normSegs(raw: any, n: number, topic: string): { segs: any[]; add
     if (PLAN_TEXT_TYPES.some((x) => x.id === ty)) o.type = ty
     const sc = Number(it.scale)
     if (PLAN_TSCALES.some((x) => Math.abs(x - sc) < 0.001)) o.scale = sc
+    // ★V25：文字动效（AI 可给；白名单收口；没给则由 assignTextMotion 按种子轮换并保证相邻不同）
+    const tmv = String(it.tm || '').trim().toLowerCase()
+    if (PLAN_TM.some((x) => x.id === tmv)) o.tm = tmv
     if (typeof it.html === 'string' && it.html.trim()) {
       o.html = it.html.slice(0, 6000)
       if (typeof it.css === 'string' && it.css.trim()) o.css = it.css.slice(0, 6000)
@@ -535,6 +564,131 @@ export const PLAN_TEXT_TYPES = [
   { id: 'list', name: '清单式', look: '标题收成小标、信息点当主体（菜品/清单类好用）' },
 ]
 export const PLAN_TSCALES = [0.9, 1, 1.15, 1.3]
+
+/**
+ * ★VF_DAILY_V25（B1 字体配对，2026-10-14 用户定案「B1+B2+B3，最大目的去同质化：文字/文字动效/配色/样式排版」）：
+ *   "文字"这条轴原来只有 serif/sans 两种 ⇒ 20 套皮肤里字体其实只有 2 种。
+ *   现在 4 个字体族 → 7 组配对，**皮肤自带默认配对**（见引擎 `PAIR_OF`），AI 可用 `font` 覆盖。
+ *   ⚠️ 与引擎 `daily-page.mjs` 的 `FONT_PAIRS` **必须同名同数**（单测卡住，防两处漂移）。
+ */
+export const PLAN_FONTS: Array<{ id: string; name: string; look: string }> = [
+  { id: 'song-hei', name: '宋黑', look: '标题宋体 + 正文黑体（书名感，稳重；餐饮/日报最稳）' },
+  { id: 'hei-song', name: '黑宋', look: '标题黑体 + 正文宋体（招牌感，硬朗；夜间/高端）' },
+  { id: 'song-song', name: '全宋', look: '全宋体（书卷气，安静；茶/文气/纪录）' },
+  { id: 'hei-hei', name: '全黑', look: '全黑体（现代、干净；数码/办公/中性）' },
+  { id: 'kai-song', name: '楷宋', look: '标题楷体 + 正文宋体（手写感、文气；老字号/铜锅/江南）' },
+  { id: 'fang-hei', name: '仿黑', look: '标题仿宋 + 正文黑体（公文式的克制、正式）' },
+  { id: 'kai-hei', name: '楷黑', look: '标题楷体 + 正文黑体（题字感、市井；小吃/街边）' },
+]
+/**
+ * ★VF_DAILY_V25：**文字动效**（用户点名的第四条去同质化轴）。
+ *   原来所有段落的文字只有"上滑淡入"一种动法 ⇒ 看三段就腻。
+ *   七个变体都是**只用 transform/clip-path/filter**（不碰盒模型）⇒ 动画中途也不会折行/撑破版面。
+ *   ⚠️ 与引擎 `daily-page.mjs` 的 `TM` **必须同名同数**（单测卡住）。
+ */
+export const PLAN_TM: Array<{ id: string; name: string; look: string }> = [
+  { id: 'rise', name: '上滑', look: '从下方轻轻上浮淡入（最稳，任何题材都能用）' },
+  { id: 'push', name: '推入', look: '从左侧横向推入（有速度感）' },
+  { id: 'drift', name: '斜落', look: '从右上斜向落定（柔和、有方向）' },
+  { id: 'zoom', name: '放大', look: '从 90% 放大淡入（强调，适合重点段）' },
+  { id: 'wipe', name: '上擦', look: '像被一条线从上往下擦出来（利落）' },
+  { id: 'curtain', name: '下揭', look: '自下向上揭开 + 两行错峰（有仪式感，适合收尾）' },
+  { id: 'blur', name: '聚焦', look: '由虚到实（影像感，适合照片段）' },
+]
+/** 文字动效排布：与 `assignFx` 同思路（种子轮换 + **相邻必不同**）—— 相邻同动作最容易被看成同一页 */
+export function assignTextMotion(segs: any[], offset = 0): void {
+  const list = Array.isArray(segs) ? segs : []
+  const ids = PLAN_TM.map((t) => t.id)
+  const n = ids.length
+  const off = Math.abs(offset)
+  list.forEach((s, i) => {
+    let id = ids[(((off + i) % n) + n) % n]
+    const prev = i > 0 ? String(list[i - 1].tm || '') : ''
+    let guard = 0
+    while (id === prev && guard++ < n) id = ids[(ids.indexOf(id) + 1) % n]
+    s.tm = id
+  })
+}
+/**
+ * ★VF_DAILY_V25（B3 皮肤 × 结构搭配矩阵）——**先量证据，再写规则**。
+ *   证据（`temp/_exp/daily/probe-matrix.mjs` 真浏览器末态实测，2026-10-14）：
+ *     · 4 皮肤（2 深 2 浅）× 8 结构 = 32 组合：标题对比度 **14.4~18.0 全部 ≥4.5**、
+ *       横向溢出 0、**标题压照片面积一律 0%**（我们的结构把文字放在自己的"衬带"上，从不压在照片上）；
+ *     · 7 种文字动效 × 4 结构 = 28 组合：同样全部达标、无溢出。
+ *   ⇒ 结论：**没有"禁用组合"**（不用做硬限制），搭配是**气质偏好**问题。所以 B3 落成两层：
+ *     ① `THEME_TONE`（深底/浅底，供提示词与"换皮肤"对照用；由单测对着引擎算出来的明暗**逐套核对**）；
+ *     ② 提示词里的"深底/浅底 × 结构"偏好表（软建议，不是安全阈值）。
+ */
+export const THEME_TONE: Record<string, 'dark' | 'light'> = {
+  'paper-daily': 'light', 'night-gold': 'dark', 'tea-green': 'light', 'blue-print': 'light',
+  'coral-warm': 'light', 'mono-print': 'light',
+  'copper-pot': 'dark', 'amber-cafe': 'light', 'wine-red': 'dark', 'late-night': 'dark',
+  'cinema-noir': 'dark', 'forest-ink': 'dark', 'jiangnan': 'light', 'bamboo': 'light',
+  'sand-dune': 'light', 'mist-blue': 'light', 'graphite': 'light', 'nordic': 'light',
+  'rose-milk': 'light', 'morandi': 'light',
+}
+export function themeTone(id: any): 'dark' | 'light' {
+  return THEME_TONE[String(id || '')] || 'light'
+}
+/** 皮肤明暗 → 结构偏好（**经验性建议**，矩阵实测里没有禁用组合） */
+export function structureTip(id: any): { tone: 'dark' | 'light'; best: string[]; why: string } {
+  const tone = themeTone(id)
+  return tone === 'dark'
+    ? { tone, best: ['hero', 'stack2', 'quote', 'grid4'], why: '深底皮肤压得住满幅/多图，静物与夜景更出彩' }
+    : { tone, best: ['split', 'grid3', 'vertical', 'sticker'], why: '浅底皮肤像报纸/画册，图文左右与网格更清楚' }
+}
+
+/**
+ * ★VF_DAILY_V25：**皮肤 → 默认字体配对**（与引擎 `daily-page.mjs` 的 `PAIR_OF` **必须一致**，单测卡住）。
+ *   为什么要抄一份：服务端要判断"这份的字体是否和上一份同款"，而这要求它在**出片前**就知道
+ *   皮肤会落到哪一组配对（引擎那边的默认值它拿不到）。抄 + 单测双向核对 = 可接受的重复。
+ */
+export const PLAN_SKIN_FONT: Record<string, string> = {
+  'paper-daily': 'song-song', 'night-gold': 'song-song', 'tea-green': 'song-song',
+  'blue-print': 'hei-hei', 'coral-warm': 'hei-hei', 'mono-print': 'hei-hei',
+  'copper-pot': 'kai-song', 'amber-cafe': 'song-hei', 'wine-red': 'hei-song',
+  'late-night': 'hei-hei', 'cinema-noir': 'hei-song', 'forest-ink': 'song-song',
+  'jiangnan': 'kai-song', 'bamboo': 'song-hei', 'sand-dune': 'fang-hei',
+  'mist-blue': 'hei-song', 'graphite': 'fang-hei', 'nordic': 'hei-hei',
+  'rose-milk': 'kai-hei', 'morandi': 'kai-song',
+}
+/** 字体配对校验（AI 可挑；不合法就丢掉并如实记 fixes —— 引擎那边会用该皮肤的默认配对） */
+export function normFont(raw: any): { font?: string; fixes: string[] } {
+  const fixes: string[] = []
+  const want = String(raw?.font || '')
+  if (!want) return { fixes }
+  if (PLAN_FONTS.some((f) => f.id === want)) return { font: want, fixes }
+  fixes.push(`AI 要的字体配对「${want}」不在库里 ⇒ 已用该皮肤的默认配对`)
+  return { fixes }
+}
+/**
+ * ★VF_DAILY_V25：**挑字体配对**（B1 的去同质化那一半）。
+ *   `probe-variance.mjs` 实测短板：字体只随皮肤走 ⇒ 皮肤一重复、字体就跟着重复（6 轮只有 3 种）。
+ *   现在三层：① AI 指定（白名单）→ 直接用；② 与**上一份**的配对同款 ⇒ 按 seed 顺延一组；
+ *   ③ 其余情况交给引擎用皮肤默认配对（不写 `font`，产物不变）。
+ *   ⚠️ 字体只会改变文字宽度（会影响的只有"竖排/窄列"那类结构），矩阵探针已按 7 组配对 × 4 结构验过不溢出。
+ */
+export function pickFont(opts: { want?: any; themeId?: string; lastTheme?: string; recentThemes?: string[]; key?: number }): { font?: string; fixes: string[] } {
+  const fixes: string[] = []
+  const ids = PLAN_FONTS.map((f) => f.id)
+  const want = String((opts.want && (opts.want.font || opts.want)) || '')
+  if (want) {
+    if (ids.indexOf(want) >= 0) return { font: want, fixes }
+    fixes.push(`AI 要的字体配对「${want}」不在库里 ⇒ 已按皮肤默认/顺延处理`)
+  }
+  const mine = PLAN_SKIN_FONT[String(opts.themeId || '')] || ''
+  // ⚠️ 只看"上一份"不够（体检实测：皮肤换了几份又转回来 ⇒ 字体跟着撞）。线上 `recentSkins` 本来
+  //    就取最近 3 条 ⇒ 这里也看最近 3 份：只要其中任何一份的默认配对与本次相同，就顺延一组。
+  const recent = (Array.isArray(opts.recentThemes) ? opts.recentThemes : (opts.lastTheme ? [opts.lastTheme] : []))
+    .slice(0, 3).map((t) => String(t || ''))
+  if (mine && recent.some((t) => PLAN_SKIN_FONT[t] === mine)) {
+    const step = 1 + (Math.abs(Number(opts.key) || 0) % (ids.length - 1))
+    const next = ids[(ids.indexOf(mine) + step) % ids.length]
+    fixes.push(`最近 3 份里已经用过字体配对「${mine}」⇒ 本份顺延到「${next}」（字体这条轴不能只跟着皮肤走）`)
+    return { font: next, fixes }
+  }
+  return { fixes }
+}
 export const TEXT_LAYER_ALIASES: Record<string, string> = {
   衬带: 'band', 衬带式: 'band', 默认: 'band', band: 'band',
   海报: 'poster', 海报式: 'poster', 大字: 'poster', poster: 'poster',
@@ -656,7 +810,7 @@ export function scrimFor(lums: number[]): 'none' | 'soft' {
 /** 把段数组组装成引擎配置（★L4：皮肤由 AI 挑，`theme` / `custom` 透传给引擎做对比度体检）
  *  ★V19（A′）：`imageNames` = 图号 1..N 对应的**同级扁平图名**（`gen_..._p1.jpg`）。
  *  给了它就按它引用（HTML 里的图与页面同级、无子目录）；不给则沿用老口径 `images/N.jpg`。 */
-export function buildPlanFromSegs(segs: any[], topicRaw: string, motion = 'normal', theme?: string, custom?: any, imageNames?: string[]): any {
+export function buildPlanFromSegs(segs: any[], topicRaw: string, motion = 'normal', theme?: string, custom?: any, imageNames?: string[], font?: string): any {
   const topic = String(topicRaw || '').trim().slice(0, 24)
   const meta: any = {
     issue: '第 01 期',
@@ -673,6 +827,9 @@ export function buildPlanFromSegs(segs: any[], topicRaw: string, motion = 'norma
     imageDir: 'images',
     // ★V19（A′）：只在真的给了名字表时才写这一项 —— 免得旧链路（无图名表）产物发生变化
     ...(Array.isArray(imageNames) && imageNames.length ? { imageNames } : {}),
+    // ★V25（B1）：字体配对（AI 挑的或用户改的；不给就由引擎用该皮肤的默认配对）——
+    //   同样"只在真给了才写"，保证不改变旧链路的产物
+    ...(font && PLAN_FONTS.some((f) => f.id === font) ? { font } : {}),
     segments: segs,
   }
 }
