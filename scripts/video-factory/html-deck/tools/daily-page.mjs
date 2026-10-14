@@ -307,7 +307,7 @@ const TSCALES = [0.9, 1, 1.15, 1.3]
  *   标题恒定 40.3px / 30px，ts 调到 1.3 也不动）—— 内联优先级最高，一次性根治这类"谁盖谁"的问题。
  *   下限：第 1 段 40px（闸门 R3 判"竖屏主标题 ≥40"）、其余段 30px（仍远高于信息点的 22px 下限）。
  */
-function titleCss(i, layout, form, type, ts) {
+export function titleCss(i, layout, form, type, ts, maxChars) {
   let b = { min: 44, vmin: 7, max: 92 }                          // 默认（衬带/海报/杂志）
   if (type === 'list') b = { min: 34, vmin: 4.6, max: 58 }       // 清单式：标题收成"小标"
   if (layout === 'quote') b = { min: 34, vmin: 5.6, max: 72 }    // 引用页：沿用原基准
@@ -327,7 +327,32 @@ function titleCss(i, layout, form, type, ts) {
   //   ⚠️ 换算基数 7.2 = 720（竖屏短边）/100 ⇒ 44px ⇔ 6.11vmin。
   const vf = (px, vminEq) => `min(${px}px, ${f(vminEq)}vmin)`
   const minItem = `max(${vf(floor, floor / 7.2)}, min(calc(${b.min}px * ${f(ts)}), calc(${f(b.min / 7.2)}vmin * ${f(ts)})))`
-  return `clamp(${minItem}, calc(${b.vmin}vmin * ${f(ts)}), calc(${b.max}px * ${f(ts)}))`
+  // ★VF_DAILY_TITLEFIT_V1（2026-10-14 用户实测 `gen_20261014_048` 段11「片片摊在白盘」被裁）：
+  //   病灶：字号只由"结构 × 字号档"决定，**不看这一行有几个字** ⇒ 6 字 × 50.4px ≈ 302px，
+  //         顶破 split 字列的可用宽（实测 304px）⇒ 满出来被切（出片 7px / 预览 20px）。
+  //   修法：生成器**知道每行字数**，就地给 max 项封顶 —— 只对"真放不下"的生效
+  //         （4 字标题照旧 65.52px，一个像素都不动）。
+  //   标定（实测后各留 6% 余量）：split 字列 720 可用 ≈ 286px、360 预览只剩 ≈ 136px；
+  //         全宽结构 720 ≈ 560px、360 ≈ 312px；竖排**不适用**（它的"宽"是字高、跟字数无关）。
+  //   ⚠️ **vmin 项不能按 `px/7.2` 换算**：窄视口下 `--pad`/`--gap` 的 clamp **下限是固定 px**
+  //      ⇒ 列宽缩得比视口快（720→304px / 360→136px，按视口比本该 152px）⇒ 字号用 vmin 缩也跟不上、
+  //      仍会溢出（实测第一版封顶：720 修好了、360 还差 11px）。所以两个口径**分开标定**，
+  //      用 `min(px项, vmin项)` 同时满足两个视口。
+  //   ⚠️ 必须 vmin 化，否则又重演 V2 那条"字号不随视口缩"。
+  const mc = Math.max(1, Math.round(Number(maxChars) || 0))
+  let maxItem = `calc(${b.max}px * ${f(ts)})`
+  let minHead = minItem
+  if (form !== 'vertical' && mc > 1) {
+    const availPx = layout === 'split' ? 286 : 560
+    const availVm = layout === 'split' ? 35.5 : 77.8
+    maxItem = `min(${maxItem}, ${vf(f(availPx / mc), availVm / mc)})`
+    // ⚠️ 封顶值必须**同时给下限设上限**：`clamp()` 的 min 与 max 是**各自独立求值**的，
+    //    在极窄视口（320×568）下"min 项"（6.11vmin×ts）会**大于**封顶值 ⇒ 字号被下限顶回去、
+    //    又溢出（实测 720/360/390/400 全好，唯独 320 还差 3px）。夹一下 ⇒ 保证 min ≤ max 恒成立。
+    //    放得下的段 minHead === minItem，仍与旧串逐字一致。
+    minHead = `min(${minItem}, ${maxItem})`
+  }
+  return `clamp(${minHead}, calc(${b.vmin}vmin * ${f(ts)}), ${maxItem})`
 }
 /** 切分型**唯一的名额**落在哪一段：封面(0) 或 收尾(n-1)；-1 = 本片一次都不用。
  *  ⚠️ 必须**惰性求值**：`FX_SEED` 在本文件后面才声明，这里直接算会踩 TDZ（ReadonlyError）。 */
@@ -566,6 +591,8 @@ function segBody(s, sc) {
   const lim = LAYOUTS[layout]
   const form = FORM_IDS[layout] || String(s.form || 'overlay')
   const title = (s.title || []).map((line, j) => j === 0 ? `<span>${esc(line)}</span>` : `<span><em>${esc(line)}</em></span>`).join('')
+  // ★VF_DAILY_TITLEFIT_V1：这一屏标题**最长那一行**几个字（字号封顶要用；按码点数，emoji 也算 1）
+  const titleMaxChars = Math.max(1, ...(s.title || []).map((l) => [...String(l == null ? '' : l)].length))
   // ★VF_DAILY_L2：每段图数按**该结构**的上限收（grid4 可到 4 张）
   const imgs = (Array.isArray(s.imgs) ? s.imgs : []).slice(0, lim.maxImg)
   // ★VF_DAILY_V2：图槽真的挂上 images/N.jpg（缺图时 onerror 自己摘掉 ⇒ 退回渐变占位，不裂图）
@@ -589,7 +616,7 @@ function segBody(s, sc) {
     + (s.stamp ? `<span class="stamp">${esc(s.stamp)}</span>` : '') + `</div>`
   return `<section class="sec" data-seg="${sc.i + 1}" data-start="${sc.start}" data-duration="${sc.dur}"`
     + ` data-place="${esc(s.place || 'cover')}" data-form="${esc(form)}" data-layout="${layout}"`
-    + ` data-type="${tType}" data-paper="${PAPER_DARK ? 'dark' : 'light'}" data-tm="${segTm[sc.i]}" style="--ts:${tScale};--title:${titleCss(sc.i, layout, form, tType, tScale)}"`
+    + ` data-type="${tType}" data-paper="${PAPER_DARK ? 'dark' : 'light'}" data-tm="${segTm[sc.i]}" style="--ts:${tScale};--title:${titleCss(sc.i, layout, form, tType, tScale, titleMaxChars)}"`
     + ` data-fx="${fx}" data-fv="${fv}" data-scrim="${esc(s.scrim || 'soft')}">`
     + head
     + `<h2>${title}</h2>`
