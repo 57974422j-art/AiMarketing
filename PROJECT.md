@@ -267,6 +267,14 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 - ✅ **交付卡加「🎬 出片」**（只在有单文件版时给）+ 轮询 effect + `VF_DAILY_FILM_TASK/DONE` 两个渲染分支。
 - 🐛 **顺带修**：`VF_DAILY_FORM` 分支里"非仓库来源"的 `return null` 挡在最前面，会把**出片**一起挡掉（本机/子目录来源点了没反应）⇒ 收窄成只挡 `mat`。
 - **验证**：`tsc` 零新增（88 存量不变）；协议正则单测命中。**待部署实测**（本机缺 DB/OSS 跑不了一整单）。
+### 2026-10-14（续4）：日报线「配音 + 字幕」（`VF_DAILYVOICE_V1/V2`，✅ 代码完成，待实测）
+
+- **用户定案**：「TTS 按你的 AI 写口播」「不要一次来和视频做，**分 2 步**，因为可能文案和时间戳字幕需要修改」。
+- ✅ **第一步（配音稿）**：AI 逐段写口播（`aiVoiceLines`，**看素材 + 画面字**，要求"补充不复读"）⇒ **配音稿卡**（逐段可改 / 字数与估时实时显示 / 超上限标红）⇒ 点「开始合成」才进第二步。
+- ✅ **第二步（合成）**：新工具 `daily-voice.mjs`（照 `film-voice.mjs` 方法论）—— TTS（纯 Node）→ **实测时长回填时间轴**（**两处一起改**：section 属性 **和** `var SECS`）→ SRT → 复用 `daily-film.mjs` 渲染 → 补静音对齐 → 混音烧字幕（三级降级 + `+faststart`）。
+- ⚠️ **未实测**：真 TTS 音色/断句、字幕观感、重排后画面观感（本机无额度）。验证到的是：工具语法、两条防护（缺参/段数不等被拒）、单测 **296/0**、`tsc` 零新增。
+- **两条设计纪律**：① 口播以**卡上回传为准**（不信草稿旧值）；② `at:'voice'` **不动 `d.step`**，否则同一张卡上的"无配音出片"会失效。
+
 - 🔧 **实跑踩坑 ②（引擎路径，已修）**：出片真跑推进到用字闸门后报 `Cannot find module '…/.next/standalone/scripts/video-factory/html-deck/check-page-fonts.mjs'` —— 服务器跑 `.next/standalone/server.js`，cwd 是 `.next/standalone`，而 Next 的 file tracing **只把个别脚本**拷进 standalone 的 `scripts/`（工具在、兄弟脚本与 `node_modules/hyperframes` 不在）。
   ⇒ 引擎根一律改走 **`vfRootDir()`**（`★VF_ROOT_V1`，成片线一直这么用）：`daily-film.ts` 1 处 + `daily.ts` 3 处（后三处原本靠 trace 恰好拷进去才没坏，一并拆掉）；并在出片前加**引擎三件套完整性校验**，缺什么一次说清。本地行为逐字不变（`vfRootDir()` 在本机返回 cwd）。
 - 🔧 **首测反馈（用户「没有看到前台有出片按键」）**：根因是**设计问题**——按钮原来只在"有单文件版"时渲染 ⇒ 单文件版没生成成功 / 那单是旧版本生成的，按钮就**静默消失**，用户不知道原因。

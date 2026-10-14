@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
         status: t.status,
         elapsedSec: t0 ? Math.round((t1 - t0) / 1000) : 0,
         htmlName: t.htmlName || '',
+        voiced: !!t.voiced,            // ★VF_DAILYVOICE_V2：这一单是不是配音版（前端完成卡据此换文案）
         repoName: t.repoName || '',
         url: t.url || '',
         tail: (t.tail || []).slice(-30),

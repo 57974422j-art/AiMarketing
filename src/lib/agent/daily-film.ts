@@ -32,6 +32,8 @@ export interface DailyFilmTask {
   repoName?: string
   /** 24h 签名直链（给 `<video src>` 用） */
   url?: string
+  /** ★VF_DAILYVOICE_V2：这一单是**带配音（+字幕）**的吗（前端完成卡据此换文案） */
+  voiced?: boolean
   /** 最后若干行输出（排障用，与成片线的 vf*.json 同口径） */
   tail: string[]
   error?: string
@@ -104,9 +106,12 @@ function runTool(cmd: string, args: string[], timeoutMs: number): Promise<{ code
  * 起一个出片任务：**立即返回**任务对象，真活在后头跑（前端靠 `/api/agent/daily-film-status` 轮询收尾）。
  * ⚠️ 后台任务跑在**当前进程**里 ⇒ pm2 重启会丢（与既有 `make_ai_video` 行为一致，已登记 ISSUES）。
  */
-export async function startDailyFilm(uid: number | string, htmlName: string): Promise<DailyFilmTask> {
+export async function startDailyFilm(
+  uid: number | string, htmlName: string, opts?: { voice?: string[] },
+): Promise<DailyFilmTask> {
+  const voiced = Array.isArray(opts?.voice) && opts!.voice!.length > 0
   const id = 'df' + Date.now()
-  const t: DailyFilmTask = { id, status: 'running', startedAt: new Date().toISOString(), htmlName, tail: [] }
+  const t: DailyFilmTask = { id, status: 'running', startedAt: new Date().toISOString(), htmlName, tail: [], voiced }
   writeTask(uid, t)
   const work = path.join(taskDir(uid), id)
   const push = (s: string) => {
@@ -137,19 +142,38 @@ export async function startDailyFilm(uid: number | string, htmlName: string): Pr
       //   口径与成片线一致：`vfRootDir()` 从 cwd 上溯到**项目根**（判据 = scripts/video-factory/make.py 在），
       //   那里才有完整引擎（工具 + 兄弟脚本 + node_modules/hyperframes）。
       const deckRoot = path.join(vfRootDir() || process.cwd(), 'scripts', 'video-factory', 'html-deck')
-      const tool = path.join(deckRoot, 'tools', 'daily-film.mjs')
-      // 三样齐了才敢跑 —— 缺一样都会在**中途**炸成上面那种晦涩报错（这次就是），不如一次说清
+      // ★VF_DAILYVOICE_V2：工具二选一 ——
+      //   无声出片 `daily-film.mjs`（打包 → 两道闸门 → 渲染）
+      //   配音出片 `daily-voice.mjs`（逐段 TTS → 按**实测时长**回填时间轴 → SRT → 渲染 → 混音烧字幕）
+      //   两者都在同一个 work 目录里跑、都以 FINAL_MP4: 报告产物 ⇒ 后面收尾逻辑完全共用。
+      const tool = path.join(deckRoot, 'tools', voiced ? 'daily-voice.mjs' : 'daily-film.mjs')
+      // 齐了才敢跑 —— 缺一样都会在**中途**炸成晦涩报错（2026-10-14 就是这么踩的），不如一次说清
       const need: Array<[string, string]> = [
-        ['出片工具', tool],
+        [voiced ? '配音出片工具' : '出片工具', tool],
         ['用字表闸门', path.join(deckRoot, 'check-page-fonts.mjs')],
         ['渲染引擎', path.join(deckRoot, 'node_modules', 'hyperframes', 'bin', 'hyperframes.mjs')],
       ]
+      // 配音还多一样依赖：纯 Node 的 TTS（生产服务器没有 python 也能跑）
+      if (voiced) need.push(['TTS（纯 Node）', path.join(deckRoot, 'tools', 'tts-node.mjs')])
       const miss = need.filter(([, p]) => !fs.existsSync(p)).map(([n, p]) => n + '（' + p + '）')
       if (miss.length) {
         throw new Error('引擎不完整，缺：' + miss.join('；')
           + ' —— 服务器上请确认 scripts/video-factory/html-deck 已装依赖（cd scripts/video-factory/html-deck && npm ci --omit=dev）')
       }
-      const r = await runTool(process.execPath, [tool, htmlPath, '--outdir', path.join(work, 'out')], 30 * 60 * 1000)
+      const outDir = path.join(work, 'out')
+      let args: string[]
+      if (voiced) {
+        // 口播落成**与成片线同格式**的旁白文件（{ "voice": [...] }）—— 那个格式是 film-voice 验证过的，
+        // 两边工具通用，将来要挪/复用都不必转换。
+        const vp = path.join(work, 'voices.json')
+        fs.writeFileSync(vp, JSON.stringify({ voice: opts!.voice }, null, 2), 'utf8')
+        push('[配音] ' + opts!.voice!.filter((x) => String(x || '').trim()).length + '/' + opts!.voice!.length + ' 段有口播')
+        args = [tool, htmlPath, '--voices', vp, '--outdir', outDir]
+      } else {
+        args = [tool, htmlPath, '--outdir', outDir]
+      }
+      // 配音比无声多花 TTS 的时间 ⇒ 上限给到 60 分钟（前端轮询本身是 30 分钟超时，够）
+      const r = await runTool(process.execPath, args, 60 * 60 * 1000)
       String(r.out || '').split('\n').filter((l) => l.trim()).slice(-12).forEach(push)
       const m = /FINAL_MP4:(.+)/.exec(String(r.out || ''))
       if (r.code !== 0 || !m) {

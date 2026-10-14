@@ -41,7 +41,7 @@ import { vfRootDir } from './video-material'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 import { dashscopeFunctionCall } from '@/lib/ai-providers'
 // ★纯函数层（零依赖、可单测：temp/_exp/daily/test-plan.mjs）
-import { DAILY_STYLE, aiPrompt, extractJsonEx, normSegs, normMotion, normTheme, normFont, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, assignTextMotion, pickFont, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer, checkDiversity, fixDiversity } from './daily-plan'
+import { DAILY_STYLE, aiPrompt, extractJsonEx, normSegs, normMotion, normTheme, normFont, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, assignTextMotion, pickFont, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer, checkDiversity, fixDiversity, voicePrompt, normVoiceLines, buildVoiceCardPayload, estimateSec } from './daily-plan'
 import type { PlanBy } from './daily-plan'
 
 export { DAILY_STYLE }
@@ -83,6 +83,8 @@ export interface DailyDraft {
   singleName?: string
   /** ★VF_DAILYFILM_V2：最近一次出片任务 id（前端轮询 `/api/agent/daily-film-status` 用） */
   filmTaskId?: string
+  /** ★VF_DAILYVOICE_V1：最近一版**逐段口播稿**（配音稿卡上给用户改的那份；合成时以卡上回传的为准） */
+  voice?: string[]
 }
 
 export function newDailyDraft(): DailyDraft { return { step: 'topic' } }
@@ -371,6 +373,89 @@ export async function aiPlanSegments(picks: DailyPick[], topic: string, lastThem
   // ★V12：把**看图摘要**一起返回 —— 文字模型挂了，但图已经看过 ⇒ 调用方可用它排出"有真内容"的兜底件
   // ★V25b：连同 `parseNote`（响应多少字、修到哪一级、用量）与 `rawHead`（原文开头）带出去 —— 调用方写日志
   return { ok: false, error: lastErr || '未知原因', sawImages: !!summary, vlErr, captions: summary, parseNote, rawHead }
+}
+
+/* ─────────────── ★VF_DAILYVOICE_V1：AI 写逐段口播（配音的**第一步**：先给人看、可改） ─────────────── */
+
+/**
+ * ★VF_DAILYVOICE_V1（2026-10-14 用户定案「TTS 按你的 AI 写口播」「不要一次来和视频做，分 2 步，
+ *   因为可能文案和时间戳字幕需要修改」）—— 给**已交付的那份页**逐段写口播，产出**配音稿卡**；
+ *   人改完才进合成（合成入口是 `at:'synth'`）。
+ *
+ * ⚠️ 为什么这里**再看一次图**：口播的职责是**补充**画面没说的（画面标题/信息点已经占了字面），
+ *    不看图就只能复读画面字或凭空编造 —— 用户明确定过"旁白要补充、不要复读"。
+ *    看图通路**复用** `aiPlanSegments` 那条已验证的 `describeImagesWithVL`（自带模型候选链 + 缺 key 探针）；
+ *    这里问法不同（只要"逐张拍的是什么"，不带排版诉求），所以没抽公共函数 —— 改动集中、风险更小。
+ * ⚠️ **既不判死也不编造**：视觉或文字模型任一失败 ⇒ `ok:false` + 原因，让调用方如实告知
+ *    （用户可自己写口播、或重试）；**绝不**退回"拿画面字当口播"那种看着成功、实际复读的假产物。
+ */
+export async function aiVoiceLines(
+  picks: DailyPick[], segs: any[], topic = '',
+): Promise<{ ok: boolean; lines?: string[]; fixes?: string[]; error?: string; sawImages?: boolean; vlErr?: string }> {
+  if (!Array.isArray(segs) || !segs.length) return { ok: false, error: '没有分段方案（要先出 HTML 才能配音）' }
+
+  // ① 看图：逐张读出"拍的是什么"（失败不判死，但原因要如实带出去）
+  let summary = ''
+  let vlErr = ''
+  try {
+    if (!picks.length) vlErr = '没有素材可看'
+    else {
+      const { describeImagesWithVL, vlReady, vlModel } = await import('@/lib/ai-providers')
+      if (!vlReady()) vlErr = '服务端没配视觉模型 key（DASHSCOPE_API_KEY）'
+      else {
+        const { signedUrl } = await import('@/lib/oss')
+        const urls: string[] = []
+        for (const p of picks) {
+          try {
+            if (p.local && p.abs) {
+              const b = fs.readFileSync(p.abs)
+              if (b.length > 6 * 1024 * 1024) continue                 // 单张太大跳过（不缩图，避免再踩 ffmpeg）
+              const mime = /\.png$/i.test(p.name) ? 'image/png' : 'image/jpeg'
+              urls.push('data:' + mime + ';base64,' + b.toString('base64'))
+            } else {
+              urls.push(await signedUrl(p.key, 3600))
+            }
+          } catch { /* 单张失败跳过 */ }
+        }
+        if (!urls.length) vlErr = '素材 URL 拿不到（OSS 签名失败）'
+        else {
+          const ask = '这是一组实拍照片（共 ' + urls.length + ' 张，按给定顺序编号 1..' + urls.length + '）。'
+            + '**逐张一行**，写清第 N 张拍的是什么（主体 / 菜品 / 场景 / 细节，≤20 字），格式「N. …」。'
+            + '只回这些，不要总述、不要解释、不要 markdown 代码块。'
+          for (let tries = 1; tries <= 2 && !summary; tries++) {
+            try {
+              const r = await describeImagesWithVL(urls, ask, 900)
+              if (String(r || '').trim()) summary = String(r).trim()
+            } catch { /* 试第二次 */ }
+          }
+          if (!summary) vlErr = '视觉模型读图失败（' + vlModel() + '）'
+        }
+      }
+    }
+  } catch (e: any) { vlErr = String(e?.message || e).slice(0, 100) }
+
+  // ② 文字模型按"画面字 + 看图摘要"写逐段口播
+  const prompt = voicePrompt(segs, summary, topic)
+  let lastErr = ''
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const strict = prompt + '\n\n⚠️ 上一条没有产出可解析的 JSON。现在**只回一个 JSON 对象**：'
+        + '{"voice":["…","…"]}，不要解释、不要 markdown 代码块、不要在前后写任何字。'
+      const res = await dashscopeFunctionCall(
+        [{ role: 'user', content: attempt === 1 ? prompt : strict }],
+        [], 4000, attempt === 1 ? 0.7 : 0.4, false,
+      )
+      const txt = String(res?.content || '')
+      const ex = extractJsonEx(txt)
+      if (!ex.value) { lastErr = 'AI 没吐出可解析的 JSON：' + ex.how + (attempt === 1 ? '' : '（重试也没成功）'); continue }
+      const { lines, fixes } = normVoiceLines(ex.value, segs.length)
+      if (!lines.filter(Boolean).length) { lastErr = 'AI 写出来的口播全是空的'; continue }
+      return { ok: true, lines, fixes, sawImages: !!summary, vlErr }
+    } catch (e: any) {
+      lastErr = String(e?.message || e).slice(0, 120) + (attempt === 1 ? '（已重试一次）' : '')
+    }
+  }
+  return { ok: false, error: lastErr || '未知原因', sawImages: !!summary, vlErr }
 }
 
 /** 素材名 → 图号（HTML 里 images/N.jpg 的 N 就是所选顺序），顺便记下"这段用了哪几张" */
@@ -1059,6 +1144,36 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
     // ③ ★VF_DAILYFILM_V2（2026-10-14 用户定案「先做1」）：交付后**出片**（日报 HTML → mp4）。
     //   为什么异步：出片一次 ~125s，而客户端 AI 接口超时是 120s ⇒ 同步走完**必然超时**。
     //   口径同存片线的 make_ai_video：立刻回执（带任务 id）+ 前端轮询 `/api/agent/daily-film-status`。
+    // ④ ★VF_DAILYVOICE_V1（2026-10-14 用户定案「TTS 按你的 AI 写口播」「不要一次来和视频做，分 2 步」）：
+    //   **第一步：出配音稿** —— AI 逐段写口播 ⇒ 卡片上给人改；改完再走 `at:'synth'` 合成（第二步）。
+    //   ⚠️ **不动 `d.step`**（保持 'done'）：配音稿是"交付卡之上的附加步骤"，
+    //      改了会让同一张卡上的「🎬 出片（无配音）」失效（那支要求 step==='done'）。
+    if (at === 'voice') {
+      if (d.step !== 'done' || !d.singleName || !d.plan) {
+        return '⚠️ 这一单还不能配音：' + ((d.step !== 'done' || !d.plan)
+          ? '还没生成 HTML（先点「✅ 生成 HTML」）。'
+          : '没有**单文件版**（配音要在它基础上回填时间轴）—— 回上一步重新生成一份即可。')
+      }
+      const v = await aiVoiceLines(
+        toPicks(uid, d.source || { kind: 'repo' }, d.names || []), d.plan.segments, d.topic || '')
+      if (!v.ok) {
+        try { ctx.log?.(uid, '[日报落地页] 口播没写出来：' + String(v.error || '') + (v.vlErr ? ' · ' + v.vlErr : '')) } catch { /* ignore */ }
+        return '⚠️ 口播没写出来：' + String(v.error || '未知原因')
+          + (v.vlErr ? '\n（看图那步：' + v.vlErr + '）' : '')
+          + '\n\n可以回一句「再写一次」重试，或者你自己把每段想说的话发我，我照你的排。'
+      }
+      const lines = v.lines || []
+      d.voice = lines
+      await saveDailyDraft(ctx.prisma, uid, d)
+      const note = v.sawImages
+        ? '口播是 AI **看过每张素材**后写的'
+        : ('**没看到图**（' + (v.vlErr || '未知') + '）—— 口播只按画面文字推的，务必逐条核对')
+      try { ctx.log?.(uid, '[日报落地页] 配音稿已出：' + lines.filter(Boolean).length + '/' + lines.length + ' 段有口播') } catch { /* ignore */ }
+      return 'VF_JSON:' + JSON.stringify(buildVoiceCardPayload({
+        segs: d.plan.segments, lines, fixes: v.fixes, theme: d.plan?.meta?.theme,
+        by: d.planBy, name: d.singleName, note, sawImages: v.sawImages, topic: d.topic,
+      }))
+    }
     if (at === 'film') {
       if (d.step !== 'done' || !d.singleName) {
         return '⚠️ 这一单还不能出片：'
@@ -1081,6 +1196,33 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
       try { ctx.log?.(uid, '[日报落地页] 出片任务已起：' + t.id + '（' + d.singleName + '）') } catch { /* ignore */ }
       return '🎬 **开始出片**（' + d.singleName + '）——大约 **2 分钟**'
         + '（打包 → 用字闸门 → 引擎校验 → 渲染）。\n完事我会自动把成片发到这儿，**你可以先干别的**。\n\n'
+        + 'VF_DAILY_FILM_TASK:' + JSON.stringify({ id: t.id, name: d.singleName })
+    }
+    // ⑤ ★VF_DAILYVOICE_V2（2026-10-14 用户定案「分 2 步」的**第二步**）：把改好的口播合成成片。
+    //   异步：逐段 TTS + 渲染 + 混音，通常 3~6 分钟 ⇒ 立刻回执 + 前端轮询（与无声出片**同一条通道**）。
+    //   ⚠️ 口播以**卡上回传的**为准（用户可能刚改过），不信草稿里那份旧的。
+    if (at === 'synth') {
+      if (d.step !== 'done' || !d.singleName) {
+        return '⚠️ 这一单还不能合成：' + (d.step !== 'done'
+          ? '还没生成 HTML（先点「✅ 生成 HTML」）。'
+          : '没有**单文件版**（合成要在它基础上回填时间轴）—— 回上一步重新生成一份即可。')
+      }
+      const arr = Array.isArray(f?.voice) ? f.voice.map((x: any) => String(x == null ? '' : x)) : []
+      if (!arr.length) return '⚠️ 没收到口播稿（要在配音稿卡上点「✅ 开始合成」才会带上）—— 请重新点一次「🎙 出片（带配音 · 字幕）」。'
+      const { startDailyFilm, findRunningDailyFilm } = await import('./daily-film')
+      const running = findRunningDailyFilm(uid)
+      if (running) {
+        return '⏳ 上一次出片**还在跑**（' + running.id + '）—— 完成后会自动发卡片，不用重复点。\n\n'
+          + 'VF_DAILY_FILM_TASK:' + JSON.stringify({ id: running.id, name: running.htmlName, reuse: true })
+      }
+      d.voice = arr
+      await saveDailyDraft(ctx.prisma, uid, d)
+      const t = await startDailyFilm(uid, d.singleName, { voice: arr })
+      d.filmTaskId = t.id
+      await saveDailyDraft(ctx.prisma, uid, d)
+      try { ctx.log?.(uid, '[日报落地页] 配音合成任务已起：' + t.id + '（' + arr.filter(Boolean).length + '/' + arr.length + ' 段口播）') } catch { /* ignore */ }
+      return '🎙 **开始合成**（配音 + 字幕）——逐段配音 → 按**实测时长**重排画面 → 烧字幕，通常 **3~6 分钟**。\n'
+        + '完事我会自动把成片发到这儿，**你可以先干别的**。\n\n'
         + 'VF_DAILY_FILM_TASK:' + JSON.stringify({ id: t.id, name: d.singleName })
     }
     if (at !== 'mat' || d.step !== 'pick') return null

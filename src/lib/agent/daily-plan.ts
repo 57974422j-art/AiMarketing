@@ -351,6 +351,115 @@ export function aiPrompt(n: number, topic: string, opts?: { lastTheme?: string }
   ].join('\n')
 }
 
+/* ═════════ ★VF_DAILYVOICE_V1（2026-10-14 用户定案「TTS 按你的 AI 写口播」「不要一次来和视频做，
+   分 2 步，因为可能文案和时间戳字幕需要修改」）═════════
+   为什么**必须分两步**：口播稿是**字幕 + 段时长**的唯一真相源（audio-first：段时长由配音**实测**时长决定，
+   不靠字数猜），而它极可能需要人改（念着不顺 / 太书面 / 想让某段别说话）⇒ **先给人看、可改，再合成**。
+   与成片线同源：产物形式沿用 `{ voice: [逐段一句] }` —— 这正是 `film-voice.mjs` 的旁白文件格式
+   ⇒ 那条线验证过的方法论（逐段 TTS → 实测时长回填时间轴 → SRT → 渲染 → 混音烧字幕）可以照搬。 */
+/** 每段口播字数上限（约 5 秒）。为什么必须有：口播长度**决定段时长**，
+ *  一段写 60 字会把整片拖成"一段十几秒"，观感直接垮。超了**截断并如实记进 fixes**。 */
+export const VOICE_MAX_CHARS = 22
+/** 估算时长（秒）= 4.5 字/秒 —— 与成片线老口径一致。
+ *  ⚠️ **只用于卡片上给个参考**；真正时长一律以 TTS 实测为准（本项目写死的纪律，别拿估算值去排时间轴）。 */
+export function estimateSec(text: string): number {
+  const n = [...String(text || '').replace(/\s/g, '')].length
+  return n ? Math.max(1.2, Math.round((n / 4.5) * 10) / 10) : 0
+}
+/** 逐段口播提示词（纯函数 ⇒ 可单测；写法要点全在这段字符串里，改口径只改这里） */
+export function voicePrompt(segs: any[], captions: string, topic = ''): string {
+  const list = Array.isArray(segs) ? segs : []
+  const rows = list.map((s: any, i: number) => {
+    const title = (Array.isArray(s?.title) ? s.title : [s?.title])
+      .map((x: any) => String(x == null ? '' : x)).filter(Boolean).join(' / ')
+    const pts = (Array.isArray(s?.points) ? s.points : [])
+      .map((p: any) => (Array.isArray(p) ? p.filter(Boolean).join('·') : String(p))).filter(Boolean).join('、')
+    return '  段' + (i + 1) + '：画面字「' + title + '」' + (pts ? ' ＋ 信息点「' + pts + '」' : '')
+  }).join('\n')
+  return [
+    '你在给一条**竖屏短视频**写**口播旁白**（这份片叫「日报落地页」，主题：' + (topic || '未指定') + '）。',
+    '',
+    '【每一段的画面】',
+    rows,
+    captions ? '\n【这些图实际拍的是什么（视觉模型逐张读出 —— **写旁白必须据此，不许编造**）】\n' + captions : '',
+    '',
+    '【怎么写】',
+    '1. **一段一句**，共 ' + list.length + ' 句，顺序与上面完全一致；',
+    '2. 每句 **不超过 ' + VOICE_MAX_CHARS + ' 个汉字**（硬上限：一句话的长短**决定这一段有多长**）；',
+    '3. 像**旁边有人随口介绍**，用口语、别用书面语（不要"本店""致力于""为广大食客"这类词）；',
+    '4. **不要复读画面上的字** —— 画面已经有标题和信息点了，旁白要**补充**它没说的（口感 / 场景 / 做法 / 氛围）；',
+    '5. **只说你从图里真看到的**，不许编门店名 / 评分 / 价格 / 销量 / 历史；',
+    '6. 简体中文、**不用 emoji**、不要感叹号堆砌、句尾不必都写句号；',
+    '7. 某段实在没什么可说 ⇒ 这一句写**空字符串**（那一段就静音），但**最多 2 段**写空。',
+    '',
+    '只输出 JSON（不要解释、不要 markdown 代码块）：',
+    '{"voice":["第一段的口播","第二段的口播","……"]}',
+  ].join('\n')
+}
+/** ★VF_DAILYVOICE_V1：**配音稿卡**（第 4 步）payload —— 每段一行、可改、可静音，末尾给"开始合成"。
+ *  ⚠️ 卡片上给的是**估算**时长，且必须写明"以实际配音为准"——
+ *     本项目纪律：时间轴的真值只能来自 TTS 实测（估算值只配用来给人一个量级感）。 */
+export function buildVoiceCardPayload(o: {
+  segs: any[]; lines: string[]; fixes?: string[]; theme?: string; by?: PlanBy
+  name: string; note?: string; sawImages?: boolean; topic?: string
+}): any {
+  const segs = Array.isArray(o.segs) ? o.segs : []
+  const lines = Array.isArray(o.lines) ? o.lines : []
+  const rows = segs.map((s: any, i: number) => {
+    const title = (Array.isArray(s?.title) ? s.title : [s?.title])
+      .map((x: any) => String(x == null ? '' : x)).filter(Boolean).join(' / ')
+    const text = String(lines[i] || '')
+    return { i: i + 1, layout: String(s?.layout || ''), title, text, est: estimateSec(text) }
+  })
+  // 总时长估算 = 各段口播估时 + 每段 0.5s 尾巴（与 film-voice 的 gap 同口径）
+  const totalEst = Math.round(rows.reduce((a, r) => a + (r.est || 0) + 0.5, 0) * 10) / 10
+  const emptyN = rows.filter((r) => !r.text).length
+  return {
+    step: 'daily_voice',
+    proto: 'VF_DAILY_FORM',
+    hint: '第 4 步 / 共 5 步 · **配音稿**（先看文案；念着不顺就改，改完才合成）',
+    name: o.name,
+    rows,
+    totalEst,
+    emptyN,
+    maxChars: VOICE_MAX_CHARS,
+    fixes: o.fixes || [],
+    note: o.note || '',
+    sawImages: !!o.sawImages,
+    topic: String(o.topic || ''),
+    theme: themeName(o.theme),
+    by: byLabel(o.by),
+  }
+}
+
+/** 规整模型返回的口播：**逐段一句、按上限截断、去 emoji/换行**（纯函数 ⇒ 可单测）
+ *  口径：缺段补空、多段丢弃、超长截断 —— **一律如实记进 fixes**，绝不静默改。 */
+export function normVoiceLines(raw: any, n: number): { lines: string[]; fixes: string[] } {
+  const fixes: string[] = []
+  const src = Array.isArray(raw?.voice) ? raw.voice : (Array.isArray(raw) ? raw : [])
+  const lines: string[] = src
+    .map((x: any) => String(x == null ? '' : x))
+    .map((s: string) => s.replace(/[\r\n]+/g, ' ')
+      .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim())
+  while (lines.length < n) lines.push('')
+  if (lines.length > n) {
+    fixes.push('口播多出 ' + (lines.length - n) + ' 句（已丢弃）')
+    lines.length = n
+  }
+  lines.forEach((s, i) => {
+    const chars = [...s]
+    if (chars.length > VOICE_MAX_CHARS) {
+      lines[i] = chars.slice(0, VOICE_MAX_CHARS).join('')
+      fixes.push('段' + (i + 1) + ' 口播 ' + chars.length + ' 字超上限 ' + VOICE_MAX_CHARS + ' ⇒ 已截断')
+    }
+  })
+  const emptyN = lines.filter((s) => !s).length
+  if (emptyN > 2) fixes.push('有 ' + emptyN + ' 段口播为空（静音上限 2 段）—— 合成时会按画面文字兜底念')
+  return { lines, fixes }
+}
+
 /** 规整动效档（引擎只认这三档） */
 export function normMotion(v: any): string {
   const s = String(v || '')

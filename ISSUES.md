@@ -35,6 +35,11 @@
 - 🟢 **引擎脚本路径一律走 `vfRootDir()`，绝不用 `process.cwd()`**（2026-10-14 出片实跑踩到并**已修**，立为规矩）：服务器跑 pm2 的 `.next/standalone/server.js` ⇒ cwd = `.next/standalone`；Next 的 file tracing 只把**个别被字面量引用到的脚本**拷进 `.next/standalone/scripts/…` ⇒ **工具本身在、它 spawn 的兄弟脚本与 `node_modules` 不在**。表现是 `Cannot find module '…/.next/standalone/scripts/…/check-page-fonts.mjs'`，还会被裹进 `stage=fonts 用字闸门未过` 里 ⇒ **看起来像内容问题，其实是路径问题**。
   **Why**：standalone 的 `scripts/` 是**残缺副本**，只有被 trace 抓到的文件；而 `node_modules/hyperframes`、字体、`check-page-fonts.mjs` 这些"运行时拼路径找的"依赖永远不会被 trace 收录。
   **How to apply**：新增任何"服务端要 spawn 引擎脚本"的代码时，根目录用 `vfRootDir()`（`@/lib/agent/video-material`，成片线 `filmToolsDir()` 就是它）；并在开跑前**校验引擎三件套**（工具 / 兄弟脚本 / `node_modules/hyperframes`）一次说清缺什么 —— 出片工具 `daily-film.ts` 已按这个模式实现，照着抄。
+- 🟡 **配音合成会真的调 TTS（花钱）**（`VF_DAILYVOICE_V2`，2026-10-14 登记）：一次合成 = 逐段 TTS（13 段约 50~80 秒音频）⇒ **点「开始合成」就会产生费用**，且失败重试会再花一次。
+  **Why**：audio-first 必须拿**实测**音频时长才能回填时间轴，没法用估算替代。
+  **How to apply**：① 口播稿卡是**免费的**（纯文本 AI），要让用户改到满意再点合成；② 若将来要省钱，可在合成前提示"约 X 秒音频"；③ 别在循环/重试里自动重跑合成。
+- 🟡 **烧字幕依赖服务器 ffmpeg 的 libass + libx264**（2026-10-14 登记，**未验证**）：`daily-voice.mjs` 有三级降级（烧字幕 → 不烧 → 只换音轨）并会如实打印，但**服务器那份 ffmpeg 到底有没有这两样**还没测过。缺 libass ⇒ 成片没字幕（SRT 旁挂）；缺 libx264 ⇒ 连重编码都不行 ⇒ 只能"只换音轨"。
+  **How to apply**：首次实测时看日志里那行 `ffmpeg 环境：音轨编码=… libmp3lame=… libx264=… libass=…`；若是「无」且用户在意字幕，需要换带 libass 的 ffmpeg（本机与服务器可能不同）。
 - 🟡 **日报页可能含「表外字」⇒ 生成成功但出不了片**（2026-10-14 首次实跑出片时暴露）：成片的**画面文字**走**内嵌字体子集**（GB2312 一级常用字，约 3755 字），AI 一旦写出**生僻字/异体字/古字**，`check-page-fonts` 会拦住**整片**。
   **Why**：字表闸门在**出片阶段**才查，而生成阶段（`daily-verify` 的 R1~R14）**不查字表** ⇒ 用户一路走到最后一步才失败（而且当时报错还是空的，已修）。
   **How to apply**：① 已加**前置约束**（`aiPrompt` 第 8 条：只用 GB2312 一级常用字）；② 已修**报错带出具体字**（`daily-film.mjs` 解析 JSON 打在 stage 行）。③ **仍未做**：生成阶段就把表外字如实报给用户（进 `generateVerified` 的 note，让人在生成完就知道要不要改文案），以及"自动替换 / 退回该段"的策略待定。

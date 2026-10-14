@@ -2009,6 +2009,86 @@ function VfDailyPlanCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
    · 🔁 再做一份：重发入口命令（入口本来就是"作废旧单重起"，所以这条总是有效）。 */
 /** ★VF_DAILY_V19：交付卡自己的镜像去重表（本组件在**模块级**，借不到主组件里的 MIRRORED_ONCE） */
 const DAILY_MIRRORED = new Set<string>()
+/* ★VF_DAILYVOICE_V1（2026-10-14 用户定案「TTS 按你的 AI 写口播」「不要一次来和视频做，分 2 步，
+   因为可能文案和时间戳字幕需要修改」）：**配音稿卡**（第 4 步）。
+   口播稿是**字幕与段时长的唯一真相源**（audio-first：段时长由配音**实测**时长决定），
+   所以必须在合成**之前**让人过一眼。改完点「开始合成」⇒ 发 `at:'synth'`。
+   ⚠️ 字数上限是硬口径：一句话的长短**决定这一段有多长**（超了服务端会截断，卡片上直接标红提醒）。 */
+function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void }) {
+  const rows: any[] = Array.isArray(vj?.rows) ? vj.rows : []
+  const maxChars = Number(vj?.maxChars) || 22
+  const [lines, setLines] = useState<string[]>(rows.map((r: any) => String(r?.text || '')))
+  const [busy, setBusy] = useState(false)
+  // 4.5 字/秒（与项目老口径一致）—— **只用于给个量级感**，真正时长一律以 TTS 实测为准
+  const est = (t: string) => {
+    const n = [...String(t || '').replace(/\s/g, '')].length
+    return n ? Math.max(1.2, Math.round((n / 4.5) * 10) / 10) : 0
+  }
+  const total = Math.round(lines.reduce((a, t) => a + est(t) + 0.5, 0) * 10) / 10
+  const emptyN = lines.filter((t) => !String(t).trim()).length
+  const overN = lines.filter((t) => [...String(t)].length > maxChars).length
+  const send = () => {
+    if (busy) return
+    setBusy(true)
+    onSend('VF_DAILY_FORM:' + JSON.stringify({ at: 'synth', voice: lines.map((t) => String(t).trim()) }))
+  }
+  return (
+    <div className="mb-2 p-3 rounded-xl border border-violet-500/30 bg-violet-500/[0.06]">
+      <div className="text-xs text-violet-200 mb-1">{String(vj?.hint || '配音稿')}</div>
+      <div className="text-[10px] text-gray-400 mb-2">
+        {String(vj?.note || '')}　·　估算总长 {total}s
+        {emptyN ? '（' + emptyN + ' 段静音）' : ''}　·　实际时长以配音为准
+      </div>
+      {Array.isArray(vj?.fixes) && vj.fixes.length ? (
+        <div className="text-[10px] text-amber-400 mb-2">
+          {(vj.fixes || []).map((f: any, i: number) => <div key={i}>· {String(f)}</div>)}
+        </div>
+      ) : null}
+      <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+        {rows.map((r: any, i: number) => {
+          const t = lines[i] || ''
+          const n = [...t].length
+          const over = n > maxChars
+          return (
+            <div key={String(r?.i || i)} className="rounded-lg border border-white/10 bg-black/20 p-2">
+              <div className="flex items-center justify-between mb-1 gap-2">
+                <span className="text-[10px] text-gray-400 truncate">
+                  段{r?.i}{r?.layout ? ' · ' + String(r.layout) : ''}
+                  <span className="text-gray-600">　画面：{String(r?.title || '').slice(0, 24)}</span>
+                </span>
+                <span className={'text-[10px] shrink-0 ' + (over ? 'text-amber-400' : 'text-gray-500')}>
+                  {n}/{maxChars} 字 · ~{est(t)}s
+                </span>
+              </div>
+              <textarea
+                value={t}
+                rows={2}
+                placeholder="（留空 = 这一段不配音，只留画面）"
+                onChange={(e) => setLines((prev) => { const nx = prev.slice(); nx[i] = e.target.value; return nx })}
+                className="w-full bg-black/30 border border-white/10 rounded px-2 py-1 text-[12px] text-gray-100 leading-relaxed resize-y"
+              />
+            </div>
+          )
+        })}
+      </div>
+      {overN ? (
+        <div className="text-[10px] text-amber-400 mt-2">
+          有 {overN} 段超过 {maxChars} 字 —— 一句话的长短决定这一段有多长，建议压短些。
+        </div>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-2 mt-3">
+        <button onClick={send} disabled={busy}
+          className={'px-3 py-2 rounded-lg text-xs border ' + (busy
+            ? 'border-white/10 text-gray-500 cursor-wait'
+            : 'border-violet-400/50 text-violet-100 hover:bg-violet-500/15')}>
+          {busy ? '合成中…' : '✅ 开始合成（配音 + 字幕）'}
+        </button>
+        <span className="text-[10px] text-gray-500">约 2~4 分钟：逐段配音 → 按实测时长重排画面 → 烧字幕</span>
+      </div>
+    </div>
+  )
+}
+
 function VfDailyDoneCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => void; userId?: number | string }) {
   const viewUrl = String(vj?.viewUrl || '')
   const dlUrl = String(vj?.dlUrl || '')
@@ -2147,22 +2227,33 @@ function VfDailyDoneCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) 
             原来只在 `embedded>0`（有单文件版）时才给 ⇒ 那份页的单文件版一旦没生成成功，按钮就**静默消失**，
             用户只会以为"功能没上"，**完全不知道是为什么**（这次实测就是这么踩的）。
             现在：没有单文件版 ⇒ 按钮**置灰 + 写明原因 + 告诉他怎么办**（回上一步重新生成一份）。 */}
-        {vj?.hasSingle
-          || Number(vj?.embedded) > 0
-          // 旧卡片（本次更新前发的）没有 `hasSingle` 字段 ⇒ 用"单文件版名 ≠ 配图版名"兜底判定
-          // （payload 里 `name` = 单文件版优先、`plainName` = 配图版；两者不同 ⇒ 确实有单文件版）
-          || (vj?.name && vj?.plainName && String(vj.name) !== String(vj.plainName)) ? (
-          <button onClick={() => onSend('VF_DAILY_FORM:' + JSON.stringify({ at: 'film' }))}
-            className="px-3 py-2 rounded-lg text-xs border border-sky-400/40 text-sky-200 hover:bg-sky-500/10">
-            🎬 出片（约 2 分钟）
-          </button>
-        ) : (
-          <button disabled
-            title="出片只认「单文件版」（图已内嵌的那份）。这一单没有单文件版记录 —— 回上一步重新生成一份即可。"
-            className="px-3 py-2 rounded-lg text-xs border border-white/10 text-gray-500 cursor-not-allowed">
-            🎬 出片（需重新生成一份）
-          </button>
-        )}
+        {(() => {
+          const canFilm = vj?.hasSingle
+            || Number(vj?.embedded) > 0
+            // 旧卡片（本次更新前发的）没有 `hasSingle` 字段 ⇒ 用"单文件版名 ≠ 配图版名"兜底判定
+            // （payload 里 `name` = 单文件版优先、`plainName` = 配图版；两者不同 ⇒ 确实有单文件版）
+            || (vj?.name && vj?.plainName && String(vj.name) !== String(vj.plainName))
+          return canFilm ? (
+            <>
+              <button onClick={() => onSend('VF_DAILY_FORM:' + JSON.stringify({ at: 'film' }))}
+                className="px-3 py-2 rounded-lg text-xs border border-sky-400/40 text-sky-200 hover:bg-sky-500/10">
+                🎬 出片（约 2 分钟 · 无配音）
+              </button>
+              {/* ★VF_DAILYVOICE_V1（2026-10-14 用户定案「TTS…和视频分 2 步」）：带配音的那条路 ——
+                  先出**配音稿卡**给人改，改完才合成（口播稿同时是字幕与段时长的真相源，不能跳过）。 */}
+              <button onClick={() => onSend('VF_DAILY_FORM:' + JSON.stringify({ at: 'voice' }))}
+                className="px-3 py-2 rounded-lg text-xs border border-violet-400/40 text-violet-200 hover:bg-violet-500/10">
+                🎙 出片（带配音 · 字幕）
+              </button>
+            </>
+          ) : (
+            <button disabled
+              title="出片只认「单文件版」（图已内嵌的那份）。这一单没有单文件版记录 —— 回上一步重新生成一份即可。"
+              className="px-3 py-2 rounded-lg text-xs border border-white/10 text-gray-500 cursor-not-allowed">
+              🎬 出片（需重新生成一份）
+            </button>
+          )
+        })()}
         <button onClick={() => onSend('日报落地页')}
           className="px-3 py-2 rounded-lg text-xs border border-white/15 text-gray-200 hover:bg-white/[0.08]">
           🔁 再做一份
@@ -2943,7 +3034,7 @@ function AgentPageInner() {
                 && m.content.startsWith('VF_DAILY_FILM_DONE:') && m.content.includes(tid))
               if (dup) return prev
               return [...prev, { id: 'df-' + Date.now(), role: 'assistant',
-                content: 'VF_DAILY_FILM_DONE:' + JSON.stringify({ taskId: tid, url: t.url || '', repoName: t.repoName || '', elapsedSec: t.elapsedSec || 0 }) }]
+                content: 'VF_DAILY_FILM_DONE:' + JSON.stringify({ taskId: tid, url: t.url || '', repoName: t.repoName || '', elapsedSec: t.elapsedSec || 0, voiced: !!t.voiced }) }]
             })
           }
         } else if (t.status === 'failed') {
@@ -4468,7 +4559,8 @@ function AgentPageInner() {
         return (
           <div className="mb-2 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06]">
             <div className="text-xs text-emerald-300 mb-2">
-              🎬 日报成片已完成（**无配音无字幕** · 出片耗时 {Math.round(Number(df.elapsedSec) || 0)}s）
+              {df.voiced ? '🎙 日报成片已完成（配音 + 字幕）' : '🎬 日报成片已完成（无配音无字幕）'}
+              　· 耗时 {Math.round(Number(df.elapsedSec) || 0)}s
             </div>
             {df.url
               ? <video src={String(df.url)} controls playsInline preload="metadata"
@@ -4478,7 +4570,11 @@ function AgentPageInner() {
             {df.repoName
               ? <div className="text-[10px] text-gray-500 mt-2">已入个人仓库：{String(df.repoName)}（在客户端里打开会自动同步到本地）</div>
               : null}
-            <div className="text-[10px] text-gray-500 mt-1">下一步：配音 + 字幕（AI 写口播 → 你可以改 → TTS → 烧字幕）</div>
+            {df.voiced ? null : (
+              <div className="text-[10px] text-gray-500 mt-1">
+                想要配音 + 字幕？回交付卡点「🎙 出片（带配音 · 字幕）」——先出配音稿、你可以改，改完再合成。
+              </div>
+            )}
           </div>
         )
       } catch { /* 解析失败就按普通文本显示 */ }
@@ -4557,6 +4653,8 @@ function AgentPageInner() {
         if (_vj && _vj.step === 'daily_plan') return <VfDailyPlanCard vj={_vj} onSend={sendMessage} />
         {/* ★VF_DAILY_V7（2026-10-13「是最后一步都是文字」）：第 3 步＝交付卡（预览/下载/再做一份） */}
         if (_vj && _vj.step === 'daily_done') return <VfDailyDoneCard vj={_vj} onSend={sendMessage} userId={user?.id} />
+        {/* ★VF_DAILYVOICE_V1：第 4 步＝**配音稿卡**（逐段口播可改；改完点"开始合成"） */}
+        if (_vj && _vj.step === 'daily_voice') return <VfDailyVoiceCard vj={_vj} onSend={sendMessage} />
         {/* ★VF_PPT_UI_V1（2026-10-06 用户定案「彻底拆开」）：【PPT 成片】独立线两张卡 */}
         if (_vj && _vj.step === 'ppt_setup') return <VfPptCard vj={_vj} onSend={sendMessage} />
         if (_vj && _vj.step === 'ppt_confirm') {
