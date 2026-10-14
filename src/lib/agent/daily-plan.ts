@@ -1112,6 +1112,13 @@ export function buildDoneCardPayload(o: {
   expiresDays?: number
   /** ★VF_DAILY_V8：单文件版（图已内嵌）—— `plainUrl` 是"配图版"（需 images/ 文件夹） */
   singleName?: string; singleUrl?: string; singleDlUrl?: string; plainUrl?: string
+  /** ★VF_DAILYFILM_V3（2026-10-14 用户实测「刚生成的却提示『需重新生成一份』」）：
+   *  **有没有单文件版** —— 这个标志**刻意不依赖短链是否生成成功**。
+   *  病灶：前端原来拿 `embedded` 当判据，而 `embedded` 在服务端是 `singleOk ? embedded : 0`，
+   *  而 `singleOk` 又要求**短链也生成成功** ⇒ 一旦 `fileLinkPath` 拿不到（链接失败），
+   *  "有单文件版"就被算成"没有" ⇒ 出片按钮**误置灰**（服务端明明能出片）。
+   *  现口径：出片只认"**单文件版存在**"这一件事。 */
+  hasSingle?: boolean
   imgCount?: number; embedded?: number
   /** ★V19（A′）：这批图的**同级扁平仓库名**（客户端拿它把图一起镜像到本地同一文件夹） */
   imgNames?: string[]
@@ -1144,6 +1151,8 @@ export function buildDoneCardPayload(o: {
     proto: 'VF_DAILY_FORM',
     hint: '第 3 步 / 共 3 步 · 已生成并交付',
     name: o.singleName || o.name,
+    // ★VF_DAILYFILM_V3：**出片按钮的判据**（不看 `embedded` —— 它会被"短链没生成成功"带偏）
+    hasSingle: !!o.hasSingle,
     plainName: o.name,
     viewUrl: o.singleUrl || o.viewUrl,
     dlUrl: o.singleDlUrl || o.dlUrl || '',

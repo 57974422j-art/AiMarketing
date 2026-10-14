@@ -2147,7 +2147,11 @@ function VfDailyDoneCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) 
             原来只在 `embedded>0`（有单文件版）时才给 ⇒ 那份页的单文件版一旦没生成成功，按钮就**静默消失**，
             用户只会以为"功能没上"，**完全不知道是为什么**（这次实测就是这么踩的）。
             现在：没有单文件版 ⇒ 按钮**置灰 + 写明原因 + 告诉他怎么办**（回上一步重新生成一份）。 */}
-        {Number(vj?.embedded) > 0 ? (
+        {vj?.hasSingle
+          || Number(vj?.embedded) > 0
+          // 旧卡片（本次更新前发的）没有 `hasSingle` 字段 ⇒ 用"单文件版名 ≠ 配图版名"兜底判定
+          // （payload 里 `name` = 单文件版优先、`plainName` = 配图版；两者不同 ⇒ 确实有单文件版）
+          || (vj?.name && vj?.plainName && String(vj.name) !== String(vj.plainName)) ? (
           <button onClick={() => onSend('VF_DAILY_FORM:' + JSON.stringify({ at: 'film' }))}
             className="px-3 py-2 rounded-lg text-xs border border-sky-400/40 text-sky-200 hover:bg-sky-500/10">
             🎬 出片（约 2 分钟）

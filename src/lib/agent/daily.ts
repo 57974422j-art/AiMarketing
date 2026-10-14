@@ -945,6 +945,8 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Pr
     viewUrl: stdView,
     dlUrl: stdDl,
     singleName: singleOk ? (single as any).name : '',
+    // ★VF_DAILYFILM_V3：**单文件版"存在"就够**（与短链是否生成成功无关）—— 出片只依赖它。
+    hasSingle: !!(single && single.name),
     singleUrl: singleOk ? oneView : '',
     singleDlUrl: singleOk ? oneDl : '',
     plainUrl: stdView,
