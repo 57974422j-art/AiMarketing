@@ -16,6 +16,9 @@
  *   ④ 折行/挤压：**短文本（≤8 字）的叶子元素高度 > 字号×1.7** ⇒ 判"被折行/挤压"（用户实测痛点）
  *   ⑤ 压图：文字矩形 ∩ 图片矩形 > 较小者 15%，且文字自己没有 ≥60% 不透明的底衬
  *   ⑥ JS 报错 / 外链请求（必须 0）
+ *   ⑦ **文字被裁**：文字伸出"最近的裁剪祖先"（overflow≠visible / 有 clipPath）的框，**只判左右**
+ *      （纵向溢出是本套设计的固有观感、量大全篇 ⇒ 不能当退段理由）。口径同 temp/_exp/daily/probe-clip.mjs 的 v2。
+ *      ⚠️ 别用 `scrollWidth > clientWidth`（那是 probe-clip 的 v1，早被否过：全篇误报"行盒内溢"）。
  *
  * 浏览器：优先 $CHROME → hyperframes 自带的无头 Chrome（成片线就是用它，服务器上已存在）→ 系统 Chrome。
  */
@@ -66,7 +69,7 @@ function measureFn() {
   const secs = Array.prototype.slice.call(document.querySelectorAll('.sec'))
   secs.forEach((sec, i) => {
     const sr = rect(sec)
-    const bad = [], small = [], wrap = [], over = []
+    const bad = [], small = [], wrap = [], over = [], clip = []
     let minFont = 999, maxFont = 0
     const imgs = []
     const texts = []
@@ -93,8 +96,41 @@ function measureFn() {
         const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0)
           + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0)
         const contentH = r.h - pad
-        if (t.length <= 8 && fz && contentH > fz * 1.75) {
+        // ★VF_DAILY_CLIP_V2（2026-10-14）：**竖排段（writing-mode:vertical-*）不适用"折行/被裁"这两条判据** ——
+        //   竖排的"高"就是文字延展方向（"红油浸虾" 4 字 = 4 个字号高 = 121px），拿
+        //   "短文本 高 > 字号×1.75" 去判它**必然误报**（实测：竖排段 8/8 次都被判"折行"）；
+        //   宽度方向的 scrollWidth 也含字形外框余量（实测 39 vs clientWidth 34）。
+        //   ⚠️ 误报的后果不是"看不见"而是**好段被退回 L2 模板**（daily.ts 拿这个退出码做回落）——
+        //      竖排/图文左右这两类段会永远看不到。要判竖排请另写判据，别复用这两条。
+        const vertical = String(cs.writingMode || '').startsWith('vertical')
+        if (!vertical && t.length <= 8 && fz && contentH > fz * 1.75) {
           wrap.push(t.slice(0, 10) + ' 内容高=' + contentH.toFixed(0) + ' 字号=' + fz.toFixed(0))
+        }
+        // ★VF_DAILY_CLIP_V3（2026-10-14 用户实测「第七段标题被裁掉半个字」）：
+        //   口径 = **文字伸出"最近的裁剪祖先"（overflow≠visible / 有 clipPath）的框**，
+        //   与 `temp/_exp/daily/probe-clip.mjs` 的 v2 判据同源。
+        //   ⚠️ 别用 `scrollWidth > clientWidth`：那是 probe-clip 的 **v1，早被否过** ——
+        //      它把"行高偏紧、行盒内溢 5~7px"也算成被裁 ⇒ 全篇每段都报（竖排更甚）。
+        //   ⚠️ 也别整条搬 v2：本套设计里 `em` 高亮块上下本来就被切 6~14px（实测段1/7/8/14/15 都有），
+        //      量大全篇、肉眼不显 ⇒ **纵向溢出不能拿来退段**（否则每段都被退回 L2 模板）。
+        //      **这里只判左右**（横向被裁 = nowrap 标题撑爆列宽，正是用户报的那类）。纵向另论。
+        let anc = el.parentElement
+        while (anc && anc.nodeType === 1) {
+          const acs = getComputedStyle(anc)
+          if (acs.overflow !== 'visible' || acs.clipPath !== 'none') break
+          anc = anc.parentElement
+        }
+        if (anc && anc.nodeType === 1) {
+          const b = anc.getBoundingClientRect()
+          // ⚠️ 用本文件 `rect()` 的字段名：`r.l` = 左边界、`r.r` = 右边界。
+          //    写成 `r.left / r.right` 会得到 undefined ⇒ NaN ⇒ **判据永远不报**
+          //    （比误报更坏：看着像装了闸门，其实什么都没拦 —— 本判据第一版就是这么错的）。
+          const cutL = Math.round(b.left - r.l)
+          const cutR = Math.round(r.r - b.right)
+          if (cutL > 2 || cutR > 2) {
+            clip.push(t.slice(0, 10) + ' 被「' + ((anc.className || anc.tagName) + '').slice(0, 12)
+              + '」左' + cutL + '/右' + cutR + 'px')
+          }
         }
       }
       // 越界（容差 1px）
@@ -125,7 +161,7 @@ function measureFn() {
       layout: sec.dataset.layout || '-',
       minFont: minFont === 999 ? 0 : +minFont.toFixed(1),
       maxFont: +maxFont.toFixed(1),
-      bad, small, wrap, over, textOverImg: hit,
+      bad, small, wrap, over, clip, textOverImg: hit,
     })
   })
   return out
@@ -140,7 +176,25 @@ if (!fs.existsSync(abs)) { console.log('✗ 文件不存在：' + abs); process.
 const exe = findChrome()
 if (!exe) { console.log('✗ 找不到浏览器（设 $CHROME，或让 hyperframes 先跑一次以缓存无头 Chrome）'); process.exit(2) }
 
-const VIEWS = [{ tag: 'v', w: 720, h: 1280, hard: true }, { tag: 'h', w: 1280, h: 720, hard: false }]
+// ★VF_DAILY_CLIP_V3（2026-10-14 用户实测「第七段标题被裁掉半个字」）：
+//   新增 **p = 预览 360×640，且是硬线** —— 用户是在**客户端预览**里看到这个 bug 的，
+//   而原来只测 720 出片画布 ⇒ 闸门"看不见用户看得见的东西"。
+//   实测（gen_20261014_035 修前）：720 全绿 · 360 下段7「纹理分明」右裁 91px（15 段里只此一处，
+//   与用户"其它 2 个同样格式处理很好"完全吻合）。
+//   ⚠️ 它是**硬线**：会算进喂给 daily.ts 的退出码 ⇒ 预览里会被裁的段，生成阶段就退回 L2 模板。
+//      代价只是每份多跑 ~1.3s（15 段），换来的是"用户看得见的地方也有闸门"。
+const VIEWS = [
+  { tag: 'v', w: 720, h: 1280, hard: true },
+  { tag: 'h', w: 1280, h: 720, hard: false },
+  // ★VF_DAILY_CLIP_V3（2026-10-14 用户实测「第七段标题被裁掉半个字」）：
+  //   新增 **p = 预览 360×640，硬线，但 `only:['clip']`（只判"横向被裁"）**。
+  //   为什么必须 only：其余判据都是 **720 画布口径** ——
+  //     · "字号≥22 / 主标题≥40"：字号**本来就该随视口缩**（这正是本次修的东西）⇒ 窄视口必然违反；
+  //     · "文字压图"：预览变窄后列宽变化 ⇒ 也会误报。
+  //   实测（修好公式的产物、不设 only）：15 段里 **7 段**被判不合格 ⇒ 会把一堆好段退回 L2 模板。
+  //   所以窄视口**只保留一条**判定 = 用户唯一看得见的那类问题：横向被裁。
+  { tag: 'p', w: 360, h: 640, hard: true, only: ['clip'] },
+]
 const result = { file: abs, chrome: exe, views: {} }
 let hardFail = false
 let browser = null
@@ -160,12 +214,16 @@ try {
       await new Promise((r) => setTimeout(r, 90))
       const m = (await page.evaluate(measureFn))[i]
       const reasons = []
-      if (m.bad.length) reasons.push('越界 ' + m.bad.slice(0, 3).join(' / '))
-      if (m.over.length) reasons.push('溢出 ' + m.over.join(' '))
-      if (m.small.length) reasons.push('字号<22px ' + m.small.slice(0, 3).join(' / '))
-      if (m.wrap.length) reasons.push('文字折行/挤压 ' + m.wrap.slice(0, 3).join(' / '))
-      if (m.textOverImg) reasons.push('文字压图 ' + m.textOverImg + ' 处')
-      if (V.hard && i === 0 && m.maxFont && m.maxFont < 40) reasons.push('竖屏主标题字不够大 ' + m.maxFont + 'px < 40px')
+      // ★VF_DAILY_CLIP_V3：`V.only` = 该视口**只判哪几条**（窄预览视口用）——
+      //   不设就是全判。理由见 VIEWS 上的注释（窄视口套全判据会把 7/15 段误判成不合格）。
+      const allow = (k) => !V.only || V.only.includes(k)
+      if (allow('bad') && m.bad.length) reasons.push('越界 ' + m.bad.slice(0, 3).join(' / '))
+      if (allow('over') && m.over.length) reasons.push('溢出 ' + m.over.join(' '))
+      if (allow('small') && m.small.length) reasons.push('字号<22px ' + m.small.slice(0, 3).join(' / '))
+      if (allow('wrap') && m.wrap.length) reasons.push('文字折行/挤压 ' + m.wrap.slice(0, 3).join(' / '))
+      if (allow('clip') && m.clip && m.clip.length) reasons.push('文字被裁 ' + m.clip.slice(0, 3).join(' / '))
+      if (allow('textOverImg') && m.textOverImg) reasons.push('文字压图 ' + m.textOverImg + ' 处')
+      if (allow('maxFont') && V.hard && i === 0 && m.maxFont && m.maxFont < 40) reasons.push('竖屏主标题字不够大 ' + m.maxFont + 'px < 40px')
       per.push({ seg: m.seg, layout: m.layout, minFont: m.minFont, ok: reasons.length === 0, reasons })
       if (V.hard && reasons.length) hardFail = true
     }
@@ -190,6 +248,6 @@ if (asJson) {
       console.log(`   ${mark} 段${s.seg} [${s.layout}] 最小字号 ${s.minFont}px` + (s.ok ? '' : ' · ' + s.reasons.join('；')))
     })
   }
-  console.log(hardFail ? '\n结论：竖屏有段不合格（上层应把这几段退回 L2 模板）' : '\n结论：竖屏全段通过')
+  console.log(hardFail ? '\n结论：硬线视口（720 出片 / 360 预览）有段不合格（上层应把这几段退回 L2 模板）' : '\n结论：硬线视口（720 出片 / 360 预览）全段通过')
 }
 process.exit(hardFail ? 1 : 0)

@@ -213,7 +213,9 @@ export async function loadHtmlFilmDraft(db: any, uid: number | string): Promise<
       aiSpec: j.aiSpec === undefined ? undefined : !!j.aiSpec,
       // ★VF_THEME_V1：完全自主开关也要取回（漏了 ⇒ "换风格"回来就丢了）
       aiPaint: j.aiPaint === undefined ? undefined : !!j.aiPaint,
-      // ★VF_LAY_V1：图呈现也要取回（漏了 ⇒ "换风格"回来就变回"跟风格"，与卡片上显示的不符）
+      // ★VF_LAY_V1：图呈现也要取回（漏了 ⇒ "换风格"回来就变回"跟风格"，与卡片上显示的不符）。
+      //   读法与 aspect 一致：合法值直接用；**旧草案没有这个字段** ⇒ undefined（由 at:'style' 那步补 'auto'）；
+      //   万一存了非法值 ⇒ 退 'auto'（这是**内部读取**，草稿全是本线自己写的，不是"静默改用户的选择"）。
       lay: pickLayId(j.lay) || (j.lay === undefined ? undefined : 'auto'),
       layEff: pickLayId(j.layEff) || undefined,
     }
@@ -769,8 +771,11 @@ function styleCard(vd: HtmlFilmDraft): string {
     aiSpecForced: aiSpecEnabled(),
     // ★VF_THEME_V1：完全自主开关回显（第 2 步卡上能看到当前是不是"不用库里模板皮肤"）
     aiPaint: !!vd.aiPaint,
-    // ★VF_LAY_V1：**图呈现**下发（第 2 步卡上的三选）。`undefined` 是"本卡不带这个选项"的信号
-    //   （日报线复用同一张卡但**不发**这个字段 ⇒ 它那侧不显示、也不会误提交 lay）——别把它写成默认值。
+    // ★VF_LAY_V1：**图呈现**下发（第 2 步卡上的三选）。
+    //   ⚠️ 事实（2026-10-14 查证，别凭印象）：`styleCard` 全仓**只有 vf-htmlfilm.ts 自己一处调用**，
+    //      这张 `film_style` 卡就是**HTML 成片线专有**；日报线复用的是**素材卡**（`film_mat`），**不是这张**。
+    //      ⇒ 前端用 `vj.lay !== undefined` 判"显不显示"是**防御性**写法（当前恒为 true），
+    //        不是为了"避开日报线"——别把它读成"日报线也会看到这个选项"。
     lay: pickLayId(vd.lay) || 'auto',
     layHint: '跟风格＝用这套包自带的版式；满幅压字＝图铺满整页、标题叠在图上（图片面积最大）；相纸不裁＝图整张不裁、不压字',
   }

@@ -314,7 +314,20 @@ function titleCss(i, layout, form, type, ts) {
   if (form === 'vertical') b = { min: 30, vmin: 3.4, max: 50 }   // 竖排：沿用原基准
   const floor = i === 0 ? 40 : 30
   const f = (x) => String(Math.round(x * 100) / 100)
-  return `clamp(max(${floor}px, calc(${b.min}px * ${f(ts)})), calc(${b.vmin}vmin * ${f(ts)}), calc(${b.max}px * ${f(ts)}))`
+  // ★VF_DAILY_CLIP_V2（2026-10-14 用户实测「第七段标题被裁掉半个字」）：
+  //   病灶：`--title` 里**只有中间那项（vmin）随视口缩**，min 项是**死 px**（`max(40px, 44px*ts)`），
+  //   而第 665 行 `h2 span{white-space:nowrap}`（R14 要求标题不折行）
+  //   ⇒ **窄视口下容器按比例缩了、字号没缩** ⇒ 标题撑爆列宽、右边被裁。
+  //   实测（gen_20261014_035 第七段 split + ts=1.15，探针 temp/_daily/probe7.mjs）：
+  //     出片画布 720 宽 ⇒ h2 列宽 333 / 文字 303 ✅（**只剩 30px 余量**，再多一个字就裁）
+  //     预览 360 宽 ⇒ h2 列宽 152 / 文字 214 ❌ 被裁 105px；400 ⇒ 172/214 ❌；宽视口 ✅
+  //   修法：**下限也随视口缩** —— 用 `min(像素, 等值 vmin)` 表达（720 短边时两者相等 ⇒
+  //     **出片画布逐字不变**；窄视口时 vmin 更小 ⇒ 字号跟着缩 ⇒ 不裁）。
+  //   ⚠️ 别改成"允许标题折行"来解决：R14 就是为"标题/短标签被折行"立的（用户实测过"先涮后蘸"折两行很难看）。
+  //   ⚠️ 换算基数 7.2 = 720（竖屏短边）/100 ⇒ 44px ⇔ 6.11vmin。
+  const vf = (px, vminEq) => `min(${px}px, ${f(vminEq)}vmin)`
+  const minItem = `max(${vf(floor, floor / 7.2)}, min(calc(${b.min}px * ${f(ts)}), calc(${f(b.min / 7.2)}vmin * ${f(ts)})))`
+  return `clamp(${minItem}, calc(${b.vmin}vmin * ${f(ts)}), calc(${b.max}px * ${f(ts)}))`
 }
 /** 切分型**唯一的名额**落在哪一段：封面(0) 或 收尾(n-1)；-1 = 本片一次都不用。
  *  ⚠️ 必须**惰性求值**：`FX_SEED` 在本文件后面才声明，这里直接算会踩 TDZ（ReadonlyError）。 */
