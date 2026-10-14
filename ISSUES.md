@@ -35,6 +35,8 @@
 - 🟢 **引擎脚本路径一律走 `vfRootDir()`，绝不用 `process.cwd()`**（2026-10-14 出片实跑踩到并**已修**，立为规矩）：服务器跑 pm2 的 `.next/standalone/server.js` ⇒ cwd = `.next/standalone`；Next 的 file tracing 只把**个别被字面量引用到的脚本**拷进 `.next/standalone/scripts/…` ⇒ **工具本身在、它 spawn 的兄弟脚本与 `node_modules` 不在**。表现是 `Cannot find module '…/.next/standalone/scripts/…/check-page-fonts.mjs'`，还会被裹进 `stage=fonts 用字闸门未过` 里 ⇒ **看起来像内容问题，其实是路径问题**。
   **Why**：standalone 的 `scripts/` 是**残缺副本**，只有被 trace 抓到的文件；而 `node_modules/hyperframes`、字体、`check-page-fonts.mjs` 这些"运行时拼路径找的"依赖永远不会被 trace 收录。
   **How to apply**：新增任何"服务端要 spawn 引擎脚本"的代码时，根目录用 `vfRootDir()`（`@/lib/agent/video-material`，成片线 `filmToolsDir()` 就是它）；并在开跑前**校验引擎三件套**（工具 / 兄弟脚本 / `node_modules/hyperframes`）一次说清缺什么 —— 出片工具 `daily-film.ts` 已按这个模式实现，照着抄。
+- 🟡 **「用户自己写口播」这个入口还没做**（2026-10-14 登记）：AI 写不出来时，用户其实**最想直接把自己想说的话给进去**。现在没有这条路径 —— 点「🎙 出片」只能让 AI 写，失败就只剩"再试一次"（我原先在提示里写了"你把文案发我我照排"，**已经删掉**，不能承诺做不到的事）。
+  **How to apply**：要做的话，最小实现是给草稿加一个"待手写口播"标记，然后在 `handleDailyLine` 里让 **`step==='done'` 之后的纯文本**走"按行拆成逐段口播 ⇒ 直接出配音稿卡"这条分支（现在 `done` 之后对非命令消息是 `return null` 交回主流程，所以要动状态机的那一处，别顺手改坏别的线）。
 - 🟡 **口播生成偶发「模型回空响应」**（2026-10-14 首次实测碰到，**根因未确证**）：`at:'voice'` 两次调用都拿到空的 `content`，报「AI 没吐出可解析的 JSON：空响应」。
   **Why**：第一版**没留证据**（没记响应长度/原文开头）⇒ 现在只能猜是"模型侧抖动 / prompt 触发了某种拒答 / 上游空回复"。已补：行兜底 + 诊断回显 + 温度上限调低。
   **How to apply**：**下次再遇到就把诊断那行发出来**（会写明"响应 N 字 / 解析到哪一级 / 原文开头"）—— 据此才能定是哪种。若多次复现且都是"真空响应"，则要考虑换模型或把 prompt 再削短（当前 prompt 含 13 段画面字 + 看图摘要，属偏长）。

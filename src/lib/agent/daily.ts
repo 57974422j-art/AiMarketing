@@ -1177,7 +1177,8 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
         return '⚠️ 口播没写出来：' + String(v.error || '未知原因')
           + (v.vlErr ? '\n（看图那步：' + v.vlErr + '）' : '')
           + (v.diag ? '\n（诊断：' + String(v.diag).slice(0, 300) + '）' : '')
-          + '\n\n可以回一句「再写一次」重试，或者你自己把每段想说的话发我，我照你的排。'
+          // ⚠️ 别在这里承诺"你把文案发我我照排" —— 那条路径**还没做**（记在 ISSUES 里了）。
+          + '\n\n可以回一句「再写一次」重试。**若反复失败，把上面那行「诊断」发我**（它会写清是空响应还是解析不出来、原文长什么样）。'
       }
       const lines = v.lines || []
       d.voice = lines
