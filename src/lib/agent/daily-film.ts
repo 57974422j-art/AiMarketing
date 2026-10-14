@@ -17,7 +17,8 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
-import { vfStorageRoot } from './video-material'
+// ★VF_ROOT_V1 口径：`vfRootDir()` = 项目根（standalone 下 cwd 是 .next/standalone，拼 cwd 会指到残缺的 scripts/）
+import { vfRootDir, vfStorageRoot } from './video-material'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 
 export interface DailyFilmTask {
@@ -125,8 +126,29 @@ export async function startDailyFilm(uid: number | string, htmlName: string): Pr
       fs.writeFileSync(htmlPath, buf)
       push('[取件] OK ' + (buf.length / 1024 / 1024).toFixed(1) + ' MB')
       // ② 跑出片工具（打包 → 用字闸门 → 引擎校验 → 渲染）
-      const tool = path.join(process.cwd(), 'scripts', 'video-factory', 'html-deck', 'tools', 'daily-film.mjs')
-      if (!fs.existsSync(tool)) throw new Error('出片工具缺失：' + tool)
+      // ⚠️★★ 必须走 `vfRootDir()`，**绝不能** `process.cwd()`（2026-10-14 用户实测踩到）：
+      //   服务器跑的是 pm2 里的 `.next/standalone/server.js` ⇒ cwd = `.next/standalone`；
+      //   而 Next 的 file tracing 只会把**个别被字面量引用到的脚本**拷进 `.next/standalone/scripts/…`：
+      //     工具 `daily-film.mjs` 在里面（所以它能启动、还打了 `stage=fonts`），
+      //     但它 spawn 的兄弟脚本 `check-page-fonts.mjs` 与 `node_modules/hyperframes` **都不在**
+      //   ⇒ 用户看到的报错是
+      //     `Cannot find module '…/.next/standalone/scripts/video-factory/html-deck/check-page-fonts.mjs'`，
+      //     还被裹在 `stage=fonts 用字闸门未过` 里 ⇒ **完全看不出是路径问题**。
+      //   口径与成片线一致：`vfRootDir()` 从 cwd 上溯到**项目根**（判据 = scripts/video-factory/make.py 在），
+      //   那里才有完整引擎（工具 + 兄弟脚本 + node_modules/hyperframes）。
+      const deckRoot = path.join(vfRootDir() || process.cwd(), 'scripts', 'video-factory', 'html-deck')
+      const tool = path.join(deckRoot, 'tools', 'daily-film.mjs')
+      // 三样齐了才敢跑 —— 缺一样都会在**中途**炸成上面那种晦涩报错（这次就是），不如一次说清
+      const need: Array<[string, string]> = [
+        ['出片工具', tool],
+        ['用字表闸门', path.join(deckRoot, 'check-page-fonts.mjs')],
+        ['渲染引擎', path.join(deckRoot, 'node_modules', 'hyperframes', 'bin', 'hyperframes.mjs')],
+      ]
+      const miss = need.filter(([, p]) => !fs.existsSync(p)).map(([n, p]) => n + '（' + p + '）')
+      if (miss.length) {
+        throw new Error('引擎不完整，缺：' + miss.join('；')
+          + ' —— 服务器上请确认 scripts/video-factory/html-deck 已装依赖（cd scripts/video-factory/html-deck && npm ci --omit=dev）')
+      }
       const r = await runTool(process.execPath, [tool, htmlPath, '--outdir', path.join(work, 'out')], 30 * 60 * 1000)
       String(r.out || '').split('\n').filter((l) => l.trim()).slice(-12).forEach(push)
       const m = /FINAL_MP4:(.+)/.exec(String(r.out || ''))

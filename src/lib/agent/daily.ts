@@ -33,6 +33,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { listAllObjects } from '@/lib/oss'
+// ★VF_ROOT_V1 口径（2026-10-14）：引擎路径一律走 vfRootDir()，**不要**用 process.cwd() ——
+//   服务器跑的是 pm2 里的 `.next/standalone/server.js`，cwd 是 `.next/standalone`，
+//   而 standalone 的 `scripts/` 只含**少数被 file tracing 拷进去的文件**（残缺）
+//   ⇒ 拼 cwd 会指到那个残缺目录、报出看不出所以然的"模块找不到"。
+import { vfRootDir } from './video-material'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 import { dashscopeFunctionCall } from '@/lib/ai-providers'
 // ★纯函数层（零依赖、可单测：temp/_exp/daily/test-plan.mjs）
@@ -380,7 +385,9 @@ function attachSrc(plan: any, picks: DailyPick[]) {
 /* ─────────────── 生成（调引擎 tools/daily-page.mjs → 存个人仓库） ─────────────── */
 
 export function generateDailyHtml(uid: number | string, plan: any): { ok: boolean; name?: string; error?: string; note?: string } {
-  const repo = process.cwd()
+  // ★VF_ROOT_V1（2026-10-14）：**不能**用 process.cwd()（standalone 下是 .next/standalone，那里 scripts/ 是残缺的）；
+  //   vfRootDir() 上溯到项目根；本地开发时它返回的就是 cwd ⇒ 行为逐字不变。
+  const repo = vfRootDir() || process.cwd()
   const engine = path.join(repo, 'scripts', 'video-factory', 'html-deck', 'tools', 'daily-page.mjs')
   if (!fs.existsSync(engine)) return { ok: false, error: '引擎缺失：scripts/video-factory/html-deck/tools/daily-page.mjs' }
   const stamp = Date.now()
@@ -401,7 +408,7 @@ export function generateDailyHtml(uid: number | string, plan: any): { ok: boolea
 
 /** 生成 → 入库（返回仓库文件名） */
 export async function buildAndStoreDaily(uid: number | string, plan: any): Promise<{ ok: boolean; name?: string; error?: string; note?: string }> {
-  const repo = process.cwd()
+  const repo = vfRootDir() || process.cwd()   // ★VF_ROOT_V1：同上（别用 process.cwd()）
   const engine = path.join(repo, 'scripts', 'video-factory', 'html-deck', 'tools', 'daily-page.mjs')
   const stamp = Date.now()
   const cfgPath = path.join(os.tmpdir(), `daily_${stamp}.json`)
@@ -741,7 +748,7 @@ function planOut(d: DailyDraft, picks: DailyPick[], by: PlanBy, note: string, hi
  * · 最多重来 3 轮（每轮只动不合格的段），仍不过就按最佳结果交付并写清哪几段没过。
  */
 async function generateVerified(ctx: DailyCtx, plan: any): Promise<{ ok: boolean; buf?: Buffer; name?: string; note: string; dropped: string[]; error?: string }> {
-  const repo = process.cwd()
+  const repo = vfRootDir() || process.cwd()   // ★VF_ROOT_V1：同上（别用 process.cwd()）
   const verifier = path.join(repo, 'scripts', 'video-factory', 'html-deck', 'tools', 'daily-verify.mjs')
   const hasAI = Array.isArray(plan?.segments) && plan.segments.some((s: any) => s && typeof s.html === 'string' && s.html.trim())
   const dropped: string[] = []

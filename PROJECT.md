@@ -267,6 +267,8 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 - ✅ **交付卡加「🎬 出片」**（只在有单文件版时给）+ 轮询 effect + `VF_DAILY_FILM_TASK/DONE` 两个渲染分支。
 - 🐛 **顺带修**：`VF_DAILY_FORM` 分支里"非仓库来源"的 `return null` 挡在最前面，会把**出片**一起挡掉（本机/子目录来源点了没反应）⇒ 收窄成只挡 `mat`。
 - **验证**：`tsc` 零新增（88 存量不变）；协议正则单测命中。**待部署实测**（本机缺 DB/OSS 跑不了一整单）。
+- 🔧 **实跑踩坑 ②（引擎路径，已修）**：出片真跑推进到用字闸门后报 `Cannot find module '…/.next/standalone/scripts/video-factory/html-deck/check-page-fonts.mjs'` —— 服务器跑 `.next/standalone/server.js`，cwd 是 `.next/standalone`，而 Next 的 file tracing **只把个别脚本**拷进 standalone 的 `scripts/`（工具在、兄弟脚本与 `node_modules/hyperframes` 不在）。
+  ⇒ 引擎根一律改走 **`vfRootDir()`**（`★VF_ROOT_V1`，成片线一直这么用）：`daily-film.ts` 1 处 + `daily.ts` 3 处（后三处原本靠 trace 恰好拷进去才没坏，一并拆掉）；并在出片前加**引擎三件套完整性校验**，缺什么一次说清。本地行为逐字不变（`vfRootDir()` 在本机返回 cwd）。
 - 🔧 **首测反馈（用户「没有看到前台有出片按键」）**：根因是**设计问题**——按钮原来只在"有单文件版"时渲染 ⇒ 单文件版没生成成功 / 那单是旧版本生成的，按钮就**静默消失**，用户不知道原因。
   ⇒ 已改成**永远显示**（无条件时置灰 + 写明原因与动作），服务端拒绝文案也说清"旧单 vs 单文件版失败"两种原因。
 - 🚨 **二测反馈（用户点「生成 HTML」报 `SyntaxError`）= 我的 bug，已修**：`daily-page.mjs` 的 `html` 是一整块**大模板字符串**（659~1148 行），而我在其中的 CSS 注释里写了 **6 处反引号** ⇒ 793 行模板串**提前闭合** ⇒ 引擎一个字都出不来。影响面：**自 `a9de22e6` 起服务器上就生成不了任何日报页**（我之前用旧产物 048 验出片，没走生成器，所以没暴露）。

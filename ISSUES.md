@@ -32,6 +32,9 @@
 - 🟡 **配音稿两步（用户已定方案，未做）**：① AI 逐段写口播 → 出**配音稿卡**（每段文案 + 预计时长 + 字幕预览，**可改 / 删 / 调序**）；② TTS → 拿**实测音频时长回填 `data-duration`** → 重新渲染 → 混音烧字幕 → 出 mp4。
   **Why**：**audio-first（音画对位）**是项目既定口径（"镜头时长由配音真实时长决定，不靠字数猜"）；且文案与时间戳大概率要改 ⇒ **必须分两步、先给人看**（用户原话「不要一次来和视频做，分2步，因为可能文案和时间戳字幕需要修改」）。
   **How to apply**：**不能**直接复用 `film-voice.mjs`（它吃 film.json）⇒ 照它的方法论自己写一份"HTML 版"；好消息是日报页段内动效按"段时长比例"算（`(t-start)/dur`）⇒ **回填 `data-duration` 后动效/字幕/时间轴会自动跟着走**。
+- 🟢 **引擎脚本路径一律走 `vfRootDir()`，绝不用 `process.cwd()`**（2026-10-14 出片实跑踩到并**已修**，立为规矩）：服务器跑 pm2 的 `.next/standalone/server.js` ⇒ cwd = `.next/standalone`；Next 的 file tracing 只把**个别被字面量引用到的脚本**拷进 `.next/standalone/scripts/…` ⇒ **工具本身在、它 spawn 的兄弟脚本与 `node_modules` 不在**。表现是 `Cannot find module '…/.next/standalone/scripts/…/check-page-fonts.mjs'`，还会被裹进 `stage=fonts 用字闸门未过` 里 ⇒ **看起来像内容问题，其实是路径问题**。
+  **Why**：standalone 的 `scripts/` 是**残缺副本**，只有被 trace 抓到的文件；而 `node_modules/hyperframes`、字体、`check-page-fonts.mjs` 这些"运行时拼路径找的"依赖永远不会被 trace 收录。
+  **How to apply**：新增任何"服务端要 spawn 引擎脚本"的代码时，根目录用 `vfRootDir()`（`@/lib/agent/video-material`，成片线 `filmToolsDir()` 就是它）；并在开跑前**校验引擎三件套**（工具 / 兄弟脚本 / `node_modules/hyperframes`）一次说清缺什么 —— 出片工具 `daily-film.ts` 已按这个模式实现，照着抄。
 - 🟡 **日报页可能含「表外字」⇒ 生成成功但出不了片**（2026-10-14 首次实跑出片时暴露）：成片的**画面文字**走**内嵌字体子集**（GB2312 一级常用字，约 3755 字），AI 一旦写出**生僻字/异体字/古字**，`check-page-fonts` 会拦住**整片**。
   **Why**：字表闸门在**出片阶段**才查，而生成阶段（`daily-verify` 的 R1~R14）**不查字表** ⇒ 用户一路走到最后一步才失败（而且当时报错还是空的，已修）。
   **How to apply**：① 已加**前置约束**（`aiPrompt` 第 8 条：只用 GB2312 一级常用字）；② 已修**报错带出具体字**（`daily-film.mjs` 解析 JSON 打在 stage 行）。③ **仍未做**：生成阶段就把表外字如实报给用户（进 `generateVerified` 的 note，让人在生成完就知道要不要改文案），以及"自动替换 / 退回该段"的策略待定。
