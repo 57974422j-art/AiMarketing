@@ -14,7 +14,7 @@ import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 
 const require = createRequire(import.meta.url)
-const { assignFx, buildPlanFromSegs, DAILY_FX_CUT, DAILY_FX_QUIET } = require('./run/daily-plan.js')
+const { assignFx, buildPlanFromSegs, DAILY_FX_CUT, DAILY_FX_QUIET, assignTextLayer, checkDiversity, fixDiversity } = require('./run/daily-plan.js')
 const { rewriteRelativeRefs } = require('./run2/html-rewrite.js')
 
 const REPO = process.cwd()
@@ -32,8 +32,15 @@ const segs = Array.from({ length: N }, (_, i) => ({
   place: 'cover',
   form: 'overlay',
 }))
-// 服务端真实顺序：先排效果序（配额），再组装 cfg（带图名表）
+// 服务端真实顺序：先排效果序（配额）→ 再排文字层（轮换）→ **去同质化自检/错开**（V22）→ 组装 cfg
 assignFx(segs, 3)
+assignTextLayer(segs, 3)
+const dv0 = checkDiversity(segs, 1)
+const fx1 = dv0.ok ? { fixed: 0, left: 0, msgs: [] } : fixDiversity(segs, 1)
+const dv1 = checkDiversity(segs, 1)
+console.log('  ── 去同质化自检（V22）──')
+console.log('  相邻冲突（初检）：' + dv0.bad.length + ' 处 ｜ 错开 ' + fx1.fixed + ' 处 ｜ 复检冲突 ' + dv1.bad.length + ' 处'
+  + ' ｜ 方向组合 ' + dv0.distinct + ' → ' + dv1.distinct + ' 种（目标 ≥' + dv0.want + '）')
 const imageNames = Array.from({ length: N }, (_, i) => `gen_20261013_0${(20 + i)}.jpg`)
 const plan = buildPlanFromSegs(segs, '端到端模拟', 'normal', 'night-gold', undefined, imageNames)
 

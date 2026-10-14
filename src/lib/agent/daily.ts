@@ -36,7 +36,7 @@ import { listAllObjects } from '@/lib/oss'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 import { dashscopeFunctionCall } from '@/lib/ai-providers'
 // ★纯函数层（零依赖、可单测：temp/_exp/daily/test-plan.mjs）
-import { DAILY_STYLE, aiPrompt, extractJson, normSegs, normMotion, normTheme, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer } from './daily-plan'
+import { DAILY_STYLE, aiPrompt, extractJson, normSegs, normMotion, normTheme, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer, checkDiversity, fixDiversity } from './daily-plan'
 import type { PlanBy } from './daily-plan'
 
 export { DAILY_STYLE }
@@ -603,6 +603,23 @@ async function runPlan(ctx: DailyCtx, d: DailyDraft, src: DailySource, picked: s
     ctx.log?.(uid, `[日报落地页] 文字层序 ${faces.slice(0, 8).join('/')}${faces.length > 8 ? ' …' : ''}`
       + ` ｜ 一份里 ${new Set(faces).size} 种（结构 ${new Set(plan.segments.map((s: any) => String(s.layout || '-'))).size} 种）`)
   } catch { /* ignore */ }
+  // ★VF_DAILY_V22（用户定案「按 A 升级」）：**去同质化机器自检** —— 借 oil-ui 的硬规则
+  //   「任意两个方向最多共享四项中的一项」。我们落在段落级：**相邻两段最多共享 1 项**
+  //   （方向四元组 = 摆图法 / 文字层 / 取景 / 字号档）。不合格就**就地错开**，并如实报了几处。
+  let divNote = ''
+  try {
+    const dv = checkDiversity(plan.segments, 1)
+    if (!dv.ok) {
+      const fx = fixDiversity(plan.segments, 1)
+      divNote = `去同质化：错开 ${fx.fixed} 处` + (fx.left ? `（仍有 ${fx.left} 处相邻偏像，素材单一时限）` : '')
+      try {
+        ctx.log?.(uid, `[日报落地页] ${divNote} ｜ 方向组合 ${dv.distinct} 种（目标 ≥${dv.want}）`
+          + (fx.msgs.length ? ' ｜ ' + fx.msgs.slice(0, 3).join('；') : ''))
+      } catch { /* ignore */ }
+    } else {
+      try { ctx.log?.(uid, `[日报落地页] 去同质化自检：通过（相邻不撞；方向组合 ${dv.distinct} 种）`) } catch { /* ignore */ }
+    }
+  } catch { /* 自检失败不拦交付 */ }
   const fpPrev = await lastFp(ctx.prisma, uid)
   let sim = similarity(planFingerprint(plan, rot.theme), fpPrev)
   let rerollNote = ''
@@ -644,6 +661,8 @@ async function runPlan(ctx: DailyCtx, d: DailyDraft, src: DailySource, picked: s
   const extra: string[] = []
   // ★VF_DAILY_V9：轮换过就**明说**（用户要能看见"这次跟上次不一样"，否则还是觉得像同款）
   if (rot.rotated) extra.push('皮肤轮换：上次「' + (themeName(rot.from) || '未记录') + '」→ 这次「' + themeName(rot.theme) + '」')
+  // ★VF_DAILY_V22：去同质化自检动过手就如实说（用户要看得见"这次哪里不一样"）
+  if (divNote) extra.push(divNote)
   // ★V13：把"多样性自检"的结果也如实写在卡上（用户要的正是"看着别像"）
   if (rerollNote) extra.push(rerollNote)
   if (note0) extra.push(note0.replace(/\*\*/g, ''))

@@ -162,6 +162,14 @@ export function aiPrompt(n: number, topic: string, opts?: { lastTheme?: string }
     '  不确定就留空 —— 服务端会按段序自动轮换四种，保证一份里不只有一张脸。',
     '【字号档】（可选，每段 `scale`，只影响**这一段**标题/数字的大小）：' + PLAN_TSCALES.join(' | ')
     + '　（1 = 默认；想强调某段可用 1.15 / 1.3，想让它"退后"用 0.9。信息点字号有 22px 下限，不会变小到看不清）',
+    // ★VF_DAILY_V22：借 oil-ui 的三条硬口径（去同质化 / 减法 / 首屏），改成我们段落级的说法
+    '【去同质化·硬要求】（这条会被服务端**机器自检**，不合格自动错开并如实告知）：',
+    '  · **相邻两段的"方向"最多只能共享一项** —— 方向 = ①摆图法(layout) ②文字层(type) ③取景(place) ④字号档(scale)；',
+    '  · 说人话：**别连着两段同一个摆图法又同一个文字层**；看着像就换摆图法/文字层，**而不是只换颜色**。',
+    '【减法·每段一个焦点】（"每页一个视觉焦点，删掉一切无助于理解的文案、线条和框"）：',
+    '  · 每段只讲一件事（一张主图 或 一个大标题），**信息点能少不多**，别为了填满而塞；',
+    '【首屏给谁看】（浏览/干活类页面首屏就是内容；**说服类才需要"开场版式"**）：',
+    '  · 这份是**展示/说服**用 ⇒ 第 1 段（封面）要有开场版式：一句立得住的标题 + 一张最有力的图，**不要信息堆叠**。',
     last
       ? `⚠️ 上一次你交付用的是「${themeName(last)}」（${last}）—— **这次必须换一个不同的皮肤**，`
         + '否则两份产物看着像同一套（用户原话：「感觉没什么区别」）。除非这批素材的气质明显更适合它。'
@@ -390,6 +398,111 @@ export const DAILY_FX = ['zout', 'zin', 'pan', 'wipe', 'slats', 'blinds', 'mosai
  *       ⇒ **整片最多 1 次**，且只允许落在**封面（第 1 段）或收尾（最后一段）**；段数 < 6 一次都不用。
  *   `offset` 仍是"每份不同"的种子：同一 offset 结果可复现（供相似度自检与重掷）。
  */
+/**
+ * ★VF_DAILY_V22（2026-10-14 用户定案「按 A 升级」—— 借鉴 oil-ui 的**去同质化硬规则**）：
+ *   oil-ui（开源 UI 设计 Skill，1.4k⭐）把"看着像同一套"写成了一条**可判定**的规则：
+ *   > 版式 / 字体 / 颜色 / 关键图像 —— 四个里，**任意两个方向最多只能共享一项**；
+ *   > 预览并排摆，眯眼看明暗块面，**像就改版式，而不是只换颜色**。
+ *   我们的对应物（每段一个"方向"四元组）：
+ *     ① 摆图法 `layout`（8 种）  ② 字的说话方式 `type`（4 种）
+ *     ③ 取景 `place`（cover 满幅 / mat 相纸边）  ④ 字的体量 `scale`（4 档）
+ *   判据（相邻段最影响"像不像同一套"，所以先管相邻）：**相邻两段最多共享 1 项**。
+ *   不满足 ⇒ `fixDiversity()` 从"最不易伤版面"的旋钮开始换（type → scale → place → layout），
+ *   换到满足为止；换不动的如实报出（不硬凑、不静默）。
+ */
+export function segDirection(s: any): { layout: string; type: string; place: string; scale: string } {
+  return {
+    layout: String(s?.layout || 'hero'),
+    type: String(s?.type || 'band'),
+    place: String(s?.place || 'cover'),
+    scale: String(Number(s?.scale) || 1),
+  }
+}
+/** 两段共享了几项（0~4）—— 越小越"不像同一套" */
+export function sharedDims(a: any, b: any): number {
+  const x = segDirection(a)
+  const y = segDirection(b)
+  let n = 0
+  if (x.layout === y.layout) n++
+  if (x.type === y.type) n++
+  if (x.place === y.place) n++
+  if (x.scale === y.scale) n++
+  return n
+}
+/** 全片自检：相邻段共享 ≤ maxShare（默认 1）；distinct = 全片出现过多少种"方向组合" */
+export function checkDiversity(segs: any[], maxShare = 1): { ok: boolean; bad: Array<{ i: number; share: number }>; distinct: number; want: number } {
+  const list = Array.isArray(segs) ? segs : []
+  const bad: Array<{ i: number; share: number }> = []
+  for (let i = 1; i < list.length; i++) {
+    const sh = sharedDims(list[i - 1], list[i])
+    if (sh > maxShare) bad.push({ i, share: sh })
+  }
+  const tuples = new Set(list.map((s) => {
+    const d = segDirection(s)
+    return d.layout + '|' + d.type + '|' + d.place + '|' + d.scale
+  }))
+  return { ok: !bad.length, bad, distinct: tuples.size, want: Math.min(8, Math.max(1, list.length)) }
+}
+/**
+ * 就地校正（可单测）：对每个冲突段，按 **type → scale → place → layout** 的顺序试，
+ * 取第一个"两侧都不冲突"的取值。layout 受图数约束，所以放最后、且用 `layoutForCount` 保证合法。
+ * 返回：改了哪些（供如实报给用户），以及还剩几处没救（不硬凑）。
+ */
+export function fixDiversity(segs: any[], maxShare = 1): { fixed: number; left: number; msgs: string[] } {
+  const list = Array.isArray(segs) ? segs : []
+  const msgs: string[] = []
+  let fixed = 0
+  const okWith = (idx: number) => {
+    const prev = idx > 0 ? sharedDims(list[idx - 1], list[idx]) : 0
+    const next = idx + 1 < list.length ? sharedDims(list[idx], list[idx + 1]) : 0
+    return prev <= maxShare && next <= maxShare
+  }
+  const types = PLAN_TEXT_TYPES.map((t) => t.id)
+  const places = ['cover', 'mat']                       // 不动 contain（那是"整张不裁"的语义）
+  const scales = PLAN_TSCALES.map((x) => String(x))
+  const now = (s: any) => `段${list.indexOf(s) + 1}`
+  // ⚠️ 踩过的坑：第一版"一次只拧一个旋钮"，遇到**相邻两段完全一样**时三个旋钮单独拧都不够
+  //   （共享仍是 3），于是"救不动"。现口径：**枚举 类型×字号×取景 的组合（4×4×2=32）**，
+  //   取"改动项数最少且能让两侧都不撞"的那个组合 ⇒ 一次就把方向岔开，且尽量少动（保持设计意图）。
+  for (let i = 1; i < list.length; i++) {
+    if (sharedDims(list[i - 1], list[i]) <= maxShare) continue
+    const s = list[i]
+    const base = segDirection(s)
+    const typeOpts = [base.type, ...types.filter((x) => x !== base.type)]
+    const scaleOpts = [base.scale, ...scales.filter((x) => x !== base.scale)]
+    const placeOpts = places.indexOf(base.place) >= 0 ? [base.place, ...places.filter((x) => x !== base.place)] : places
+    let best: { t: string; sc: string; pl: string; cost: number } | null = null
+    for (const t of typeOpts) {
+      for (const sc of scaleOpts) {
+        for (const pl of placeOpts) {
+          const cost = (t !== base.type ? 1 : 0) + (sc !== base.scale ? 1 : 0) + (pl !== base.place ? 1 : 0)
+          if (!cost) continue
+          if (best && cost >= best.cost) continue
+          s.type = t; s.scale = Number(sc); s.place = pl
+          if (okWith(i)) best = { t, sc, pl, cost }
+        }
+      }
+    }
+    if (best) {
+      s.type = best.t; s.scale = Number(best.sc); s.place = best.pl
+      fixed++
+      msgs.push(`${now(s)} 方向已错开（改 ${best.cost} 项：${base.type}/${base.place}/×${base.scale} → ${best.t}/${best.pl}/×${best.sc}）`)
+    } else {
+      // 三旋钮都试遍仍不行的极端情况：才动 layout（受图数约束，用 layoutForCount 保证合法）
+      s.type = base.type; s.scale = Number(base.scale); s.place = base.place
+      const imgs = (s.imgs || []).length
+      const lay = imgs ? layoutForCount(imgs) : ''
+      if (lay && lay !== s.layout) {
+        s.layout = lay
+        if (okWith(i)) { fixed++; msgs.push(`${now(s)} 摆图法已换（${base.layout} → ${lay}）`) }
+        else s.layout = base.layout
+      }
+    }
+  }
+  const left = checkDiversity(list, maxShare).bad.length
+  return { fixed, left, msgs }
+}
+
 /**
  * ★VF_DAILY_V21（2026-10-14 用户原话「依然是文字排版同质化严重」「AI 自主设计这里卡得还是太死」）：
  *   **文字层参数化** —— 结构（8 种，怎么摆图）× 文字层（4 种，字怎么说话）× 字号档（4 档）。

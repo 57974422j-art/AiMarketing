@@ -16,6 +16,7 @@ import {
   DAILY_FX_QUIET, DAILY_FX_CUT, fxCutSlot,
   cmdOf, cmdDel, cmdMotion, applyEditBatch,
   assignTextLayer, PLAN_TEXT_TYPES, PLAN_TSCALES,
+  segDirection, sharedDims, checkDiversity, fixDiversity,
 } from './run/daily-plan.js'
 
 let pass = 0, fail = 0
@@ -582,6 +583,47 @@ console.log('\n=== 14. V21：拖拽排序（排序=）+ 文字层参数化（typ
   ok(p.includes('"type":"poster"'), 'JSON 样例里带 type 字段（模型照着写）')
   eq(PLAN_TEXT_TYPES.length, 4, '四个文字层（与引擎 TEXT_TYPES 同名同数）')
   eq(PLAN_TSCALES.length, 4, '四档字号（与引擎 TSCALES 同名同数）')
+}
+
+console.log('\n=== 15. V22：去同质化硬判据（借 oil-ui：任意两方向最多共享四项里的一项）===')
+{
+  const seg = (layout, type, place, scale) => ({ layout, type, place, scale })
+  eq(sharedDims(seg('hero', 'band', 'cover', 1), seg('hero', 'band', 'cover', 1)), 4, '四项全同 ⇒ 共享 4')
+  eq(sharedDims(seg('hero', 'band', 'cover', 1), seg('split', 'poster', 'mat', 1.15)), 0, '四项全不同 ⇒ 共享 0')
+  eq(sharedDims(seg('hero', 'band', 'cover', 1), seg('split', 'band', 'cover', 1)), 3, '只换摆图法（其余三项一样）⇒ 共享 3（这正是"只换颜色不算新方向"的那种）')
+
+  // 相邻全同 ⇒ 必判不合格
+  const dup = [seg('hero', 'band', 'cover', 1), seg('hero', 'band', 'cover', 1), seg('hero', 'band', 'cover', 1), seg('hero', 'band', 'cover', 1)]
+  const c1 = checkDiversity(dup, 1)
+  ok(!c1.ok && c1.bad.length === 3, '四段一模一样 ⇒ 3 处相邻冲突')
+  eq(c1.distinct, 1, '方向组合只有 1 种')
+
+  // 错开函数：应该把冲突改成"相邻最多共享 1 项"
+  const fx = fixDiversity(dup, 1)
+  // 注意：不是"3 处冲突就改 3 次" —— 改中间那一段能**同时**解开它左右两对冲突（这里 4 段全同 ⇒ 2 次就够）
+  ok(fx.fixed >= 2, '错开函数把冲突解掉了（改 2 段即可同时解开相邻三对）')
+  ok(checkDiversity(dup, 1).ok, '错开后相邻不撞（自检通过）')
+  ok(new Set(dup.map((s) => segDirection(s).type)).size >= 2 && new Set(dup.map((s) => segDirection(s).place)).size >= 2,
+    '用到的不止一个旋钮（文字层与取景都被用上）')
+
+  // 单图素材也能救：place 必须落在 cover|mat（不许自动改成 contain）
+  ok(dup.every((s) => ['cover', 'mat'].includes(s.place)), '自动错开不会把 place 改成 contain（那是"整张不裁"的语义，不能被自动动）')
+
+  // 已经错开的片子：不动手、不报改
+  const good = [seg('hero', 'band', 'cover', 1), seg('split', 'poster', 'mat', 1.15), seg('grid3', 'list', 'cover', 0.9)]
+  const c2 = checkDiversity(good, 1)
+  ok(c2.ok, '本来就合格的片子 ⇒ 自检通过')
+  eq(fixDiversity(good, 1).fixed, 0, '合格片子不被动 → 交付时不会白改')
+  eq(good[1].type, 'poster', '合格片子里的取值原样保留')
+
+  // 方向组合数（"一份里有多少张脸"）
+  ok(c2.distinct === 3, '三种方向组合就报 3 种')
+
+  // 提示词里要真写了这三条（去同质化 / 减法 / 首屏）
+  const p = aiPrompt(8, '铜锅')
+  ok(p.includes('【去同质化·硬要求】') && p.includes('最多只能共享一项'), '提示词写了去同质化硬要求')
+  ok(p.includes('【减法·每段一个焦点】'), '提示词写了"每段一个焦点"的减法口径')
+  ok(p.includes('【首屏给谁看】') && p.includes('开场版式'), '提示词写了首屏判据（说服类要有开场版式）')
 }
 
 console.log(`\n结果：通过 ${pass} · 失败 ${fail}`)
