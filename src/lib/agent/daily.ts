@@ -41,7 +41,7 @@ import { vfRootDir } from './video-material'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 import { dashscopeFunctionCall } from '@/lib/ai-providers'
 // ★纯函数层（零依赖、可单测：temp/_exp/daily/test-plan.mjs）
-import { DAILY_STYLE, aiPrompt, extractJsonEx, normSegs, normMotion, normTheme, normFont, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, assignTextMotion, pickFont, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer, checkDiversity, fixDiversity, voicePrompt, normVoiceLines, buildVoiceCardPayload, estimateSec, parseVoiceLines, VOICE_MAX_CHARS } from './daily-plan'
+import { DAILY_STYLE, aiPrompt, extractJsonEx, normSegs, normMotion, normTheme, normFont, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, assignTextMotion, pickFont, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer, checkDiversity, fixDiversity, voicePrompt, voicePromptStrict, normVoiceLines, buildVoiceCardPayload, estimateSec, parseVoiceLines, VOICE_MAX_CHARS } from './daily-plan'
 import type { PlanBy } from './daily-plan'
 
 export { DAILY_STYLE }
@@ -434,52 +434,53 @@ export async function aiVoiceLines(
     }
   } catch (e: any) { vlErr = String(e?.message || e).slice(0, 100) }
 
-  // ② 文字模型按"画面字 + 看图摘要"写逐段口播
-  const prompt = voicePrompt(segs, summary, topic)
-  let lastErr = ''
-  // ★VF_DAILYVOICE_V1b：**失败必须留证据**（照 aiPlanSegments 的 ★V25b 教训 ——
-  //   那次只记一句"没吐出可解析的 JSON"，连模型原文都没存，只能猜；这里一开始又漏了）。
-  let parseNote = ''
-  let rawHead = ''
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      // ★VF_DAILYVOICE_V1c（2026-10-14 用户实测「响应 0 字」）：第 2 次**换成极简 prompt**，
-      //   把规则、看图摘要、格式说明全部砍掉，只留"给 N 段各写一句" —— 已排除的假设越多，
-      //   越该把变量降到最少（上一版只是把同一段长 prompt 又说了一遍，等于没换）。
-      const strict = '给下面这段文案的 ' + segs.length + ' 段，各写一句口播旁白（每句 ' + VOICE_MAX_CHARS + ' 字以内）。\n'
-        + segs.map((s: any, i: number) => {
-          const t = (Array.isArray(s?.title) ? s.title : [s?.title]).map((x: any) => String(x == null ? '' : x)).filter(Boolean).join(' / ')
-          return (i + 1) + '. ' + t
-        }).join('\n')
-        + (summary ? '\n这些图实际拍的是：\n' + String(summary).slice(0, 600) : '')
-        + '\n\n只回一个 JSON 对象：{"voice":["第1句","第2句"]} —— 必须给全 ' + segs.length + ' 条，不要留空。'
-      const res = await dashscopeFunctionCall(
-        [{ role: 'user', content: attempt === 1 ? prompt : strict }],
-        [], 2500, attempt === 1 ? 0.5 : 0.3, false,
-      )
-      const txt = String(res?.content || '')
-      const ex = extractJsonEx(txt)
-      // ★兜底：模型常无视"只回 JSON"、直接一行一句 ⇒ JSON 失败后再按行抽一次
-      const fb = ex.value ? null : parseVoiceLines(txt)
-      const usage = (res && (res as any).usage) ? ' · 用量 ' + JSON.stringify((res as any).usage) : ''
-      parseNote = '第 ' + attempt + ' 次：响应 ' + txt.length + ' 字 · '
-        + (ex.value ? '解析 ' + ex.how : (fb ? 'JSON 没解析出，但**行兜底救回 ' + fb.length + ' 行**' : '既不是 JSON 也不像逐行文本'))
-        + usage
-      if (!ex.value && !fb) {
-        rawHead = txt.slice(0, 160).replace(/\s+/g, ' ')
-        lastErr = (txt.length ? 'AI 的回复解析不出来：' + ex.how : 'AI 回了个**空响应**（模型侧没给内容）')
-          + (attempt === 1 ? '' : '（重试也一样）')
-        continue
+  // ② 文字模型按"画面字 + 看图摘要"写口播 —— ★VF_DAILYVOICE_V1d（2026-10-14 **服务端日志确证后重写**）
+  //   病灶（pm2 日志原文）：`[qwen3.8] 调用异常: The operation was aborted due to timeout`
+  //   —— 主模型**60 秒超时**（那个 timeoutMs 硬编码在 dashscopeFunctionCall 里，我改不了），兜底链又拿不到内容
+  //   ⇒ 两次尝试都回空。**两个诱因，第二个是我的错**：
+  //     ① 一次让它写 13 句（还要"补充不复读"）⇒ 生成量大 ⇒ 必然容易撞 60s；
+  //     ② 上一版我把 maxTokens 从 4000 **降到 2500** —— 若这是思考型模型，额度会被"思考"吃光、
+  //        `content` 就是空串（aiPlanSegments 一直用 **8000**，而它输出比我还长）⇒ **等于我帮倒忙**。
+  //   现口径：**分批**（每批 ≤5 段，单批生成量小 ⇒ 不撞超时）+ **maxTokens 8000**（与 aiPlanSegments 对齐）
+  //   + 每批 2 次尝试（长 prompt → 极简 prompt）+ **某批失败不整单失败**（凑够就交付，并如实报哪几段会静音）。
+  const BATCH = 5
+  const out: string[] = new Array(segs.length).fill('')
+  const allFixes: string[] = []
+  const diags: string[] = []
+  for (let s = 0; s < segs.length; s += BATCH) {
+    const part = segs.slice(s, s + BATCH)
+    const tag = '段' + (s + 1) + '-' + (s + part.length)
+    let okPart = false
+    let lastErr = ''
+    for (let attempt = 1; attempt <= 2 && !okPart; attempt++) {
+      try {
+        const ask = attempt === 1 ? voicePrompt(part, summary, topic, s) : voicePromptStrict(part, summary, s)
+        const res = await dashscopeFunctionCall([{ role: 'user', content: ask }], [], 8000, attempt === 1 ? 0.5 : 0.3, false)
+        const txt = String(res?.content || '')
+        const ex = extractJsonEx(txt)
+        // 兜底：模型常无视"只回 JSON"、直接一行一句 ⇒ JSON 失败后再按行抽一次
+        const fb = ex.value ? null : parseVoiceLines(txt)
+        const usage = (res && (res as any).usage) ? ' · 用量 ' + JSON.stringify((res as any).usage) : ''
+        diags.push(tag + ' 第' + attempt + '次：响应 ' + txt.length + ' 字 · '
+          + (ex.value ? '解析 ' + ex.how : (fb ? '行兜底救回 ' + fb.length + ' 行' : '既不是 JSON 也不像逐行文本')) + usage)
+        if (!ex.value && !fb) { lastErr = txt.length ? ('解析不出来：' + ex.how) : '空响应（多半是主模型 60s 超时）'; continue }
+        const { lines, fixes } = normVoiceLines(ex.value || fb, part.length)
+        if (!lines.filter(Boolean).length) { lastErr = '这批全是空的'; continue }
+        lines.forEach((t, k) => { out[s + k] = t })
+        allFixes.push(...fixes)
+        okPart = true
+      } catch (e: any) {
+        lastErr = String(e?.message || e).slice(0, 120)
+        diags.push(tag + ' 第' + attempt + '次：调用异常 ' + lastErr.slice(0, 80))
       }
-      const { lines, fixes } = normVoiceLines(ex.value || fb, segs.length)
-      if (!lines.filter(Boolean).length) { lastErr = 'AI 写出来的口播全是空的'; continue }
-      return { ok: true, lines, fixes, sawImages: !!summary, vlErr, diag: parseNote }
-    } catch (e: any) {
-      lastErr = String(e?.message || e).slice(0, 120) + (attempt === 1 ? '（已重试一次）' : '')
-      parseNote = '第 ' + attempt + ' 次：调用异常 ' + String(e?.message || e).slice(0, 80)
     }
+    if (!okPart) allFixes.push(tag + ' **没写出来**（' + (lastErr || '未知') + '）—— 这几段会静音')
   }
-  return { ok: false, error: lastErr || '未知原因', sawImages: !!summary, vlErr, diag: (parseNote + (rawHead ? ' · 原文开头：' + rawHead : '')).slice(0, 400) }
+  const got = out.filter(Boolean).length
+  if (!got) {
+    return { ok: false, error: '口播一段都没写出来', sawImages: !!summary, vlErr, diag: diags.slice(-3).join(' · ').slice(0, 400) }
+  }
+  return { ok: true, lines: out, fixes: allFixes, sawImages: !!summary, vlErr, diag: diags.slice(-3).join(' · ').slice(0, 300) }
 }
 
 /** 素材名 → 图号（HTML 里 images/N.jpg 的 N 就是所选顺序），顺便记下"这段用了哪几张" */

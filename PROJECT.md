@@ -277,7 +277,9 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 - 🔧 **首测反馈（用户「AI 没吐出可解析的 JSON：空响应」）**：模型两次都回**空 content**；而**我漏了"失败留证据"**（`aiPlanSegments` 早有 ★V25b 那套：响应长度 + 原文开头），只能猜。
   ⇒ 已加：**行兜底** `parseVoiceLines`（模型常无视 JSON 要求、直接一行一句）+ **失败留诊断**（回给用户）+ 温度/上限调低。单测 **299/0**。
 - 🔧 **二测反馈（诊断回传「响应 0 字」）**：**模型确实回了空**（三级链路全空才 `content:null`）。**强怀疑 = 提示词诱导**：我写了「没什么可说就**写空字符串**」，小模型读成"整条留空"—— 这条能解释"两次都空、稳定复现"。
-  ⇒ 已改：静音标记换成**短横线** + 强调"必须逐段给全、不要整条留空"；`normVoiceLines` 做**静音标记归一**；第 2 次重试换**极简 prompt**（上一版只把长 prompt 又说一遍 = 没换变量）。单测 **301/0**。⚠️ 仍待服务端日志佐证（见 ISSUES 里的 grep 命令）。
+  ⇒ 已改：静音标记换成**短横线** + 强调"必须逐段给全、不要整条留空"；`normVoiceLines` 做**静音标记归一**；第 2 次重试换**极简 prompt**（上一版只把长 prompt 又说一遍 = 没换变量）。单测 **301/0**。
+- 🔧 **三测反馈（日志确证真因）**：`[qwen3.8] 调用异常: The operation was aborted due to timeout` ⇒ **主模型 60s 超时**（硬编码在 `dashscopeFunctionCall` 里），兜底链也没内容 ⇒ 空响应。**而我把 maxTokens 从 4000 降到 2500 是帮倒忙**（思考型模型额度被 reasoning 吃光 ⇒ content 空；`aiPlanSegments` 一直用 8000）。
+  ⇒ 已改：**分批**（≤5 段/批，避免撞 60s）+ **maxTokens 8000** + 每批 2 次（长/极简）+ **某批失败不整单失败**（如实报哪几段静音）。单测 **305/0**。
 
 - 🔧 **实跑踩坑 ②（引擎路径，已修）**：出片真跑推进到用字闸门后报 `Cannot find module '…/.next/standalone/scripts/video-factory/html-deck/check-page-fonts.mjs'` —— 服务器跑 `.next/standalone/server.js`，cwd 是 `.next/standalone`，而 Next 的 file tracing **只把个别脚本**拷进 standalone 的 `scripts/`（工具在、兄弟脚本与 `node_modules/hyperframes` 不在）。
   ⇒ 引擎根一律改走 **`vfRootDir()`**（`★VF_ROOT_V1`，成片线一直这么用）：`daily-film.ts` 1 处 + `daily.ts` 3 处（后三处原本靠 trace 恰好拷进去才没坏，一并拆掉）；并在出片前加**引擎三件套完整性校验**，缺什么一次说清。本地行为逐字不变（`vfRootDir()` 在本机返回 cwd）。

@@ -367,14 +367,14 @@ export function estimateSec(text: string): number {
   return n ? Math.max(1.2, Math.round((n / 4.5) * 10) / 10) : 0
 }
 /** 逐段口播提示词（纯函数 ⇒ 可单测；写法要点全在这段字符串里，改口径只改这里） */
-export function voicePrompt(segs: any[], captions: string, topic = ''): string {
+export function voicePrompt(segs: any[], captions: string, topic = '', offset = 0): string {
   const list = Array.isArray(segs) ? segs : []
   const rows = list.map((s: any, i: number) => {
     const title = (Array.isArray(s?.title) ? s.title : [s?.title])
       .map((x: any) => String(x == null ? '' : x)).filter(Boolean).join(' / ')
     const pts = (Array.isArray(s?.points) ? s.points : [])
       .map((p: any) => (Array.isArray(p) ? p.filter(Boolean).join('·') : String(p))).filter(Boolean).join('、')
-    return '  段' + (i + 1) + '：画面字「' + title + '」' + (pts ? ' ＋ 信息点「' + pts + '」' : '')
+    return '  段' + (offset + i + 1) + '：画面字「' + title + '」' + (pts ? ' ＋ 信息点「' + pts + '」' : '')
   }).join('\n')
   return [
     '你在给一条**竖屏短视频**写**口播旁白**（这份片叫「日报落地页」，主题：' + (topic || '未指定') + '）。',
@@ -396,8 +396,23 @@ export function voicePrompt(segs: any[], captions: string, topic = ''): string {
     '',
     '只输出 JSON（不要解释、不要 markdown 代码块）：',
     '{"voice":["第一段的口播","第二段的口播","……"]}',
-    '⚠️ voice 数组**必须逐段给全**（一共 ' + list.length + ' 条），**不要整个留空、不要只给一条**。',
+    '⚠️ voice 数组**必须逐段给全**（本批 ' + list.length + ' 条），**不要整个留空、不要只给一条**。',
   ].join('\n')
+}
+
+/** ★VF_DAILYVOICE_V1c：**极简版**（第 2 次尝试用）—— 规则 / 看图摘要 / 格式说明全砍掉，
+ *  只留"给这几段各写一句"。已排除的假设越多，越该把变量降到最少。
+ *  （上一版第 2 次只是把同一段长 prompt 又说一遍 ⇒ **等于没换变量**，别重犯。） */
+export function voicePromptStrict(segs: any[], captions: string, offset = 0): string {
+  const list = Array.isArray(segs) ? segs : []
+  return '给下面这几段文案，各写一句口播旁白（每句 ' + VOICE_MAX_CHARS + ' 字以内，口语，别重复画面上的字）。\n'
+    + list.map((s: any, i: number) => {
+      const t = (Array.isArray(s?.title) ? s.title : [s?.title])
+        .map((x: any) => String(x == null ? '' : x)).filter(Boolean).join(' / ')
+      return (offset + i + 1) + '. ' + t
+    }).join('\n')
+    + (captions ? '\n这些图实际拍的是：\n' + String(captions).slice(0, 600) : '')
+    + '\n\n只回一个 JSON 对象：{"voice":["第1句","第2句"]} —— 必须给全 ' + list.length + ' 条，不要留空。'
 }
 /** ★VF_DAILYVOICE_V1：**配音稿卡**（第 4 步）payload —— 每段一行、可改、可静音，末尾给"开始合成"。
  *  ⚠️ 卡片上给的是**估算**时长，且必须写明"以实际配音为准"——
