@@ -2228,6 +2228,10 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
     typeof vj?.plateRatio === 'number' ? vj.plateRatio : 60)   // ★默认 6:4（用户定案 2026-10-11）
   // ★VF_ASPECT_V1（2026-10-11 用户定案「我要的是横屏竖屏我可以选」）：**画幅**（第 2 步卡上，默认竖屏）
   const [aspect, setAspect] = useState<string>(String(vj?.aspect || '9:16'))
+  // ★VF_LAY_V1（2026-10-14 用户定案「满幅压字要可选，而不是改老风格；AI 也可选」）：
+  //   **图呈现**（第 2 步卡上的三选）。⚠️ `vj.lay === undefined` = 本线不带这个选项（日报线复用同一张卡）
+  //   ⇒ 整块不显示、也不提交（别把它写成写死默认值，否则日报线会多出一个无效按钮）。
+  const [lay, setLay] = useState<string>(String(vj?.lay || 'auto'))
   // ★VF_THEME_V1（2026-10-11 用户定案「AI 完全自己画 就不要参与我们模版…它想怎么处理动效样式 完全它自主安排」）
   const [aiPaint, setAiPaint] = useState<boolean>(!!vj?.aiPaint)
   // ★VF_SPEC_V2：**让 AI 自己规划版式**的开关（第 2 步卡上，**默认不勾** ⇒ 不勾与老流程完全一致）。
@@ -2391,6 +2395,37 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
               切换画幅会**重排骨架**（同一次出片里不能中途改）；横屏的 11 个结构坐标已按 1280×720 单独排过。
             </div>
           </div>
+          {/* ── ★VF_LAY_V1（2026-10-14 用户定案「满幅压字要可选，而不是改老风格；AI 也可选」）──
+              动效字压在素材图上：图片面积最大、标题叠在图上。这是**正交于风格包**的一个声明，
+              51 套风格包都能套；不选（跟风格）⇒ 与本功能不存在时**逐字一致**。 */}
+          {vj?.lay !== undefined ? (
+            <div className="rounded-xl border border-sky-500/25 bg-black/20 px-3 py-2 mb-2">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] text-gray-300">图呈现</span>
+                <span className="text-[11px] text-sky-300 font-medium">
+                  {lay === 'bleed' ? '满幅压字' : lay === 'plate' ? '相纸不裁' : '跟风格'}
+                </span>
+              </div>
+              <div className="flex gap-2">
+                {[{ v: 'auto', t: '跟风格', d: '用这套包自带的版式' },
+                  { v: 'bleed', t: '满幅压字', d: '图铺满整页 · 标题叠在图上' },
+                  { v: 'plate', t: '相纸不裁', d: '图整张不裁（可能带边）' }].map((o) => (
+                  <button key={o.v} onClick={() => setLay(o.v)}
+                    className={'flex-1 px-2 py-2 rounded-lg text-left border ' +
+                      (lay === o.v ? 'border-sky-400/70 bg-sky-500/[0.14]' : 'border-white/10 bg-black/20 hover:bg-white/[0.04]')}>
+                    <span className="block text-[11px] text-gray-100">{o.t}</span>
+                    <span className="block text-[9px] text-gray-500 mt-0.5">{o.d}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="text-[9px] text-gray-500 mt-1">
+                满幅压字只对「整页单图」那几页生效（多图页仍是网格）；图会被裁切，换来画面面积最大、标题叠在图上。切换会重排骨架。
+              </div>
+              {String(vj?.layHint || '') ? (
+                <div className="text-[9px] text-gray-600 mt-0.5">{String(vj.layHint)}</div>
+              ) : null}
+            </div>
+          ) : null}
           {/* ── ★VF_THEME_V1：AI 完全自主（连配色一起交给 AI，**不使用库里模板皮肤**）── */}
           <label className={`flex items-start gap-2 rounded-xl border px-3 py-2 mb-2 cursor-pointer select-none ${aiPaint ? 'border-fuchsia-400/60 bg-fuchsia-500/[0.10]' : 'border-white/10 bg-black/20 hover:bg-white/[0.04]'}`}>
             <input type="checkbox" checked={aiPaint} onChange={(e) => setAiPaint(e.target.checked)}
@@ -2420,7 +2455,7 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
           </label>
           <div className="flex gap-2">
             <button onClick={() => next('back_mat')} className={btn + ' border-white/15 text-gray-300 hover:bg-white/[0.08]'}>← 换素材</button>
-            <button onClick={() => next('style', { pack, plateRatio, aiSpec, aspect, aiPaint })}
+            <button onClick={() => next('style', { pack, plateRatio, aiSpec, aspect, aiPaint, ...(vj?.lay !== undefined ? { lay } : {}) })}
               className="flex-1 px-4 py-2 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100 text-sm font-medium">
               下一步 → 确认出片
             </button>
@@ -2441,6 +2476,9 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
               {Number(vj?.matMax) ? ` · 单条上限 ${Number(vj.matMax)} 张` : ''}
             </div>
             <div>风格包：{String(vj?.packName || '自动')}</div>
+            {/* ★VF_LAY_V1：这条片按什么「图呈现」排的（满幅压字 / 相纸不裁 / 跟风格）——
+                AI 代选时这里显示的是**实际生效**那个（服务端 layName 由 layEff 推出来）。 */}
+            {vj?.layName ? <div>图呈现：{String(vj.layName)}</div> : null}
             {/* ★VF_FILMEST_V2（2026-10-09 用户实测「卡上说约 35 秒、成片只有 24.6 秒」）：
                 口径写明白 —— 这个秒数是**按文案字数估**的，真正时长由 TTS 实测配音决定。
                 ★VF_FILMSRC_V1：段数**不再兜底成 6**（老代码 `|| 6` 会在骨架缺失时显示一个假数）——

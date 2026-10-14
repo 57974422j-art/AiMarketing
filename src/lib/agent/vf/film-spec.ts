@@ -86,7 +86,9 @@ export function specPrompt(summary: string, n: number, topic: string, paint = fa
     + '"text":{"titleForm":"overlay|sticker|vertical","ornament":"rule|tape|hairline|none","weight":100~900,"tracking":-0.04~0.2,"scale":0.7~1.4},'
     + '"gates":{"minImageWidth":0}}}\n'
     + '含义：system 排版骨架（axis 中轴 / grid 严格网格 / free 自由错位）；whitespace 留白（越大越疏）；\n'
-    + 'place 照片呈现（mat 相纸不裁 / mat-tape 相纸+胶带 / fullbleed 满屏裁切）；\n'
+    + 'place 照片呈现（mat 相纸不裁 / mat-tape 相纸+胶带 / fullbleed ★满幅压字：图铺满整页 + 压一层暗场 + 标题叠在图上）；\n'
+    + '★「满幅压字」只适合**主体清楚、本身好看**的实拍（横图 / 主体居中 / 画面有氛围）；'
+    + '以文字截图、表格、信息图为主的素材**不要**选它（字会跟图里的字打架）；\n'
     + 'complete=true 表示"这套风格**保证图片完整**"（此时别选 fullbleed）；\n'
     + 'titleForm 标题形态；weight/tracking/scale = 标题字重 / 字距 / 字号倍率。\n'
     + '硬规矩：① 只回 JSON，不要解释、不要 markdown 围栏；② **拿不准的键就别写**（会退回默认，不会出错）；\n'
@@ -126,7 +128,11 @@ export function packPickPrompt(
     + (topic ? '主题：' + topic + '\n' : '')
     + (summary ? '【素材读图总结】\n' + String(summary).slice(0, 1200) + '\n' : '')
     + '\n【可用风格包】（**只能从这些 id 里挑**）\n' + rows + '\n'
-    + '\n只回一个 JSON：{"pack":"<上面某个 id>","why":"一句话理由"}。\n'
+    + '\n只回一个 JSON：{"pack":"<上面某个 id>","why":"一句话理由","lay":"auto|bleed|plate"}。\n'
+    + '`lay`＝**图呈现**（★VF_LAY_V1，2026-10-14 用户定案「满幅压字要可选、不要改老风格」）：\n'
+    + '  auto＝跟风格包自带版式（**拿不准就填它**）；\n'
+    + '  bleed＝**满幅压字**（图铺满整页 + 压一层暗场 + 标题叠在图上；适合主体清楚、本身好看的实拍，尤其横图）；\n'
+    + '  plate＝**相纸不裁**（图整张不裁、不压字；适合以文字截图 / 表格 / 信息图为主，或绝不能被裁的图）。\n'
     + '硬规矩：① id 必须**逐字**来自上面清单（编造的 id 会被丢弃）；② 按"素材气质 / 用途"匹配，'
     + '不要只看配色好不好看；③ 以竖屏截图为主的素材，优先信息层级清楚的（如 dark-dashboard / glass-saas）；'
     + '④ 美食/风景实拍，优先留白多、照片为主的（如 reel-showcase / paper-editorial）。'
@@ -137,4 +143,61 @@ export function pickPackId(j: any, allowed: string[]): string | null {
   const id = String((j && typeof j === 'object' && j.pack !== undefined && j.pack !== null) ? j.pack : '').trim()
   if (!id) return null
   return (Array.isArray(allowed) ? allowed : []).includes(id) ? id : null
+}
+
+/* ═════════ ★VF_LAY_V1（2026-10-14 用户定案「满幅压字要**可选**，而不是改老风格；AI 也可选」）═════════
+   背景：用户看到"动效字压在素材图上"的小样，觉得这样**图片面积更完整**。
+   查证结论（先查再改，不重造）：这能力**引擎早就有** —— `image.place='fullbleed'` +
+   `text.titleForm='overlay'`，实现在 `tools/film-to-page.mjs` 的 `specCss` ③ 段
+   （图铺满整页 + 压一层暗场 + 字转白加投影）。
+   ⇒ 所以**不加新风格包**（那只覆盖一个方案），而是把它做成**正交于风格包的一个声明**：
+     51 个风格包都能套；老包一个字节不改 ⇒ 不选 `bleed` 时**出片与今天完全一致**。
+   两条 AI 通道（都不额外烧点）：① 用户勾了"让 AI 自己规划版式" ⇒ `specPrompt` 里声明 image.place；
+   ② 没勾（默认）⇒ 在已有的"审图挑包"那一次调用里顺带问 `lay`（`packPickPrompt`）。
+   两条人的通道：第 2 步卡上的三选（用户手选**压倒** AI 的建议）。
+   边界（引擎已定，这里不改）：fullbleed **只作用于"整页单图"三类结构**
+   （fullbleed / plate-top / plate-bottom）；多图页保持网格 —— 想让多图页也压字要新增页型，是另一个活。 */
+
+/** 图呈现（用户在第 2 步卡上选；'auto' = 跟风格包 / 交给 AI 判） */
+export const LAY_IDS = ['auto', 'bleed', 'plate'] as const
+
+/** 只认这三个值（编的值 / 空 ⇒ null，调用方**保持原值**，不静默改） */
+export function pickLayId(v: any): string | null {
+  const s = String(v === undefined || v === null ? '' : v).trim()
+  return (LAY_IDS as readonly string[]).includes(s) ? s : null
+}
+
+/** 一句话（卡片 / 日志用） */
+export function describeLay(lay: string): string {
+  return lay === 'bleed' ? '满幅压字' : lay === 'plate' ? '相纸不裁' : '跟风格'
+}
+
+/** lay ⇒ spec 覆盖（**只在这一处翻译**；返回 null = 不覆盖任何键）
+ *  ⚠️ `bleed` 必须**同时**给 `complete:false`：满幅必然裁切，只改 place 不改 complete
+ *     就是"声明自相矛盾"，arrange 与骨架会打架（出片被 stage=spec 拒渲）。 */
+export function laySpec(lay: string): any | null {
+  const s = pickLayId(lay)
+  if (!s || s === 'auto') return null
+  if (s === 'bleed') {
+    return {
+      image: { place: 'fullbleed', complete: false },
+      text: { titleForm: 'overlay' },
+      motion: { type: 'overlay' },
+    }
+  }
+  // plate：强制"相纸不裁"（用来**压过** AI / 风格包可能选的 fullbleed）
+  return { image: { place: 'mat', complete: true } }
+}
+
+/** 把 lay 覆盖**合并进** spec —— 优先级：**用户手选 > AI 规划 > 风格包 spec > 引擎默认**
+ *  ⚠️ 必须发生在 `planFilm`（排骨架）**之前**：`image.complete` 决定 arrange 允不允许 fullbleed，
+ *     声明晚了骨架与声明就打架 ⇒ 出片时被 stage=spec 拒渲（2026-10-10 实测抓过这条）。 */
+export function mergeLay(spec: any, lay: string): any {
+  const ov = laySpec(lay)
+  if (!ov) return spec
+  const out: any = (spec && typeof spec === 'object') ? JSON.parse(JSON.stringify(spec)) : {}
+  for (const g of Object.keys(ov)) {
+    out[g] = { ...((out[g] && typeof out[g] === 'object') ? out[g] : {}), ...ov[g] }
+  }
+  return out
 }

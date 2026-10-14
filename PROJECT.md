@@ -1,7 +1,7 @@
 # AiMarketing 项目文档
 
 > 本文档为**唯一权威项目文档**（替代已删除的 PROJECT_REPORT.md 与 docs/ 全部散落文档）。
-> 最后更新：2026-10-12 ｜ 配套文档：[AGENT-HANDOFF.md](./AGENT-HANDOFF.md)（**AGENT 页接手文档——换工具/换机器先读它**）、[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
+> 最后更新：2026-10-14 ｜ 配套文档：[AGENT-HANDOFF.md](./AGENT-HANDOFF.md)（**AGENT 页接手文档——换工具/换机器先读它**）、[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
 > 维护规则：**每次执行操作后**，必须同步更新本文档「当前进度/待办」章节 + EXECUTION_LOG.md + ISSUES.md。
 
 
@@ -222,6 +222,15 @@ dashboard(+insights/sop)、workspace、ai-tools、ai-copy、image-generator、au
 i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
+
+### 2026-10-14：「满幅压字」做成可选（`VF_LAY_V1`，✅ 代码完成，待实测）
+
+- **诉求**：用户看到"动效字压在素材图上"的小样 ⇒ 图片面积更完整。定案：「**满幅压字 可选而不是改老风格；AI 可选**」，并否掉了"只加一套风格包"（那只覆盖一个方案）。
+- ✅ **先查后改（不重造）**：这能力**引擎早就有** = `image.place='fullbleed'` + `text.titleForm='overlay'`（`tools/film-to-page.mjs::specCss` ③ 段：图铺满 + 暗场 + 白字投影）。缺的只是"人和 AI 能选到它"。
+- ✅ **做法 = 正交于风格包的一个声明**（51 套包都能套、老包零改动）：草稿 `lay`（auto/bleed/plate）+ 第 2 步卡「图呈现」三选 + `planFilm` **之前** `mergeLay` 覆盖 spec（用户手选 > AI 规划 > 风格包 spec > 引擎默认）+ 确认卡回显。
+- ✅ **AI 两条通道都不额外烧点**：勾了"让 AI 规划版式"走 `specPrompt`；没勾则复用"审图挑包"那一次调用（`packPickPrompt` 多要 `lay`，仅 auto 时采纳）。
+- ⚠️ **边界（不是 bug）**：满幅**只对"整页单图"三类结构**生效（fullbleed / plate-top / plate-bottom），多图页仍是网格；满幅必然裁切 ⇒ 必须 `complete:false`。想让多图页也压字 = 新增页型，是另一个活。
+- ⏳ **待实测**：第 2 步卡选「满幅压字」出片看观感；不选时与今天逐字一致（老风格包零改动）。
 
 ### 2026-10-11 ~ 10-12：模型自愈 / 横竖画幅 / 风格包体检+AI挑包+完全自主 / 仓库分家 / 落地页规矩（✅ 代码完成并推送，待部署实测）
 

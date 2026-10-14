@@ -32,7 +32,8 @@ import { loadCharset, sanitizeText, sanitizeSlots } from './charset'
 import { alignCopy, mergeSlots, batchRanges } from './film-copy-align'
 // ★VF_SPEC_V2：AI 自规划风格语法（**开关默认关**；关掉 ⇒ 零行为变化）—— 单列成模块便于单测
 // ★VF_THEME_V1：`theme` 由 AI 定（完全自主模式）；★VF_PACKAI_V1：挑风格包也交给 AI（读图那一步）
-import { aiSpecEnabled, pickSpec, describeSpec, specPrompt, packPickPrompt, pickPackId } from './film-spec'
+// ★VF_LAY_V1：`pickLayId/describeLay/laySpec/mergeLay` = "图呈现（满幅压字）"的唯一口径（纯函数、可单测）
+import { aiSpecEnabled, pickSpec, describeSpec, specPrompt, packPickPrompt, pickPackId, pickLayId, describeLay, laySpec, mergeLay } from './film-spec'
 
 const HTMLFILM_TAG = 'vf_draft_htmlfilm'
 const HTMLFILM_PREFIX = 'HTML成片草稿:'
@@ -45,7 +46,9 @@ const HTMLFILM_PREFIX = 'HTML成片草稿:'
  *  不猜、不合并、不"用旧文案配新骨架"。**改这里的值 = 让所有在飞草案失效**（部署即作废的实现）。 */
 // ★VF_RATIO_V1（2026-10-10）：骨架算法改了（比例条取代写死 0.35）⇒ **版本戳必须升**，
 //   否则在飞草案（旧比例排的骨架）会与新码排出的骨架/文案错配 —— 这正是这条纪律存在的理由。
-export const FILM_LINE_VERSION = 'film-2026-10-10-ratio'
+// ★VF_LAY_V1（2026-10-14）：第 2 步卡多了「图呈现」（满幅压字 / 相纸不裁 / 跟风格），
+//   它会**改变 spec**（image.place / complete）⇒ 改变排骨架 ⇒ 在飞草案（旧码排的骨架）必须作废 ⇒ 版本戳升。
+export const FILM_LINE_VERSION = 'film-2026-10-14-lay'
 
 export type HtmlFilmStep = 'mat' | 'style' | 'confirm'
 
@@ -98,6 +101,12 @@ export type HtmlFilmDraft = {
   aiPaint?: boolean
   /** ★VF_ASPECT_V1：画幅 '9:16'（竖，默认）| '16:9'（横）——出片时渲染侧按它选画布 */
   aspect?: string
+  /** ★VF_LAY_V1（2026-10-14 用户定案「满幅压字要可选，而不是改老风格；AI 也可选」）：
+   *  **图呈现**：'auto'（默认，跟风格包 / 交给 AI 判）| 'bleed'（满幅压字）| 'plate'（相纸不裁）。
+   *  它是**用户声明**（第 2 步卡上的三选）——AI 的建议只在用户选 'auto' 时才写进这里。 */
+  lay?: string
+  /** ★VF_LAY_V1：**实际生效**的图呈现（AI 代选时与 lay 不同），给确认卡回显用 */
+  layEff?: string
 }
 
 /** 进程内缓存（与 vf-ppt.ts 同形制：DB 是主，Map 是"这一回合的加速"） */
@@ -204,6 +213,9 @@ export async function loadHtmlFilmDraft(db: any, uid: number | string): Promise<
       aiSpec: j.aiSpec === undefined ? undefined : !!j.aiSpec,
       // ★VF_THEME_V1：完全自主开关也要取回（漏了 ⇒ "换风格"回来就丢了）
       aiPaint: j.aiPaint === undefined ? undefined : !!j.aiPaint,
+      // ★VF_LAY_V1：图呈现也要取回（漏了 ⇒ "换风格"回来就变回"跟风格"，与卡片上显示的不符）
+      lay: pickLayId(j.lay) || (j.lay === undefined ? undefined : 'auto'),
+      layEff: pickLayId(j.layEff) || undefined,
     }
   } catch { return null }
 }
@@ -458,13 +470,23 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
       if (cand.length) {
         const pkTxt = String(await ctx.generateText(
           packPickPrompt(cand, summary, String(vd.topic || ''))) || '')
-        const pid = pickPackId(scanJson(pkTxt), cand.map((x) => x.id))
+        const pkj = scanJson(pkTxt)
+        const pid = pickPackId(pkj, cand.map((x) => x.id))
         if (pid) {
           vd.pack = pid
           packNote = '🎨 AI 按素材挑的风格包：' + pid + '（从 ' + cand.length + ' 个可用包里挑）'
           vfLog(uid, '[HTML成片] AI 挑风格包：' + pid)
         } else {
           vfLog(uid, '[HTML成片] AI 挑风格包：没给出可用 id ⇒ 退回引擎兜底')
+        }
+        // ★VF_LAY_V1（2026-10-14）：**同一次调用顺带**问"图呈现"（不多烧一次点）。
+        //   只在用户没手选时采纳 —— 用户在第 2 步卡上选了 bleed/plate ⇒ AI 的建议一律不覆盖。
+        const aiLay = pickLayId(pkj && pkj.lay)
+        if (aiLay && aiLay !== 'auto' && (!vd.lay || vd.lay === 'auto')) {
+          vd.lay = aiLay
+          vfLog(uid, '[HTML成片] AI 按素材判图呈现：' + aiLay + '（' + describeLay(aiLay) + '）')
+        } else if (aiLay) {
+          vfLog(uid, '[HTML成片] AI 建议图呈现=' + aiLay + '，但用户已选 ' + (vd.lay || 'auto') + ' ⇒ 以用户为准')
         }
       }
     } catch (e: any) {
@@ -493,6 +515,17 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; copy?: any[
       specNote = 'ℹ️ 风格语法规划失败（' + String(e?.message || e).slice(0, 60) + '），已用引擎默认'
     }
     if (specNote) vfLog(uid, '[HTML成片] ' + specNote)
+  }
+  // ★VF_LAY_V1（2026-10-14 用户定案「满幅压字要可选，而不是改老风格；AI 也可选」）：
+  //   把"图呈现"**覆盖进 spec**（优先级：用户手选 > AI 规划 > 风格包 spec > 引擎默认）。
+  //   ⚠️ 位置**必须在 planFilm 之前**：`image.complete` 决定 arrange 允不允许 fullbleed，
+  //      声明晚了骨架与声明打架 ⇒ 出片被 stage=spec 拒渲（2026-10-10 实测抓过）。
+  //   不选（auto）⇒ 一个键都不覆盖 ⇒ 与今天完全一致。
+  const layEff = pickLayId(vd.lay) || 'auto'
+  vd.layEff = layEff
+  if (layEff !== 'auto') {
+    spec = mergeLay(spec, layEff)
+    vfLog(uid, '[HTML成片] 图呈现=' + layEff + '（' + describeLay(layEff) + '）⇒ spec 覆盖 ' + JSON.stringify(laySpec(layEff)))
   }
   // ★VF_RATIO_V1：**比例在这里生效**（骨架只编一次 ⇒ 必须是"排骨架"的这一步拿到它）。
   //   草稿里存的是百分数（0~100），传给引擎时统一除 100（**只在这一处换算**，别处一律百分数）。
@@ -736,6 +769,10 @@ function styleCard(vd: HtmlFilmDraft): string {
     aiSpecForced: aiSpecEnabled(),
     // ★VF_THEME_V1：完全自主开关回显（第 2 步卡上能看到当前是不是"不用库里模板皮肤"）
     aiPaint: !!vd.aiPaint,
+    // ★VF_LAY_V1：**图呈现**下发（第 2 步卡上的三选）。`undefined` 是"本卡不带这个选项"的信号
+    //   （日报线复用同一张卡但**不发**这个字段 ⇒ 它那侧不显示、也不会误提交 lay）——别把它写成默认值。
+    lay: pickLayId(vd.lay) || 'auto',
+    layHint: '跟风格＝用这套包自带的版式；满幅压字＝图铺满整页、标题叠在图上（图片面积最大）；相纸不裁＝图整张不裁、不压字',
   }
   return 'VF_JSON:' + JSON.stringify(body)
 }
@@ -784,6 +821,10 @@ function confirmCard(vd: HtmlFilmDraft): string {
     matMax: FILM_MAT_MAX,
     pack: vd.pack,
     packName: pk ? pk.name : '（自动按赛道挑）',
+    // ★VF_LAY_V1：把"图呈现"回显到确认卡（用户能看见这条片到底是满幅压字还是相纸不裁；
+    //   AI 代选时 layEff 与用户选的 auto 不同，这里显示的是**实际生效**那个）
+    lay: pickLayId(vd.layEff || vd.lay) || 'auto',
+    layName: describeLay(pickLayId(vd.layEff || vd.lay) || 'auto'),
     estSec,
     // ★VF_FILMSRC_V1（用户原话「我给你 50 张图你也做 8 个镜头？」）：
     //   **段数不再有兜底上限**（老代码 `plan.length || Math.min(8, …)` 会给一个假的 8）。
@@ -869,6 +910,15 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
       // ★VF_THEME_V1（用户定案「AI 完全自己画 就不要参与我们模版」）：勾了"完全自主" ⇒ 必然走 AI 规划
       if (f.aiPaint !== undefined) vd.aiPaint = !!f.aiPaint
       if (vd.aiPaint) vd.aiSpec = true
+      // ★VF_LAY_V1：**图呈现**（第 2 步卡三选）。只认 auto/bleed/plate；
+      //   非法值**保持原值并打印**（不静默改）；没带 ⇒ 不动（日报线复用本卡时也不会误改）。
+      if (f.lay !== undefined && f.lay !== null && f.lay !== '') {
+        const lv = String(f.lay)
+        const lk = pickLayId(lv)
+        if (lk) vd.lay = lk
+        else vfLog(uid, '[HTML成片] lay=' + lv + ' 不在 auto/bleed/plate ⇒ 保持原值 ' + (vd.lay || 'auto'))
+      }
+      if (!vd.lay) vd.lay = 'auto'
       // ★VF_PACKAI_V1：用户手动选了包 ⇒ 记下来（AI 挑包只在"没手选"时才做）
       if (f.pack !== undefined) vd.pack = String(f.pack || '')
       if (f.topic !== undefined) vd.topic = String(f.topic || '').slice(0, 60)
