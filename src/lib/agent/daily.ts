@@ -41,7 +41,7 @@ import { vfRootDir } from './video-material'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 import { dashscopeFunctionCall } from '@/lib/ai-providers'
 // ★纯函数层（零依赖、可单测：temp/_exp/daily/test-plan.mjs）
-import { DAILY_STYLE, aiPrompt, extractJsonEx, normSegs, normMotion, normTheme, normFont, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, assignTextMotion, pickFont, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer, checkDiversity, fixDiversity, voicePrompt, normVoiceLines, buildVoiceCardPayload, estimateSec, parseVoiceLines } from './daily-plan'
+import { DAILY_STYLE, aiPrompt, extractJsonEx, normSegs, normMotion, normTheme, normFont, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, assignTextMotion, pickFont, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer, checkDiversity, fixDiversity, voicePrompt, normVoiceLines, buildVoiceCardPayload, estimateSec, parseVoiceLines, VOICE_MAX_CHARS } from './daily-plan'
 import type { PlanBy } from './daily-plan'
 
 export { DAILY_STYLE }
@@ -443,8 +443,16 @@ export async function aiVoiceLines(
   let rawHead = ''
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const strict = prompt + '\n\n⚠️ 上一条没有产出可解析的 JSON（或者你回了空）。现在**只回一个 JSON 对象**：'
-        + '{"voice":["第一段口播","第二段口播"]}，不要解释、不要 markdown 代码块、不要在前后写任何字。'
+      // ★VF_DAILYVOICE_V1c（2026-10-14 用户实测「响应 0 字」）：第 2 次**换成极简 prompt**，
+      //   把规则、看图摘要、格式说明全部砍掉，只留"给 N 段各写一句" —— 已排除的假设越多，
+      //   越该把变量降到最少（上一版只是把同一段长 prompt 又说了一遍，等于没换）。
+      const strict = '给下面这段文案的 ' + segs.length + ' 段，各写一句口播旁白（每句 ' + VOICE_MAX_CHARS + ' 字以内）。\n'
+        + segs.map((s: any, i: number) => {
+          const t = (Array.isArray(s?.title) ? s.title : [s?.title]).map((x: any) => String(x == null ? '' : x)).filter(Boolean).join(' / ')
+          return (i + 1) + '. ' + t
+        }).join('\n')
+        + (summary ? '\n这些图实际拍的是：\n' + String(summary).slice(0, 600) : '')
+        + '\n\n只回一个 JSON 对象：{"voice":["第1句","第2句"]} —— 必须给全 ' + segs.length + ' 条，不要留空。'
       const res = await dashscopeFunctionCall(
         [{ role: 'user', content: attempt === 1 ? prompt : strict }],
         [], 2500, attempt === 1 ? 0.5 : 0.3, false,
