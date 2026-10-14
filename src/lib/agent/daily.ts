@@ -36,7 +36,7 @@ import { listAllObjects } from '@/lib/oss'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 import { dashscopeFunctionCall } from '@/lib/ai-providers'
 // ★纯函数层（零依赖、可单测：temp/_exp/daily/test-plan.mjs）
-import { DAILY_STYLE, aiPrompt, extractJson, normSegs, normMotion, normTheme, normFont, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, assignTextMotion, pickFont, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer, checkDiversity, fixDiversity } from './daily-plan'
+import { DAILY_STYLE, aiPrompt, extractJsonEx, normSegs, normMotion, normTheme, normFont, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, assignTextMotion, pickFont, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer, checkDiversity, fixDiversity } from './daily-plan'
 import type { PlanBy } from './daily-plan'
 
 export { DAILY_STYLE }
@@ -269,7 +269,7 @@ function toPicks(uid: number | string, src: DailySource, names: string[]): Daily
  *   两段式：① 视觉模型逐张读出"拍的是什么" ② **文字模型**（qwen3.8-flash，稳）据此出 JSON 方案。
  *   视觉不可用时**不判死**：退成"按主题+序号排"，并把原因如实写进方案卡。
  */
-export async function aiPlanSegments(picks: DailyPick[], topic: string, lastTheme = ''): Promise<{ ok: boolean; segs?: any[]; error?: string; added?: number; fixes?: string[]; theme?: string; custom?: any; font?: string; motion?: string; sawImages?: boolean; vlErr?: string; captions?: string }> {
+export async function aiPlanSegments(picks: DailyPick[], topic: string, lastTheme = ''): Promise<{ ok: boolean; segs?: any[]; error?: string; added?: number; fixes?: string[]; theme?: string; custom?: any; font?: string; motion?: string; sawImages?: boolean; vlErr?: string; captions?: string; parseNote?: string; rawHead?: string }> {
   const n = picks.length
   if (!n) return { ok: false, error: '没有素材' }
 
@@ -319,18 +319,33 @@ export async function aiPlanSegments(picks: DailyPick[], topic: string, lastThem
   //          → DeepSeek 兜底也空 → 保底版式（用户：「AI 没排字」）。
   //   病灶②（我这边的雷）：`maxTokens` 只有 **2600**，而 V11 把段数提到 ≥9/最多 16 ⇒ 长 JSON 很容易被
   //          **截断**，而"截断"和"没吐 JSON"在现象上**一模一样**。
-  //   现口径：maxTokens **6000** + **失败再试一次**（第二次用更严格的"只回 JSON"+ 段数收敛 ⇒ 更快更短）。
+  //   现口径：maxTokens **8000**（V25b 从 6000 提上来：V25 之后每一段多带了字段，截断风险回升）
+  //   + **失败再试一次**（第二次用更严格的"只回 JSON"+ 段数收敛 ⇒ 更快更短）。
+  //   ★VF_DAILY_V25b（2026-10-14 用户实测「AI 这轮没排出方案…重试也没成功」）：**失败必须留证据** ——
+  //   以前只记一句"没吐出可解析的 JSON"，连模型的原文都没存 ⇒ 只能猜（截断？全角？围栏？）。
+  //   现在：① 解析器逐级放宽（见 `extractJsonEx`）；② 失败时把**响应长度 + 开头/结尾 + 修到哪一级**写进日志。
   const strict = '⚠️ 上一条没有产出可解析的 JSON。现在**只回一个 JSON 对象**：不要解释、不要 markdown 代码块、'
-    + '不要在 JSON 前后写任何字；段数取 ' + Math.max(6, Math.min(10, n + 2)) + ' 段左右（别追求最多段）。'
+    + '不要在 JSON 前后写任何字；段数取 ' + Math.max(6, Math.min(10, n + 2)) + ' 段左右（别追求最多段）；'
+    + '`scale`/`stamp`/`kicker`/`tm` 都可以不写（服务端会补），**只写 `layout`/`title`/`imgs` 也能出片**。'
   let lastErr = ''
+  let parseNote = ''      // ★V25b：解析诊断（写日志用；本函数没有 ctx/uid，所以随返回值带出去）
+  let rawHead = ''
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const res = await dashscopeFunctionCall(
         [{ role: 'user', content: attempt === 1 ? prompt : prompt + '\n\n' + strict }],
-        [], 6000, attempt === 1 ? 0.6 : 0.3, false,
+        [], 8000, attempt === 1 ? 0.6 : 0.3, false,
       )
-      const raw = extractJson(String(res?.content || ''))
-      if (!raw) { lastErr = 'AI 没吐出可解析的 JSON' + (attempt > 1 ? '（重试也没成功）' : '') + (vlErr ? '；' + vlErr : ''); continue }
+      const txt = String(res?.content || '')
+      const ex = extractJsonEx(txt)
+      const raw = ex.value
+      const usage = (res && (res as any).usage) ? ' · 用量 ' + JSON.stringify((res as any).usage) : ''
+      parseNote = `第 ${attempt} 次：响应 ${txt.length} 字 · 解析 ${ex.how}${usage}`   // ★V25b：随返回值带给调用方去写日志
+      if (!raw) {
+        rawHead = txt.slice(0, 200).replace(/\s+/g, ' ')
+        lastErr = 'AI 没吐出可解析的 JSON' + (attempt > 1 ? '（重试也没成功）' : '') + '：' + ex.how + (vlErr ? '；' + vlErr : '')
+        continue
+      }
       const { segs, added, fixes } = normSegs(raw, n, topic)
       if (segs.length < 2) { lastErr = 'AI 的分段不合规（段数不足）'; continue }
       // ★L4：皮肤（AI 按素材挑；自定配色交给引擎做对比度体检）
@@ -338,13 +353,14 @@ export async function aiPlanSegments(picks: DailyPick[], topic: string, lastThem
       // ★VF_DAILY_V25（B1）：AI 挑的**字体配对**要收下来（提示词里问了它，以前这里没接 ⇒ 白问）
       const fo = normFont(raw)
       const allFixes = fixes.concat(th.fixes).concat(fo.fixes)
-      return { ok: true, segs, added, fixes: allFixes, theme: th.theme, custom: th.custom, font: fo.font, motion: normMotion(raw?.motion), sawImages: !!summary, vlErr }
+      return { ok: true, segs, added, fixes: allFixes, theme: th.theme, custom: th.custom, font: fo.font, motion: normMotion(raw?.motion), sawImages: !!summary, vlErr, parseNote }
     } catch (e: any) {
       lastErr = String(e?.message || e).slice(0, 120) + (attempt === 1 ? '（已重试一次）' : '')
     }
   }
   // ★V12：把**看图摘要**一起返回 —— 文字模型挂了，但图已经看过 ⇒ 调用方可用它排出"有真内容"的兜底件
-  return { ok: false, error: lastErr || '未知原因', sawImages: !!summary, vlErr, captions: summary }
+  // ★V25b：连同 `parseNote`（响应多少字、修到哪一级、用量）与 `rawHead`（原文开头）带出去 —— 调用方写日志
+  return { ok: false, error: lastErr || '未知原因', sawImages: !!summary, vlErr, captions: summary, parseNote, rawHead }
 }
 
 /** 素材名 → 图号（HTML 里 images/N.jpg 的 N 就是所选顺序），顺便记下"这段用了哪几张" */
@@ -580,6 +596,13 @@ async function runPlan(ctx: DailyCtx, d: DailyDraft, src: DailySource, picked: s
     if (ai.added) note = `AI 漏了 ${ai.added} 张，已自动补段`
   } else {
     note = String(ai.error || '未知原因')
+    // ★VF_DAILY_V25b：AI 编排失败时把**诊断**写进日志（用户实测「AI 这轮没排出方案…重试也没成功」时，
+    //   旧代码只留一句"没吐出可解析的 JSON"，连原文都没有 ⇒ 只能猜。现在：响应多少字、修到哪一级、
+    //   用量、原文开头都记下来，下次一眼能分清"截断/空响应/全是解释/真超时"。）
+    try {
+      if (ai.parseNote) ctx.log?.(uid, '[日报落地页] AI 方案解析诊断 · ' + ai.parseNote)
+      if (ai.rawHead) ctx.log?.(uid, '[日报落地页] AI 原文开头（诊断用）：' + ai.rawHead)
+    } catch { /* ignore */ }
     // ★VF_DAILY_V12：**先试"看图摘要兜底"** —— 图已经看过了（VL 逐张读出内容），别浪费：
     //   用它排出有真标题/真信息点的方案（不再"现场记录 N/N"那种空壳占位）。
     const cap = planFromCaptions(ai.captions || '', picks.length, d.topic || '')

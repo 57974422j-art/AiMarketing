@@ -121,12 +121,92 @@ export function clip(s: any, n: number): string {
   return String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, n)
 }
 
-/** 抽 JSON（模型爱包代码块/加解释 —— 取第一个 { 到最后一个 }） */
+/** 去 markdown 代码块围栏（模型爱包 ```json … ```） */
+function stripFence(s: string): string {
+  return s.replace(/^\s*```[a-zA-Z0-9_-]*\s*/, '').replace(/```[\s\S]*$/, '')
+}
+/** 修尾随逗号（`,}` / `,]`） */
+function fixTrailingCommas(s: string): string {
+  return s.replace(/,\s*([}\]])/g, '$1')
+}
+/** 全角标点归一（**只在解析失败时才用**；会把中文标点变成 ASCII，属于最后手段） */
+function normalizeFullWidth(s: string): string {
+  return s.replace(/，/g, ',').replace(/：/g, ':').replace(/[“”]/g, '"').replace(/[‘’]/g, "'")
+}
+/** 截断修复：扫括号栈 → 回退到最后一个"安全位置"（顶层逗号/闭合括号）→ 补齐未闭合的括号 */
+function closeTruncated(s: string): string {
+  const st: string[] = []
+  let inStr = false, esc = false, cut = -1
+  for (let k = 0; k < s.length; k++) {
+    const c = s[k]
+    if (inStr) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inStr = false; continue }
+    if (c === '"') { inStr = true; continue }
+    if (c === '{' || c === '[') st.push(c)
+    else if (c === '}' || c === ']') { st.pop(); cut = k + 1 }
+    else if (c === ',' && st.length) cut = k
+  }
+  if (!st.length && !inStr) return s
+  const t = cut > 0 ? s.slice(0, cut) : s
+  const st2: string[] = []
+  let inStr2 = false, esc2 = false
+  for (const c of t) {
+    if (inStr2) { if (esc2) esc2 = false; else if (c === '\\') esc2 = true; else if (c === '"') inStr2 = false; continue }
+    if (c === '"') { inStr2 = true; continue }
+    if (c === '{' || c === '[') st2.push(c)
+    else if (c === '}' || c === ']') st2.pop()
+  }
+  let out = t
+  if (inStr2) out += '"'
+  for (let k = st2.length - 1; k >= 0; k--) out += st2[k] === '{' ? '}' : ']'
+  return out
+}
+/**
+ * ★VF_DAILY_V25b（2026-10-14 用户实测：「AI 这轮没排出方案（AI 没吐出可解析的 JSON（重试也没成功））」）：
+ *   老实现 = "首个 `{` 到最后一个 `}`" + `JSON.parse` ⇒ 一碰就碎。模型最常见的五种废输出**全都当场失败**：
+ *     ① 被 maxTokens **截断**（最后那个 `}` 是内层的 ⇒ 括号不闭合）；
+ *     ② **尾随逗号**（`,}` / `,]`）；
+ *     ③ **全角标点**当分隔符（`，` `：` `“”`）；
+ *     ④ **代码块围栏**、JSON 前后夹解释文字；
+ *     ⑤ 多个 JSON 片段连写。
+ *   现口径：**逐级放宽**（原文 → 去围栏 → 修尾逗号 → 全角归一 → 截断修复），任一级成功即返回，
+ *   并把"是哪一级修好的"如实报出来（上层写日志，别静默）。仍只吃 JSON —— 不用 eval、不执行任何东西。
+ *   为什么要报 `how`：这条报错以前只留一句"没吐出可解析的 JSON"，**连原文都没记** ⇒ 只能猜（这轮就是）。
+ */
+export function extractJsonEx(txt: string): { value: any | null; how: string } {
+  const raw0 = String(txt || '').replace(/^\uFEFF/, '')
+  if (!raw0.trim()) return { value: null, how: '空响应' }
+  const i = raw0.indexOf('{'), j = raw0.lastIndexOf('}')
+  const heads: string[] = [raw0]
+  if (i >= 0 && j > i) heads.push(raw0.slice(i, j + 1))
+  if (i >= 0) heads.push(raw0.slice(i))
+  const steps: Array<[string, (x: string) => string]> = [
+    ['原文', (x) => x],
+    ['去围栏', stripFence],
+    ['修尾逗号', (x) => fixTrailingCommas(stripFence(x))],
+    ['全角归一', (x) => normalizeFullWidth(fixTrailingCommas(stripFence(x)))],
+    ['截断修复', (x) => closeTruncated(normalizeFullWidth(fixTrailingCommas(stripFence(x))))],
+  ]
+  for (const h of heads) {
+    for (const [name, fn] of steps) {
+      try {
+        const v = JSON.parse(fn(h))
+        // ⚠️ `{}` 也算"解析成功"会把后面拖成更含糊的报错（"分段不合规"），所以要求**非空对象**：
+        //   单测里"纯解释 + 半个花括号"那例就暴露了这个 —— 截断修复会把它修成 `{}`。
+        if (v && typeof v === 'object' && Object.keys(v).length > 0) {
+          return { value: v, how: name === '原文' ? '直接解析' : '修补后解析（' + name + '）' }
+        }
+      } catch { /* 下一级 */ }
+    }
+  }
+  return {
+    value: null,
+    how: '五级都失败（响应 ' + raw0.length + ' 字；开头 ' + JSON.stringify(raw0.slice(0, 70))
+      + '；结尾 ' + JSON.stringify(raw0.slice(-70)) + '）',
+  }
+}
+/** 抽 JSON（兼容老调用：只要值） */
 export function extractJson(txt: string): any | null {
-  const s = String(txt || '')
-  const i = s.indexOf('{'), j = s.lastIndexOf('}')
-  if (i < 0 || j <= i) return null
-  try { return JSON.parse(s.slice(i, j + 1)) } catch { return null }
+  return extractJsonEx(txt).value
 }
 
 /**
@@ -223,6 +303,11 @@ export function aiPrompt(n: number, topic: string, opts?: { lastTheme?: string }
     '  也可以给 `custom` 自定配色（4 个 hex：paper 底 / ink 正文 / dim 次要 / accent 点缀）——',
     '  系统会做对比度体检（正文/底 ≥4.5、次要 ≥3.0、强调 ≥2.0），不达标会自动换回预设皮肤。',
     '',
+    // ★VF_DAILY_V25b：**能省就省** —— 用户实测"AI 没吐出可解析的 JSON"，长 JSON 被截断是最常见死因。
+    '【省字段能救命】（响应越长越容易被截断，截断 = 整份白做）：',
+    '  · **只写 `layout` + `title` + `imgs` 就能出片**；`points` 只在 split / vertical / quote 里有用，别的结构写了也不显示；',
+    '  · `scale` / `stamp` / `kicker` / `tm` / `font` / `form` / `place` **都可省**（服务端会补、会轮换）；',
+    '  · 省下的字符留给"标题写准"，比堆字段有用得多。',
     '硬约束（违反即作废）：',
     '1. **段数是这份片的时长来源**：segments **至少 ' + minSegs + ' 段**、最多 16 段。'
     + '这是**给视频用的** —— 段数多不是问题，**段数少才是缺点**（片长不够、节奏干）。'
