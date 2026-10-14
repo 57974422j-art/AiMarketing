@@ -432,6 +432,21 @@ export function buildVoiceCardPayload(o: {
   }
 }
 
+/** ★VF_DAILYVOICE_V1b（2026-10-14 用户实测「口播没写出来：AI 没吐出可解析的 JSON：空响应」）：
+ *  **按行兜底** —— 模型经常**无视"只回 JSON"的要求、直接一行一句**（成片线的 plan 也踩过同类）。
+ *  所以 JSON 解析失败之后，再把它当"逐行口播"抽一次：抽得到就不算失败。
+ *  口径：① 去行首序号/项目符号；② 去成对引号；③ **剔掉 JSON 外壳行**（{ } [ ] 与 "voice": 那类）；
+ *  ④ 剩下至少 2 行"像人话"（≥2 字且不含结构字符）才认 —— **宁可不认，也不把一坨乱码当口播**。 */
+export function parseVoiceLines(txt: string): string[] | null {
+  const rows = String(txt || '').split(/\r?\n/)
+    .map((s) => s.replace(/^\s*(?:[-*•·]|\d+\s*[.)、:：])\s*/, '').trim())
+    .map((s) => s.replace(/^["'「『]\s*|\s*["'」』]$/g, '').replace(/[,，]\s*$/, '').trim())
+    .filter(Boolean)
+    .filter((s) => !/^[\[{]/.test(s) && !/^["']?voice["']?\s*[:：]/i.test(s) && !/^[\]}]/.test(s))
+  const good = rows.filter((s) => [...s].length >= 2 && !/[{}\[\]]/.test(s))
+  return good.length >= 2 ? good : null
+}
+
 /** 规整模型返回的口播：**逐段一句、按上限截断、去 emoji/换行**（纯函数 ⇒ 可单测）
  *  口径：缺段补空、多段丢弃、超长截断 —— **一律如实记进 fixes**，绝不静默改。 */
 export function normVoiceLines(raw: any, n: number): { lines: string[]; fixes: string[] } {

@@ -41,7 +41,7 @@ import { vfRootDir } from './video-material'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 import { dashscopeFunctionCall } from '@/lib/ai-providers'
 // ★纯函数层（零依赖、可单测：temp/_exp/daily/test-plan.mjs）
-import { DAILY_STYLE, aiPrompt, extractJsonEx, normSegs, normMotion, normTheme, normFont, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, assignTextMotion, pickFont, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer, checkDiversity, fixDiversity, voicePrompt, normVoiceLines, buildVoiceCardPayload, estimateSec } from './daily-plan'
+import { DAILY_STYLE, aiPrompt, extractJsonEx, normSegs, normMotion, normTheme, normFont, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, assignTextMotion, pickFont, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer, checkDiversity, fixDiversity, voicePrompt, normVoiceLines, buildVoiceCardPayload, estimateSec, parseVoiceLines } from './daily-plan'
 import type { PlanBy } from './daily-plan'
 
 export { DAILY_STYLE }
@@ -391,7 +391,7 @@ export async function aiPlanSegments(picks: DailyPick[], topic: string, lastThem
  */
 export async function aiVoiceLines(
   picks: DailyPick[], segs: any[], topic = '',
-): Promise<{ ok: boolean; lines?: string[]; fixes?: string[]; error?: string; sawImages?: boolean; vlErr?: string }> {
+): Promise<{ ok: boolean; lines?: string[]; fixes?: string[]; error?: string; sawImages?: boolean; vlErr?: string; diag?: string }> {
   if (!Array.isArray(segs) || !segs.length) return { ok: false, error: '没有分段方案（要先出 HTML 才能配音）' }
 
   // ① 看图：逐张读出"拍的是什么"（失败不判死，但原因要如实带出去）
@@ -437,25 +437,41 @@ export async function aiVoiceLines(
   // ② 文字模型按"画面字 + 看图摘要"写逐段口播
   const prompt = voicePrompt(segs, summary, topic)
   let lastErr = ''
+  // ★VF_DAILYVOICE_V1b：**失败必须留证据**（照 aiPlanSegments 的 ★V25b 教训 ——
+  //   那次只记一句"没吐出可解析的 JSON"，连模型原文都没存，只能猜；这里一开始又漏了）。
+  let parseNote = ''
+  let rawHead = ''
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const strict = prompt + '\n\n⚠️ 上一条没有产出可解析的 JSON。现在**只回一个 JSON 对象**：'
-        + '{"voice":["…","…"]}，不要解释、不要 markdown 代码块、不要在前后写任何字。'
+      const strict = prompt + '\n\n⚠️ 上一条没有产出可解析的 JSON（或者你回了空）。现在**只回一个 JSON 对象**：'
+        + '{"voice":["第一段口播","第二段口播"]}，不要解释、不要 markdown 代码块、不要在前后写任何字。'
       const res = await dashscopeFunctionCall(
         [{ role: 'user', content: attempt === 1 ? prompt : strict }],
-        [], 4000, attempt === 1 ? 0.7 : 0.4, false,
+        [], 2500, attempt === 1 ? 0.5 : 0.3, false,
       )
       const txt = String(res?.content || '')
       const ex = extractJsonEx(txt)
-      if (!ex.value) { lastErr = 'AI 没吐出可解析的 JSON：' + ex.how + (attempt === 1 ? '' : '（重试也没成功）'); continue }
-      const { lines, fixes } = normVoiceLines(ex.value, segs.length)
+      // ★兜底：模型常无视"只回 JSON"、直接一行一句 ⇒ JSON 失败后再按行抽一次
+      const fb = ex.value ? null : parseVoiceLines(txt)
+      const usage = (res && (res as any).usage) ? ' · 用量 ' + JSON.stringify((res as any).usage) : ''
+      parseNote = '第 ' + attempt + ' 次：响应 ' + txt.length + ' 字 · '
+        + (ex.value ? '解析 ' + ex.how : (fb ? 'JSON 没解析出，但**行兜底救回 ' + fb.length + ' 行**' : '既不是 JSON 也不像逐行文本'))
+        + usage
+      if (!ex.value && !fb) {
+        rawHead = txt.slice(0, 160).replace(/\s+/g, ' ')
+        lastErr = (txt.length ? 'AI 的回复解析不出来：' + ex.how : 'AI 回了个**空响应**（模型侧没给内容）')
+          + (attempt === 1 ? '' : '（重试也一样）')
+        continue
+      }
+      const { lines, fixes } = normVoiceLines(ex.value || fb, segs.length)
       if (!lines.filter(Boolean).length) { lastErr = 'AI 写出来的口播全是空的'; continue }
-      return { ok: true, lines, fixes, sawImages: !!summary, vlErr }
+      return { ok: true, lines, fixes, sawImages: !!summary, vlErr, diag: parseNote }
     } catch (e: any) {
       lastErr = String(e?.message || e).slice(0, 120) + (attempt === 1 ? '（已重试一次）' : '')
+      parseNote = '第 ' + attempt + ' 次：调用异常 ' + String(e?.message || e).slice(0, 80)
     }
   }
-  return { ok: false, error: lastErr || '未知原因', sawImages: !!summary, vlErr }
+  return { ok: false, error: lastErr || '未知原因', sawImages: !!summary, vlErr, diag: (parseNote + (rawHead ? ' · 原文开头：' + rawHead : '')).slice(0, 400) }
 }
 
 /** 素材名 → 图号（HTML 里 images/N.jpg 的 N 就是所选顺序），顺便记下"这段用了哪几张" */
@@ -1157,9 +1173,10 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
       const v = await aiVoiceLines(
         toPicks(uid, d.source || { kind: 'repo' }, d.names || []), d.plan.segments, d.topic || '')
       if (!v.ok) {
-        try { ctx.log?.(uid, '[日报落地页] 口播没写出来：' + String(v.error || '') + (v.vlErr ? ' · ' + v.vlErr : '')) } catch { /* ignore */ }
+        try { ctx.log?.(uid, '[日报落地页] 口播没写出来：' + String(v.error || '') + (v.vlErr ? ' · ' + v.vlErr : '') + (v.diag ? ' · ' + v.diag : '')) } catch { /* ignore */ }
         return '⚠️ 口播没写出来：' + String(v.error || '未知原因')
           + (v.vlErr ? '\n（看图那步：' + v.vlErr + '）' : '')
+          + (v.diag ? '\n（诊断：' + String(v.diag).slice(0, 300) + '）' : '')
           + '\n\n可以回一句「再写一次」重试，或者你自己把每段想说的话发我，我照你的排。'
       }
       const lines = v.lines || []

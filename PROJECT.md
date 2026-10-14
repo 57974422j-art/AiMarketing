@@ -274,6 +274,8 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 - ✅ **第二步（合成）**：新工具 `daily-voice.mjs`（照 `film-voice.mjs` 方法论）—— TTS（纯 Node）→ **实测时长回填时间轴**（**两处一起改**：section 属性 **和** `var SECS`）→ SRT → 复用 `daily-film.mjs` 渲染 → 补静音对齐 → 混音烧字幕（三级降级 + `+faststart`）。
 - ⚠️ **未实测**：真 TTS 音色/断句、字幕观感、重排后画面观感（本机无额度）。验证到的是：工具语法、两条防护（缺参/段数不等被拒）、单测 **296/0**、`tsc` 零新增。
 - **两条设计纪律**：① 口播以**卡上回传为准**（不信草稿旧值）；② `at:'voice'` **不动 `d.step`**，否则同一张卡上的"无配音出片"会失效。
+- 🔧 **首测反馈（用户「AI 没吐出可解析的 JSON：空响应」）**：模型两次都回**空 content**；而**我漏了"失败留证据"**（`aiPlanSegments` 早有 ★V25b 那套：响应长度 + 原文开头），只能猜。
+  ⇒ 已加：**行兜底** `parseVoiceLines`（模型常无视 JSON 要求、直接一行一句）+ **失败留诊断**（回给用户）+ 温度/上限调低。单测 **299/0**。
 
 - 🔧 **实跑踩坑 ②（引擎路径，已修）**：出片真跑推进到用字闸门后报 `Cannot find module '…/.next/standalone/scripts/video-factory/html-deck/check-page-fonts.mjs'` —— 服务器跑 `.next/standalone/server.js`，cwd 是 `.next/standalone`，而 Next 的 file tracing **只把个别脚本**拷进 standalone 的 `scripts/`（工具在、兄弟脚本与 `node_modules/hyperframes` 不在）。
   ⇒ 引擎根一律改走 **`vfRootDir()`**（`★VF_ROOT_V1`，成片线一直这么用）：`daily-film.ts` 1 处 + `daily.ts` 3 处（后三处原本靠 trace 恰好拷进去才没坏，一并拆掉）；并在出片前加**引擎三件套完整性校验**，缺什么一次说清。本地行为逐字不变（`vfRootDir()` 在本机返回 cwd）。
