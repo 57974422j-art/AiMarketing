@@ -32,6 +32,29 @@ for f in tts make render; do
   fi
 done
 
+# ★VF_MJSCHECK_V1（2026-10-14 事故后补的闸门）：
+#   为什么加：`daily-page.mjs` 的 html 是**一整块大模板字符串**，在里面（哪怕只是注释里）写一个反引号
+#   就会让模板串**提前闭合** ⇒ 引擎一个字都出不来，而**日报线整个生成不了**。
+#   2026-10-14 就是这么挂的：我在 CSS 注释里写了 `object-fit:cover` 这类片段，线上报
+#   SyntaxError，而当时的 selfcheck **只查 Python、根本不查 html-deck 的 .mjs** ⇒ 没有任何闸门拦住。
+#   现口径：tools/ 下每个 .mjs 都过一遍 node --check（文件多，通过的静默；失败的逐条报出来）。
+line "①b html-deck 引擎脚本语法（node --check）—— 模板串里误写反引号会让整条线挂掉"
+MJS_FAIL=0
+MJS_N=0
+for f in scripts/video-factory/html-deck/tools/*.mjs; do
+  MJS_N=$((MJS_N + 1))
+  if ! node --check "$f" >/dev/null 2>&1; then
+    echo "FAIL $(basename "$f")  ← 语法错误：日报线 / 成片线会直接失败"
+    node --check "$f" 2>&1 | head -4
+    MJS_FAIL=1
+  fi
+done
+if [ "$MJS_FAIL" = "0" ]; then
+  echo "OK   tools/*.mjs 全部通过（$MJS_N 个）"
+else
+  FAIL=1
+fi
+
 line "② 渲染自检（9 种卡型，逐镜打 OK）"
 python3 scripts/video-factory/render.py --selftest --workdir "$TMP/render" --out "$TMP/render/selftest.mp4" 2>&1 | tail -14
 if [ -f "$TMP/render/selftest.mp4" ]; then

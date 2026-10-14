@@ -788,10 +788,10 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
      ⇒ 位图每帧被重新采样**两次**（布局尺寸一变就要重缩一次、transform 再缩一次），
      而 z 是连续小数（1.00 → 1.06）⇒ **每帧采样相位都不同** ⇒ 纹理闪烁（图在"抖"）。
      文字是矢量字形、只走 transform ⇒ 所以现象恰好是"文字不抖、只有图抖"。
-     修法：**布局尺寸钉死 100%、只留 transform:scale** —— `.fig` 本来就有 overflow:hidden，
+     修法：**布局尺寸钉死 100%、只留 transform:scale** —— .fig 本来就有 overflow:hidden，
      放大溢出的部分会被裁掉 ⇒ 视觉结果与旧写法**完全一致**（都是"居中放大 z 倍、裁掉溢出"；
-     `object-fit:cover` 依据的宽高比两者相同 —— 旧的元素宽高比 = 框宽高比，新的也是）。
-     代价：`.ph` 的外框会大于 `.fig` ⇒「越界」闸门要认"被裁剪祖先裁掉的部分"（同批改了 daily-verify）。 */
+     object-fit:cover 依据的宽高比两者相同 —— 旧的元素宽高比 = 框宽高比，新的也是）。
+     代价：.ph 的外框会大于 .fig ⇒「越界」闸门要认"被裁剪祖先裁掉的部分"（同批改了 daily-verify）。 */
   .fig .ph{--z:calc(var(--mz) - (var(--mz) - 1)*var(--sp));   /* 当前缩放（随时间从 --mz 收到 1） */
     position:absolute;left:0;top:0;width:100%;height:100%;
     object-fit:cover;display:block;transform:scale(var(--z))}
@@ -1111,12 +1111,15 @@ ${BODIES.join('\n\n')}
     } catch (e) { /* 拿不到就按"不减少动态"走 */ }
     window.__seek = function (t) {
       // ★VF_DAILYFILM_V1（2026-10-14 用户实测「成片播放时感觉有轻微抖动」）：
-      //   病灶：页面加载时 preview 的 rAF 循环**无条件启动**（文件尾 `else start()`），它按**真实时间**
-      //   逐帧写 `--sp`；而出片时引擎按**渲染时刻**逐帧调本函数、写的是**同一个** `--sp`
+      //   病灶：页面加载时 preview 的 rAF 循环**无条件启动**（文件尾 else start()），它按**真实时间**
+      //   逐帧写 --sp；而出片时引擎按**渲染时刻**逐帧调本函数、写的是**同一个** --sp
       //   ⇒ **两套时间基准抢一个变量**，谁后写谁赢 ⇒ 逐帧截图抓到的是"rAF 那一瞬"的进度 ⇒ 画面抖。
       //   为什么以前没发现：预览时 rAF 本来就是唯一驱动，没有第二个人来抢 —— 这个 bug **只在出片暴露**，
       //   所有既有闸门（越界/溢出/对比度/裁切…）都看不到它。
-      //   修法：一进 film 模式就停循环（`stop` 就在本作用域里，直接调）。
+      //   修法：一进 film 模式就停循环（stop 就在本作用域里，直接调）。
+      //   ⚠️⚠️ **本段也在 JS 模板字符串里 —— 注释里绝不能出现反引号**（2026-10-14 我就在本文件里
+      //   写了一个带反引号的 object-fit:cover ⇒ 模板串提前闭合 ⇒ 线上 SyntaxError ⇒ 日报线完全生成
+      //   不出页）。改完**必须**跑 node --check tools/daily-page.mjs（项目 selfcheck 里就有这条）。
       stop()
       document.documentElement.dataset.mode = 'film'
       t = Number(t) || 0
