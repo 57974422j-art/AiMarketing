@@ -131,8 +131,15 @@ export async function startDailyFilm(uid: number | string, htmlName: string): Pr
       String(r.out || '').split('\n').filter((l) => l.trim()).slice(-12).forEach(push)
       const m = /FINAL_MP4:(.+)/.exec(String(r.out || ''))
       if (r.code !== 0 || !m) {
-        const why = String(r.out || '').split('\n').filter((l) => /stage=|✗/.test(l)).slice(0, 2).join(' | ')
-        throw new Error('出片失败（exit ' + r.code + '）：' + (why || '见 tail'))
+        // ★VF_DAILYFILM_V4（2026-10-14 用户实测「stage=fonts ✗ 用字闸门未过（服务器会渲成豆腐块）：」
+        //   冒号后面**什么都没有**）：病灶与成片线的 ★VF_FONTMSG_V1 **一模一样** ——
+        //   这里原来只挑含 `stage=` / `✗` 的行，而"**到底是哪个字**"在**紧接着的下一行**（工具是分两行打的）
+        //   ⇒ 被整条滤掉 ⇒ 用户拿到一个"冒号后面是空的"报错，根本没法改。
+        //   现口径：先定位 stage 行，再把它**紧随其后的 4 行**原样带上（不滤）。
+        const all = String(r.out || '').split('\n').map((x) => x.trim()).filter(Boolean)
+        const at = all.findIndex((l) => /stage=/.test(l))
+        const near = (at >= 0 ? all.slice(at, at + 5) : all.slice(-4)).join(' ⏎ ')
+        throw new Error('出片失败（exit ' + r.code + '）：' + (near || '见 tail').slice(0, 400))
       }
       const mp4 = String(m[1]).trim()
       if (!fs.existsSync(mp4)) throw new Error('工具报了成品但文件不在：' + mp4)

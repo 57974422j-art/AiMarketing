@@ -60,7 +60,9 @@ const skipCheck = argv.includes('--skip-check')
 
 // ── ① 读输入 + 体检 ────────────────────────────────────────────────────────────
 let html = fs.readFileSync(abs, 'utf8')
-if (!/<section class="sec"/.test(html)) { console.log('stage=html ✗ 这不是日报落地页（没找到 .sec 段）'); process.exit(1) }
+// ⚠️ 用**前缀**匹配 `class="sec` —— 打包过一次的副本里是 `class="sec clip"`，
+//    写死 `class="sec"` 会把合法输入误判成"不是日报页"（2026-10-14 自测时就这么误报的）。
+if (!/<section class="sec/.test(html)) { console.log('stage=html ✗ 这不是日报落地页（没找到 .sec 段）'); process.exit(1) }
 // 出片只吃**单文件版**（图 base64 内嵌）：配图版的图在同级目录，打包时还要搬图/改引用，
 // 而服务端本来就能出单文件版 ⇒ 不支持它，**明确报出来**（不静默截断成"图片全丢"）。
 const extRefs = html.match(/src="(?!data:)([^"]+\.(?:jpg|jpeg|png|webp))"/gi) || []
@@ -142,10 +144,31 @@ console.log('① 打包 OK：' + secs.length + ' 段 · ' + total + 's · ' + ou
 if (!skipCheck) {
   const fp = run(process.execPath, [path.join(HERE, 'check-page-fonts.mjs'), outDir, '--json'])
   if (fp.status !== 0) {
-    // ★同 render-film 的教训：**必须把"哪个字"带出来**，只报"N 个表外字："等于没说
-    const lines = String(fp.stdout || '').split('\n').filter((l) => l.trim()).slice(0, 12)
-    console.log('stage=fonts ✗ 用字闸门未过（服务器会渲成豆腐块）：')
-    lines.forEach((l) => console.log('   ' + l.trim()))
+    // ★VF_DAILYFILM_V4（2026-10-14 用户实测「stage=fonts ✗ …：」**冒号后面什么都没有**）：
+    //   两层信息丢失，都要治 ——
+    //   ① `check-page-fonts.mjs` 在 `--json` 下**只打 JSON、不打人话**（人话那支是 `if (!asJson)`）
+    //      ⇒ 把 stdout 直接打出来只会得到一片 JSON；
+    //   ② 上层（`src/lib/agent/daily-film.ts`）只挑含 `stage=` / `✗` 的行 ⇒ JSON 那些行**全被滤掉** ⇒ 报错成空。
+    //   现口径：**解析 JSON 取 miss[].ch**，并把字**打在 stage= 那一行里**（一行带全，谁也滤不掉）。
+    let chars = []
+    try {
+      // ⚠️ 别用"取最后一行"：那份 JSON 是 `JSON.stringify(..., null, 2)`（**美化过的多行**）
+      //   ⇒ 最后一行只有 `}`，解析必然失败（2026-10-14 自测就卡在这，报错还是空的）。
+      //   正确做法：从第一个 `{` 截到最后一个 `}` 再解析。
+      const raw = String(fp.stdout || '').trim()
+      const i0 = raw.indexOf('{'), i1 = raw.lastIndexOf('}')
+      const j = JSON.parse(i0 >= 0 && i1 > i0 ? raw.slice(i0, i1 + 1) : '{}')
+      chars = (j.results || []).flatMap((r) => (r.miss || []).map((m) => m.ch))
+    } catch { /* 解析不了就走下面的原样打印 */ }
+    chars = Array.from(new Set(chars.filter(Boolean)))
+    if (chars.length) {
+      console.log('stage=fonts ✗ 表外字 ' + chars.length + ' 个：' + chars.join('、')
+        + ' —— 这几个字不在内嵌字体子集里（服务器会渲成豆腐块）⇒ 改文案避开即可')
+    } else {
+      const lines = String(fp.stdout || fp.stderr || '').split('\n').filter((l) => l.trim()).slice(0, 10)
+      console.log('stage=fonts ✗ 用字闸门未过（解析不出具体字，原始输出如下）：')
+      lines.forEach((l) => console.log('   ' + l.trim()))
+    }
     process.exit(1)
   }
   console.log('② 用字闸门 OK')
