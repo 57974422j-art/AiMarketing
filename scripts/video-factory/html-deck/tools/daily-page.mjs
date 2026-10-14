@@ -46,7 +46,7 @@ const META = Object.assign({ issue: '', accent: '#C6392B', paper: '#F5F1E8', tit
    病灶（用户原话「它设计跟你的一模一样」的**另一半**）：老实现的 `:root` 把纸色/墨色/次色/点缀色/
    字体/图片占位渐变**全写死**，所以两份产物的 `<style>` 连 md5 都相同 —— 结构能变、**皮肤永远是那一套**。
    现口径（三层保险，绝不让"难看配色"出厂）：
-     ① `meta.theme` = 从下面 6 套**预设皮肤**里挑（AI 按素材气质选）；
+     ① `meta.theme` = 从下面 **20 套**预设皮肤里挑（AI 按素材气质选；V23 从 6 扩到 20）；
      ② 可选 `meta.custom = {paper,ink,dim,accent}` = AI 自定hex配色；
      ③ **对比度体检**（WCAG：正文≥4.5 / 次要≥3.0 / 强调≥2.0 / 反白≥4.5）——
         不达标 ⇒ **回落预设皮肤**并在页头注释与 stdout 里如实写明（不静默、不硬着头皮出）。
@@ -94,6 +94,29 @@ const THEMES = {
       'linear-gradient(152deg,#1F1F1F 0%,#4A4A48 55%,#A6A6A2 100%)',
       'linear-gradient(152deg,#333331 0%,#6E6E6B 58%,#C2C2BE 100%)'],
   },
+
+  /* ═══ ★VF_DAILY_V23（2026-10-14 用户定案「先 B 吧」）：皮肤库 6 → **20 套** ═══
+     做法：风格纲目参照开源 UI 设计 Skill（UI/UX Pro Max 的 67 风格分类：E-Ink/Editorial/Dark-OLED/
+     Organic/Vintage Analog/Morandi 这一类），**色值是我们自己配的**（它的字典只给风格名，色值在
+     data/*.csv，raw 拉不到）；每套都过了引擎同一套 WCAG 体检（正文≥4.5 / 次要≥3.0 / 强调≥2.0 / 反白≥4.5），
+     配方台与筛法见 temp/_exp/daily/mk-themes.mjs，回归见 temp/_exp/daily/test-themes.mjs。
+     为什么扩（用户原话「依然是文字排版同质化严重」「感觉没什么区别」）：皮肤原来只有 6 套、
+     轮换几轮就会重复；20 套 + 轮换记忆（rotateTheme）把"上次同款"的概率压到 5%。
+     占位渐变走 themeGrad() 派生（既有 6 套保持手写值不动）。 */
+  'copper-pot': { name: '铜锅炭火', font: 'serif', paper: '#211813', ink: '#F4E8D8', dim: '#C2AB90', accent: '#D2703A', g: themeGrad('#211813', '#F4E8D8', '#D2703A') },
+  'amber-cafe': { name: '琥珀咖啡', font: 'serif', paper: '#F6EFE3', ink: '#2A1F17', dim: '#7B6650', accent: '#9A5B2A', g: themeGrad('#F6EFE3', '#2A1F17', '#9A5B2A') },
+  'wine-red': { name: '酒红宴席', font: 'serif', paper: '#1E1216', ink: '#F4E9E4', dim: '#C0A79F', accent: '#B3403F', g: themeGrad('#1E1216', '#F4E9E4', '#B3403F') },
+  'late-night': { name: '深夜食堂', font: 'sans', paper: '#14171C', ink: '#F0EADC', dim: '#ACB2B2', accent: '#E0B23C', g: themeGrad('#14171C', '#F0EADC', '#E0B23C') },
+  'cinema-noir': { name: '胶片黑', font: 'sans', paper: '#141414', ink: '#EDEDEA', dim: '#A8A8A2', accent: '#C9A227', g: themeGrad('#141414', '#EDEDEA', '#C9A227') },
+  'forest-ink': { name: '墨绿松林', font: 'serif', paper: '#16211C', ink: '#EDEFE7', dim: '#A9B5A5', accent: '#C8A96A', g: themeGrad('#16211C', '#EDEFE7', '#C8A96A') },
+  'jiangnan': { name: '江南宣纸', font: 'serif', paper: '#F3F0E6', ink: '#22242A', dim: '#6E6A5E', accent: '#4E7A6A', g: themeGrad('#F3F0E6', '#22242A', '#4E7A6A') },
+  'bamboo': { name: '竹青', font: 'serif', paper: '#EFF3EC', ink: '#1E2A22', dim: '#64705F', accent: '#4C7A46', g: themeGrad('#EFF3EC', '#1E2A22', '#4C7A46') },
+  'sand-dune': { name: '沙丘暖沙', font: 'serif', paper: '#F4EADA', ink: '#2B2116', dim: '#7A6449', accent: '#8A5A22', g: themeGrad('#F4EADA', '#2B2116', '#8A5A22') },
+  'mist-blue': { name: '雾蓝书页', font: 'sans', paper: '#EEF1F3', ink: '#1A222A', dim: '#62707A', accent: '#3A6E8F', g: themeGrad('#EEF1F3', '#1A222A', '#3A6E8F') },
+  'graphite': { name: '石墨办公', font: 'sans', paper: '#F1F1EF', ink: '#1C1C1C', dim: '#6B6B68', accent: '#3F7A6E', g: themeGrad('#F1F1EF', '#1C1C1C', '#3F7A6E') },
+  'nordic': { name: '北欧冷白', font: 'sans', paper: '#F4F5F6', ink: '#1D2327', dim: '#68727A', accent: '#4A6B8A', g: themeGrad('#F4F5F6', '#1D2327', '#4A6B8A') },
+  'rose-milk': { name: '草莓奶昔', font: 'sans', paper: '#FDF1F0', ink: '#2C1E20', dim: '#7A5F60', accent: '#B02A4C', g: themeGrad('#FDF1F0', '#2C1E20', '#B02A4C') },
+  'morandi': { name: '莫兰迪灰粉', font: 'sans', paper: '#F2EDEA', ink: '#2A2624', dim: '#6F645E', accent: '#8A4F45', g: themeGrad('#F2EDEA', '#2A2624', '#8A4F45') },
 }
 const DEFAULT_THEME = 'paper-daily'
 
@@ -120,6 +143,26 @@ function contrast(a, b) {
 function inkAlpha(ink, alpha) {
   const c = hex2rgb(ink) || [0, 0, 0]
   return `rgba(${c[0]},${c[1]},${c[2]},${alpha})`
+}
+/** 两色线性插值（占位渐变派生用；返回 #rrggbb） */
+function mixHex(a, b, t) {
+  const A = hex2rgb(a) || [0, 0, 0], B = hex2rgb(b) || [0, 0, 0]
+  const c = A.map((x, i) => Math.round(x + (B[i] - x) * t))
+  return '#' + c.map((x) => x.toString(16).padStart(2, '0')).join('')
+}
+/**
+ * ★VF_DAILY_V23（2026-10-14 用户定案「先 B 吧」= 把设计字典抽成我们的皮肤库）：
+ *   **占位渐变派生** —— 原来 6 套是手写的 3 条渐变；扩到 20 套再手写会爆量且容易配歪。
+ *   规则：取 paper/ink/accent 三色插值出来（三条只是角度与幅度微差）⇒ 每套皮肤的"占位色块"
+ *   自动与它的纸色/墨色/点缀同族，不会出现"紫底配绿块"这种串味。
+ *   ⚠️ **既有 6 套继续用它手写的 g**（保证老产物逐字节不变）；只有 V23 新增的套件用 themeGrad()。
+ */
+function themeGrad(p, i, a) {
+  return [
+    `linear-gradient(152deg,${mixHex(p, i, 0.42)} 0%,${mixHex(a, i, 0.28)} 52%,${mixHex(a, p, 0.52)} 100%)`,
+    `linear-gradient(168deg,${mixHex(p, i, 0.34)} 0%,${mixHex(a, i, 0.18)} 55%,${mixHex(a, p, 0.62)} 100%)`,
+    `linear-gradient(138deg,${mixHex(p, i, 0.50)} 0%,${mixHex(a, i, 0.36)} 58%,${mixHex(a, p, 0.44)} 100%)`,
+  ]
 }
 /** 把一套 4 色 token 补全成完整皮肤（并做对比度体检） */
 function completeTheme(id, name, font, paper, ink, dim, accent, g) {
@@ -161,6 +204,17 @@ function resolveTheme() {
   return base
 }
 const TH = resolveTheme()
+/**
+ * ★VF_DAILY_V23 修（2026-10-14 用户定案「先 B 吧」扩皮肤库时被探针抓出来的**真 bug**）：
+ *   原来 `data-form="overlay"` 一律 `h2{color:#fff}` + 暗衬带 —— 这个假设只对"文字真压在照片上"
+ *   成立。但 `split / quote / stack2 / grid3 / grid4` 这些结构里，文字在**自己的格子**里、底下是纸色
+ *   ⇒ 浅色皮肤（暖纸日报、北欧冷白…）上就是**白字压浅纸**：探针实测对比度 **1.09**（等于看不见）。
+ *   修法：按**皮肤明暗**给整个 overlay 体系换向 ——
+ *     · 深底皮肤：保持原样（白字 + 深色衬带，逐字节不变）；
+ *     · 浅底皮肤：**衬带换纸色、字换墨色**（"带"还在，只是反相）⇒ 头上那句注释里的观感设计不丢。
+ *   判据 `PAPER_DARK` = 白字在纸色上能不能读（≥4.5 ⇒ 纸是深的）。
+ */
+const PAPER_DARK = contrast('#FFFFFF', TH.paper) >= 4.5
 if (themeNote) console.log('   ⚠️ ' + themeNote)
 
 const MOTION = {
@@ -471,7 +525,7 @@ function segBody(s, sc) {
     + (s.stamp ? `<span class="stamp">${esc(s.stamp)}</span>` : '') + `</div>`
   return `<section class="sec" data-seg="${sc.i + 1}" data-start="${sc.start}" data-duration="${sc.dur}"`
     + ` data-place="${esc(s.place || 'cover')}" data-form="${esc(form)}" data-layout="${layout}"`
-    + ` data-type="${tType}" style="--ts:${tScale};--title:${titleCss(sc.i, layout, form, tType, tScale)}"`
+    + ` data-type="${tType}" data-paper="${PAPER_DARK ? 'dark' : 'light'}" style="--ts:${tScale};--title:${titleCss(sc.i, layout, form, tType, tScale)}"`
     + ` data-fx="${fx}" data-fv="${fv}" data-scrim="${esc(s.scrim || 'soft')}">`
     + head
     + `<h2>${title}</h2>`
@@ -674,6 +728,21 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
     padding:var(--gap) calc(var(--gap) * .8)}
   .sec[data-form="overlay"] .cols .col i{color:rgba(255,255,255,.78)}
   .sec[data-form="overlay"] .cols .col b{color:#F3C9A0}
+  /* ★VF_DAILY_V23：**浅底皮肤的 overlay 要反相**（白字压浅纸 = 对比 1.09，探针实测过）。
+     深底皮肤走上面那几条（逐字节不变）；浅底皮肤把"衬带+白字"换成"纸色衬带+墨字"：
+     观感语言不变（依旧是"文字压一条带"），可读性从 1.09 拉到 ≥4.5。 */
+  .sec[data-paper="light"][data-form="overlay"] h2,
+  .sec[data-paper="light"][data-form="overlay"] .cols{background:var(--paper2);color:var(--ink)}
+  .sec[data-paper="light"][data-form="overlay"] .cols .col i{color:var(--dim)}
+  .sec[data-paper="light"][data-form="overlay"] .cols .col b{color:var(--rule)}
+  .sec[data-paper="light"][data-form="overlay"]::after{background:linear-gradient(to bottom,
+    transparent 0%, var(--paper2) 42%, var(--paper2) 100%)}
+  /* R5′：深色照片段（data-scrim="none"）本来就是"白字+描边"，浅底皮肤上要换成墨字+亮描边 */
+  .sec[data-paper="light"][data-scrim="none"] h2,
+  .sec[data-paper="light"][data-scrim="none"] .cols{background:transparent;color:var(--ink);
+    text-shadow:0 2px 12px rgba(255,255,255,.9), 0 0 3px rgba(255,255,255,.85)}
+  .sec[data-paper="light"][data-form="overlay"][data-layout="grid3"] .col,
+  .sec[data-paper="light"][data-form="overlay"][data-layout="grid4"] .col{border-color:var(--line)}
   /* form=sticker：标题变贴纸块（纸色底 + 朱红硬投影 + 轻倾斜） */
   .sec[data-form="sticker"] h2{align-self:start;justify-self:start;
     background:var(--paper2);padding:.10em .30em .16em;box-shadow:7px 8px 0 rgba(198,57,43,.22)}

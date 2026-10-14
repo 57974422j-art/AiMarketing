@@ -47,6 +47,26 @@ export const PLAN_THEMES: Array<{ id: string; name: string; look: string }> = [
   { id: 'blue-print',  name: '蓝图冷调', look: '冷白纸 + 蓝点缀 + 无衬线（数码/办公/科技感）' },
   { id: 'coral-warm',  name: '柿橙暖场', look: '奶橘纸 + 柿橙点缀 + 无衬线（甜品/果汁/活泼）' },
   { id: 'mono-print',  name: '素黑白',   look: '白纸 + 黑点缀 + 无衬线（极简/纪实/严肃）' },
+  /* ═══ ★VF_DAILY_V23（2026-10-14 用户定案「先 B 吧」= 把设计字典抽成皮肤库）：6 → 20 套 ═══
+     纲目参照开源 UI 设计 Skill（UI/UX Pro Max 的 67 风格分类：E-Ink/Editorial、Dark Mode OLED、
+     Organic/Biophilic、Vintage Analog、Morandi 这类**风格名**）—— 它的色值放在 data/*.csv、README 没给，
+     所以**配色是我们自己配的**，但每套都过引擎同一套 WCAG 体检（正文≥4.5 / 次要≥3.0 / 强调≥2.0 / 反白≥4.5）。
+     配方台：temp/_exp/daily/mk-themes.mjs（离线筛完再入库）；回归：temp/_exp/daily/test-themes.mjs。
+     与引擎 `daily-page.mjs` 的 `THEMES` **必须同名同数**（有单测卡住这条，防两处漂移）。 */
+  { id: 'copper-pot', name: '铜锅炭火', look: '炭褐底 + 铜橙点缀 + 衬线（火锅/烧烤/夜宵，压得住热气）' },
+  { id: 'amber-cafe', name: '琥珀咖啡', look: '奶油纸 + 琥珀棕 + 衬线（咖啡/烘焙/正餐，温润）' },
+  { id: 'wine-red',   name: '酒红宴席', look: '酒红底 + 深红点缀 + 衬线（宴席/私房菜/年节）' },
+  { id: 'late-night', name: '深夜食堂', look: '墨蓝夜底 + 暖黄灯色 + 无衬线（深夜食堂/居酒屋）' },
+  { id: 'cinema-noir', name: '胶片黑',  look: '近黑底 + 银灰 + 香槟金 + 无衬线（电影感/纪实/高端）' },
+  { id: 'forest-ink', name: '墨绿松林', look: '松墨绿底 + 米金 + 衬线（茶室/自然/静物）' },
+  { id: 'jiangnan',   name: '江南宣纸', look: '宣纸米 + 淡青点缀 + 衬线（江南/茶点/文气）' },
+  { id: 'bamboo',     name: '竹青',     look: '竹青浅底 + 深绿 + 衬线（素食/茶/清爽）' },
+  { id: 'sand-dune',  name: '沙丘暖沙', look: '暖沙底 + 陶土点缀 + 衬线（面点/烘焙/西北菜）' },
+  { id: 'mist-blue',  name: '雾蓝书页', look: '雾蓝底 + 深蓝 + 无衬线（数码/办公/说明型）' },
+  { id: 'graphite',   name: '石墨办公', look: '中性灰 + 松石绿点缀 + 无衬线（数据/工具/中性）' },
+  { id: 'nordic',     name: '北欧冷白', look: '冷白 + 石板蓝 + 无衬线（极简/北欧/产品）' },
+  { id: 'rose-milk',  name: '草莓奶昔', look: '奶粉底 + 莓红点缀 + 无衬线（甜品/饮品/活泼）' },
+  { id: 'morandi',    name: '莫兰迪灰粉', look: '莫兰迪灰粉 + 砖红点缀 + 无衬线（生活/家居/温柔）' },
 ]
 const THEME_IDS = PLAN_THEMES.map((x) => x.id)
 /** 皮肤名（清单/卡头用；不认识的 id 回落默认名） */
