@@ -581,6 +581,18 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
     --g0:${TH.g[0]};
   }
   *{box-sizing:border-box;margin:0;padding:0}
+  /* ═══ ★VF_DAILY_V24：尊重"减少动态"（Pro Max 预交付清单里我们唯一缺的一条）═══
+     动效的**主体**由 JS 逐帧写 --sp ⇒ 那边负责"锁末态、不开循环"；这里补 CSS 侧的活：
+       ① 杀掉过渡/关键帧/平滑滚动（未来加 transition 或第三方样式时不会漏）；
+       ② --sp:1 兜底 —— 万一 JS 没跑（被挡/被禁/被安全策略拦），版面至少是**末态**而不是空白；
+          ⚠️ 只在"JS 没写过内联 --sp"时生效（内联优先于样式表，两条不会打架）。
+     ⚠️ 本段在 JS 模板字符串里：注释里**不能出现反引号**（写错一次就整个引擎不出文件）。 */
+  @media (prefers-reduced-motion: reduce){
+    *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;
+      transition-duration:.001ms !important;transition-delay:0s !important}
+    html{scroll-behavior:auto}
+    .sec{--sp:1}
+  }
   /* ★短标签一律不折行 + 窄窗降级列数（R14：窗口被拖窄时"先涮后蘸"会被折行） */
   .kick,.stamp,.col b,.col i,h2 span{white-space:nowrap;word-break:keep-all}
   @media (max-width:600px){ .cols.c3{grid-template-columns:1fr 1fr} .figs.n2{grid-template-columns:1fr} }
@@ -896,7 +908,32 @@ ${BODIES.join('\n\n')}
         list[i].node.style.setProperty('--sp', list[i].sp)
       }
     }
+    /* ═══ ★VF_DAILY_V24（2026-10-14 用户定案「d 补上 prefers-reduced-motion」）═══
+       为什么加（Pro Max 的 Pre-Delivery Checklist 里我们**唯一**没满足的一条）：
+         · 我们所有动效都由 JS 逐帧写 --sp 驱动 ⇒ 对"减少动态"的用户，页面会一直在动，
+           前庭敏感人群/远端桌面/省电模式都会被这条冒犯；截图工具也会抓到半截态。
+         · 现口径：命中 prefers-reduced-motion: reduce ⇒ **一次性把末态画好 + 不启动逐帧循环**
+           （不是"把动画变快"，是"根本不动"，任何时刻看都是完成的版面）。
+         · 用户中途改系统设置 ⇒ 跟随（开=停循环并锁末态，关=重启循环），不会双循环（running 闸门）。
+         · 不影响出片：film 模式由 __seek 驱动，与这里互斥（RM 只作用于 preview）。
+       ⚠️ 本段也在模板字符串里：注释里不能出现反引号。 */
+    var running = false
+    function reduced() {
+      try { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) } catch (e) { return false }
+    }
+    function still() {                       // 锁在末态：每段都画成"已播完"
+      var out = []
+      for (var i = 0; i < nodes.length; i++) out.push({ node: nodes[i], sp: 1 })
+      paint(out)
+    }
+    function start() {
+      if (running) return                     // 防双循环（RM 切换时最容易踩）
+      running = true
+      requestAnimationFrame(loop)
+    }
+    function stop() { running = false }
     function loop(now) {
+      if (!running) return
       if (document.documentElement.dataset.mode === 'film') return
       var out = []
       for (var i = 0; i < nodes.length; i++) {
@@ -907,6 +944,16 @@ ${BODIES.join('\n\n')}
       paint(out)
       requestAnimationFrame(loop)
     }
+    function applyRM(on) {
+      document.documentElement.dataset.rm = on ? '1' : '0'
+      if (on) { stop(); still() }
+      else { t0 = (window.performance && performance.now) ? performance.now() : 0; start() }
+    }
+    try {
+      var mq = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null
+      if (mq && mq.addEventListener) mq.addEventListener('change', function (e) { applyRM(!!e.matches) })
+      else if (mq && mq.addListener) mq.addListener(function (e) { applyRM(!!e.matches) })   // 老 Chrome
+    } catch (e) { /* 拿不到就按"不减少动态"走 */ }
     window.__seek = function (t) {
       document.documentElement.dataset.mode = 'film'
       t = Number(t) || 0
@@ -920,7 +967,8 @@ ${BODIES.join('\n\n')}
       }
       paint(out)
     }
-    requestAnimationFrame(loop)
+    if (reduced()) applyRM(true)             // ★V24：系统要求"减少动态" ⇒ 直接锁末态、不开循环
+    else start()
   })()
 </script>
 </body>

@@ -1,0 +1,261 @@
+{
+ "meta": {
+  "issue": "第 01 期",
+  "accent": "#C6392B",
+  "paper": "#F5F1E8",
+  "title": "日报落地页 · 铜锅涮肉 · 今日现拍",
+  "theme": "copper-pot"
+ },
+ "motion": "normal",
+ "imageDir": "images",
+ "imageNames": [
+  "gen_20261014_101_p1.jpg",
+  "gen_20261014_101_p2.jpg",
+  "gen_20261014_101_p3.jpg",
+  "gen_20261014_101_p4.jpg",
+  "gen_20261014_101_p5.jpg",
+  "gen_20261014_101_p6.jpg",
+  "gen_20261014_101_p7.jpg",
+  "gen_20261014_101_p8.jpg",
+  "gen_20261014_101_p9.jpg",
+  "gen_20261014_101_p10.jpg",
+  "gen_20261014_101_p11.jpg",
+  "gen_20261014_101_p12.jpg"
+ ],
+ "segments": [
+  {
+   "kind": "cover",
+   "layout": "hero",
+   "form": "overlay",
+   "kicker": "第 24 期 · 今日现拍",
+   "stamp": "现拍",
+   "title": [
+    "铜锅老汤",
+    "手切上桌"
+   ],
+   "imgs": [
+    1
+   ],
+   "points": [
+    [
+     "实拍",
+     "原图"
+    ],
+    [
+     "细节",
+     "特写"
+    ]
+   ],
+   "place": "cover",
+   "type": "band",
+   "scale": 0.9,
+   "fx": "blinds#1"
+  },
+  {
+   "kind": "feature",
+   "layout": "split",
+   "form": "overlay",
+   "kicker": "手切 · 现点现切",
+   "stamp": "",
+   "title": [
+    "手切鲜肉",
+    "现点现切"
+   ],
+   "imgs": [
+    12
+   ],
+   "points": [
+    [
+     "切法",
+     "手工"
+    ],
+    [
+     "上桌",
+     "现涮"
+    ]
+   ],
+   "place": "cover",
+   "type": "poster",
+   "fx": "wipe#1"
+  },
+  {
+   "kind": "feature",
+   "layout": "sticker",
+   "form": "sticker",
+   "kicker": "百叶 · 蘸麻酱",
+   "stamp": "",
+   "title": [
+    "黑百叶",
+    "七上八下"
+   ],
+   "imgs": [
+    8
+   ],
+   "points": [
+    [
+     "口感",
+     "脆"
+    ],
+    [
+     "蘸料",
+     "麻酱"
+    ]
+   ],
+   "place": "cover",
+   "type": "editorial",
+   "scale": 0.9,
+   "fx": "zout#0"
+  },
+  {
+   "kind": "feature",
+   "layout": "vertical",
+   "form": "vertical",
+   "kicker": "毛肚 · 现切摆盘",
+   "stamp": "",
+   "title": [
+    "黑毛肚",
+    "纹理见功夫"
+   ],
+   "imgs": [
+    4
+   ],
+   "points": [
+    [
+     "脆",
+     "现切"
+    ],
+    [
+     "鲜",
+     "当日"
+    ]
+   ],
+   "place": "mat",
+   "scale": 0.9,
+   "type": "band",
+   "fx": "zin#1"
+  },
+  {
+   "kind": "feature",
+   "layout": "grid3",
+   "form": "overlay",
+   "kicker": "今日三样 · 现拍",
+   "stamp": "",
+   "title": [
+    "三样现拍",
+    "锅里见"
+   ],
+   "imgs": [
+    2,
+    3,
+    6
+   ],
+   "points": [
+    [
+     "锅底",
+     "老汤"
+    ],
+    [
+     "出品",
+     "现拍"
+    ],
+    [
+     "小料",
+     "自取"
+    ]
+   ],
+   "place": "cover",
+   "type": "list",
+   "scale": 0.9,
+   "fx": "pan#0"
+  },
+  {
+   "kind": "feature",
+   "layout": "quote",
+   "form": "overlay",
+   "kicker": "老汤 · 滚起来",
+   "stamp": "",
+   "title": [
+    "老汤滚起来",
+    "先下百叶"
+   ],
+   "imgs": [
+    5
+   ],
+   "points": [
+    [
+     "第一筷",
+     "百叶"
+    ],
+    [
+     "第二筷",
+     "手切"
+    ]
+   ],
+   "place": "mat",
+   "scale": 1,
+   "type": "band",
+   "fx": "wipe#1"
+  },
+  {
+   "kind": "feature",
+   "layout": "stack2",
+   "form": "overlay",
+   "kicker": "四样出品 · 现拍",
+   "stamp": "",
+   "title": [
+    "四样出品",
+    "一桌够"
+   ],
+   "imgs": [
+    7,
+    9
+   ],
+   "points": [
+    [
+     "荤",
+     "手切"
+    ],
+    [
+     "脆",
+     "百叶"
+    ],
+    [
+     "滑",
+     "现打"
+    ]
+   ],
+   "place": "cover",
+   "scale": 0.9,
+   "fx": "zout#0"
+  },
+  {
+   "kind": "end",
+   "layout": "stack2",
+   "form": "overlay",
+   "kicker": "两张 · 前后对照",
+   "stamp": "",
+   "title": [
+    "前后两张",
+    "都在锅里"
+   ],
+   "imgs": [
+    10,
+    11
+   ],
+   "points": [
+    [
+     "前",
+     "上桌"
+    ],
+    [
+     "后",
+     "入锅"
+    ]
+   ],
+   "place": "mat",
+   "scale": 1,
+   "type": "poster",
+   "fx": "zin#1"
+  }
+ ]
+}
