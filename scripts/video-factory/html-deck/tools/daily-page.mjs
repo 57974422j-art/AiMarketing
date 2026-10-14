@@ -783,9 +783,18 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
      正解：**放大多少，就把图的内缩按同比例缩进去** —— 内缩 = 50% − 50%/zoom（图框的 1/zoom，居中），
      再按 --mz 放大 ⇒ 变换后的外框**恰好等于图框**：既不越界、导出时也不会有边缘渗漏。
      （calc() 除以 var 在 Chromium 里可用；万一不支持，内缩退化成 0 ⇒ 回到老行为，不会更糟。 */
+  /* ★VF_DAILYFILM_V3（2026-10-14 用户实测「播放时一直抖，**主要是主画面素材**，文字好像不抖」）：
+     病灶：图**每帧既改布局尺寸**（width/height = 100%/z）**又改 transform:scale(z)**
+     ⇒ 位图每帧被重新采样**两次**（布局尺寸一变就要重缩一次、transform 再缩一次），
+     而 z 是连续小数（1.00 → 1.06）⇒ **每帧采样相位都不同** ⇒ 纹理闪烁（图在"抖"）。
+     文字是矢量字形、只走 transform ⇒ 所以现象恰好是"文字不抖、只有图抖"。
+     修法：**布局尺寸钉死 100%、只留 transform:scale** —— `.fig` 本来就有 overflow:hidden，
+     放大溢出的部分会被裁掉 ⇒ 视觉结果与旧写法**完全一致**（都是"居中放大 z 倍、裁掉溢出"；
+     `object-fit:cover` 依据的宽高比两者相同 —— 旧的元素宽高比 = 框宽高比，新的也是）。
+     代价：`.ph` 的外框会大于 `.fig` ⇒「越界」闸门要认"被裁剪祖先裁掉的部分"（同批改了 daily-verify）。 */
   .fig .ph{--z:calc(var(--mz) - (var(--mz) - 1)*var(--sp));   /* 当前缩放（随时间从 --mz 收到 1） */
-    position:absolute;left:50%;top:50%;width:calc(100% / var(--z));height:calc(100% / var(--z));
-    object-fit:cover;display:block;transform:translate(-50%,-50%) scale(var(--z))}
+    position:absolute;left:0;top:0;width:100%;height:100%;
+    object-fit:cover;display:block;transform:scale(var(--z))}
   /* ★VF_DAILY_V11：**图片动效按段轮换**（原来所有段都是同一种"回拉"，用户觉得"都一个效果、有点怪"）。
      · zout（默认）= 回拉：从 --mz 收到 1；
      · zin        = 推近：从 1 涨到 --mz；
@@ -1101,6 +1110,14 @@ ${BODIES.join('\n\n')}
       else if (mq && mq.addListener) mq.addListener(function (e) { applyRM(!!e.matches) })   // 老 Chrome
     } catch (e) { /* 拿不到就按"不减少动态"走 */ }
     window.__seek = function (t) {
+      // ★VF_DAILYFILM_V1（2026-10-14 用户实测「成片播放时感觉有轻微抖动」）：
+      //   病灶：页面加载时 preview 的 rAF 循环**无条件启动**（文件尾 `else start()`），它按**真实时间**
+      //   逐帧写 `--sp`；而出片时引擎按**渲染时刻**逐帧调本函数、写的是**同一个** `--sp`
+      //   ⇒ **两套时间基准抢一个变量**，谁后写谁赢 ⇒ 逐帧截图抓到的是"rAF 那一瞬"的进度 ⇒ 画面抖。
+      //   为什么以前没发现：预览时 rAF 本来就是唯一驱动，没有第二个人来抢 —— 这个 bug **只在出片暴露**，
+      //   所有既有闸门（越界/溢出/对比度/裁切…）都看不到它。
+      //   修法：一进 film 模式就停循环（`stop` 就在本作用域里，直接调）。
+      stop()
       document.documentElement.dataset.mode = 'film'
       t = Number(t) || 0
       var idx = SECS.length - 1
@@ -1112,9 +1129,18 @@ ${BODIES.join('\n\n')}
         out.push({ node: nodes[k], sp: live ? Math.max(0, Math.min(1, (t - SECS[k].s) / SECS[k].d)) : 1 })
       }
       paint(out)
+      // ★VF_DAILYFILM_V2（2026-10-14 用户复测「轻微抖动还是有点」）：
+      //   写 CSS 自定义属性（--sp）是**异步**应用的；而出片时引擎在**同一次调用里** seek 完就截图
+      //   ⇒ 有可能截到**上一帧**的样式 ⇒ 画面"滞后一帧"地跳（肉眼就是轻微抖）。
+      //   这里强制读一次布局尺寸，把刚写的样式**同步 flush** 掉再返回，保证截图看到的就是本次 t 的画面。
+      //   （只读一次全局高度，成本可忽略；预览模式不走这里，零影响。）
+      void document.body.offsetHeight
     }
+    // ★VF_DAILYFILM_V1：出片（film 模式）时**不开 preview 循环** —— 双保险。
+    //   调用方（出片工具）会在渲染前把 data-mode 置成 'film'；这一行保证那种情况下 rAF 一次都不启动，
+    //   于是"rAF 与引擎 seek 抢 --sp"从源头上不可能发生（__seek 里的 stop() 是运行时兜底）。
     if (reduced()) applyRM(true)             // ★V24：系统要求"减少动态" ⇒ 直接锁末态、不开循环
-    else start()
+    else if (document.documentElement.dataset.mode !== 'film') start()
   })()
 </script>
 </body>

@@ -65,6 +65,27 @@ function measureFn() {
     const h = Math.min(a.b, b.b) - Math.max(a.t, b.t)
     return w > 0 && h > 0 ? w * h : 0
   }
+  /** 可见矩形 = 元素矩形 ∩ **最近的裁剪祖先**（overflow≠visible 或带 clipPath）。
+   *  ★VF_DAILYFILM_V3（2026-10-14）：被裁掉的部分**根本画不出来** ——
+   *  它既不该算"越界"，也不该算进"文字压图"的重叠面积。
+   *  ⚠️ 为什么必须有这个函数：图（`.ph`）为消除"每帧双重采样"的闪烁，改成"布局尺寸钉死 + 纯 transform:scale"
+   *  ⇒ 放大后它自己的外框**本来就大于** `.fig`（视觉上被裁掉，与旧写法完全一致）
+   *  ⇒ 用裸矩形去判，会把 4 个好段判成"越界"、另外 4 段判成"文字压图"（实测各错一次）。 */
+  const visRect = (el) => {
+    const r = rect(el)
+    let a = el.parentElement
+    while (a && a.nodeType === 1) {
+      const cs = getComputedStyle(a)
+      if (cs.overflow !== 'visible' || cs.clipPath !== 'none') {
+        const ar = a.getBoundingClientRect()
+        const l = Math.max(r.l, ar.left), t = Math.max(r.t, ar.top)
+        const rr = Math.min(r.r, ar.right), b = Math.min(r.b, ar.bottom)
+        return { l, t, r: rr, b, w: rr - l, h: b - t }
+      }
+      a = a.parentElement
+    }
+    return r
+  }
   const out = []
   const secs = Array.prototype.slice.call(document.querySelectorAll('.sec'))
   secs.forEach((sec, i) => {
@@ -82,8 +103,9 @@ function measureFn() {
       if (op <= 0.02) return
       const r = rect(el)
       const isImg = el.tagName === 'IMG' || (cs.backgroundImage && cs.backgroundImage !== 'none' && el.className !== 'sec' && r.w * r.h > sr.w * sr.h * 0.05)
-      if (el.tagName === 'IMG') imgs.push({ el, r })
-      if (isImg && el.tagName !== 'IMG') imgs.push({ el, r })
+      // ★VF_DAILYFILM_V3：压图判据用的是**可见矩形**（图被 .fig 裁掉的部分不算"压在图上了"）
+      if (el.tagName === 'IMG') imgs.push({ el, r: visRect(el) })
+      if (isImg && el.tagName !== 'IMG') imgs.push({ el, r: visRect(el) })
       const t = txt(el)
       const fz = parseFloat(cs.fontSize) || 0
       if (t) {
@@ -134,7 +156,14 @@ function measureFn() {
         }
       }
       // 越界（容差 1px）
-      if (r.w > 0 && r.h > 0 && (r.l < sr.l - 1 || r.t < sr.t - 1 || r.r > sr.r + 1 || r.b > sr.b + 1)) {
+      // ★VF_DAILYFILM_V3（2026-10-14）：**先与"最近的裁剪祖先"求交** —— 被 overflow:hidden / clipPath
+      //   裁掉的部分**根本画不出来**，不该算越界。
+      //   为什么现在必须改：`.ph`（图）为了消除"每帧双重采样"造成的闪烁，改成"布局尺寸钉死 + 纯 transform:scale"
+      //   ⇒ 放大后它的外框**本来就大于** `.fig`（视觉上被裁掉，与旧写法**完全一致**）
+      //   ⇒ 老判据会把 4 个好段（段4/7/8/12）全判越界 ⇒ 白白退回 L2 模板。
+      //   口径与"文字被裁"那条同源：**都认"最近的裁剪祖先"**。没有裁剪祖先的元素仍按原样判（不放宽真越界）。
+      let vr = visRect(el)
+      if (vr.w > 0 && vr.h > 0 && (vr.l < sr.l - 1 || vr.t < sr.t - 1 || vr.r > sr.r + 1 || vr.b > sr.b + 1)) {
         bad.push((el.tagName.toLowerCase() + '.' + String(el.className || '').split(' ')[0]).slice(0, 40))
       }
     })
