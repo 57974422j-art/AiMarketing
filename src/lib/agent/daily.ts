@@ -1189,6 +1189,10 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
           // ⚠️ 别在这里承诺"你把文案发我我照排" —— 那条路径**还没做**（记在 ISSUES 里了）。
           + '\n\n可以回一句「再写一次」重试。**若反复失败，把上面那行「诊断」发我**（它会写清是空响应还是解析不出来、原文长什么样）。'
       }
+      // ★VF_DAILYVOICE_V4（2026-10-15 用户「改了半天口播、刷新一下就白改」）：
+      //   把**上一版**（用户上次改完提交的）留一份给卡片回填 —— 刷新后能从它恢复，不必重写。
+      //   ⚠️ 必须在 `d.voice = lines` **之前**取，否则拿到的是刚生成的新稿（那就不叫"恢复"了）。
+      const prevVoice = Array.isArray(d.voice) ? d.voice : []
       const lines = v.lines || []
       d.voice = lines
       await saveDailyDraft(ctx.prisma, uid, d)
@@ -1199,6 +1203,7 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
       return 'VF_JSON:' + JSON.stringify(buildVoiceCardPayload({
         segs: d.plan.segments, lines, fixes: v.fixes, theme: d.plan?.meta?.theme,
         by: d.planBy, name: d.singleName, note, sawImages: v.sawImages, topic: d.topic,
+        saved: prevVoice,   // ★VF_DAILYVOICE_V4：上次改完提交过的那一版（刷新/换设备后能恢复）
       }))
     }
     if (at === 'film') {

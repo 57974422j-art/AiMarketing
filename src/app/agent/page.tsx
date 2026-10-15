@@ -2017,8 +2017,31 @@ const DAILY_MIRRORED = new Set<string>()
 function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void }) {
   const rows: any[] = Array.isArray(vj?.rows) ? vj.rows : []
   const maxChars = Number(vj?.maxChars) || 22
-  const [lines, setLines] = useState<string[]>(rows.map((r: any) => String(r?.text || '')))
+  // ★VF_DAILYVOICE_V4（2026-10-15 用户「改了半天口播、刷新一下就白改」）：
+  //   **三级回填**（越靠前越"新"）——
+  //     ① 本机暂存（localStorage）：用户刚改到一半就刷新 → 用它接着改；
+  //     ② 草稿里的 `saved`：上次点过「开始合成」提交上去的那一版 → 换设备/换浏览器也能恢复；
+  //     ③ payload 里的 AI 原稿。
+  //   ⚠️ 长度必须与段数一致才认（否则会把上一单的张冠李戴进来）。
+  const savedLines: string[] = Array.isArray(vj?.saved) ? vj.saved.map((x: any) => String(x == null ? '' : x)) : []
+  const lsKey = 'dailyVoice:' + String(vj?.name || '')
+  const [lines, setLines] = useState<string[]>(() => {
+    const base = rows.map((r: any) => String(r?.text || ''))
+    try {
+      const raw = localStorage.getItem(lsKey)
+      if (raw) {
+        const j = JSON.parse(raw)
+        if (Array.isArray(j) && j.length === base.length) return j.map((x: any) => String(x == null ? '' : x))
+      }
+    } catch { /* 无 localStorage / 解析失败 ⇒ 往下退 */ }
+    if (savedLines.length === base.length) return savedLines
+    return base
+  })
   const [busy, setBusy] = useState(false)
+  // 每次改动都往本机暂存写一份（刷新不丢；容量只有几十字节 × 段数，无压力）
+  useEffect(() => {
+    try { localStorage.setItem(lsKey, JSON.stringify(lines)) } catch { /* ignore */ }
+  }, [lines, lsKey])
   // 4.5 字/秒（与项目老口径一致）—— **只用于给个量级感**，真正时长一律以 TTS 实测为准
   const est = (t: string) => {
     const n = [...String(t || '').replace(/\s/g, '')].length

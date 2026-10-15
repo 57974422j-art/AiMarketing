@@ -420,6 +420,10 @@ export function voicePromptStrict(segs: any[], captions: string, offset = 0): st
 export function buildVoiceCardPayload(o: {
   segs: any[]; lines: string[]; fixes?: string[]; theme?: string; by?: PlanBy
   name: string; note?: string; sawImages?: boolean; topic?: string
+  /** ★VF_DAILYVOICE_V4（2026-10-15 用户「改了半天口播、刷新一下就白改」）：
+   *  **草稿里上次提交过的口播** —— 卡片初始化时优先用它回填（其次才是本机暂存、最后是 AI 原稿）。
+   *  为什么不能只靠前端暂存：换设备 / 换浏览器 / 清缓存就没了；草稿是跨设备的那一份。 */
+  saved?: string[]
 }): any {
   const segs = Array.isArray(o.segs) ? o.segs : []
   const lines = Array.isArray(o.lines) ? o.lines : []
@@ -445,6 +449,8 @@ export function buildVoiceCardPayload(o: {
     note: o.note || '',
     sawImages: !!o.sawImages,
     topic: String(o.topic || ''),
+    // ★VF_DAILYVOICE_V4：上次提交过的口播（跨设备恢复用；长度与段数不符时前端会忽略它）
+    saved: Array.isArray(o.saved) && o.saved.length === rows.length ? o.saved.map((x) => String(x == null ? '' : x)) : [],
     theme: themeName(o.theme),
     by: byLabel(o.by),
   }
