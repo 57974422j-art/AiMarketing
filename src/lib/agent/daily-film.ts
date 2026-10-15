@@ -175,7 +175,18 @@ export async function startDailyFilm(
       // 配音比无声多花 TTS 的时间 ⇒ 上限给到 60 分钟（前端轮询本身是 30 分钟超时，够）
       const r = await runTool(process.execPath, args, 60 * 60 * 1000)
       String(r.out || '').split('\n').filter((l) => l.trim()).slice(-12).forEach(push)
-      const m = /FINAL_MP4:(.+)/.exec(String(r.out || ''))
+      // ★VF_DAILYFILM_V5（2026-10-15 用户实测「渲染跑了 332s 却判失败、报错还是空的」）：
+      //   产物路径**优先从文件读** —— 工具会把 mp4 绝对路径写进 `<outDir>/FINAL_MP4.txt`。
+      //   为什么不再只靠 stdout：① 我们自己的 runTool 有 30 万字符上限（只留尾部）；
+      //   ② 工具侧也可能因输出过长被截断 ⇒ "其实渲好了却拿不到路径" ⇒ 白判失败。
+      //   （配音链路那次就是被我写错字段名害的：`spawnSync` 返回 `stdout`，我读了 `out` ⇒ 永远 undefined。）
+      const m = (() => {
+        try {
+          const f = String(fs.readFileSync(path.join(outDir, 'FINAL_MP4.txt'), 'utf8')).trim().split('\n')[0].trim()
+          if (f) return [null, f] as any
+        } catch { /* 失败时没有这个文件 ⇒ 回退 stdout */ }
+        return /FINAL_MP4:(.+)/.exec(String(r.out || ''))
+      })()
       if (r.code !== 0 || !m) {
         // ★VF_DAILYFILM_V4（2026-10-14 用户实测「stage=fonts ✗ 用字闸门未过（服务器会渲成豆腐块）：」
         //   冒号后面**什么都没有**）：病灶与成片线的 ★VF_FONTMSG_V1 **一模一样** ——

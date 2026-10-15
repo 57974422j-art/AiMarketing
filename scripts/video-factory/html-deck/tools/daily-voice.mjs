@@ -175,14 +175,35 @@ console.log('③ 字幕 ' + srtRows.length + ' 条（按音频区间）')
 const voicedHtml = path.join(outDir, path.basename(srcHtml, path.extname(srcHtml)) + '.voiced.html')
 fs.writeFileSync(voicedHtml, html, 'utf8')
 console.log('④ 渲染画面（沿用 daily-film.mjs：打包 + 两道闸门 + hyperframes）')
-const rr = run(process.execPath, [path.join(TOOLS, 'daily-film.mjs'), voicedHtml, '--outdir', renderDir, '--fps', fps, '--quality', quality], { timeout: 60 * 60 * 1000 })
-const mm = /FINAL_MP4:(.+)/.exec(String(rr.out || ''))
-if (rr.status !== 0 || !mm) {
-  const all = String(rr.out || '').split('\n').map((x) => x.trim()).filter(Boolean)
-  const at = all.findIndex((l) => /stage=/.test(l))
-  fail('stage=render ✗ ' + (at >= 0 ? all.slice(at, at + 4).join(' ⏎ ') : all.slice(-3).join(' ⏎ ')).slice(0, 400))
+// ★VF_DAILYVOICE_V3（2026-10-15 用户实测「跑了 332s 却判失败、报错还是空的」）—— 我上一版犯了两个错：
+//   ① 读的是 **`rr.out`**，而 `spawnSync` 返回的字段叫 **`stdout`** ⇒ 永远 undefined ⇒
+//      **无论渲染成没成，正则都不匹配 ⇒ 一律判失败**（用户那次极可能已经渲好了，白等 332s）；
+//   ② 把渲染输出**往内存里收**（maxBuffer）—— 渲染日志很长，溢出会 kill 子进程、status 变非 0，
+//      于是"渲染其实成功"也会被当成失败。
+//   现口径：① 输出**直接重定向到文件**（内存零占用，日志留档好排查）；
+//          ② 产物路径**从文件读**（`daily-film.mjs` 会写 `FINAL_MP4.txt`），拿不到才回退到日志正则；
+//          ③ 失败时把**渲染日志的尾部**带出来 —— 真正的原因（Chrome/内存/字体）都打在那里。
+const renderLog = path.join(outDir, 'render.log')
+const renderArgs = [path.join(TOOLS, 'daily-film.mjs'), voicedHtml, '--outdir', renderDir, '--fps', fps, '--quality', quality]
+const logFd = fs.openSync(renderLog, 'w')
+const rr = spawnSync(process.execPath, renderArgs, { stdio: ['ignore', logFd, logFd], timeout: 60 * 60 * 1000 })
+try { fs.closeSync(logFd) } catch { /* ignore */ }
+let mp4p = ''
+try { mp4p = String(fs.readFileSync(path.join(renderDir, 'FINAL_MP4.txt'), 'utf8')).trim().split(String.fromCharCode(10))[0].trim() } catch { /* 回退到日志 */ }
+if (!mp4p) {
+  try { mp4p = (String(fs.readFileSync(renderLog, 'utf8')).match(/FINAL_MP4:(.+)/) || [])[1] || '' } catch { /* ignore */ }
 }
-const mp4 = String(mm[1]).trim()
+mp4p = String(mp4p || '').trim()
+if (rr.status !== 0 || !mp4p || !fs.existsSync(mp4p)) {
+  let tailTxt = ''
+  try {
+    const L = String(fs.readFileSync(renderLog, 'utf8')).split(String.fromCharCode(10)).map((x) => x.trim()).filter(Boolean)
+    const at = L.findIndex((l) => /stage=/.test(l))
+    tailTxt = (at >= 0 ? L.slice(at, at + 6).join(' ⏎ ') : L.slice(-4).join(' ⏎ ')).slice(0, 400)
+  } catch { /* ignore */ }
+  fail('stage=render ✗ exit=' + rr.status + ' ' + (tailTxt || ('（渲染日志为空，见 ' + path.relative(PROJECT, renderLog) + '）')))
+}
+const mp4 = mp4p
 if (!fs.existsSync(mp4) || !okFile(mp4, 20 * 1024)) fail('stage=render ✗ 引擎报了成品但文件不在或为空：' + mp4)
 
 // ── ⑤ 音轨：每段补静音到该段时长再拼（与画面严格对齐）────────────────────────

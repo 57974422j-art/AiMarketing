@@ -196,4 +196,9 @@ if (r.status !== 0 || !fs.existsSync(mp4)) {
 }
 const size = (fs.statSync(mp4).size / 1024 / 1024).toFixed(1)
 console.log('④ 渲染 OK：' + size + ' MB · ' + total + 's · ' + ((Date.now() - t0) / 1000).toFixed(0) + 's（' + quality + ' 档）')
+// ★VF_DAILYFILM_V5（2026-10-15 用户实测「渲染跑了 332s 却被判失败、报错还是空的」）：
+//   产物路径**必须同时写进文件** —— 只靠 stdout 传递不可靠：调用方用 `spawnSync` 时
+//   超长输出会触发 maxBuffer 溢出（子进程被 kill、status 非 0）或被截断 ⇒ 拿不到那一行
+//   ⇒ **明明渲好了却判失败**。文件是最短最稳的通道。
+fs.writeFileSync(path.join(outDir, 'FINAL_MP4.txt'), mp4 + String.fromCharCode(10), 'utf8')
 console.log('FINAL_MP4:' + mp4)
