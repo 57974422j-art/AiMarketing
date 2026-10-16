@@ -848,6 +848,27 @@ async function runPlan(ctx: DailyCtx, d: DailyDraft, src: DailySource, picked: s
   return planOut(d, picks, by, note, extra.join(' · '))
 }
 
+/**
+ * ★VF_DAILY_V28（2026-10-16 用户定案「4」修交付卡编辑后出片失效）：**凡是"要先重新生成一份"的情形，
+ * 就把当前方案卡**一起**发出来**，别只回一句文字。
+ * 病灶：在交付卡上点「✏️ 编辑」保存后，草稿会退回"方案确认"（**这是刻意的**，2026-10-13 定案：
+ *   改完不偷偷重跑渲染，让用户自己点「✅ 生成 HTML」）。但**聊天记录里那张旧交付卡还在**、
+ *   出片 / 配音按钮**依然可点** ⇒ 点下去老写法只回"还没生成 HTML（先点「✅ 生成 HTML」）"——
+ *   **而"在哪点生成"用户看不到**（新方案卡可能已经被这轮消息顶到上面去了）。
+ * 现口径：这种"因为方案改过才不能出片"的情况 ⇒ **把方案卡重新发一份**（附一句提示）⇒ 用户眼前
+ *   立刻就有「✅ 生成 HTML」可点 ⇒ **闭环**。其余原因（旧单没单文件版等）仍按原样回文字。
+ */
+async function needRegen(ctx: DailyCtx, d: DailyDraft, why: string): Promise<string> {
+  // ⚠️ `as string`：TS 在函数末尾那几处会把 `d.step` 收窄成 `'done'`（同 ★VF_DAILY_V26 那个坑），
+  //   但草稿是**从 JSON 读回来的**、运行期确实可能是 `review` ⇒ 断言才与运行期一致。
+  if ((d.step as string) === 'review' && d.plan) {
+    const picks = toPicks(ctx.uid, d.source || { kind: 'repo' }, d.names || [])
+    return planOut(d, picks, d.planBy || 'fallback', d.planNote || '',
+      why + ' ⇒ **要先重新生成一份**（下面是当前方案，点「✅ 生成 HTML」就行）')
+  }
+  return why
+}
+
 /** 方案交付：仓库来源 ⇒ 出**方案卡**；本机/子目录（没有缩略图可签）⇒ 退回文字清单 */
 function planOut(d: DailyDraft, picks: DailyPick[], by: PlanBy, note: string, hintExtra = ''): string {
   if ((d.source || { kind: 'repo' }).kind === 'repo') {
@@ -1184,9 +1205,9 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
     //      改了会让同一张卡上的「🎬 出片（无配音）」失效（那支要求 step==='done'）。
     if (at === 'voice') {
       if (d.step !== 'done' || !d.singleName || !d.plan) {
-        return '⚠️ 这一单还不能配音：' + ((d.step !== 'done' || !d.plan)
-          ? '还没生成 HTML（先点「✅ 生成 HTML」）。'
-          : '没有**单文件版**（配音要在它基础上回填时间轴）—— 回上一步重新生成一份即可。')
+        return await needRegen(ctx, d, '⚠️ 这一单还不能配音：' + ((d.step !== 'done' || !d.plan)
+          ? '还没生成 HTML。'
+          : '没有**单文件版**（配音要在它基础上回填时间轴）。'))
       }
       const v = await aiVoiceLines(
         toPicks(uid, d.source || { kind: 'repo' }, d.names || []), d.plan.segments, d.topic || '')
@@ -1217,13 +1238,10 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
     }
     if (at === 'film') {
       if (d.step !== 'done' || !d.singleName) {
-        return '⚠️ 这一单还不能出片：'
-          + (d.step !== 'done'
-            ? '还没生成 HTML（先点「✅ 生成 HTML」）。'
-            : '（出片只认"图已内嵌"的**单文件版**）\n'
-              + '原因通常是这两种：① 这份页是**旧版本**（本次出片功能上线前）生成的 —— 旧草稿里不会记单文件版；'
-              + '② 单文件版当时没生成成功（图太多、超过内嵌预算）。\n'
-              + '**回上一步重新生成一份**（约 1 分钟）就能出片了。')
+        return await needRegen(ctx, d, '⚠️ 这一单还不能出片：' + (d.step !== 'done'
+          ? '还没生成 HTML。'
+          : '出片只认"图已内嵌"的**单文件版** —— 常见原因：① 这份页是**旧版本**（出片功能上线前）'
+            + '生成的，旧草稿不记单文件版；② 当时单文件版没生成成功（图太多、超内嵌预算）。'))
       }
       const { startDailyFilm, findRunningDailyFilm } = await import('./daily-film')
       const running = findRunningDailyFilm(uid)
@@ -1244,9 +1262,9 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
     //   ⚠️ 口播以**卡上回传的**为准（用户可能刚改过），不信草稿里那份旧的。
     if (at === 'synth') {
       if (d.step !== 'done' || !d.singleName) {
-        return '⚠️ 这一单还不能合成：' + (d.step !== 'done'
-          ? '还没生成 HTML（先点「✅ 生成 HTML」）。'
-          : '没有**单文件版**（合成要在它基础上回填时间轴）—— 回上一步重新生成一份即可。')
+        return await needRegen(ctx, d, '⚠️ 这一单还不能合成：' + (d.step !== 'done'
+          ? '还没生成 HTML。'
+          : '没有**单文件版**（合成要在它基础上回填时间轴）。'))
       }
       const arr = Array.isArray(f?.voice) ? f.voice.map((x: any) => String(x == null ? '' : x)) : []
       if (!arr.length) return '⚠️ 没收到口播稿（要在配音稿卡上点「✅ 开始合成」才会带上）—— 请重新点一次「🎙 出片（带配音 · 字幕）」。'

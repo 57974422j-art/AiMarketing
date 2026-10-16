@@ -2050,11 +2050,22 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
   const total = Math.round(lines.reduce((a, t) => a + est(t) + 0.5, 0) * 10) / 10
   const emptyN = lines.filter((t) => !String(t).trim()).length
   const overN = lines.filter((t) => [...String(t)].length > maxChars).length
+  // ★VF_DAILYVOICE_V5（2026-10-16 用户定案「5」修"合成失败后按钮永久卡在合成中…"）：
+  //   病灶：`setBusy(true)` 之后**永不复位** —— 服务端回执是**一段文字**（不是新卡片），
+  //   所以这个组件的 state 不会因为收到回执而重置 ⇒ 按钮永久停在"合成中…"；
+  //   而合成**失败**时（后台任务只推一张失败提示）用户就彻底点不动了，**只能重开一单**。
+  //   现口径：`busy` 只当**防连点**用（服务端另有 `findRunningDailyFilm` 防重复），
+  //   所以给一个**短定时自动放行**；按钮文案也改成"已提交"，不再谎称"合成中"。
   const send = () => {
     if (busy) return
     setBusy(true)
     onSend('VF_DAILY_FORM:' + JSON.stringify({ at: 'synth', voice: lines.map((t) => String(t).trim()) }))
   }
+  useEffect(() => {
+    if (!busy) return
+    const t = setTimeout(() => setBusy(false), 8000)   // 回执通常 1~2 秒就到；8 秒足够防误触
+    return () => clearTimeout(t)
+  }, [busy])
   return (
     <div className="mb-2 p-3 rounded-xl border border-violet-500/30 bg-violet-500/[0.06]">
       <div className="text-xs text-violet-200 mb-1">{String(vj?.hint || '配音稿')}</div>
@@ -2104,7 +2115,7 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
           className={'px-3 py-2 rounded-lg text-xs border ' + (busy
             ? 'border-white/10 text-gray-500 cursor-wait'
             : 'border-violet-400/50 text-violet-100 hover:bg-violet-500/15')}>
-          {busy ? '合成中…' : '✅ 开始合成（配音 + 字幕）'}
+          {busy ? '已提交，等成片卡…' : '✅ 开始合成（配音 + 字幕）'}
         </button>
         <span className="text-[10px] text-gray-500">约 2~4 分钟：逐段配音 → 按实测时长重排画面 → 烧字幕</span>
       </div>
