@@ -692,10 +692,15 @@ async function shrinkForEmbed(buf: Buffer): Promise<Buffer> {
     const tout = tin + '.out.jpg'
     try {
       fs.writeFileSync(tin, buf)
-      // ★VF_DAILY_V34：参数按**画布**定，不凭手感 —— 画布只有 720×1280，图长边 **1280 就够**
-      //   （1600 纯浪费），q5 也没必要那么高。改 **1280 / q7** 后单图约 120~250KB（原 200~500KB），
-      //   16 张从 ~8MB 降到 ~3MB，而在 720 画布上**肉眼无差**。
-      spawnSync('ffmpeg', ['-v', 'error', '-y', '-i', tin, '-vf', 'scale=min(1280\\,iw):-2', '-q:v', '7', tout], { timeout: 20000 })
+      // ★VF_DAILY_V34b（2026-10-16 用户问「会不会妨碍设计、清晰度」后**收敛**）：
+      //   **只缩尺寸，不动质量** ——
+      //   · 画布只有 720×1280 ⇒ 图长边 **1280 就够**（屏幕上最多显示到这么大，再大也不会被用上）
+      //     ⇒ "1600 → 1280" 是**零可见损失**（多出来的像素从来没显示过）；
+      //   · 质量**保持 q5**（我上一版顺手改成 q7 其实是多余的 —— 用户口径：宁可文件稍大，
+      //     也不要多压一道）。
+      //   预计：单图约 180~220KB × 16 张 ≈ **3MB**（原 ~8MB）；720 画布上肉眼无差，
+      //   而且成片还要再经一次视频编码（H.264），那点差异在成片里本来就看不出来。
+      spawnSync('ffmpeg', ['-v', 'error', '-y', '-i', tin, '-vf', 'scale=min(1280\\,iw):-2', '-q:v', '5', tout], { timeout: 20000 })
       const out = fs.existsSync(tout) ? fs.readFileSync(tout) : null
       return out && out.length && out.length < buf.length ? out : buf
     } finally {
