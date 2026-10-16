@@ -17,7 +17,7 @@ import {
   cmdOf, cmdDel, cmdMotion, applyEditBatch,
   assignTextLayer, PLAN_TEXT_TYPES, PLAN_TSCALES,
   segDirection, sharedDims, checkDiversity, fixDiversity,
-  VOICE_MAX_CHARS, voicePrompt, voicePromptStrict, normVoiceLines, estimateSec, buildVoiceCardPayload, parseVoiceLines, voiceKeyOf,
+  VOICE_MAX_CHARS, voicePrompt, voicePromptStrict, normVoiceLines, estimateSec, buildVoiceCardPayload, parseVoiceLines, voiceKeyOf, layoutStats,
 } from './run/daily-plan.js'
 
 let pass = 0, fail = 0
@@ -723,6 +723,45 @@ console.log('=== ★VF_DAILYVOICE_V1：口播稿（AI 写、人可改；它是**
   // 卡片必须把它下发（前端拿它当暂存键；不下发就会退回"按文件名存"⇒ 换单即丢）
   const cp5 = buildVoiceCardPayload({ segs: [{ title: ['甲'] }], lines: ['a'], name: 'x.html' })
   ok('卡片下发 voiceKey', typeof cp5.voiceKey === 'string' && cp5.voiceKey.length > 2, String(cp5.voiceKey))
+
+  // ⑬ 两个 AI 开关（★VF_DAILY_V32，2026-10-16 用户定案「生成HTML 改成 2个 AI开关」
+  //     「我要AI改的是设计风格，不是纯套模版」）。
+  //     这两个开关**只改提示词的措辞**（引擎 / 闸门 / 判据一行不动）⇒ 所以必须验
+  //     "开了真写进去、关了真不写、两个互相独立"，否则就是"开关接了但等于没有"
+  //     —— 那正是用户一开始抱怨的「AI 参与和不参与完全分不出来」。
+  const P0 = aiPrompt(10, '铜锅涮肉', { lastTheme: 'night-gold' })
+  const P1 = aiPrompt(10, '铜锅涮肉', { lastTheme: 'night-gold', aiLayout: true, aiPickSkin: true })
+  ok('开关关：不出现"放手排版"那一段', !P0.includes('放手排版'))
+  ok('开关开：出现放手排版，并点出可混搭的维度（align / form）',
+    P1.includes('放手排版') && P1.includes('align') && P1.includes('form'))
+  ok('开关关：保留"必须换一个皮肤"的轮换约束', P0.includes('必须换一个不同的皮肤'))
+  ok('开关开：解除该约束（贴素材 > 求不同）',
+    !P1.includes('必须换一个不同的皮肤') && P1.includes('完全交给你按素材气质挑'))
+  ok('两个提示词确实不同（否则开关等于没接）', P0 !== P1)
+  const pl = aiPrompt(10, 'x', { aiLayout: true })
+  const psk = aiPrompt(10, 'x', { aiPickSkin: true })
+  ok('两个开关互相独立（只开一个时另一位不生效）',
+    !pl.includes('完全交给你按素材气质挑') && !psk.includes('放手排版'))
+  const cp6 = buildPlanCardPayload({ segments: [] }, { picks: [], by: 'ai', aiLayout: true, aiPickSkin: false })
+  ok('卡片回显两个开关（前端按它渲染复选框）', cp6.aiLayout === true && cp6.aiPickSkin === false)
+
+  // ⑭ 版式统计（★VF_DAILY_V33，收口第 ③ 条「AI 参与和不参与完全分不出来」）：
+  //    把"这次到底用了多少种"数出来写在卡上 —— AI 是**悄悄生效**的，没有读数就只能凭观感猜。
+  const st = layoutStats([
+    { layout: 'hero', align: 'center', scale: 1.3, form: 'overlay', tm: 'wipe', place: 'cover' },
+    { layout: 'split', align: 'right', scale: 0.9, form: 'sticker', tm: 'rise', place: 'mat' },
+    { layout: 'split', align: '', scale: 0.9, form: 'sticker', tm: 'rise', place: 'mat' },
+  ])
+  ok('统计：段数正确', st.segs === 3, JSON.stringify(st))
+  ok('统计：六个维度的不同取值数都对（各 2 种）',
+    st.layout === 2 && st.align === 2 && st.scale === 2 && st.form === 2 && st.tm === 2 && st.place === 2,
+    JSON.stringify(st))
+  ok('统计：空值不计数（对齐是 2 种不是 3 种）', st.align === 2)
+  ok('统计：空/异常输入不抛异常', layoutStats([]).segs === 0 && layoutStats(null).layout === 0)
+  ok('卡片确实带上了 stats（前端要读它）',
+    !!buildPlanCardPayload({ segments: [{ layout: 'hero' }] }, { picks: [], by: 'ai' }).stats)
+  // ③ 加码：开关打开时，提示词要从"鼓励"升到"硬要求"（用户实测"看不出差别"后加的）
+  ok('放手排版的提示词含"硬要求"（不只鼓励）', aiPrompt(10, 'x', { aiLayout: true }).includes('硬要求'))
 }
 
 console.log(`\n结果：通过 ${pass} · 失败 ${fail}`)

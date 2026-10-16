@@ -95,12 +95,66 @@ eq(normTheme({ theme: 'morandi' }).theme, 'morandi', '新皮肤能被 normTheme 
 const okCustom = normTheme({ theme: 'x', custom: { paper: '#FFFFFF', ink: '#111111', dim: '#666666', accent: '#C6392B' } })
 ok(!!okCustom.custom || okCustom.theme === 'custom', 'AI 自定配色仍照旧可用')
 
-console.log('\n=== 5. AI 提示词要带上全部 20 套（否则 AI 永远只会挑那几套）===')
+console.log('\n=== 5. AI 提示词要带上全部 20 套（否则 AI 永远只会挑那几条）===')
 const { aiPrompt } = require('./run/daily-plan.js')
 const p = aiPrompt(8, '铜锅')
 ok(p.includes('【皮肤库】'), '提示词里有皮肤库段')
 ok(p.includes('copper-pot') && p.includes('morandi') && p.includes('cinema-noir'), '提示词里出现了新皮肤 id')
 eq((p.match(/（[^）]*）：/g) || []).length >= 0, true, '（皮肤条目数与库同步，由 PLAN_THEMES 驱动）')
+// ⚠️ ★VF_DAILY_V40（2026-10-16）把配对从 7 组删到 4 组（kai/fang 是"假变体"，服务器上没有楷体/仿宋）
+//    ⇒ 这里原来写死的 `kai-song` 已不存在，改验**现存的**任意一组（`song-hei` 是 PLAN_FONTS 的第一项）。
+//    以后再加删配对，请只改 PLAN_FONTS，这一行不必跟着动（下面 §6 有"引擎/计划层 id 集合完全一致"的双向核对兜底）。
+ok(p.includes('【字体配对】') && p.includes('song-hei'), '提示词里有字体配对段（B1）')
+ok(p.includes('【文字动效】') && p.includes('curtain'), '提示词里有文字动效段（V25）')
+ok(p.includes('【挑皮肤的对照'), '提示词里有"题材→皮肤"对照（B2）')
+ok(p.includes('皮肤明暗 × 结构'), '提示词里有"皮肤×结构"偏好表（B3）')
+
+console.log('\n=== 6. V25：字体配对 / 文字动效 / 皮肤明暗 三张表**两处一致**（防漂移）===')
+const { PLAN_FONTS, PLAN_TM, PLAN_SKIN_FONT, THEME_TONE, pickFont, assignTextMotion, themeTone } = require('./run/daily-plan.js')
+// 引擎侧解析
+const fpBlock = src.slice(src.indexOf('const FONT_PAIRS = {'), src.indexOf('const PAIR_OF = {'))
+const engFonts = Array.from(fpBlock.matchAll(/'([a-z-]+)':\s*\{/g)).map((m) => m[1])
+eq(engFonts.length, PLAN_FONTS.length, `字体配对数量一致（引擎 ${engFonts.length} / 计划层 ${PLAN_FONTS.length}）`)
+ok(engFonts.slice().sort().join(',') === PLAN_FONTS.map((f) => f.id).sort().join(','), '字体配对 id 集合完全一致',
+  '引擎独有=' + engFonts.filter((x) => !PLAN_FONTS.some((f) => f.id === x)).join(',') + ' ｜ 计划层独有=' + PLAN_FONTS.filter((f) => engFonts.indexOf(f.id) < 0).map((f) => f.id).join(','))
+const tmBlock = src.slice(src.indexOf("const TM = ['"), src.indexOf('const segTm'))
+const engTm = Array.from(tmBlock.matchAll(/'([a-z]+)'/g)).map((m) => m[1])
+ok(engTm.slice().sort().join(',') === PLAN_TM.map((t) => t.id).sort().join(','), '文字动效 id 集合完全一致',
+  `引擎=[${engTm.join(',')}] 计划层=[${PLAN_TM.map((t) => t.id).join(',')}]`)
+const pairBlock = src.slice(src.indexOf('const PAIR_OF = {'), src.indexOf('const pairStacks'))
+const engPair = {}
+for (const m of pairBlock.matchAll(/'([a-z0-9-]+)':\s*'([a-z-]+)'/g)) engPair[m[1]] = m[2]
+const pairMismatch = items.map((t) => t.id).filter((id) => engPair[id] !== PLAN_SKIN_FONT[id])
+ok(pairMismatch.length === 0, '20 套皮肤的"默认字体配对"两处一致', pairMismatch.map((id) => `${id}: 引擎${engPair[id]} vs 计划层${PLAN_SKIN_FONT[id]}`).join('、'))
+// 明暗表对着引擎算出来的纸色核对（THEME_TONE 不是拍脑袋写的）
+const toneBad = items.filter((t) => {
+  const dark = contrast('#FFFFFF', t.paper) >= 4.5            // 白字在纸色上能读 ⇒ 纸是深的
+  return (THEME_TONE[t.id] === 'dark') !== dark
+})
+ok(toneBad.length === 0, '20 套皮肤的深/浅标注与引擎实测一致（白字在纸色上的对比度）',
+  toneBad.map((t) => `${t.id}: 标${THEME_TONE[t.id]} 实测${contrast('#FFFFFF', t.paper) >= 4.5 ? '深' : '浅'}`).join('、'))
+eq(themeTone('copper-pot'), 'dark', 'themeTone 认得新皮肤')
+eq(themeTone('nope'), 'light', '未知皮肤按浅底处理（保守）')
+
+console.log('\n=== 7. V25：字体挑选与文字动效排布的行为 ===')
+// ★VF_DAILY_V40（2026-10-16 删到 4 组配对）：这两条原来写死了 `kai-hei` / `kai-song`（已不存在的"假变体"），
+//   ① `want:'kai-hei'` 那条会直接失败；② `!== 'kai-song'` 那条**会退化成恒真的空判**（kai-song 永不再出现）
+//   ⇒ 绝不能留着（空判 = 假绿灯）。改法：合法配对取现存的 `hei-song`；"顺延"那条改为与**皮肤默认配对**比
+//   （从 PLAN_SKIN_FONT 取，皮肤重指后自动跟随，不再写死名字）。
+const f1 = pickFont({ want: 'hei-song', themeId: 'nordic', lastTheme: 'nordic', key: 3 })
+eq(f1.font, 'hei-song', 'AI 指定了合法配对 ⇒ 听 AI 的')
+const f2 = pickFont({ want: 'nonexistent', themeId: 'nordic' })
+ok(!f2.font && f2.fixes.length > 0, 'AI 指定的配对不在库里 ⇒ 不采用 + 如实记 fixes')
+const same = pickFont({ themeId: 'copper-pot', lastTheme: 'jiangnan', key: 5 })   // 两套皮肤的默认配对相同
+ok(!!same.font && same.font !== PLAN_SKIN_FONT['copper-pot'],
+  '上一份默认配对同款 ⇒ 本份顺延（字体不再只跟着皮肤走）', String(same.font))
+const diff = pickFont({ themeId: 'copper-pot', lastTheme: 'nordic', key: 5 })     // 默认不同 ⇒ 不动
+ok(!diff.font, '上一份默认配对不同 ⇒ 不写 font（交给引擎用皮肤默认，产物不变）')
+const segsT = Array.from({ length: 14 }, () => ({}))
+assignTextMotion(segsT, 20261014)
+const tmAdj = segsT.filter((s, i) => i > 0 && s.tm === segsT[i - 1].tm).length
+eq(tmAdj, 0, `14 段文字动效排布：相邻重复 0 处（${segsT.map((s) => s.tm).slice(0, 7).join('>')}…）`)
+eq(new Set(segsT.map((s) => s.tm)).size, PLAN_TM.length, `14 段里 7 种文字动效全都用到`)
 
 console.log(`\n结果：通过 ${pass} · 失败 ${fail}`)
 process.exit(fail ? 1 : 0)
