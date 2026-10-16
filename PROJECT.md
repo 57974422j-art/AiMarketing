@@ -285,6 +285,8 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 - 🔧 **二测反馈（诊断回传「响应 0 字」）**：**模型确实回了空**（三级链路全空才 `content:null`）。**强怀疑 = 提示词诱导**：我写了「没什么可说就**写空字符串**」，小模型读成"整条留空"—— 这条能解释"两次都空、稳定复现"。
   ⇒ 已改：静音标记换成**短横线** + 强调"必须逐段给全、不要整条留空"；`normVoiceLines` 做**静音标记归一**；第 2 次重试换**极简 prompt**（上一版只把长 prompt 又说一遍 = 没换变量）。单测 **301/0**。
 - 🔧 **三测反馈（日志确证真因）**：`[qwen3.8] 调用异常: The operation was aborted due to timeout` ⇒ **主模型 60s 超时**（硬编码在 `dashscopeFunctionCall` 里），兜底链也没内容 ⇒ 空响应。**而我把 maxTokens 从 4000 降到 2500 是帮倒忙**（思考型模型额度被 reasoning 吃光 ⇒ content 空；`aiPlanSegments` 一直用 8000）。
+- ✅ **修 ⑭「草稿被悄悄清掉」（`VF_DAILY_V26`，2026-10-15 用户定案「修14」）**：`daily.ts` 末尾兜底 `clearDailyDraft` 会在**任何未识别的消息**上删草稿 ⇒ 之后编辑命令**全都不被本线接管**、消息落到主 AI **被重排整份方案**（用户那次 11 条编辑的真相；证据：本线日志为空 + 回执文案在 `src/` 零匹配 + 真代码实测解析器正确）。
+  ⇒ 修成**按"这一步能不能改文案"分**：`pick` 清、`review`/`done` **保留**（**不是**无条件保留 —— 那会让标准模式的"非命令锁死"失效，`route.ts` 的 `stdHasAnyDraft()` 靠草稿判"有流程"）；并加**源级机器闸门**（清草稿只许在 6 个语义点）。
   ⇒ 已改：**分批**（≤5 段/批，避免撞 60s）+ **maxTokens 8000** + 每批 2 次（长/极简）+ **某批失败不整单失败**（如实报哪几段静音）。单测 **305/0**。
 
 - 🔧 **实跑踩坑 ②（引擎路径，已修）**：出片真跑推进到用字闸门后报 `Cannot find module '…/.next/standalone/scripts/video-factory/html-deck/check-page-fonts.mjs'` —— 服务器跑 `.next/standalone/server.js`，cwd 是 `.next/standalone`，而 Next 的 file tracing **只把个别脚本**拷进 standalone 的 `scripts/`（工具在、兄弟脚本与 `node_modules/hyperframes` 不在）。
