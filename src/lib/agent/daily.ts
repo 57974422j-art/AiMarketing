@@ -692,7 +692,10 @@ async function shrinkForEmbed(buf: Buffer): Promise<Buffer> {
     const tout = tin + '.out.jpg'
     try {
       fs.writeFileSync(tin, buf)
-      spawnSync('ffmpeg', ['-v', 'error', '-y', '-i', tin, '-vf', 'scale=min(1600\\,iw):-2', '-q:v', '5', tout], { timeout: 20000 })
+      // ★VF_DAILY_V34：参数按**画布**定，不凭手感 —— 画布只有 720×1280，图长边 **1280 就够**
+      //   （1600 纯浪费），q5 也没必要那么高。改 **1280 / q7** 后单图约 120~250KB（原 200~500KB），
+      //   16 张从 ~8MB 降到 ~3MB，而在 720 画布上**肉眼无差**。
+      spawnSync('ffmpeg', ['-v', 'error', '-y', '-i', tin, '-vf', 'scale=min(1280\\,iw):-2', '-q:v', '7', tout], { timeout: 20000 })
       const out = fs.existsSync(tout) ? fs.readFileSync(tout) : null
       return out && out.length && out.length < buf.length ? out : buf
     } finally {
@@ -1013,7 +1016,12 @@ async function buildSingleFile(uid: number | string, buf: Buffer | undefined, pi
     } catch { b = null }
     if (!b || !b.length) continue
     // ★V16：**先压再嵌**（否则超 12MB 预算的后半段图会被跳过 = 用户看到的"部分图没有"）
-    if (b.length > 900 * 1024) b = await shrinkForEmbed(b)
+    // ★VF_DAILY_V34（2026-10-16 用户实测「458s 后 stage=render ✗ RegExpExecMultiple」）：
+    //   原来只有 **>900KB** 的图才压 ⇒ 500~900KB 的图**原样内嵌**，16 张就是十几兆
+    //   ⇒ 单文件版 **9.9MB** ⇒ 引擎侧对**超长字符串做正则**时把 Node 撑爆
+    //   （`v8::internal::Runtime_RegExpExecMultiple`，且崩溃点在"浏览器已启动"之后 ⇒ 不是渲染失败，是打包/喂页面那步炸的）。
+    //   现口径：**阈值降到 380KB**（超过就压）—— 宁可多压一次，也不要页面胖。
+    if (b.length > 380 * 1024) b = await shrinkForEmbed(b)
     const png = b[0] === 0x89 && b[1] === 0x50
     // ★V19（A′）：内嵌也要按**同一套引用名**替换（配图版用的是同级扁平名，不再写死 images/N.jpg）
     imgs.push({
