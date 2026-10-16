@@ -94,6 +94,13 @@ export interface DailyDraft {
   filmTaskId?: string
   /** ★VF_DAILYVOICE_V1：最近一版**逐段口播稿**（配音稿卡上给用户改的那份；合成时以卡上回传的为准） */
   voice?: string[]
+  /** ★VF_DAILY_V32（2026-10-16 用户定案「生成HTML 改成 2个 AI开关」）：**让 AI 放手排版** ——
+   *  默认 AI 是保守的（只求"相邻两段别撞"）；打开后把目标提到"整份要有明显不同的视觉气质"，
+   *  鼓励它混搭 版式 × 叠法 × 对齐 × 文字层 × 字号 × 动效（这些维度**引擎早就都有**，只是不敢用）。 */
+  aiLayout?: boolean
+  /** ★VF_DAILY_V32：**皮肤也交给 AI 挑** —— 默认服务端要求"这次必须换一个和上次不同的皮肤"
+   *  （治"两份看着像同一套"的老办法）；打开后**解除那条约束**，让 AI 纯按本批素材气质挑。 */
+  aiPickSkin?: boolean
   /** ★VF_DAILYVOICE_V6：这份口播对应的**画面指纹**（`voiceKeyOf(plan.segments)`）——
    *  出稿时比对：画面字没变才沿用旧稿；变了就当没有（宁可让 AI 重写，也不给错配的稿）。 */
   voiceKey?: string
@@ -293,7 +300,7 @@ function toPicks(uid: number | string, src: DailySource, names: string[]): Daily
  *   两段式：① 视觉模型逐张读出"拍的是什么" ② **文字模型**（qwen3.8-flash，稳）据此出 JSON 方案。
  *   视觉不可用时**不判死**：退成"按主题+序号排"，并把原因如实写进方案卡。
  */
-export async function aiPlanSegments(picks: DailyPick[], topic: string, lastTheme = ''): Promise<{ ok: boolean; segs?: any[]; error?: string; added?: number; fixes?: string[]; theme?: string; custom?: any; font?: string; motion?: string; sawImages?: boolean; vlErr?: string; captions?: string; parseNote?: string; rawHead?: string }> {
+export async function aiPlanSegments(picks: DailyPick[], topic: string, lastTheme = '', aiOpts?: { aiLayout?: boolean; aiPickSkin?: boolean }): Promise<{ ok: boolean; segs?: any[]; error?: string; added?: number; fixes?: string[]; theme?: string; custom?: any; font?: string; motion?: string; sawImages?: boolean; vlErr?: string; captions?: string; parseNote?: string; rawHead?: string }> {
   const n = picks.length
   if (!n) return { ok: false, error: '没有素材' }
 
@@ -336,7 +343,8 @@ export async function aiPlanSegments(picks: DailyPick[], topic: string, lastThem
   } catch (e: any) { vlErr = String(e?.message || e).slice(0, 100) }
 
   // ② 让**文字模型**据此出 JSON 方案（有读图总结就带上；没有就按主题+序号排，并如实标注）
-  const prompt = aiPrompt(n, topic, { lastTheme })
+  // ★VF_DAILY_V32：两个 AI 开关透传给提示词（开关只改措辞，引擎与闸门一行不动）
+  const prompt = aiPrompt(n, topic, { lastTheme, aiLayout: !!aiOpts?.aiLayout, aiPickSkin: !!aiOpts?.aiPickSkin })
     + (summary ? '\n\n【素材实拍内容（视觉模型逐张读出，写文案必须据此，不许编造看不到的东西）】\n' + summary : '')
   // ★VF_DAILY_V12（2026-10-13 用户实测日志）：
   //   病灶①：主模型 **60s 超时**（`[qwen3.8] 调用异常: The operation was aborted due to timeout`）
@@ -704,7 +712,7 @@ async function runPlan(ctx: DailyCtx, d: DailyDraft, src: DailySource, picked: s
   try { ctx.log?.(uid, `[日报落地页] AI 看素材编排（${picks.length} 张，来源=${src.kind}）…`) } catch { /* ignore */ }
   // ★VF_DAILY_V9：把"上次用的皮肤"告诉 AI（提示词里明确要求换一个）——这是"看着像同一套"的第一道药
   const recent = await recentSkins(ctx.prisma, uid)
-  const ai = await aiPlanSegments(picks, d.topic || '', recent[0])
+  const ai = await aiPlanSegments(picks, d.topic || '', recent[0], { aiLayout: !!d.aiLayout, aiPickSkin: !!d.aiPickSkin })
   // ★VF_DAILY_V9：第二道药 —— AI 没挑 / 挑的还是上一套 ⇒ **服务端强制换**（纯函数 rotateTheme，可复现）
   const rot = rotateTheme(ai.ok ? String(ai.theme || '') : '', recent, picked.join('|') + '|' + (d.topic || ''))
   // ★VF_DAILY_V25：种子提前到"建 plan 之前"算 —— 因为**字体配对**要在建 plan 时就写进 meta
@@ -883,6 +891,8 @@ async function needRegen(ctx: DailyCtx, d: DailyDraft, why: string): Promise<str
 function planOut(d: DailyDraft, picks: DailyPick[], by: PlanBy, note: string, hintExtra = ''): string {
   return 'VF_JSON:' + JSON.stringify(buildPlanCardPayload(d.plan, {
     picks, by, note, hintExtra, topic: d.topic || '',
+    // ★VF_DAILY_V32：两个 AI 开关回显（卡片按它渲染复选框）
+    aiLayout: !!d.aiLayout, aiPickSkin: !!d.aiPickSkin,
   }))
 }
 
@@ -1194,6 +1204,29 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
     if (at === 'go') {
       if (d.step !== 'review' || !d.plan) return null
       return await finishDaily(ctx, d, toPicks(uid, d.source || { kind: 'repo' }, d.names || []))
+    }
+    // ① ★VF_DAILY_V32（2026-10-16 用户定案「这个生成HTML 改成 2个 AI开关」）：
+    //   切换两个 AI 开关 ⇒ **立刻按新设置重排一遍方案**。
+    //   为什么必须重排：开关只是**提示词的措辞**，不重排的话用户切了开关却看不到任何变化
+    //   （那正是他一开始抱怨的"AI 参与和不参与完全分不出来"）。
+    //   代价：会调一次 AI + 看图（10~20 秒）—— 这是用户主动点的，可以接受；卡片上有说明。
+    if (at === 'layout') {
+      const st = String(d.step || '')
+      if (st !== 'pick' && st !== 'review') {
+        return '⚠️ 现在改不了排版开关：本单不在"选素材 / 方案确认"这两步。'
+          + '想做新的一单就说「日报落地页」；想改这一单就先回方案确认那一步。'
+      }
+      if (typeof f?.aiLayout === 'boolean') d.aiLayout = f.aiLayout
+      if (typeof f?.aiPickSkin === 'boolean') d.aiPickSkin = f.aiPickSkin
+      await saveDailyDraft(ctx.prisma, uid, d)
+      const picked = Array.isArray(d.names) && d.names.length ? d.names.map((x) => String(x)) : []
+      if (!picked.length) return await dailyMatCard(uid, d)
+      try {
+        ctx.log?.(uid, '[日报落地页] 排版开关变更 ⇒ 按新设置重排（放手排版=' + (d.aiLayout ? '开' : '关')
+          + '，皮肤交给 AI=' + (d.aiPickSkin ? '开' : '关') + '）')
+      } catch { /* ignore */ }
+      return await runPlan(ctx, d, d.source || { kind: 'repo' }, picked,
+        '已按新开关重排（放手排版=' + (d.aiLayout ? '开' : '关') + '，皮肤交给 AI=' + (d.aiPickSkin ? '开' : '关') + '）')
     }
     // ② 「🔄 重选素材」→ 回第 1 步，重出素材卡
     if (at === 'back_mat') {

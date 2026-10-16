@@ -237,8 +237,23 @@ export function rotateTheme(aiTheme: string, recent: string[], seed: string): { 
   return { theme, rotated: !!want || !!last, from: last || want }
 }
 
-/** 给 AI 的任务书（看图前排段；纯字符串，可单测"约束有没有写进提示词"） */
-export function aiPrompt(n: number, topic: string, opts?: { lastTheme?: string }): string {
+/**
+ * 给 AI 的任务书（看图前排段；纯字符串，可单测"约束有没有写进提示词"）
+ *
+ * ★VF_DAILY_V32（2026-10-16 用户定案「这个生成HTML 改成 2个 AI开关」「我要AI改的是 设计风格 不是纯套模版」）：
+ *   方案卡上给两个开关，都**只改这一份提示词的措辞**（引擎、闸门、判据一行不动 ⇒ 零新机制、零风险）：
+ *     · `aiLayout` **让 AI 放手排版** —— 默认它是保守的（只求"相邻两段别撞"），打开后鼓励它
+ *       **大胆混搭**已经存在的那些维度（版式 × 叠法 × 对齐 × 文字层 × 字号 × 动效），
+ *       目标是"同一份里出现明显不同的视觉气质"，而不是"每段都安全、看着像一套"。
+ *     · `aiPickSkin` **皮肤也交给 AI 挑** —— 默认服务端会要求"这次必须换一个和上次不同的皮肤"
+ *       （治"看着像同一套"的老办法）；打开后**解除那条约束**，让 AI 纯按本批素材气质挑。
+ *   ⚠️ 为什么不做"AI 自由写整页 HTML"（那是"大"）：会绕不过引擎的结构校验 ⇒ 必须改**共用引擎**
+ *     ⇒ 风险外溢到 HTML成片线；而且四道保障（排版体检/用字闸门/抖动修复/引擎校验）全建立在固定版式上。
+ *     详见 ISSUES.md 的「③⑫⑬ 三阶段规划」。
+ */
+export function aiPrompt(n: number, topic: string, opts?: { lastTheme?: string; aiLayout?: boolean; aiPickSkin?: boolean }): string {
+  const aiLayout = !!opts?.aiLayout
+  const aiPickSkin = !!opts?.aiPickSkin
   const cat = PLAN_LAYOUTS
     .map((l) => `  · ${l.id}（${l.name}，${l.minImg === l.maxImg ? l.minImg : l.minImg + '~' + l.maxImg} 张图）：${l.look}`)
     .join('\n')
@@ -315,10 +330,18 @@ export function aiPrompt(n: number, topic: string, opts?: { lastTheme?: string }
     '  · 每段只讲一件事（一张主图 或 一个大标题），**信息点能少不多**，别为了填满而塞；',
     '【首屏给谁看】（浏览/干活类页面首屏就是内容；**说服类才需要"开场版式"**）：',
     '  · 这份是**展示/说服**用 ⇒ 第 1 段（封面）要有开场版式：一句立得住的标题 + 一张最有力的图，**不要信息堆叠**。',
-    last
-      ? `⚠️ 上一次你交付用的是「${themeName(last)}」（${last}）—— **这次必须换一个不同的皮肤**，`
-        + '否则两份产物看着像同一套（用户原话：「感觉没什么区别」）。除非这批素材的气质明显更适合它。'
-      : '（首次做：按素材气质挑即可。）',
+    // ★VF_DAILY_V32：开关②「皮肤也交给 AI 挑」打开时**解除"必须换一个"的约束** ——
+    //   那条约束是老办法（治"两份产物看着像同一套"）；但用户要"AI 按本批素材定设计风格"时，
+    //   强行换皮肤反而会挑到不贴素材的那套 ⇒ 这时应该让 AI 纯按气质说话。
+    aiPickSkin
+      ? (last
+        ? `【皮肤：这一次**完全交给你按素材气质挑】** —— 上一次用的是「${themeName(last)}」，`
+          + '但**不必刻意避开它**：如果这批素材的气质就是最适合它，直接用（贴素材 > 求不同）。'
+        : '（首次做：按素材气质挑即可。）')
+      : (last
+        ? `⚠️ 上一次你交付用的是「${themeName(last)}」（${last}）—— **这次必须换一个不同的皮肤**，`
+          + '否则两份产物看着像同一套（用户原话：「感觉没什么区别」）。除非这批素材的气质明显更适合它。'
+        : '（首次做：按素材气质挑即可。）'),
     '  也可以给 `custom` 自定配色（4 个 hex：paper 底 / ink 正文 / dim 次要 / accent 点缀）——',
     '  系统会做对比度体检（正文/底 ≥4.5、次要 ≥3.0、强调 ≥2.0），不达标会自动换回预设皮肤。',
     '',
@@ -327,6 +350,17 @@ export function aiPrompt(n: number, topic: string, opts?: { lastTheme?: string }
     '  · **只写 `layout` + `title` + `imgs` 就能出片**；`points` 只在 split / vertical / quote 里有用，别的结构写了也不显示；',
     '  · `scale` / `stamp` / `kicker` / `tm` / `font` / `form` / `place` **都可省**（服务端会补、会轮换）；',
     '  · 省下的字符留给"标题写准"，比堆字段有用得多。',
+    // ★VF_DAILY_V32：开关①「让 AI 放手排版」—— 默认那句"相邻两段别撞"是**下限**，
+    //   打开后把目标从"别撞"提到"要有明显不同的视觉气质"，并明确点出可以混搭哪几条轴。
+    aiLayout
+      ? '【★这一份：**放手排版**（用户已打开「让 AI 放手排版」）】\n'
+        + '  · 上面那些"相邻不撞"的要求是**下限**，不是目标；**目标是整份看下来有明显不同的视觉气质**。\n'
+        + '  · 请**大胆混搭**这些已经存在的维度：`layout`（怎么摆图）× `form`（图与字怎么叠）× `align`（左/中/右）'
+        + '× `type`（文字层）× `scale`（字号档）× `tm`（文字动效）。\n'
+        + '  · 特别鼓励：同一份里既有"满幅压字"的霸气页、也有"留白很多"的安静页；既有居中、也有右对齐；'
+        + '既有大字、也有小字退后的段落。**别让每段都长一个样。**\n'
+        + '  · 但**不牺牲可读性**：字号档不要连用两段 0.9（会显得整片没重点），信息点能少不多。'
+      : '',
     '硬约束（违反即作废）：',
     '1. **段数是这份片的时长来源**：segments **至少 ' + minSegs + ' 段**、最多 16 段。'
     + '这是**给视频用的** —— 段数多不是问题，**段数少才是缺点**（片长不够、节奏干）。'
@@ -1251,6 +1285,8 @@ export function formatDailyPlan(plan: any, o: { topic: string; picks: PlanPick[]
  */
 export function buildPlanCardPayload(plan: any, o: {
   picks: PlanPick[]; by: PlanBy; note?: string; hintExtra?: string; topic?: string
+  /** ★VF_DAILY_V32：两个 AI 开关的**当前值**（回显到卡片上，用户切过要看得见） */
+  aiLayout?: boolean; aiPickSkin?: boolean
 }): any {
   const segs: any[] = Array.isArray(plan?.segments) ? plan.segments : []
   const dur = planDuration(plan)
@@ -1262,6 +1298,9 @@ export function buildPlanCardPayload(plan: any, o: {
     topic: o.topic || '',
     by: o.by,
     note: o.note || '',
+    // ★VF_DAILY_V32：两个 AI 开关回显（前端按它渲染复选框状态）
+    aiLayout: !!o.aiLayout,
+    aiPickSkin: !!o.aiPickSkin,
     segs: segs.map((s, i) => ({
       i: i + 1,
       label: layoutLabel(s),

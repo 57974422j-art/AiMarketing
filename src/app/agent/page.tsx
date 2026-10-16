@@ -1981,6 +1981,31 @@ function VfDailyPlanCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
         <span className="text-gray-300">改 3 版式=竖排</span> · <span className="text-gray-300">改 3 用图=2,4</span> ·{' '}
         <span className="text-gray-300">删 3</span>（改完我重出这张卡）
       </div>
+      {/* ★VF_DAILY_V32（2026-10-16 用户定案「这个生成HTML 改成 2个 AI开关」「我要AI改的是**设计风格**，不是纯套模版」）：
+          两个开关**只改 AI 提示词的措辞**（引擎 / 闸门 / 判据一行不动 ⇒ 零新机制、零风险）：
+            · 🎨 放手排版：默认 AI 偏保守（只求"相邻两段别撞"）；打开后鼓励它**大胆混搭**
+              版式 × 叠法 × 对齐 × 文字层 × 字号 × 动效，目标是"整份有明显不同的气质"。
+            · 🖌 皮肤也交给 AI 挑：默认服务端要求"这次必须换一个和上次不同的皮肤"；打开后解除，
+              让它纯按本批素材气质挑（贴素材 > 求不同）。
+          ⚠️ 切换会**立刻按新设置重排一遍方案**（要调一次 AI + 看图，约 10~20 秒）——
+             不重排的话开关只是个存下来的值，用户**看不到任何变化**（那正是"AI 参与没参与分不出来"的老毛病）。 */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-2 text-[10px]">
+        {([['aiLayout', '🎨 让 AI 放手排版'], ['aiPickSkin', '🖌 皮肤也交给 AI 挑']] as const).map(([k, label]) => {
+          const on = !!vj?.[k]
+          return (
+            <label key={k} className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input type="checkbox" checked={on} className="accent-emerald-500"
+                onChange={(e) => onSend(proto + ':' + JSON.stringify({
+                  at: 'layout',
+                  aiLayout: k === 'aiLayout' ? e.target.checked : !!vj?.aiLayout,
+                  aiPickSkin: k === 'aiPickSkin' ? e.target.checked : !!vj?.aiPickSkin,
+                }))} />
+              <span className={on ? 'text-emerald-200' : 'text-gray-400'}>{label}</span>
+            </label>
+          )
+        })}
+        <span className="text-gray-500">切换后我会按新设置**重排一遍方案**（约 10~20 秒）</span>
+      </div>
       <div className="flex gap-2">
         <button onClick={() => send('go')}
           className="flex-1 px-4 py-2 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100 text-sm font-medium">
