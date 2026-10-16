@@ -161,16 +161,15 @@ export async function startDailyFilm(
       const { getObject } = await import('@/lib/oss')
       const buf = await getObject(`storage/${uid}/${htmlName}`)
       if (!buf || !buf.length) throw new Error('仓库里取不到 ' + htmlName + '（可能已被清理，请重新生成一份）')
-      // ★VF_DAILY_V34（2026-10-16 用户实测「458s 后 stage=render ✗ RegExpExecMultiple」）：
-      //   **出片前的体积闸门** —— 先看单文件版多大，太大就**开跑前说清**。
-      //   为什么需要：9.9MB 的页面（16 张内嵌图）会让引擎侧对**超长字符串做正则**时把 Node 撑爆
-      //   （`v8::internal::Runtime_RegExpExecMultiple`），表现是**跑 458 秒后崩、报错还看不出原因** ——
-      //   用户干等一场，还以为是自己的操作问题。与其那样，不如当场告诉他"重新生成一份"。
-      //   （根因已在 `daily.ts` 修掉：内嵌图被压到长边 1280 / q7 ⇒ 16 张约 3MB；这道闸门是**兜底**。）
+      // ★VF_DAILY_V34c（2026-10-16 用户定案：「**找崩的原因，而不是限制 —— 不要限制**」）：
+      //   原来这里是 `>8MB 直接 throw`，**拒绝出片**。用户明确不接受这种处理，而且他说得对：
+      //   "崩过一次就设一道线"，是把**真因藏起来**，不是解决它（而且那 8MB 是**我拍脑袋定的**：
+      //   依据只是"7.4MB 成功过、9.9MB 崩过"，不是任何真实阈值）。
+      //   现口径：**只把体积写进日志与回执**（便于定位），**不拦截** ——
+      //   让用户自己决定要不要继续跑；真崩了再去查那个正则（见 ISSUES 的相关条目）。
       const pageMb = buf.length / 1024 / 1024
       if (pageMb > 8) {
-        throw new Error('这份页面 **' + pageMb.toFixed(1) + ' MB** 太大了（含内嵌图）—— 引擎处理它时会把内存撑爆。\n'
-          + '**请重新生成一份日报页**（新版会把内嵌图压到合适尺寸，约 3MB），然后再出片。')
+        push('[警告] 单文件版 ' + pageMb.toFixed(1) + ' MB 偏大（引擎处理超长内容时有崩的风险）—— **仍继续**，若崩请看日志定位')
       }
       const htmlPath = path.join(work, 'in.html')
       fs.writeFileSync(htmlPath, buf)
