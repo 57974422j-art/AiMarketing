@@ -1035,8 +1035,39 @@ async function buildSingleFile(uid: number | string, buf: Buffer | undefined, pi
     })
   }
   if (!imgs.length) return null
+  /* ★VF_DAILY_V35（2026-10-16 从仓库取件实测确认）：**同一张图只内嵌一份**。
+     实测读数：`页面 10.62 MB · 内嵌 38 张 · 全 jpeg · 平均 214 KB/张`
+       ⇒ **压图本身完全正常**（214KB 正是预期）；真因是 **17 张素材被引用 38 次**，
+         而 `embedImages` 是**按引用名逐点替换**的 ⇒ 每个引用点塞一份完整 base64 ≈ 8.1MB。
+     为什么切分型不重复：`slats`/`blinds`/`mosaic` 用 `:root` 里**只声明一次**的 CSS 变量
+       （`daily-page.mjs:518-522` 的注释就写着这件事）。
+     现口径（三步）：
+       ① 每张图的 base64 收进**一张共享表** `window.__IMGS`（整个页面只出现一份）；
+       ② 内嵌前把**普通图** `<img …>` 里的 `src` 换成占位（`__IMG6__`）——这样 `embedImages`
+          **匹配不到引用名 ⇒ 不会重复塞**；页面里一小段脚本再把 `img[data-img]` 的 src 指到共享表；
+       ③ **切分型的 `--imgN` 照旧**交给 `embedImages` 替换（它在 :root 里只一处，本来就不重复）。
+     ⚠️ 正则**只处理 `<img …>` 标签**，绝不碰切分型的 `--img1:url(gen_…)` 声明（那是唯一的替换来源）。
+     ⚠️ 共享表放在 `</body>` 前，脚本同步执行 ⇒ 引擎逐帧截图时 src 早已就位。 */
+  let html = buf.toString('utf8')
+  const pairs: string[] = []
+  for (const im of imgs) {
+    pairs.push(JSON.stringify(String(im.n)) + ':' + JSON.stringify('data:' + im.mime + ';base64,' + im.b64))
+  }
+  if (pairs.length) {
+    // ② 普通图的 src 换成占位（只动 <img> 标签内部，拿到同标签里的 data-img 图号）
+    html = html.replace(/<img\b[^>]*>/g, (tag) => {
+      const n = (String(tag).match(/data-img="(\d+)"/) || [])[1] || ''
+      return n ? String(tag).replace(/\ssrc="[^"]*"/, ' src="__IMG' + n + '__"')
+        : String(tag).replace(/\ssrc="[^"]*"/, ' src=""')
+    })
+    // ① 共享表 + 把图位指过去（拿不到就退回 data-src/原占位，绝不抛错）
+    const boot = '<script>window.__IMGS={' + pairs.join(',') + '};'
+      + 'try{document.querySelectorAll("img[data-img]").forEach(function(e){'
+      + 'var u=window.__IMGS[e.getAttribute("data-img")];if(u)e.src=u;});}catch(x){}</script>'
+    html = html.indexOf('</body>') >= 0 ? html.replace('</body>', boot + '</body>') : html + boot
+  }
   // 预算放到 24MB（压过之后 10 张通常只有 3~5MB；这只是"最后一道保险"，不要它再成为丢图原因）
-  const rc = embedImages(buf.toString('utf8'), imgs, 24 * 1024 * 1024)
+  const rc = embedImages(html, imgs, 24 * 1024 * 1024)
   if (!rc.embedded) return null
   const saved = await saveToPersonalRepo({ userId: uid, buffer: Buffer.from(rc.html, 'utf8'), ext: 'html', mime: 'text/html', gen: true })
   return { name: String(saved?.name || ''), embedded: rc.embedded }

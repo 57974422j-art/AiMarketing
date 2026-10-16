@@ -568,8 +568,15 @@ function figHTML(n, fx, fv) {
   //   但在"长页面滚动 / 客户端 webview"里会出现"该显示时还没解码 ⇒ 空图位"，
   //   现象就是用户说的「**部分图有、部分没有**」（录屏第 9 帧两个图位空着、封面段却有图）。
   //   改成 `loading="eager"` + `decoding="sync"`：一次全部解码，滚动到哪里都是现成的。
+  // ★VF_DAILY_V35（2026-10-16 从仓库取件实测「页面 10.62MB = 内嵌 38 份、平均 214KB/张」）：
+  //   **加一个 data-img 标记**（值就是图号）—— 只为让"单文件版"能**共享一份图数据**：
+  //   普通图是逐个 <img src> 引用的，而单文件版的内嵌逻辑是"按引用名逐点替换" ⇒
+  //   同一张素材被多段复用时，每个引用点都会塞一份完整 base64（17 张 → 38 个引用点 ≈ 8.1MB）。
+  //   有了 data-img，单文件版可以把图收进一张共享表、由一小段脚本指过去（只存一份）。
+  //   ⚠️ 对**页面本身零影响**：多一个属性而已，配图版（非内嵌）照旧用 src 里的真实文件名。
+  //   （切分型 slats/blinds/mosaic 本来就用 :root 里只声明一次的 CSS 变量 ⇒ 天然不重复，见上方注释。）
   return `<div class="fig" style="${bg}" data-fvv="${v}">`
-    + `<img class="ph" src="${IMG_NAME(n)}" alt="" loading="eager" decoding="sync" onerror="this.remove()"></div>`
+    + `<img class="ph" src="${IMG_NAME(n)}" data-img="${n}" alt="" loading="eager" decoding="sync" onerror="this.remove()"></div>`
 }
 
 function segBody(s, sc) {
