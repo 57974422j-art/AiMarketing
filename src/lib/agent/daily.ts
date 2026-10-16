@@ -872,15 +872,18 @@ async function needRegen(ctx: DailyCtx, d: DailyDraft, why: string): Promise<str
   return why
 }
 
-/** 方案交付：仓库来源 ⇒ 出**方案卡**；本机/子目录（没有缩略图可签）⇒ 退回文字清单 */
+/** 方案交付：**一律出方案卡**（第 2 步）。
+ * ★VF_DAILY_V30（2026-10-16 用户定案「8」：本机/子目录来源在第 2 步只有一段文字、**没有卡片也没有编辑面板**）：
+ *   老写法按**来源**分叉 —— repo 出卡、本机/子目录退回文字清单，理由写的是"没有缩略图可签"。
+ *   但**方案卡根本不需要缩略图**（它显示的是「用图序号 + 素材文件名」，而 `picks` 这个参数在
+ *   `buildPlanCardPayload` 里**一次都没用到** —— 已逐行核对）⇒ 那条理由不成立。
+ *   而"退回文字清单"的代价是**实打实的**：没有卡片 ⇒ **没有「✏️ 编辑」面板**、只能靠打字改。
+ *   第 1 步（选素材）需要缩略图，那是客观限制；第 2 步没必要跟着受罚。
+ *   ⇒ 现口径：一律出卡（本机图的"能不能直接预览"只影响预览环节，不影响方案确认与编辑）。 */
 function planOut(d: DailyDraft, picks: DailyPick[], by: PlanBy, note: string, hintExtra = ''): string {
-  if ((d.source || { kind: 'repo' }).kind === 'repo') {
-    return 'VF_JSON:' + JSON.stringify(buildPlanCardPayload(d.plan, {
-      picks, by, note, hintExtra, topic: d.topic || '',
-    }))
-  }
-  return (hintExtra ? '✅ ' + hintExtra + '\n\n' : '')
-    + formatDailyPlan(d.plan, { topic: d.topic || '', picks, by, note })
+  return 'VF_JSON:' + JSON.stringify(buildPlanCardPayload(d.plan, {
+    picks, by, note, hintExtra, topic: d.topic || '',
+  }))
 }
 
 /**
@@ -1291,7 +1294,21 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
         + '完事我会自动把成片发到这儿，**你可以先干别的**。\n\n'
         + 'VF_DAILY_FILM_TASK:' + JSON.stringify({ id: t.id, name: d.singleName })
     }
-    if (at !== 'mat' || d.step !== 'pick') return null
+    // ★VF_DAILY_V30（2026-10-16 用户定案「9」：旧素材卡的「下一步」在非选图步骤**点了没反应**）：
+    //   老写法一律 `return null` ⇒ 交回主流程 ⇒ 而那一刻**没有任何人接**（本线已过选素材阶段，
+    //   其余线也不认这条串）⇒ 用户点了等于石沉大海。⚠️ 更值得警惕的是它和 ★VF_DAILY_V26 同一个机制：
+    //   消息最终可能落到主 AI 手里被自由发挥（那次 11 条编辑就是这么被"重排"掉的）。
+    //   现口径：`at:'mat'`（能确定是素材卡发来的）但**步骤已经过了** ⇒ 回一句**人话引导**
+    //   （告诉他现在在哪一步、该点哪里），而不是沉默；其余 `at` 仍然 `return null`（不吞别线的消息）。
+    if (at !== 'mat') return null
+    if (d.step !== 'pick') {
+      const where = (d.step as string) === 'review'
+        ? '这单**已经排好方案**了 —— 往上翻那张「方案确认」卡，点「✅ 生成 HTML」；也可以直接打字回 `确认`。'
+        : ((d.step as string) === 'done'
+          ? '这单**已经生成好了** —— 往上翻交付卡（那里有出片 / 编辑 / 下载 / 分享）；想做新的一份就说「日报落地页」。'
+          : '本单当前不在"选素材"这一步 —— 回「取消」可以重来，或说「日报落地页」重新起一单。')
+      return '⚠️ 这张素材卡已经过期了：' + where
+    }
     const items = await dailyMatItems(uid, LIST_CAP)
     const all = items.map((x) => x.name)
     let picked = (Array.isArray(f?.names) ? f.names : [])
