@@ -171,6 +171,17 @@ export async function startDailyFilm(
       if (pageMb > 8) {
         push('[警告] 单文件版 ' + pageMb.toFixed(1) + ' MB 偏大（引擎处理超长内容时有崩的风险）—— **仍继续**，若崩请看日志定位')
       }
+      /* ★VF_DAILYFILM_V8b（2026-10-16 用户实测「V40 之后日志里还有 Fetched 808 font face(s) for "Noto Serif SC"」）：
+         **旧版生成器产出的页面必须**当场**拒绝** —— 它的字体栈里写着 Google Fonts 官方名，
+         引擎 compile 会去抓全量中文字体（808 + 909 个 face / ≈87MB）⇒ 必崩，而且是**跑到 374s 才崩**。
+         用户前面几轮"重试旧单"就是这么一次次白等的（我也误把它当成"新页面"）。旧产物改不动 ⇒
+         只有"重新生成"一条路，所以这里把它变成**一句立刻可见的话**。
+         判据用 `Buffer.indexOf`（零拷贝，不把 8MB buffer toString 成字符串）。 */
+      const legacyMark = ['"Noto Serif SC"', '"Noto Sans SC"'].filter((m) => buf.indexOf(m) >= 0)
+      if (legacyMark.length) {
+        throw new Error('这份页面是**旧版生成器**产出的（字体栈里写着 ' + legacyMark.join('、')
+          + ' ⇒ 引擎会去 Google Fonts 抓全量中文字体，必然内存爆）。旧产物改不动，请点「✅ 生成 HTML」**重新生成一份**再出片。')
+      }
       const htmlPath = path.join(work, 'in.html')
       fs.writeFileSync(htmlPath, buf)
       push('[取件] OK ' + (buf.length / 1024 / 1024).toFixed(1) + ' MB')
