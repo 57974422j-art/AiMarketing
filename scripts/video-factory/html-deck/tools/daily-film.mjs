@@ -77,12 +77,37 @@ let html = fs.readFileSync(abs, 'utf8')
 // ⚠️ 用**前缀**匹配 `class="sec` —— 打包过一次的副本里是 `class="sec clip"`，
 //    写死 `class="sec"` 会把合法输入误判成"不是日报页"（2026-10-14 自测时就这么误报的）。
 if (!/<section class="sec/.test(html)) { console.log('stage=html ✗ 这不是日报落地页（没找到 .sec 段）'); process.exit(1) }
-// 出片只吃**单文件版**（图 base64 内嵌）：配图版的图在同级目录，打包时还要搬图/改引用，
-// 而服务端本来就能出单文件版 ⇒ 不支持它，**明确报出来**（不静默截断成"图片全丢"）。
+/* ★VF_DAILY_V39（2026-10-16 **本地复现后**改）：
+   原来这里**明确拒绝**"配图版"（注释理由：*服务端本来就能出单文件版*）。
+   但本地复现证明那条理由已经不成立 —— **单文件版（7MB 就够）会让浏览器在 `page.goto` 阶段直接崩**
+   （`exit=134`，日志停在 `[initSession:screenshot] page.goto start`）：
+   一个 HTML 里塞几十兆 base64 ⇒ **加载时就炸**，跟内存大小、跟正则都无关。
+   ⇒ 现在**接受配图版**（图作为旁边的小文件）；打包阶段会把 `images/` 一起搬过去。
+   ⚠️ 若这份页面**两种引用都没有**（既没内嵌也没外部图）⇒ 仍然报出来（不静默）。 */
 const extRefs = html.match(/src="(?!data:)([^"]+\.(?:jpg|jpeg|png|webp))"/gi) || []
+const hasInline = html.indexOf('src="data:image/') >= 0
 if (extRefs.length) {
-  console.log('stage=media ✗ 这份是**配图版**（引用外部图 ' + extRefs.length + ' 处，例：' + extRefs[0].slice(0, 50) + '…）')
-  console.log('  出片需要**单文件版**（图 base64 内嵌）—— 请先出单文件版再出片。**没有出片**。')
+  console.log('[输入] 配图版：引用外部图 ' + extRefs.length + ' 处')
+  if (!hasInline) console.log('[输入] 这份页面没有任何内嵌图 —— 走"页面 + 图文件"模式')
+  // ★VF_DAILY_V39（本地实测踩到）：**必须把图搬到打包目录** —— 引擎读的是**打包产物**所在的目录，
+  //   不是源文件旁边。不搬 ⇒ 校验报 `missing_local_asset: images/eNNN.jpg`（本地就是这条）。
+  //   位置：`outDir` 在文件前部已 resolve（第 52 行附近）⇒ 这里就能用。
+  const srcImgDir = path.join(path.dirname(abs), 'images')
+  if (fs.existsSync(srcImgDir)) {
+    const dstImgDir = path.join(outDir, 'images')
+    fs.mkdirSync(dstImgDir, { recursive: true })
+    let moved = 0
+    for (const f of fs.readdirSync(srcImgDir)) {
+      const a2 = path.join(srcImgDir, f)
+      if (fs.statSync(a2).isFile()) { fs.copyFileSync(a2, path.join(dstImgDir, f)); moved++ }
+    }
+    console.log('[输入] 已搬图 ' + moved + ' 张 → ' + dstImgDir)
+  } else {
+    console.log('stage=media ✗ 页面引用了 images/ 里的图，但源目录里没有 images/（' + srcImgDir + '）')
+    process.exit(1)
+  }
+} else if (!hasInline) {
+  console.log('stage=media ✗ 这份页面既没有内嵌图、也没有外部图引用（不是正常的日报页产物）')
   process.exit(1)
 }
 
