@@ -17,5 +17,14 @@ export async function register() {
     if (process.env.NEXT_RUNTIME && process.env.NEXT_RUNTIME !== 'nodejs') return
     const { startCleanupScheduler } = await import('@/lib/cleanup')
     startCleanupScheduler()
+    // ★VF_DAILYFILM_V6（2026-10-16 用户定案，清单第 ⑩ 条）：**把上次进程留下的"进行中"出片任务
+    //   如实标成失败**。出片任务跑在服务端进程内 ⇒ pm2 重启 / 部署会让它永远停在 running，
+    //   前端只能空转到超时（用户白等）。启动这一刻进程内不可能有正在跑的任务，所以不会误伤。
+    //   单独 try/catch：出片清理失败绝不能影响服务器启动。
+    try {
+      const { markStaleDailyFilms } = await import('@/lib/agent/daily-film')
+      const n = await markStaleDailyFilms()
+      if (n) console.log('[日报出片] 启动清理：' + n + ' 个因重启中断的任务已标记为失败')
+    } catch { /* 静默 */ }
   } catch { /* 静默：绝不因为清理影响启动 */ }
 }

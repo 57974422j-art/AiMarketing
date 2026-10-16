@@ -106,6 +106,40 @@ function runTool(cmd: string, args: string[], timeoutMs: number): Promise<{ code
  * 起一个出片任务：**立即返回**任务对象，真活在后头跑（前端靠 `/api/agent/daily-film-status` 轮询收尾）。
  * ⚠️ 后台任务跑在**当前进程**里 ⇒ pm2 重启会丢（与既有 `make_ai_video` 行为一致，已登记 ISSUES）。
  */
+/**
+ * ★VF_DAILYFILM_V6（2026-10-16 用户定案「继续」→ 做清单第 ⑩ 条：出片任务遇服务重启即丢）：
+ * **服务启动时重扫** —— 把上次进程留下的 `running` 任务**如实标成失败**。
+ * 为什么需要：出片任务是 `spawn` 在**服务端进程内**跑的（与成片线同一套取舍），
+ *   一旦 pm2 重启 / 部署，那一单就再没人推进 ⇒ 任务文件永远停在 `running`
+ *   ⇒ 前端只能空转到 30 分钟超时、然后说一句"等太久"（用户白等，还会以为是自己操作错了）。
+ * 为什么"标失败"而不是"续跑"：进程内的中间态（子进程句柄、临时工作目录）全没了，
+ *   续跑等于**从头重渲染一遍**（几分钟，配音单还会重复烧 TTS 的钱）—— 不如明确让用户重试一次。
+ * ⚠️ 只在**服务启动时**调用：那一刻进程内不可能有正在跑的任务，所以不会误伤活任务。
+ */
+export async function markStaleDailyFilms(): Promise<number> {
+  try {
+    const dir = path.join(vfStorageRoot(), 'video-factory')   // 与 startDailyFilm 写任务文件是同一处
+    if (!fs.existsSync(dir)) return 0
+    const files = fs.readdirSync(dir).filter((f) => /^df\d+\.json$/.test(f))
+    let n = 0
+    for (const f of files) {
+      const p = path.join(dir, f)
+      try {
+        const j = JSON.parse(fs.readFileSync(p, 'utf8'))
+        if (String(j?.status || '') !== 'running') continue
+        j.status = 'failed'
+        j.error = '服务在出片途中重启（部署 / pm2 重启）⇒ 这一单中断了，请重新点一次出片。'
+        j.finishedAt = new Date().toISOString()
+        j.tail = Array.isArray(j.tail) ? j.tail.slice(-40) : []
+        j.tail.push('[中断] 服务重启，本单被标记为失败（★VF_DAILYFILM_V6）')
+        fs.writeFileSync(p, JSON.stringify(j, null, 2), 'utf8')
+        n++
+      } catch { /* 单个文件坏了不影响其它 */ }
+    }
+    return n
+  } catch { return 0 }
+}
+
 export async function startDailyFilm(
   uid: number | string, htmlName: string, opts?: { voice?: string[] },
 ): Promise<DailyFilmTask> {
