@@ -1049,21 +1049,24 @@ async function buildSingleFile(uid: number | string, buf: Buffer | undefined, pi
      ⚠️ 正则**只处理 `<img …>` 标签**，绝不碰切分型的 `--img1:url(gen_…)` 声明（那是唯一的替换来源）。
      ⚠️ 共享表放在 `</body>` 前，脚本同步执行 ⇒ 引擎逐帧截图时 src 早已就位。 */
   let html = buf.toString('utf8')
-  const pairs: string[] = []
-  for (const im of imgs) {
-    pairs.push(JSON.stringify(String(im.n)) + ':' + JSON.stringify('data:' + im.mime + ';base64,' + im.b64))
-  }
-  if (pairs.length) {
-    // ② 普通图的 src 换成占位（只动 <img> 标签内部，拿到同标签里的 data-img 图号）
+  /* ★VF_DAILY_V36（2026-10-16 取件复核后收口）：**全页只留一处图数据** —— 就留在 `:root` 的 `--imgN` 里。
+     上一版（V35）把 base64 又存了一份进 `window.__IMGS` ⇒ 实测 **34 份 = 变量声明 17 + 共享表 17**
+     （好消息：22 个图位已**全部**改成占位、0 个还在塞 base64 ⇒ 那部分是对的），**但同一张图仍存了两份**。
+     现口径：普通图**不再另存表**，改成**从 `--imgN` 取值** —— 那是页面原生机制
+     （`daily-page.mjs:660-669` 的 `IMG_VARS` 每张图**只声明一次**，切分型入场也用它）⇒ 全页 17 份。
+     ⚠️ 时序安全：脚本在**页面加载时**执行，而 `--imgN` 里的 data: 是**生成文件时**就替换好的。
+     ⚠️ 正则只处理 `<img …>` 标签内部，绝不碰 `--imgN` 的声明（那是唯一的图数据来源）。 */
+  if (imgs.length) {
     html = html.replace(/<img\b[^>]*>/g, (tag) => {
       const n = (String(tag).match(/data-img="(\d+)"/) || [])[1] || ''
       return n ? String(tag).replace(/\ssrc="[^"]*"/, ' src="__IMG' + n + '__"')
         : String(tag).replace(/\ssrc="[^"]*"/, ' src=""')
     })
-    // ① 共享表 + 把图位指过去（拿不到就退回 data-src/原占位，绝不抛错）
-    const boot = '<script>window.__IMGS={' + pairs.join(',') + '};'
-      + 'try{document.querySelectorAll("img[data-img]").forEach(function(e){'
-      + 'var u=window.__IMGS[e.getAttribute("data-img")];if(u)e.src=u;});}catch(x){}</script>'
+    // 从 CSS 变量里取图：值是 url("data:image/jpeg;base64,…") ⇒ 剥掉 url( ) 与引号
+    const boot = '<script>try{var S=getComputedStyle(document.documentElement);'
+      + 'document.querySelectorAll("img[data-img]").forEach(function(e){'
+      + 'var m=/url\\(([^)]+)\\)/.exec(S.getPropertyValue("--img"+e.getAttribute("data-img"))||"");'
+      + 'if(m)e.src=m[1].replace(/["\']/g,"").trim();});}catch(x){}</script>'
     html = html.indexOf('</body>') >= 0 ? html.replace('</body>', boot + '</body>') : html + boot
   }
   // 预算放到 24MB（压过之后 10 张通常只有 3~5MB；这只是"最后一道保险"，不要它再成为丢图原因）
