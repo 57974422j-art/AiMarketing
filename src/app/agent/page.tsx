@@ -1950,6 +1950,18 @@ function VfDailyPlanCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
   const proto = String(vj?.proto || 'VF_DAILY_FORM')
   const send = (at: string) => onSend(proto + ':' + JSON.stringify({ at }))
   const [showEdit, setShowEdit] = useState(false)   // ★VF_DAILY_V20：编辑面板开关
+  // ★VF_DAILY_V32b（2026-10-16 用户实测「我点了一下它就开始执行、✅ 没打上、点击就触发了」）：
+  //   病灶两处，都是我的写法问题：
+  //     ① 复选框写成了**纯受控**（`checked={vj?.aiLayout}`）⇒ 点击后 React 立刻按 payload 把它
+  //        **重置回去** ⇒ 视觉上"打不上勾"（用户看到的就是这个）；
+  //     ② 原设计"切换即重排" ⇒ **一点就跑**，用户觉得"还没确认就执行了"。
+  //   现口径：复选框**只改本地状态**（点一下真的会勾上），改完下方出现
+  //   「🔄 按新开关重排方案」按钮 —— **点那个按钮才真的重排**（两步分明，不搞"点了就跑"）。
+  const [aiLayout, setAiLayout] = useState(!!vj?.aiLayout)
+  const [aiPickSkin, setAiPickSkin] = useState(!!vj?.aiPickSkin)
+  // 服务端回了新卡（含开关的权威值）⇒ 以它为准（本地改动被确认/被纠正）
+  useEffect(() => { setAiLayout(!!vj?.aiLayout); setAiPickSkin(!!vj?.aiPickSkin) }, [vj?.aiLayout, vj?.aiPickSkin])
+  const aiDirty = aiLayout !== !!vj?.aiLayout || aiPickSkin !== !!vj?.aiPickSkin
   return (
     <div className="mb-2 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06]">
       <div className="text-xs text-emerald-300 mb-2">📄 日报落地页 · {String(vj?.hint || '第 2 步 / 共 3 步 · 方案确认')}</div>
@@ -1990,21 +2002,26 @@ function VfDailyPlanCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
           ⚠️ 切换会**立刻按新设置重排一遍方案**（要调一次 AI + 看图，约 10~20 秒）——
              不重排的话开关只是个存下来的值，用户**看不到任何变化**（那正是"AI 参与没参与分不出来"的老毛病）。 */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-2 text-[10px]">
-        {([['aiLayout', '🎨 让 AI 放手排版'], ['aiPickSkin', '🖌 皮肤也交给 AI 挑']] as const).map(([k, label]) => {
-          const on = !!vj?.[k]
-          return (
-            <label key={k} className="flex items-center gap-1.5 cursor-pointer select-none">
-              <input type="checkbox" checked={on} className="accent-emerald-500"
-                onChange={(e) => onSend(proto + ':' + JSON.stringify({
-                  at: 'layout',
-                  aiLayout: k === 'aiLayout' ? e.target.checked : !!vj?.aiLayout,
-                  aiPickSkin: k === 'aiPickSkin' ? e.target.checked : !!vj?.aiPickSkin,
-                }))} />
-              <span className={on ? 'text-emerald-200' : 'text-gray-400'}>{label}</span>
-            </label>
-          )
-        })}
-        <span className="text-gray-500">切换后我会按新设置**重排一遍方案**（约 10~20 秒）</span>
+        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+          <input type="checkbox" checked={aiLayout} className="accent-emerald-500"
+            onChange={(e) => setAiLayout(e.target.checked)} />
+          <span className={aiLayout ? 'text-emerald-200' : 'text-gray-400'}>🎨 让 AI 放手排版</span>
+        </label>
+        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+          <input type="checkbox" checked={aiPickSkin} className="accent-emerald-500"
+            onChange={(e) => setAiPickSkin(e.target.checked)} />
+          <span className={aiPickSkin ? 'text-emerald-200' : 'text-gray-400'}>🖌 皮肤也交给 AI 挑</span>
+        </label>
+        {/* 只有"改过还没生效"时才出现这个按钮 —— 勾选本身**不会立刻执行**（用户实测反馈：
+            一点就跑会让人以为"没确认就执行了"） */}
+        {aiDirty ? (
+          <button onClick={() => onSend(proto + ':' + JSON.stringify({ at: 'layout', aiLayout, aiPickSkin }))}
+            className="px-2.5 py-1 rounded-lg border border-amber-400/50 text-amber-200 hover:bg-amber-500/10">
+            🔄 按新开关重排方案（约 10~20 秒）
+          </button>
+        ) : (
+          <span className="text-gray-500">改完点「🔄 按新开关重排方案」才会生效</span>
+        )}
       </div>
       <div className="flex gap-2">
         <button onClick={() => send('go')}
