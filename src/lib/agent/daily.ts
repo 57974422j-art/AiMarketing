@@ -692,15 +692,15 @@ async function shrinkForEmbed(buf: Buffer): Promise<Buffer> {
     const tout = tin + '.out.jpg'
     try {
       fs.writeFileSync(tin, buf)
-      // ★VF_DAILY_V34b（2026-10-16 用户问「会不会妨碍设计、清晰度」后**收敛**）：
-      //   **只缩尺寸，不动质量** ——
-      //   · 画布只有 720×1280 ⇒ 图长边 **1280 就够**（屏幕上最多显示到这么大，再大也不会被用上）
-      //     ⇒ "1600 → 1280" 是**零可见损失**（多出来的像素从来没显示过）；
-      //   · 质量**保持 q5**（我上一版顺手改成 q7 其实是多余的 —— 用户口径：宁可文件稍大，
-      //     也不要多压一道）。
-      //   预计：单图约 180~220KB × 16 张 ≈ **3MB**（原 ~8MB）；720 画布上肉眼无差，
-      //   而且成片还要再经一次视频编码（H.264），那点差异在成片里本来就看不出来。
-      spawnSync('ffmpeg', ['-v', 'error', '-y', '-i', tin, '-vf', 'scale=min(1280\\,iw):-2', '-q:v', '5', tout], { timeout: 20000 })
+      // ★VF_DAILY_V37（2026-10-16 撤回占位方案后的补偿）：**质量 q5 → q7**。
+      //   为什么这次动质量（与 V34b"只缩尺寸不动质量"的口径相反）：
+      //   引擎校验不接受"占位"，所以**普通图只能逐个内嵌** ⇒ "同一张图被多段复用"造成的重复
+      //   **在不动渲染器的前提下消不掉**（实测 17 张 → 38 个图位）。⇒ 只能把单张压小来抵消：
+      //     长边 **1280 保持不动**（满幅页确实需要 1280，再小会糊）× 质量 **q7**（约 150KB/张）
+      //     ⇒ 38 个图位 ≈ **5.7MB**，低于"曾经成功出片"的 7.4MB。
+      //   ⚠️ 这与用户"别妨碍清晰度"的交代**不一致**，已在 ISSUES 里记明理由与还原条件：
+      //     等"图改用 CSS 背景、天然只存一份"那条正道做完，就把质量档还原成 q5。
+      spawnSync('ffmpeg', ['-v', 'error', '-y', '-i', tin, '-vf', 'scale=min(1280\\,iw):-2', '-q:v', '7', tout], { timeout: 20000 })
       const out = fs.existsSync(tout) ? fs.readFileSync(tout) : null
       return out && out.length && out.length < buf.length ? out : buf
     } finally {
@@ -1046,29 +1046,20 @@ async function buildSingleFile(uid: number | string, buf: Buffer | undefined, pi
        ② 内嵌前把**普通图** `<img …>` 里的 `src` 换成占位（`__IMG6__`）——这样 `embedImages`
           **匹配不到引用名 ⇒ 不会重复塞**；页面里一小段脚本再把 `img[data-img]` 的 src 指到共享表；
        ③ **切分型的 `--imgN` 照旧**交给 `embedImages` 替换（它在 :root 里只一处，本来就不重复）。
-     ⚠️ 正则**只处理 `<img …>` 标签**，绝不碰切分型的 `--img1:url(gen_…)` 声明（那是唯一的替换来源）。
+     ⚠️ 正则**只处理 `<img …>` 标签**，绝不碰切分型的 `--img1:url(gen_…)` 声明。
+     （★V37 备注：这段"共享表"方案也已撤回 —— 下面那条 V37 注释说明了原因。）
      ⚠️ 共享表放在 `</body>` 前，脚本同步执行 ⇒ 引擎逐帧截图时 src 早已就位。 */
-  let html = buf.toString('utf8')
-  /* ★VF_DAILY_V36（2026-10-16 取件复核后收口）：**全页只留一处图数据** —— 就留在 `:root` 的 `--imgN` 里。
-     上一版（V35）把 base64 又存了一份进 `window.__IMGS` ⇒ 实测 **34 份 = 变量声明 17 + 共享表 17**
-     （好消息：22 个图位已**全部**改成占位、0 个还在塞 base64 ⇒ 那部分是对的），**但同一张图仍存了两份**。
-     现口径：普通图**不再另存表**，改成**从 `--imgN` 取值** —— 那是页面原生机制
-     （`daily-page.mjs:660-669` 的 `IMG_VARS` 每张图**只声明一次**，切分型入场也用它）⇒ 全页 17 份。
-     ⚠️ 时序安全：脚本在**页面加载时**执行，而 `--imgN` 里的 data: 是**生成文件时**就替换好的。
-     ⚠️ 正则只处理 `<img …>` 标签内部，绝不碰 `--imgN` 的声明（那是唯一的图数据来源）。 */
-  if (imgs.length) {
-    html = html.replace(/<img\b[^>]*>/g, (tag) => {
-      const n = (String(tag).match(/data-img="(\d+)"/) || [])[1] || ''
-      return n ? String(tag).replace(/\ssrc="[^"]*"/, ' src="__IMG' + n + '__"')
-        : String(tag).replace(/\ssrc="[^"]*"/, ' src=""')
-    })
-    // 从 CSS 变量里取图：值是 url("data:image/jpeg;base64,…") ⇒ 剥掉 url( ) 与引号
-    const boot = '<script>try{var S=getComputedStyle(document.documentElement);'
-      + 'document.querySelectorAll("img[data-img]").forEach(function(e){'
-      + 'var m=/url\\(([^)]+)\\)/.exec(S.getPropertyValue("--img"+e.getAttribute("data-img"))||"");'
-      + 'if(m)e.src=m[1].replace(/["\']/g,"").trim();});}catch(x){}</script>'
-    html = html.indexOf('</body>') >= 0 ? html.replace('</body>', boot + '</body>') : html + boot
-  }
+  /* ★V35 / V36 的"占位 + 脚本换 src"**都已撤回**（V37，见下）——这里只留最终口径。 */
+  /* ⚠️⚠️ ★VF_DAILY_V37（2026-10-16 用户实测「stage=check ✗ missing_local_asset: __IMG8__, __IMG4__ …」）：
+     **V35/V36 的"占位 + 加载后用脚本换 src"行不通，已撤回。**
+     原因：**引擎的静态校验会检查 `<img>` 引用的本地文件是否存在，而它读的是源码**
+     （看到 `src="__IMG8__"` 就判"引用了项目里没有的文件"）⇒ 出片在 **check 阶段**就失败；
+     而"加载后再把 src 换成图片数据"这招救不了 —— **校验发生在加载之前**。
+     现口径：**普通图恢复逐个内嵌**（校验能过）；体积问题改为**在源头压小**
+     （见 `shrinkForEmbed` 的质量档）。
+     ✅ 真正的正道（图改用 CSS 背景、像"切分型"那样天然只存一份）已记进 ISSUES，
+        那条做完就不必再靠压质量换体积了。 */
+  const html = buf.toString('utf8')
   // 预算放到 24MB（压过之后 10 张通常只有 3~5MB；这只是"最后一道保险"，不要它再成为丢图原因）
   const rc = embedImages(html, imgs, 24 * 1024 * 1024)
   if (!rc.embedded) return null
