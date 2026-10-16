@@ -614,8 +614,13 @@ function segBody(s, sc) {
     .map((p) => `<div class="col"><b>${esc(p && p[0])}</b><i>${esc(p && p[1])}</i></div>`).join('')
   const head = `<div class="head"><span class="kick">${esc(s.kicker || '')}</span>`
     + (s.stamp ? `<span class="stamp">${esc(s.stamp)}</span>` : '') + `</div>`
+  // ★VF_DAILY_V31：文字对齐（AI 可选 left/center/right）。
+  //   ⚠️ **没给就不写这个属性**（而不是写个空串）—— 空属性会让 CSS 里 `[data-align]` 选择器也命中，
+  //   等于给每一段都套上一层"左对齐"规则，可能盖掉版式原本的对齐（旧产物必须逐字节不受影响）。
+  const alignAttr = ['left', 'center', 'right'].indexOf(String(s.align || '')) >= 0
+    ? ` data-align="${esc(s.align)}"` : ''
   return `<section class="sec" data-seg="${sc.i + 1}" data-start="${sc.start}" data-duration="${sc.dur}"`
-    + ` data-place="${esc(s.place || 'cover')}" data-form="${esc(form)}" data-layout="${layout}"`
+    + ` data-place="${esc(s.place || 'cover')}" data-form="${esc(form)}" data-layout="${layout}"${alignAttr}`
     + ` data-type="${tType}" data-paper="${PAPER_DARK ? 'dark' : 'light'}" data-tm="${segTm[sc.i]}" style="--ts:${tScale};--title:${titleCss(sc.i, layout, form, tType, tScale, titleMaxChars)}"`
     + ` data-fx="${fx}" data-fv="${fv}" data-scrim="${esc(s.scrim || 'soft')}">`
     + head
@@ -1046,6 +1051,33 @@ ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' +
   .sec[data-type="list"] .cols{display:flex;flex-direction:column;gap:.42em;border-left:clamp(3px,.5vmin,6px) solid var(--rule);padding-left:.7em}
   .sec[data-type="list"] .col{flex-direction:row;align-items:baseline;gap:.55em;border-bottom:1px dashed var(--line);padding-bottom:.34em}
   .sec[data-type="list"] .col b{font-family:var(--fsans);font-size:var(--label);min-width:2.4em}
+
+  /* ═══ ★VF_DAILY_V31（2026-10-16 用户定案「按你规划来」）═══════
+     **文字对齐**（AI 可选：left / center / right）—— 第一个新增的"版面自由度"参数。
+     为什么先做它（四个候选里挑它的理由，别改顺序）：它**只改对齐，不动任何元素的尺寸与外框**
+     ⇒ 那三条最容易误报的判据（文字被裁 / 越界 / 折行）**照旧管用**，不需要动闸门标定。
+     （对照 imgShare / pad：它们会缩窄内容列 ⇒ nowrap 标题溢出 ⇒ 直接触发裁切判据 ——
+      那正是 V2 / CLIP_V2 / V3 反复踩的坑，所以它们要**先修 titleCss 的列宽标定**才能上。）
+     ⚠️ 两条刻意的边界：
+       ① stack2（上下双图）与 quote（引文页）的**居中本身就是它们的版式特征**
+          ⇒ 这里用 :not() **显式排除**，不让对齐参数把它们改成偏的（要改就先改版式）。
+       ② 放在文字层规则**之后**：同特异性时后者胜 ⇒ 能盖住 poster 的右对齐 / editorial 的左对齐。
+       ③ 只改 text-align / 交叉轴对齐；**不碰 justify-content**（那会挪动元素位置、可能越界）。
+     ⚠️⚠️ **本段 CSS 在 JS 模板字符串里 —— 注释里绝不能出现反引号**（2026-10-14 我就在这个文件里
+       写了一个带反引号的片段 ⇒ 模板串提前闭合 ⇒ 线上 SyntaxError ⇒ 日报线生成全线瘫痪；
+       2026-10-16 加本段时又犯了一次，**是 node --check 当场抓住的**）。
+       改完**必须**跑 node --check tools/daily-page.mjs。 */
+  .sec[data-align]:not([data-layout="stack2"]):not([data-layout="quote"]) h2,
+  .sec[data-align]:not([data-layout="stack2"]):not([data-layout="quote"]) .cols,
+  .sec[data-align]:not([data-layout="stack2"]):not([data-layout="quote"]) .col{align-items:flex-start}
+  .sec[data-align="center"]:not([data-layout="stack2"]):not([data-layout="quote"]) h2,
+  .sec[data-align="center"]:not([data-layout="stack2"]):not([data-layout="quote"]) .cols,
+  .sec[data-align="center"]:not([data-layout="stack2"]):not([data-layout="quote"]) .col
+    {text-align:center;align-items:center;justify-items:center}
+  .sec[data-align="right"]:not([data-layout="stack2"]):not([data-layout="quote"]) h2,
+  .sec[data-align="right"]:not([data-layout="stack2"]):not([data-layout="quote"]) .cols,
+  .sec[data-align="right"]:not([data-layout="stack2"]):not([data-layout="quote"]) .col
+    {text-align:right;align-items:flex-end;justify-items:end}
 ${AI_CSS.length ? '\n  /* ══ ★VF_DAILY_L3：AI 自写段的 CSS（选择器都带 .aiN- / .sec[data-seg="N"] 前缀）══ */\n' + AI_CSS.join('\n') : ''}
 </style>
 </head>

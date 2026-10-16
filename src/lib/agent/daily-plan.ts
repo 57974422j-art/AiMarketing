@@ -288,6 +288,25 @@ export function aiPrompt(n: number, topic: string, opts?: { lastTheme?: string }
     '  不确定就留空 —— 服务端会按段序自动轮换四种，保证一份里不只有一张脸。',
     '【字号档】（可选，每段 `scale`，只影响**这一段**标题/数字的大小）：' + PLAN_TSCALES.join(' | ')
     + '　（1 = 默认；想强调某段可用 1.15 / 1.3，想让它"退后"用 0.9。信息点字号有 22px 下限，不会变小到看不清）',
+    // ★VF_DAILY_V31（2026-10-16 用户定案「开工吧 按你规划来」＝中间档：**骨架不动、把版面自由度交给 AI**）：
+    //   摸底时发现引擎里**早就有**两个维度、白名单也一直透传，**只差提示词没告诉 AI 能用它们** ——
+    //     ① `form`（图与字的**叠法**）与 `layout`（怎么摆图）是**两条独立的轴**，可以叠加：
+    //        引擎侧是 `FORM_IDS[layout] || s.form` ⇒ hero/sticker/vertical 三类锁定同名（写了不生效），
+    //        但 **split / grid3 / grid4 / quote 可以再叠 sticker 或 vertical** ⇒ 同一套图、同一版式，另一张脸。
+    //     ② `motion`（整片动效档）决定**图推近幅度 + 文字错峰节奏**，三档差别明显。
+    //   这两条是"**零代码风险**扩大差异"的机会（引擎已实现、闸门已覆盖，只是没人告诉 AI）。
+    // ★VF_DAILY_V31：**文字对齐**（第一个新增的"版面自由度"）—— 它不动元素尺寸，所以最安全；
+    //   也是"同一版式两张脸"最省力的手段（同一张图、同一套字，左对齐和右对齐完全两种气质）。
+    '【文字对齐】（可选，每段 `align`）：`left`（左，默认最稳）｜`center`（居中，庄重）｜`right`（右，有设计感）。',
+    '  · 一句话用法：**一页里有个"主视觉"就居中，想让它像海报/杂志就右对齐**；',
+    '  · `stack2`（上下双图）与 `quote`（引文页）**本身居中就是版式特征** ⇒ 这两类别写（写了也不生效）。',
+    '【图与字的叠法】（可选，每段 `form`；**它和 layout 是两条独立的轴，可以叠加**）：',
+    PLAN_FORMS.map((f) => `  · ${f}（${FORM_LABEL[f] || f}）`).join('\n'),
+    '  · `hero` / `sticker` / `vertical` 这**三类已固定同名**（写了也不生效，别浪费字符）；',
+    '  · 但 **`split` / `grid3` / `grid4` / `quote` 可以叠加 `sticker`**（字变成贴上去的纸块）'
+      + '或 **`vertical`**（字变成竖排条）—— 同一套图、同一版式，观感立刻不一样。',
+    '【整片动效档】（顶层 `motion`，整份只有一个）：`calm`（稳，推近小、错峰慢）｜`normal`（正常）｜'
+      + '`lively`（活泼，推近大、错峰快）。按素材气质挑：火锅/夜宵/热闹 → lively；茶席/器物/纪实 → calm。',
     // ★VF_DAILY_V22：借 oil-ui 的三条硬口径（去同质化 / 减法 / 首屏），改成我们段落级的说法
     '【去同质化·硬要求】（这条会被服务端**机器自检**，不合格自动错开并如实告知）：',
     '  · **相邻两段的"方向"最多只能共享一项** —— 方向 = ①摆图法(layout) ②文字层(type) ③取景(place) ④字号档(scale)；',
@@ -593,6 +612,9 @@ export function normSegs(raw: any, n: number, topic: string): { segs: any[]; add
     if (PLAN_TEXT_TYPES.some((x) => x.id === ty)) o.type = ty
     const sc = Number(it.scale)
     if (PLAN_TSCALES.some((x) => Math.abs(x - sc) < 0.001)) o.scale = sc
+    // ★VF_DAILY_V31：文字对齐（白名单收口 —— AI 写别的字眼 ⇒ **当没写**，由引擎按版式默认走）
+    const ag = String(it.align || '').trim().toLowerCase()
+    if (PLAN_ALIGNS.indexOf(ag) >= 0) o.align = ag
     // ★V25：文字动效（AI 可给；白名单收口；没给则由 assignTextMotion 按种子轮换并保证相邻不同）
     const tmv = String(it.tm || '').trim().toLowerCase()
     if (PLAN_TM.some((x) => x.id === tmv)) o.tm = tmv
@@ -830,6 +852,15 @@ export const PLAN_TEXT_TYPES = [
   { id: 'list', name: '清单式', look: '标题收成小标、信息点当主体（菜品/清单类好用）' },
 ]
 export const PLAN_TSCALES = [0.9, 1, 1.15, 1.3]
+/**
+ * ★VF_DAILY_V31（2026-10-16 用户定案「按你规划来」＝中间档）：**文字对齐** —— 第一个"版面自由度"参数。
+ * 为什么先做它：它**只改对齐、不动任何元素的尺寸与外框** ⇒ 那三条最容易误报的判据
+ *   （文字被裁 / 越界 / 折行）**照旧管用**，不必先动闸门标定。
+ *   （对照 `imgShare`/`pad`：它们会缩窄内容列 ⇒ nowrap 标题溢出 ⇒ 直接触发裁切判据，
+ *     也就是 V2 / CLIP_V2 / V3 反复踩的那个坑 ⇒ 要**先修 `titleCss` 的列宽标定**才能上。）
+ * ⚠️ 与引擎侧**同一份口径**（`daily-page.mjs` 的 `data-align` 白名单）：两处必须一致。
+ */
+export const PLAN_ALIGNS = ['left', 'center', 'right']
 
 /**
  * ★VF_DAILY_V25（B1 字体配对，2026-10-14 用户定案「B1+B2+B3，最大目的去同质化：文字/文字动效/配色/样式排版」）：
