@@ -2392,7 +2392,18 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, images.length])
 
-  const toggle = (n: string) => setSel((p) => (p.includes(n) ? p.filter((x) => x !== n) : (p.length >= matMax ? p : p.concat(n))))
+  // ★VF_DAILY_V27（2026-10-16 用户定案「2」）：勾到上限时要**说话** ——
+  //   老写法是静默挡住（点了没反应），用户只会以为"这张图点不动 / 坏了"。
+  //   ⚠️ 提示放在**函数体**里而不是 setSel 的 updater 里：updater 必须是纯函数，
+  //      在它里面调 setState 属于副作用（React 严格模式下会执行两次）。
+  const toggle = (n: string) => {
+    if (sel.includes(n)) { setSel(sel.filter((x) => x !== n)); setMsg(''); return }
+    if (sel.length >= matMax) {
+      setMsg('最多只能选 ' + matMax + ' 张 —— 想加这张，先取消一张')
+      return
+    }
+    setSel(sel.concat(n))
+  }
 
   const doUpload = async (fs: FileList | null) => {
     if (!fs || !fs.length) return
@@ -2438,9 +2449,21 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
             </button>
             <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => doUpload(e.target.files)} />
             <button onClick={() => next('back_mat')} className={btn + ' border-white/15 text-gray-300 hover:bg-white/[0.08]'}>🔄 刷新列表</button>
-            <button onClick={() => setSel(images.map((x: any) => String(x.name)))} className={btn + ' border-white/15 text-gray-300 hover:bg-white/[0.08]'}>全选</button>
-            <button onClick={() => setSel([])} className={btn + ' border-white/15 text-gray-300 hover:bg-white/[0.08]'}>清空</button>
-            <span className="text-[10px] text-gray-400">已选 {sel.length} 张{images.length ? `（仓库共 ${images.length} 张可勾）` : ''}</span>
+            {/* ★VF_DAILY_V27（2026-10-16 用户定案「2」：原话「全选那个按键好像是个摆设」）：
+                病灶：勾选**有上限**（`toggle` 里挡住了），但**「全选」绕过了它** —— 直接把 ≤60 张全塞进去，
+                而服务端只取前 `matMax` 张 ⇒ **勾 60 实际只用 10、且零提示** ⇒ 看起来就是"按了等于没按"。
+                现口径：**全选也只选前 matMax 张**，并**当场说清**（选了多少、为什么没全选）。
+                （这个组件是日报线与成片线共用的 ⇒ 上限一律取服务端下发的 `matMax`，不写死。） */}
+            <button onClick={() => {
+              setSel(images.slice(0, matMax).map((x: any) => String(x.name)))
+              setMsg(images.length > matMax
+                ? '最多只能选 ' + matMax + ' 张 —— 已替你勾上前 ' + matMax + ' 张（想换别的，先取消几个再勾）'
+                : '')
+            }} className={btn + ' border-white/15 text-gray-300 hover:bg-white/[0.08]'}>全选</button>
+            <button onClick={() => { setSel([]); setMsg('') }} className={btn + ' border-white/15 text-gray-300 hover:bg-white/[0.08]'}>清空</button>
+            <span className="text-[10px] text-gray-400">
+              已选 {sel.length} 张{sel.length >= matMax ? '（已满）' : ''} · 最多 {matMax} 张{images.length ? ` · 仓库共 ${images.length} 张可勾` : ''}
+            </span>
           </div>
           {msg ? <div className="text-[10px] text-amber-300 mb-2">{msg}</div> : null}
           {images.length ? (

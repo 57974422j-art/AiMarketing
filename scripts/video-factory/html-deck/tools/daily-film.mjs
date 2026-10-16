@@ -53,9 +53,13 @@ const outDir = path.resolve(opt('outdir', path.join(path.dirname(abs), 'film-out
 const fps = String(opt('fps', '25'))
 const quality = String(opt('quality', 'looks'))
 // ★worker 数：引擎默认 auto（本机判成 4），每个 worker 一个独立 Chrome（~256MB）。
-//   日报单文件版的图是 **base64 内嵌**（一份 7MB 的页面 × N 个 worker）⇒ 实测 4 worker 会
-//   直接把渲染进程打崩（native crash，stderr 只剩一个 Windows 异常地址）。默认压到 2，可用 --workers 调。
-const workers = String(opt('workers', '2'))
+//   日报单文件版的图是 **base64 内嵌** ⇒ **每个 worker 都要完整加载一份同样大的页面**，
+//   实测 4 worker 会直接把渲染进程打崩（native crash，stderr 只剩一个 Windows 异常地址）。
+// ★VF_DAILY_V27（2026-10-16 素材上限 10→20）：页面会明显变大（20 张内嵌）⇒ **按页面体积自动降**，
+//   不要写死 2 —— 写死就会在"图更多"时重演那次 crash。可用 --workers 覆盖。
+const htmlMB = (() => { try { return fs.statSync(srcHtml).size / 1024 / 1024 } catch { return 7 } })()
+const autoWorkers = htmlMB > 8 ? '1' : (htmlMB > 4 ? '2' : '3')
+const workers = String(opt('workers', autoWorkers))
 const skipCheck = argv.includes('--skip-check')
 
 // ── ① 读输入 + 体检 ────────────────────────────────────────────────────────────
