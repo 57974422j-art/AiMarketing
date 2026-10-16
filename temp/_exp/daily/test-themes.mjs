@@ -110,7 +110,19 @@ ok(p.includes('【挑皮肤的对照'), '提示词里有"题材→皮肤"对照�
 ok(p.includes('皮肤明暗 × 结构'), '提示词里有"皮肤×结构"偏好表（B3）')
 
 console.log('\n=== 6. V25：字体配对 / 文字动效 / 皮肤明暗 三张表**两处一致**（防漂移）===')
-const { PLAN_FONTS, PLAN_TM, PLAN_SKIN_FONT, THEME_TONE, pickFont, assignTextMotion, themeTone } = require('./run/daily-plan.js')
+const { PLAN_FONTS, PLAN_TM, PLAN_SKIN_FONT, THEME_TONE, pickFont, assignTextMotion, themeTone, rotateTheme } = require('./run/daily-plan.js')
+
+// ★VF_DAILY_V41（2026-10-16 用户实测「换皮肤几乎看不出变化」+ 数据库取证后定案）：**轮换窗口的机器闸门**。
+//   病灶：`daily.ts::rememberSkin` 原来是 `findMany({take:1})` + `update` ⇒ 库里**永远只有 1 条**记录
+//   ⇒ `recentSkins`（take:3）永远只拿得到 1 条 ⇒ "排除最近 **2** 次用过的皮肤"退化成"只排除上一次"
+//   ⇒ 皮肤变成 **A→B→A 乒乓**（连续生成约一半概率和上一次同配色）。
+//   这条断言守住 `rotateTheme` 的**契约**：recent 给满 3 条时，选出来的必须跳开它们。
+const r3 = rotateTheme('', ['copper-pot', 'wine-red', 'bamboo'], 'seed-x')
+ok(!['copper-pot', 'wine-red', 'bamboo'].includes(r3.theme),
+  'recent 满 3 条 ⇒ 轮换结果必须跳开它们（排除窗口真的是 2）', r3.theme)
+const r3b = rotateTheme('copper-pot', ['copper-pot', 'wine-red', 'bamboo'], 'seed-x')
+ok(!['copper-pot', 'wine-red', 'bamboo'].includes(r3b.theme),
+  'AI 又挑到最近用过的那套 ⇒ 仍然被排除（不允许沿用）', r3b.theme)
 // 引擎侧解析
 const fpBlock = src.slice(src.indexOf('const FONT_PAIRS = {'), src.indexOf('const PAIR_OF = {'))
 const engFonts = Array.from(fpBlock.matchAll(/'([a-z-]+)':\s*\{/g)).map((m) => m[1])

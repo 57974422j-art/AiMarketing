@@ -1303,6 +1303,15 @@ export interface FunctionCallResult {
     arguments: string
   }>
   model?: string
+  /* ★VF_DAILY_V41（2026-10-16）：**纯增量诊断字段** —— 只加字段、不改任何调用方的行为。
+     背景：日报线反复出现「AI 空响应（响应 0 字）」，而日志里只有"0 字"⇒ 只能猜。
+     这两个字段把"猜"变成"读"：
+       · `finishReason === 'length'` 且 `reasoningChars > 0` ⇒ **思考型模型的额度被 thinking 吃光**
+         （`content` 被挤成空串 —— 同类坑 `daily.ts::aiVoiceLines` V1d 已经踩过一次）；
+       · `finishReason === 'stop'` 且 `reasoningChars === 0` 且 content 空 ⇒ 模型/网关侧**真的返回了空**。
+     不填也不影响任何现有逻辑（全可选）。 */
+  finishReason?: string
+  reasoningChars?: number
 }
 
 /**
@@ -1401,7 +1410,14 @@ export async function dashscopeFunctionCall(
     })
     const qwChoice = qwRes?.choices?.[0]
     if (qwChoice?.message) {
-      return { content: qwChoice.message?.content || null, toolCalls: qwChoice.message?.tool_calls || undefined, model: primaryModel }
+      // ★VF_DAILY_V41：带上 finish 原因与思考字数（诊断"空响应"用 —— 见 FunctionCallResult 的字段说明）
+      return {
+        content: qwChoice.message?.content || null,
+        toolCalls: qwChoice.message?.tool_calls || undefined,
+        model: primaryModel,
+        finishReason: String(qwChoice.finish_reason || ''),
+        reasoningChars: String(qwChoice.message?.reasoning_content || '').length,
+      }
     }
     console.error('[qwen3.8] 无有效响应，走 V4 兜底:', JSON.stringify(qwRes || {}).slice(0, 150))
   } catch (eQw2) { console.error('[qwen3.8] 异常走 V4 兜底:', eQw2?.message || eQw2) }
@@ -1417,7 +1433,14 @@ export async function dashscopeFunctionCall(
       })
       const dsChoice = dsRes?.choices?.[0]
       if (dsChoice) {
-        return { content: dsChoice.message?.content || null, toolCalls: dsChoice.message?.tool_calls || undefined, model: 'deepseek-v4-flash' }
+        // ★VF_DAILY_V41：兜底模型也带上同样的诊断字段（否则"是主模型空还是兜底空"分不清）
+        return {
+          content: dsChoice.message?.content || null,
+          toolCalls: dsChoice.message?.tool_calls || undefined,
+          model: 'deepseek-v4-flash',
+          finishReason: String(dsChoice.finish_reason || ''),
+          reasoningChars: String(dsChoice.message?.reasoning_content || '').length,
+        }
       }
       console.error('[deepseek] V4 flash 调用异常:', JSON.stringify(dsRes).slice(0, 200))
     } catch (eDs) { console.error('[deepseek] 异常降级百炼:', eDs?.message || eDs) }

@@ -1978,12 +1978,16 @@ function VfDailyPlanCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
           </div>
         ))}
       </div>
-      {/* ★VF_DAILY_V12：三档如实标注 —— ai / captions（看图摘要兜底）/ fallback（纯占位） */}
+      {/* ★VF_DAILY_V12：三档如实标注 —— ai / captions（看图摘要兜底）/ fallback（纯占位）
+          ★VF_DAILY_V41（2026-10-16 用户实测「两个开关看不出变化」后定案）：**兜底时要把"开关未生效"说破**。
+          为什么必须说：开关**只改 AI 提示词**，而兜底走的是 `planFromCaptions` / `buildDailyPlan` 这两条
+          **完全确定性**的路线（固定版式轮换）⇒ **AI 那一步根本没发生 ⇒ 两个开关一个字都没参与**
+          ⇒ 那时产物"和上次几乎一样"是必然的。旧文案只说"没排出方案"，用户不会想到"开关也因此失效"。 */}
       {vj?.by === 'fallback'
-        ? <div className="text-[10px] text-amber-300 mb-2">⚠️ AI 这轮没排出方案（{String(vj?.note || '未知原因')}）→ 用的是系统保底版式（占位文案）</div>
+        ? <div className="text-[10px] text-amber-300 mb-2">⚠️ AI 这轮没排出方案（{String(vj?.note || '未知原因')}）→ 用的是系统保底版式（占位文案）<span className="text-amber-200/80"> · 这轮两个 AI 开关**未生效**（保底版式是固定轮换）</span></div>
         : (vj?.by === 'captions'
-          ? <div className="text-[10px] text-amber-300 mb-2">⚠️ AI 这轮没排出方案（{String(vj?.note || '未知原因')}）→ 已按**看图摘要**重排：标题与信息点来自读图，不是占位</div>
-          : <div className="text-[10px] text-gray-500 mb-2">AI 看素材后编排{vj?.note ? `（${String(vj.note)}）` : ''}</div>)}
+          ? <div className="text-[10px] text-amber-300 mb-2">⚠️ AI 这轮没排出方案（{String(vj?.note || '未知原因')}）→ 已按**看图摘要**重排：标题与信息点来自读图，不是占位<span className="text-amber-200/80"> · 这轮两个 AI 开关**未生效**（兜底版式是固定轮换）</span></div>
+          : <div className="text-[10px] text-gray-500 mb-2">AI 看素材后编排{vj?.note ? `（${String(vj.note)}）` : ''} · 两个开关已参与<span className="text-gray-600">（配色想变请保持「不强制换皮肤」**不勾**）</span></div>)}
       {/* ★VF_DAILY_V33（2026-10-16 用户定案"剩下2条先做"，收口③「AI 参与和不参与完全分不出来」）：
           把"**这次 AI 到底用了多少种**"直接列出来 —— AI 是**悄悄生效**的，没有读数就只能凭观感猜。
           打开「🎨 让 AI 放手排版」重排后，这里的数字应该明显变大（尤其"对齐 / 字号 / 动效"）。 */}
@@ -2010,20 +2014,31 @@ function VfDailyPlanCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
           两个开关**只改 AI 提示词的措辞**（引擎 / 闸门 / 判据一行不动 ⇒ 零新机制、零风险）：
             · 🎨 放手排版：默认 AI 偏保守（只求"相邻两段别撞"）；打开后鼓励它**大胆混搭**
               版式 × 叠法 × 对齐 × 文字层 × 字号 × 动效，目标是"整份有明显不同的气质"。
-            · 🖌 皮肤也交给 AI 挑：默认服务端要求"这次必须换一个和上次不同的皮肤"；打开后解除，
-              让它纯按本批素材气质挑（贴素材 > 求不同）。
+            · 🖌 ~~皮肤也交给 AI 挑~~（**★VF_DAILY_V41 已改名**，见下面 label 的 `title`）。
           ⚠️ 切换会**立刻按新设置重排一遍方案**（要调一次 AI + 看图，约 10~20 秒）——
-             不重排的话开关只是个存下来的值，用户**看不到任何变化**（那正是"AI 参与没参与分不出来"的老毛病）。 */}
+             不重排的话开关只是个存下来的值，用户**看不到任何变化**（那正是"AI 参与没参与分不出来"的老毛病）。
+
+          ★★ ★VF_DAILY_V41（2026-10-16 用户实测「这 2 个功能做出来东西几乎看不出变化」后定案）★★
+          两个开关都**加了 `title` 说明**，把它们的**真实边界**写在用户手指下面 ——
+          因为「看不出变化」有一半是**语义/预期**问题，不是没生效：
+            · 放手排版：**只动结构与文字**；配色/字体仍来自皮肤库 ⇒ **配色不会变**（这是它的上限）；
+            · 原来叫「皮肤也交给 AI 挑」的那个：默认（关）是**强制换一套不同皮肤**，
+              **打开 = 解除强制 = 允许挑到和上次一样的** ⇒ **打开它反而更可能"和上次同配色"**。
+              名字把它改回真实语义，「不强制换皮肤（按素材挑）」。
+          ⚠️ 另外：若这轮是**兜底版式**（AI 空响应），两个开关**根本不参与** —— 卡头上会直接写明
+             （见上面 `by === 'fallback' / 'captions'` 的提示，V41 补了"开关未生效"这句）。 */}
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-2 text-[10px]">
-        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+        <label className="flex items-center gap-1.5 cursor-pointer select-none"
+          title="打开后 AI 会放手混搭：版式 / 图字叠法 / 对齐 / 文字层 / 字号 / 文字动效。注意边界：配色与字体仍来自皮肤库 ⇒ 整页气质的变化主要来自结构与文字，配色不会因此改变。">
           <input type="checkbox" checked={aiLayout} className="accent-emerald-500"
             onChange={(e) => setAiLayout(e.target.checked)} />
           <span className={aiLayout ? 'text-emerald-200' : 'text-gray-400'}>🎨 让 AI 放手排版</span>
         </label>
-        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+        <label className="flex items-center gap-1.5 cursor-pointer select-none"
+          title="关着（默认）：服务端强制「这次必须换一套和上次不同的皮肤」，防止两份看着像同一套。打开：解除这条强制，允许 AI 按素材气质挑到和上次一样的皮肤 —— 所以打开它并不会让配色变新，反而更可能沿用上次那套（贴素材 > 求不同）。">
           <input type="checkbox" checked={aiPickSkin} className="accent-emerald-500"
             onChange={(e) => setAiPickSkin(e.target.checked)} />
-          <span className={aiPickSkin ? 'text-emerald-200' : 'text-gray-400'}>🖌 皮肤也交给 AI 挑</span>
+          <span className={aiPickSkin ? 'text-emerald-200' : 'text-gray-400'}>🖌 不强制换皮肤（按素材挑）</span>
         </label>
         {/* 只有"改过还没生效"时才出现这个按钮 —— 勾选本身**不会立刻执行**（用户实测反馈：
             一点就跑会让人以为"没确认就执行了"） */}
@@ -2283,6 +2298,12 @@ function VfDailyDoneCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) 
       </div>
       <div className="text-[10px] text-gray-400 mb-2">{String(vj?.facts || '')}</div>
       {vj?.imgMsg ? <div className="text-[10px] text-emerald-300/80 mb-2">{String(vj.imgMsg)}</div> : null}
+      {/* ★VF_DAILY_V41（2026-10-16 用户定案「交付卡上直接写明」）：**兜底产物在交付卡上也要说破** ——
+          用户在方案卡上可能会忽略那条黄字，而交付卡是出片前最后一道"看得见"的地方。
+          交付卡 payload 里本来就带 `by`（'ai' / 'captions' / 'fallback'），只是以前没渲染。 */}
+      {vj?.by && vj.by !== 'ai'
+        ? <div className="text-[10px] text-amber-300 mb-2">⚠️ 这份是**{vj.by === 'captions' ? '看图摘要兜底' : '系统保底'}版式**（AI 那轮没返回方案）⇒ 生成时勾的两个 AI 开关**未生效**。想要 AI 参与的效果：改完开关点「🔄 按新开关重排方案」，再重新生成一份。</div>
+        : null}
       {dropped.length
         ? <div className="text-[10px] text-amber-300 mb-2">⚠️ 渲染体检回落：{dropped.join('；')}（这几段已改用模板结构，其余段保留 AI 自己的写法）</div>
         : null}

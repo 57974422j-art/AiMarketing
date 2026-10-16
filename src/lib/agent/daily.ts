@@ -371,11 +371,25 @@ export async function aiPlanSegments(picks: DailyPick[], topic: string, lastThem
       const txt = String(res?.content || '')
       const ex = extractJsonEx(txt)
       const raw = ex.value
-      const usage = (res && (res as any).usage) ? ' · 用量 ' + JSON.stringify((res as any).usage) : ''
-      parseNote = `第 ${attempt} 次：响应 ${txt.length} 字 · 解析 ${ex.how}${usage}`   // ★V25b：随返回值带给调用方去写日志
+      // ★VF_DAILY_V41（2026-10-16）：诊断字段**必须够用** —— 用户实测反复出现"响应 0 字"，
+      //   而旧日志只记"0 字"⇒ 只能猜（是截断？空响应？思考吃额度？网关抖动？）。
+      //   现口径一次记全：模型 id · finish 原因 · 思考字数 · 本次 prompt 字符数 · maxTokens。
+      //   **判据（下次一眼分清）**：
+      //     · `finish=length` + 思考 >0  ⇒ **思考把额度吃光**（content 被挤成空 —— 同类坑 aiVoiceLines V1d 踩过）；
+      //     · `finish=stop` + 思考 0 + 响应 0 字 ⇒ 模型/网关侧**真的返回了空**，与 prompt 长度无关。
+      const sentLen = (attempt === 1 ? prompt : prompt + '\n\n' + strict).length
+      const diag = ' · 模型 ' + String((res as any)?.model || '?')
+        + ' · finish ' + String((res as any)?.finishReason || '?')
+        + ' · 思考 ' + Number((res as any)?.reasoningChars || 0) + ' 字'
+        + ' · 本次 prompt ' + sentLen + ' 字 · maxTokens 8000'
+      parseNote = `第 ${attempt} 次：响应 ${txt.length} 字 · 解析 ${ex.how}${diag}`   // ★V25b：随返回值带给调用方去写日志
       if (!raw) {
         rawHead = txt.slice(0, 200).replace(/\s+/g, ' ')
         lastErr = 'AI 没吐出可解析的 JSON' + (attempt > 1 ? '（重试也没成功）' : '') + '：' + ex.how + (vlErr ? '；' + vlErr : '')
+        // 空响应**单独再记一条**（它最容易被误读成"格式问题"，实际是模型根本没给内容）
+        if (!txt.trim()) {
+          try { console.error('[日报落地页] AI 返回**空内容**（第 ' + attempt + ' 次）' + diag) } catch { /* ignore */ }
+        }
         continue
       }
       const { segs, added, fixes } = normSegs(raw, n, topic)
@@ -642,13 +656,23 @@ async function recentSkins(prisma: any, uid: number | string): Promise<string[]>
 async function rememberSkin(prisma: any, uid: number | string, theme: string): Promise<void> {
   if (!theme) return
   try {
-    const rows = await prisma.agentMemory.findMany({
+    /* ★VF_DAILY_V41（2026-10-16 用户实测 + **数据库取证**后定案）：改成"**追加一条**"。
+       病灶（原写法）：`findMany({..., take: 1})` + `update({ id: first.id })` ⇒ **永远只维护一条记录**；
+       而 `recentSkins` 用 `take: 3` 想拿"最近 3 份皮肤" ⇒ **永远只拿得到 1 条** ⇒
+       `rotateTheme` 里"排除最近 **2** 次用过的皮肤"退化成"只排除上一次" ⇒ 皮肤变成
+       **A→B→A→B 乒乓**（连续生成时约一半概率和上一次同配色 —— 用户「几乎看不出变化」的主因之一）。
+       用户服务器数据库实测坐实：`AgentMemory` 里 tags=日报皮肤 的记录**只有 1 条**（content=copper-pot）。
+       现口径：每份**追加**（`updatedAt` 自然递增 ⇒ `recentSkins` 的 desc 排序才有意义），
+       并只保留最近 KEEP 条（KEEP 取 6 > `recentSkins` 用的 3，留余量；不无限增长）。
+       ⚠️ 仍然"失败不影响交付"：记不住最多退化成"按 seed 挑"，绝不因为写库失败拦住用户。 */
+    const KEEP = 6
+    await prisma.agentMemory.create({ data: { userId: String(uid), content: theme, tags: SKIN_TAG } })
+    const all = await prisma.agentMemory.findMany({
       where: { userId: { in: [String(uid), String(Number(uid) || 0)] }, tags: { contains: SKIN_TAG } },
-      orderBy: { updatedAt: 'desc' }, take: 1,
+      orderBy: { updatedAt: 'desc' },
     })
-    const first = (rows || [])[0]
-    if (first) await prisma.agentMemory.update({ where: { id: first.id }, data: { content: theme } })
-    else await prisma.agentMemory.create({ data: { userId: String(uid), content: theme, tags: SKIN_TAG } })
+    const extra = (all || []).slice(KEEP).map((r: any) => r.id)
+    if (extra.length) await prisma.agentMemory.deleteMany({ where: { id: { in: extra } } })
   } catch { /* 记不住不影响交付 */ }
 }
 
