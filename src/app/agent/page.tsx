@@ -1984,6 +1984,19 @@ function VfDailyPlanCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
         : (vj?.by === 'captions'
           ? <div className="text-[10px] text-amber-300 mb-2">⚠️ AI 这轮没排出方案（{String(vj?.note || '未知原因')}）→ 已按**看图摘要**重排：标题与信息点来自读图，不是占位</div>
           : <div className="text-[10px] text-gray-500 mb-2">AI 看素材后编排{vj?.note ? `（${String(vj.note)}）` : ''}</div>)}
+      {/* ★VF_DAILY_V33（2026-10-16 用户定案"剩下2条先做"，收口③「AI 参与和不参与完全分不出来」）：
+          把"**这次 AI 到底用了多少种**"直接列出来 —— AI 是**悄悄生效**的，没有读数就只能凭观感猜。
+          打开「🎨 让 AI 放手排版」重排后，这里的数字应该明显变大（尤其"对齐 / 字号 / 动效"）。 */}
+      {vj?.stats ? (
+        <div className="text-[10px] text-gray-500 mb-2">
+          本次用到的不同取值：版式 <span className="text-gray-300">{Number(vj.stats.layout) || 0}</span> 种 ·{' '}
+          对齐 <span className="text-gray-300">{Number(vj.stats.align) || 0}</span> 种 ·{' '}
+          字号 <span className="text-gray-300">{Number(vj.stats.scale) || 0}</span> 档 ·{' '}
+          叠法 <span className="text-gray-300">{Number(vj.stats.form) || 0}</span> 种 ·{' '}
+          动效 <span className="text-gray-300">{Number(vj.stats.tm) || 0}</span> 种 ·{' '}
+          取景 <span className="text-gray-300">{Number(vj.stats.place) || 0}</span> 种
+        </div>
+      ) : null}
       {/* ★VF_DAILY_V20：卡片上的「✏️ 编辑」—— 就地改文字/版式/类型、删段（提交的是既有命令串） */}
       {showEdit
         ? <DailyEditPanel segs={segs} onSend={onSend} onClose={() => setShowEdit(false)} />

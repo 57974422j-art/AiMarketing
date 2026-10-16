@@ -359,6 +359,11 @@ export function aiPrompt(n: number, topic: string, opts?: { lastTheme?: string; 
         + '× `type`（文字层）× `scale`（字号档）× `tm`（文字动效）。\n'
         + '  · 特别鼓励：同一份里既有"满幅压字"的霸气页、也有"留白很多"的安静页；既有居中、也有右对齐；'
         + '既有大字、也有小字退后的段落。**别让每段都长一个样。**\n'
+        // ★VF_DAILY_V33：把"鼓励"升成**硬要求**（用户实测"看不出差别"之后加的）——
+        //   注意：这里**不写"会被机器自检"**，因为服务端确实还没做这项自检（不能给假承诺）；
+        //   效果靠**卡片上的统计数字**如实呈现（用户自己就能看出 AI 有没有做到）。
+        + '  · **硬要求**：「对齐 / 字号档 / 叠法 / 文字动效」这四个维度里，**至少三个**要排出 '
+        + '**2 种以上**的不同取值（例：对齐既有左也有中；字号既有 1.3 也有 0.9；动效既有 wipe 也有 rise）。\n'
         + '  · 但**不牺牲可读性**：字号档不要连用两段 0.9（会显得整片没重点），信息点能少不多。'
       : '',
     '硬约束（违反即作废）：',
@@ -897,6 +902,34 @@ export const PLAN_TSCALES = [0.9, 1, 1.15, 1.3]
 export const PLAN_ALIGNS = ['left', 'center', 'right']
 
 /**
+ * ★VF_DAILY_V33（2026-10-16 用户定案「剩下2条先做」→ 收口第 ③ 条「AI 参与和不参与完全分不出来」）：
+ * **把"这次 AI 到底用了多少种"数出来，直接写在方案卡上**。
+ * 为什么需要它：用户说"分不出来"，根子在于**没有可见读数** —— AI 是悄悄生效的，
+ *   就算打开了"放手排版"也只是换了一段提示词，用户只能凭观感猜。
+ * 口径：只数**真的影响观感**的那几个维度（版式 / 对齐 / 字号档 / 叠法 / 文字动效 / 取景），
+ *   并且**只数明确字段**（空值不计数）—— 纯统计、不做判断，"数错不如不数"。
+ */
+export function layoutStats(segs: any[]): {
+  layout: number; align: number; scale: number; form: number; tm: number; place: number; segs: number
+} {
+  const list = Array.isArray(segs) ? segs : []
+  const uniq = (f: (s: any) => string) => {
+    const set = new Set<string>()
+    list.forEach((s) => { const v = String(f(s) == null ? '' : f(s)).trim(); if (v) set.add(v) })
+    return set.size
+  }
+  return {
+    segs: list.length,
+    layout: uniq((s) => s?.layout),
+    align: uniq((s) => s?.align),
+    scale: uniq((s) => (s?.scale === undefined ? '' : s.scale)),
+    form: uniq((s) => s?.form),
+    tm: uniq((s) => s?.tm),
+    place: uniq((s) => s?.place),
+  }
+}
+
+/**
  * ★VF_DAILY_V25（B1 字体配对，2026-10-14 用户定案「B1+B2+B3，最大目的去同质化：文字/文字动效/配色/样式排版」）：
  *   "文字"这条轴原来只有 serif/sans 两种 ⇒ 20 套皮肤里字体其实只有 2 种。
  *   现在 4 个字体族 → 7 组配对，**皮肤自带默认配对**（见引擎 `PAIR_OF`），AI 可用 `font` 覆盖。
@@ -1301,6 +1334,9 @@ export function buildPlanCardPayload(plan: any, o: {
     // ★VF_DAILY_V32：两个 AI 开关回显（前端按它渲染复选框状态）
     aiLayout: !!o.aiLayout,
     aiPickSkin: !!o.aiPickSkin,
+    // ★VF_DAILY_V33：**把"这次用了多少种"写在卡上** —— 让"AI 有没有放手"变成可读的数字，
+    //   而不是让用户凭观感猜（他原话：「AI 参与和不参与完全分不出来」）。
+    stats: layoutStats(segs),
     segs: segs.map((s, i) => ({
       i: i + 1,
       label: layoutLabel(s),

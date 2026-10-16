@@ -240,8 +240,12 @@ if (badAudio.length) console.log('   ⚠ ' + badAudio.length + ' 段音轨异常
 fs.copyFileSync(path.join(build, 'subs.srt'), path.join(renderDir, 'subs.srt'))
 const finalMp4 = path.join(outDir, path.basename(srcHtml, path.extname(srcHtml)) + '-voiced.mp4')
 const base = ['-y', '-v', 'error', '-i', path.basename(mp4), '-i', voiceTrack]
+// ★VF_DAILY_V33（2026-10-16 用户定案「剩下2条先做」→ 第 ⑪ 条「码率偏低」）：
+//   实测带配音的成片码率 **0.81 Mbps**（无配音那版 3.39）—— 差在"要烧字幕就必须重编码"，
+//   而 CRF 20 对"画面变化小 + 有大片纯色区域"的片子压得太狠。CRF **18 是视觉无损档**，
+//   代价只是文件大一些（本项目竖屏 720×1280 的片，增长通常几十个百分点，可接受）。
 const venc = CAPS.x264
-  ? ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p']   // 只有重编码才能烧字幕
+  ? ['-c:v', 'libx264', '-preset', 'veryfast', '-crf', '18', '-pix_fmt', 'yuv420p']   // 只有重编码才能烧字幕
   : ['-c:v', 'copy']
 let vvf = null
 if (!has('no-sub') && CAPS.libass) {
