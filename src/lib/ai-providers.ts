@@ -1409,16 +1409,27 @@ export async function dashscopeFunctionCall(
       console.error('[qwen3.8] 调用异常:', eQw?.message || eQw); return null
     })
     const qwChoice = qwRes?.choices?.[0]
-    if (qwChoice?.message) {
-      // ★VF_DAILY_V41：带上 finish 原因与思考字数（诊断"空响应"用 —— 见 FunctionCallResult 的字段说明）
+    const qwMsg = qwChoice?.message
+    const qwHasTool = Array.isArray(qwMsg?.tool_calls) && qwMsg.tool_calls.length > 0
+    const qwText = String(qwMsg?.content || '').trim()
+    /* ★VF_DAILY_V42（2026-10-17 用户实测「两个开关都勾了，又出现 AI 没参与（空响应）」）：
+       **"主模型返回了、但内容为空"不能算成功** —— 老写法是 `if (qwChoice?.message) return {...}`，
+       于是空 content 被当作**正常结果**上抛 ⇒ **底下的 deepseek 兜底链根本没机会救**
+       ⇒ 上层只看到"响应 0 字"，用户看到"AI 没参与"（本轮截图就是这个）。
+       现口径：**有文本 或 有工具调用**才算成功；两者都没有 ⇒ 打诊断后**继续走兜底链**。
+       ⚠️ 必须给 `tool_calls` 留门：有些调用方让模型"只调工具、不输出文本"（那种 content 本来就是空）。 */
+    if (qwMsg && (qwText || qwHasTool)) {
       return {
-        content: qwChoice.message?.content || null,
-        toolCalls: qwChoice.message?.tool_calls || undefined,
+        content: qwMsg?.content || null,
+        toolCalls: qwMsg?.tool_calls || undefined,
         model: primaryModel,
         finishReason: String(qwChoice.finish_reason || ''),
-        reasoningChars: String(qwChoice.message?.reasoning_content || '').length,
+        reasoningChars: String(qwMsg?.reasoning_content || '').length,
       }
     }
+    console.error('[qwen3.8] 返回**空内容**（finish=' + String(qwChoice?.finish_reason || '?')
+      + '，思考 ' + String((qwMsg as any)?.reasoning_content || '').length + ' 字）⇒ 继续走兜底链：'
+      + JSON.stringify(qwRes || {}).slice(0, 150))
     console.error('[qwen3.8] 无有效响应，走 V4 兜底:', JSON.stringify(qwRes || {}).slice(0, 150))
   } catch (eQw2) { console.error('[qwen3.8] 异常走 V4 兜底:', eQw2?.message || eQw2) }
   if (dsKey) {
@@ -1432,16 +1443,22 @@ export async function dashscopeFunctionCall(
         signal: AbortSignal.timeout(120000),
       })
       const dsChoice = dsRes?.choices?.[0]
-      if (dsChoice) {
-        // ★VF_DAILY_V41：兜底模型也带上同样的诊断字段（否则"是主模型空还是兜底空"分不清）
+      const dsMsg = dsChoice?.message
+      const dsHasTool = Array.isArray(dsMsg?.tool_calls) && dsMsg.tool_calls.length > 0
+      const dsText = String(dsMsg?.content || '').trim()
+      // ★VF_DAILY_V42：兜底档同样"**空内容不算成功**" —— 否则它会把空结果交出去、还挡住最后一档
+      if (dsMsg && (dsText || dsHasTool)) {
+        // ★VF_DAILY_V41：带上诊断字段（否则"是主模型空还是兜底空"分不清）
         return {
-          content: dsChoice.message?.content || null,
-          toolCalls: dsChoice.message?.tool_calls || undefined,
+          content: dsMsg?.content || null,
+          toolCalls: dsMsg?.tool_calls || undefined,
           model: 'deepseek-v4-flash',
           finishReason: String(dsChoice.finish_reason || ''),
-          reasoningChars: String(dsChoice.message?.reasoning_content || '').length,
+          reasoningChars: String(dsMsg?.reasoning_content || '').length,
         }
       }
+      console.error('[deepseek] 返回**空内容**（finish=' + String(dsChoice?.finish_reason || '?')
+        + '）⇒ 继续降级：' + JSON.stringify(dsRes || {}).slice(0, 150))
       console.error('[deepseek] V4 flash 调用异常:', JSON.stringify(dsRes).slice(0, 200))
     } catch (eDs) { console.error('[deepseek] 异常降级百炼:', eDs?.message || eDs) }
   }
