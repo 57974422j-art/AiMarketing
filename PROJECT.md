@@ -1,7 +1,7 @@
 # AiMarketing 项目文档
 
 > 本文档为**唯一权威项目文档**（替代已删除的 PROJECT_REPORT.md 与 docs/ 全部散落文档）。
-> 最后更新：2026-10-14 ｜ 配套文档：[AGENT-HANDOFF.md](./AGENT-HANDOFF.md)（**AGENT 页接手文档——换工具/换机器先读它**）、[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
+> 最后更新：2026-10-16 ｜ 配套文档：[AGENT-HANDOFF.md](./AGENT-HANDOFF.md)（**AGENT 页接手文档——换工具/换机器先读它**）、[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
 > 维护规则：**每次执行操作后**，必须同步更新本文档「当前进度/待办」章节 + EXECUTION_LOG.md + ISSUES.md。
 
 
@@ -222,6 +222,26 @@ dashboard(+insights/sop)、workspace、ai-tools、ai-copy、image-generator、au
 i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
+
+### 2026-10-16：日报出片「渲染崩溃」真因定案并修好（`VF_DAILY_V40`，✅ 代码完成 + 端到端出片，待部署后重生成）
+
+- **现象**：日报页出片 `stage=render ✗ exit=134`，输出停在 `[initSession:screenshot] page.goto start`；**单文件版（7MB）与外置图版（2.5MB）一样崩** ⇒ 此前一路"省体积"全部无效。
+- ✅ **真因（拿到完整栈后定死）**：给渲染输出**落盘**（`daily-film.mjs` V7，照 `daily-voice.mjs` 的 `stdio:['ignore',fd,fd]`）后立刻看到
+  `FATAL ERROR: CALL_AND_RETRY_LAST Allocation failed - JavaScript heap out of memory` —— **Node 主进程**堆 896MB 到顶。
+  病灶 = 日报页字体栈写的是 **Google Fonts 官方家族名** `"Noto Serif SC"` / `"Noto Sans SC"` ⇒ 引擎 compile 的"确定性字体"机制
+  **认得这个名字**，去 Google Fonts 抓**全量 1717 个 face（≈87MB）**并逐条 base64 内联进页面 ⇒ 序列化后经 CDP 发 Chrome ⇒ Node 堆爆。
+  ⇒ **字体注入量是常量**（所以与页面体积无关 —— 那条"推翻性证据"就是这么来的）。崩点**看着**在 Chrome 侧，真身是 Node OOM。
+- ✅ **修法（用户定案选 (a)）**：字体栈只认**自造名** `NotoSerifSC` / `NotoSansSC` + 通用兜底；页内注入**两条 base64 `@font-face`**
+  （源 = `fonts/*-sub.woff2`，与 `check-page-fonts` 闸门**同一批子集**）⇒ 自包含（渲染/客户端预览/离机双击都对），代价 +5.6MB。
+- ✅ **同批修掉三颗字体雷**：`SimSun`/`宋体`（引擎会**整份内嵌 17.5MB**，而服务器没有 ⇒ 两边字形不一致）· `Georgia`（联网抓 eb-garamond）
+  · `kai`/`fang` 两族（靠 Windows 楷体/仿宋 ⇒ `kai-song`/`kai-hei`/`fang-hei` 是**假变体**）
+  ⇒ 字体栈只留自造名，配对 **7 → 4 组**，6 套皮肤重指（楷"文气"→全宋；仿"克制"→宋黑，**服务器上观感零变化**）；
+  `daily-plan.ts` 的 `PLAN_FONTS` / `PLAN_SKIN_FONT` 同步改（与引擎两表仍须逐字一致）。
+- ✅ **`-q` 档位确认生效**：同页只换档，`draft` 1.54Mbps vs `looks` 3.75Mbps ⇒ 日志里的 `standard` 只是 **looks 的内部档位名**
+  （顺带修正 ISSUES ⑪"standard 只有 3.39Mbps ⇒ 像素被抹掉"的旧判断）。
+- **验证**：生成期**系统字体名残留全 0** · **端到端出片 9.2MB / 19.4s / 61s** · 浏览器探针两条 FontFace `status=loaded` +
+  **判据自证**（塞坏字体得 `failed`）· 抽两真帧目视（标题衬线宋体 / 标签无衬线黑体 / 无豆腐块）。一条判据被证伪也如实记进 EXECUTION_LOG。
+- ⏳ **待办**：部署后**重新生成一份日报页**复看（旧产物改不动）；要恢复"楷/仿"两档需**另做楷体/仿宋子集 woff2** ⇒ 单独立项。
 
 ### 2026-10-14：「满幅压字」做成可选（`VF_LAY_V1`，✅ 代码完成，待实测）
 

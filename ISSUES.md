@@ -1,21 +1,52 @@
-> 最后更新：2026-10-15 ｜ 维护规则见 `AGENTS.md` 硬规则第 2 条（每次实质操作后同步三份文档）
+> 最后更新：2026-10-16 ｜ 维护规则见 `AGENTS.md` 硬规则第 2 条（每次实质操作后同步三份文档）
 
-## 🔴 【最高优先 · 真因未定】日报出片「渲染崩溃」—— 已排除"页面体积"（2026-10-16 本地复现后定论）
+## 🔴→✅ 【已定因 2026-10-16】日报出片「渲染崩溃」= **字体栈里的 Google Fonts 官方名，让引擎抓全量中文字体**（Node 堆 OOM）
 
-**事实（本地硬证据，可复现，`temp/_daily/048v3.html`）**：
-- 本地跑 `node scripts/video-factory/html-deck/tools/daily-film.mjs temp/_daily/048v3.html --outdir <dir>`（该页 **7.12 MB**）
-  ⇒ `① 打包 OK ② 用字闸门 OK ③ 引擎校验 OK` ⇒ **`stage=render ✗ exit=134`**，输出停在 `[initSession:screenshot] page.goto start`。
-- **把该页内嵌图「外置」**（`node temp/_daily/extract-images.mjs` ⇒ **2545 KB**，19 张图成文件，校验同样全过）
-  ⇒ **仍然 `exit=134`、同样停在 `page.goto start`**。
-⇒ **结论：崩在「浏览器开始加载页面」那一刻，与页面大小无关。**（这是**推翻性**的 —— 一路"省体积"的方向**是错的**。）
+**真因（铁证 · 可复现 · `temp/_daily/048v3.html`）**：日报页 `--ftitle/--fbody/--fsans` 写的是 **Google Fonts 官方家族名** `"Noto Serif SC"` / `"Noto Sans SC"`。
+引擎 compile 的"确定性字体"机制**认得这两个名字** ⇒ 去 Google Fonts 抓**全量 face** 并逐条 base64 内联进页面：
+```
+[Compiler] Fetched 808 font face(s) for "Noto Serif SC"    (缓存 46.2MB / 816 文件)
+[Compiler] Embedded system font "SimSun" — 17887 KB
+[Compiler] Fetched 909 font face(s) for "Noto Sans SC"     (缓存 38.8MB / 918 文件)
+FATAL ERROR: CALL_AND_RETRY_LAST Allocation failed - JavaScript heap out of memory   (exit=134)
+```
+⇒ **1717 个 face / 87MB 字体被拉进 Node 内存** → 序列化后经 CDP 发给 Chrome → **Node 主进程堆打到 896MB 上限直接 abort**。
+**崩点看起来在 Chrome 侧（`page.goto start`），实际是 Node 侧 OOM** —— 只有把日志重定向到文件才看得见（V8 GC 栈 + FATAL）。
 
-**已排除**：页面体积（7MB / 2.5MB 同样崩）· 资源缺失（校验三次全过）· worker 数量（2 个 / 3 个同样崩）· 内存不够（**同机同引擎的成片线能正常出片**）。
+**为什么"与页面体积无关"（推翻此前的"省体积"方向）**：**字体注入量是常量 ~87MB，与页面 2.5MB / 7MB 无关** ⇒ 单文件版、配图版都一样崩。这就是那条"推翻性证据"的解释。
 
-**下一步（具体动作 —— 别再动体积）**：
-1. `daily-film.mjs` 起引擎时**把输出重定向到文件**（现在收进内存、被 maxBuffer 截断 ⇒ 只看得到 25% 的尾巴）⇒ 拿到**完整崩溃栈**。
-   参考做法：`daily-voice.mjs` 在 V3/V34 已改成 `stdio:['ignore', fd, fd]` + `<outDir>/render.log` —— **照它改，别另发明**。
-2. 拿到栈后定因：是**页面里某段脚本**（`__seek` / `__timelines` / 13 段的驱动循环？）还是**引擎某个处理步骤**。
-3. **对照实验**：造一份**极简页**（`#stage` + 一个 `.sec clip`）跑一次 —— 若也崩 ⇒ 环境/引擎层；若不崩 ⇒ 逐步加回日报页的特性（`__seek` → 字幕 → 13 段）定位到具体那一项。
+**对照实验（同一份 7.12MB 页，**只改字体声明**，其它一个字节不动）**：
+| 版本 | 字体声明 | 引擎 compile 日志 | 结果 |
+|---|---|---|---|
+| repro1 原页 | `..."Noto Serif SC"...` | Fetched 808 + 909 face · SimSun 17.5MB | ❌ `exit=134` Node OOM（停在 page.goto） |
+| repro5 | 自造名 `NotoSerifSC`/`NotoSansSC` + 页内 `@font-face` | **两条 Fetched 均消失** | ✅ **渲染 OK · 18.7MB · 41.8s · 129s** |
+
+**正确做法（引擎侧早有范式，见 `html-deck/pages/*` 与 `fonts/README.md`）**：
+页面内 `@font-face { font-family:'NotoSansSC'; src:url(本地子集 woff2) }` + **只用自造名** ⇒ 引擎认不出这个名字 ⇒ 不会去 Google Fonts 抓。
+硬口径复述：**服务器零字体依赖**，只需 `fonts/NotoSansSC-sub.woff2`(1.80MB) + `NotoSerifSC-sub.woff2`(2.40MB) 两个子集（随引擎入库）。
+
+**（V7）已落地**：`daily-film.mjs` 渲染输出**重定向到 `<outDir>/render.log`**（照 `daily-voice.mjs` 的 `stdio:['ignore',fd,fd]`），失败时打印日志尾部 + `initSession` 卡点附近 —— 这次正是靠它才拿到 `FATAL ERROR ... heap out of memory`。
+
+**✅ 修法已实施（2026-10-16 用户定案「选 (a) + 用 check-page-fonts 的子集 + 字体雷一起修」）→ `VF_DAILY_V40`**：
+`daily-page.mjs` 的 `FF` 字体栈改为 **自造名 + 通用兜底**（`"NotoSerifSC",serif` / `"NotoSansSC",sans-serif`），
+并在页面 `<style>` 顶部注入**两条 base64 `@font-face`**（新常量 `FONT_FACES`，源 = `fonts/*-sub.woff2`，
+即 `check-page-fonts.mjs` 闸门用的**同一批子集**）。选 (a) 的理由：自包含 ⇒ 渲染 / 客户端 `iframe srcDoc` 预览 /
+**离机双击打开**都对；代价 +5.6MB（7.1MB → 12.7MB，体积闸门 V34c 已是"只警告不拦截"）。
+**✓ 生成期核对（真跑 `daily-page.mjs` 取值）**：`@font-face` **2 条** / `woff2 base64` **2 条** / `--ftitle:"NotoSerifSC",serif`；
+**残留 `Noto Sans SC`·`Noto Serif SC`·`SimSun`·`宋体`·`Georgia`·`KaiTi`·`FangSong`·`PingFang`·`YaHei` 全部 = 0**。
+
+**✅ 同批修掉的另外几颗雷（同一机制）**：① `SimSun`/`宋体` 让引擎把**本机系统字体整份内嵌 17.5MB**、而服务器（Linux）没有 ⇒ 开发机/服务器字形**不一致**；② `Georgia` ⇒ 映射 `eb-garamond`、联网抓 49 face（非确定来源）；③ `kai`/`fang` 靠 Windows 楷体/仿宋 ⇒ `kai-song`/`kai-hei`/`fang-hei` 是**假变体**。
+⇒ 现口径：字体栈**只留自造名 + `serif`/`sans-serif`**，系统字体名一律清掉（**"服务器零字体依赖"这条硬口径现在才真成立**）；
+配对 **7 组 → 4 组**，原指向 kai/fang 的 6 套皮肤重指（楷"文气"→全宋；仿"克制"→宋黑）——**服务器上观感零变化**（服务器本来就没有楷/仿）。
+`PLAN_FONTS` / `PLAN_SKIN_FONT`（`src/lib/agent/daily-plan.ts`）已与引擎 `FONT_PAIRS` / `PAIR_OF` **同步改完**（两处仍须逐字一致）。
+⚠️ 要真恢复"楷/仿"两档 ⇒ 需**另做楷体/仿宋子集 woff2**（新字体资产 + 许可）⇒ 单独立项，别偷偷回退。
+
+**已排除（仍然有效）**：页面体积（7MB / 2.5MB 同样崩）· 资源缺失（校验全过）· worker 数量 · **"内存不够"**（不是内存不够，是这份页面**需要的内存远超 Node 默认堆上限**）。
+
+**（2026-10-16 二次核对）服务器上跑 412s 的那次失败 = 同一真因**：那条单跑的是**尚未部署的旧代码**（V40 当时只在工作区），引擎仍在抓 87MB 字体；
+新探针 `temp/_daily/bench-regex.mjs` 证明 `daily-voice`/`daily-film` **自己的正则全部 2~5ms**（12.73MB 页面、heap 31MB）⇒
+`Runtime_RegExpExecMultiple` 来自**引擎内部**（它当时吞的是「9.9MB 页面 + 87MB 字体注入」≈100MB 字符串）。服务器撑到 412s 才崩、本地 25% 就崩 ⇒ 只是内存大小不同，**同源不同表现**。
+✅ 顺带补修 `VF_DAILYVOICE_V7`：`daily-voice.mjs` 没搬配图版的 `images/`（**配图版走配音链路必失败**）⇒ 已补；**整条配音链路已真跑通**（含配音+烧字幕 4.17MB / 25.58s）。
 
 **副产品（已验证有效，保留）**：`daily-film.mjs` 现在**接受配图版**并把 `images/` 搬进打包目录（V39）。即便不是本次崩溃的原因，这条也让**体积从根上小一个量级**（质量还能还原回 q5）。
 
@@ -99,6 +130,19 @@
 - 🟢 **单文件版的"内嵌图"参数必须按画布定，不能凭手感**（2026-10-16 撑爆一次后**已修**，立为规矩）：`daily.ts` 的 `shrinkForEmbed` 只对 **>380KB** 的图缩放、参数 **长边 1280 / q7**（画布 720×1280）。
   **Why**：原参数是"**>900KB 才压** + 长边 1600 / q5" ⇒ 500~900KB 的图原样内嵌 ⇒ 16 张做出 **9.9MB** 的单文件版 ⇒ 引擎侧对超长字符串做正则时 **V8 直接把 Node 撑爆**（`Runtime_RegExpExecMultiple`，跑 458s 后崩、报错几乎看不出原因）。
   **How to apply**：任何"把二进制内嵌进文本"的地方（HTML/JSON/HTTP body），**内嵌前按使用尺寸压一次**，并按体积设**硬闸门**（出片前 >8MB 直接拒绝、让用户重新生成，不要跑到一半炸）。⚠️ 素材张数一放开（`DAILY_MAX_PICK` 20），这条尤其要盯。
+
+- ✅ **「系统字体名」三重负债已随 `VF_DAILY_V40` 一并修掉（2026-10-16 查崩溃时量出）**（病灶与修法见顶部 V40 段）：
+  · `SimSun`/`宋体` 被引擎**整份内嵌 17.5MB**（`Embedded system font "SimSun" — 17887 KB`），而服务器（Linux）**没有 SimSun**
+    ⇒ 不内嵌、字形也不同 ⇒ **开发机与服务器渲染不一致**（正是 `fonts/README.md` 那条"服务器零字体依赖"要防的事）；
+  · `Georgia` ⇒ 引擎按 `georgia → eb-garamond` **联网抓 49 face**（非确定来源）；
+  · `KaiTi`/`楷体`/`FangSong`/`仿宋` 服务器上**根本不存在** ⇒ `kai-song`/`fang-hei`/`kai-hei` 是**假变体**（只在开发机成立）。
+  **修**：字体栈清成**只留自造名 + 通用兜底**，配对 7 → 4（6 套皮肤重指）；**要真保留"楷/仿"变体，得另做楷体/仿宋子集 woff2**（体积与许可另议）⇒ 单独立项。
+
+- ✅ **`-q` 质量档已确认生效（2026-10-16 实测，当天查崩溃时顺手验的）**：引擎日志里的 `standard` 是 **`looks` 的内部档位名**（不是"没传进去"）。
+  同页同参数只换档位实测：`-q draft` ⇒ 7.66MB / **1.54 Mbps**；`-q looks` ⇒ 18.67MB / **3.75 Mbps**（差 2.4 倍）⇒ **生效**。
+  `--help` 原文：`Quality: draft, looks, delivery, or standard/high. looks is the default (CRF 16). delivery is high.`
+  ⚠️ **顺带修正 ISSUES ⑪ 的旧口径**：⑪ 里"standard 只有 3.39Mbps ⇒ 照片纹理被抹掉" —— 那个 `standard` **其实就是 looks 档**
+  （成片线用的也是 `-q looks`）⇒ 3.39Mbps 是 looks 的真实码率，**"像素变低"的观感不是档位问题**，别再往这个方向查（要查就查素材分辨率/缩放链）。
 
 - 🟡 **「分段渲染 + 合成」= 扩容项（2026-10-16 用户提出「能否分成几段最后合成，而不是压缩」）**：
   **技术上可行**（分块渲染、可并行、内存峰值更低、**质量不受影响**），但**代替不了"按画布压图"** ——

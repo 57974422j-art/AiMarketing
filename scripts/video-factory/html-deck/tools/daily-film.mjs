@@ -225,12 +225,33 @@ if (argv.includes('--check-only')) { console.log('（--check-only：闸门全过
 // ── ④ 渲染 ────────────────────────────────────────────────────────────────────
 const mp4 = path.join(outDir, path.basename(abs, path.extname(abs)) + '.mp4')
 const t0 = Date.now()
-const r = run(process.execPath, [HF, 'render', outDir, '-o', mp4, '-f', fps, '-q', quality, '-w', workers], { timeout: 60 * 60 * 1000 })
+/* ★VF_DAILYFILM_V7（2026-10-16 用户要求"拿完整崩溃栈"）：
+   原来渲染输出**收进内存**（`run()` 的 maxBuffer 64MB）⇒ 崩溃时 Node 被 kill / 输出被截断，
+   上层只看到 `[initSession:screenshot] page.goto start` 这一条（约 25%），**栈尾巴全丢了**。
+   照 `daily-voice.mjs`（V3/V34）的现成做法改：**直接重定向到文件**（内存零占用、日志留档）。
+   失败时从日志里取**尾部**（Windows native crash 的真因都在最后几行）。
+   ⚠️ 传了 stdio 数组后 spawnSync 的 `r.stdout/r.stderr` 必然是 null ⇒ 不许再读它们。 */
+const renderLog = path.join(outDir, 'render.log')
+let logFd = -1
+try { logFd = fs.openSync(renderLog, 'w') } catch (e) {
+  console.log('[警告] 渲染日志无法落盘（' + String((e && e.message) || e).slice(0, 80) + '）⇒ 输出仍收进内存')
+}
+const r = run(process.execPath, [HF, 'render', outDir, '-o', mp4, '-f', fps, '-q', quality, '-w', workers],
+  { timeout: 60 * 60 * 1000, ...(logFd >= 0 ? { stdio: ['ignore', logFd, logFd] } : {}) })
+try { if (logFd >= 0) fs.closeSync(logFd) } catch { /* ignore */ }
 if (r.status !== 0 || !fs.existsSync(mp4)) {
-  // 崩溃时 stderr 可能只有一个 Windows 异常地址 ⇒ 把 stdout 的**尾部**也带出来，别让调用方只看到一串十六进制
-  const tail = String(r.stdout || '').split('\n').filter((l) => l.trim()).slice(-6).join(' | ')
-  console.log('stage=render ✗ exit=' + r.status + ' ' + String(r.stderr || '').slice(-200))
-  if (tail) console.log('   stdout 尾部：' + tail.slice(0, 500))
+  let lines = []
+  try {
+    lines = String(fs.readFileSync(renderLog, 'utf8')).split('\n').map((x) => x.replace(/\s+$/, '')).filter((l) => l.trim())
+  } catch { lines = [] }
+  console.log('stage=render ✗ exit=' + r.status
+    + (lines.length ? '（完整日志 ' + lines.length + ' 行 → ' + path.relative(process.cwd(), renderLog) + '）' : '')
+    + (logFd < 0 ? ' ' + String(r.stderr || '').slice(-200) : ''))
+  // 崩溃真因（native crash / OOM / 字体）通常在**最后几行**；`page.goto start` 这种"卡在哪"的线索通常在**首次出现**处。
+  const tail = lines.slice(-8).join(' | ')
+  if (tail) console.log('   日志尾部：' + tail.slice(0, 900))
+  const at = lines.findIndex((l) => /page\.goto start|initSession/.test(l))
+  if (at >= 0) console.log('   卡点附近：' + lines.slice(Math.max(0, at - 2), at + 4).join(' | ').slice(0, 600))
   process.exit(1)
 }
 const size = (fs.statSync(mp4).size / 1024 / 1024).toFixed(1)

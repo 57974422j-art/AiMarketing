@@ -173,6 +173,23 @@ console.log('③ 字幕 ' + srtRows.length + ' 条（按音频区间）')
 
 // ── ④ 渲染画面（复用出片工具：打包 → 用字闸门 → 引擎校验 → 渲染）──────────────
 const voicedHtml = path.join(outDir, path.basename(srcHtml, path.extname(srcHtml)) + '.voiced.html')
+/* ★VF_DAILYVOICE_V7（2026-10-16 实测补的缺口）：**配图版**页面（图是 `images/xxx.jpg` 外链）也要能走配音链路 ——
+   把**源 HTML 同级的 `images/`** 拷到 outDir（voiced.html 的旁边），否则内层 `daily-film.mjs` 的 V39 搬图逻辑
+   只在 voiced.html 同级找 `images/` ⇒ 直接报
+   `stage=media ✗ 页面引用了 images/ 里的图，但源目录里没有 images/`（本地用配图版跑配音链路时实测撞到）。
+   ⚠️ 单文件版（图已内嵌 base64）没有 images/ 目录 ⇒ 这里直接跳过，**生产主路径零影响**。 */
+const srcImages = path.join(path.dirname(srcHtml), 'images')
+if (fs.existsSync(srcImages)) {
+  const dstImages = path.join(outDir, 'images')
+  fs.mkdirSync(dstImages, { recursive: true })
+  let movedImg = 0
+  for (const f of fs.readdirSync(srcImages)) {
+    const a = path.join(srcImages, f)
+    if (fs.statSync(a).isFile()) { fs.copyFileSync(a, path.join(dstImages, f)); movedImg++ }
+  }
+  console.log('   （配图版：源 images/ 的 ' + movedImg + ' 张图已拷到 ' + dstImages + '）')
+}
+fs.mkdirSync(outDir, { recursive: true })
 fs.writeFileSync(voicedHtml, html, 'utf8')
 console.log('④ 渲染画面（沿用 daily-film.mjs：打包 + 两道闸门 + hyperframes）')
 // ★VF_DAILYVOICE_V3（2026-10-15 用户实测「跑了 332s 却判失败、报错还是空的」）—— 我上一版犯了两个错：

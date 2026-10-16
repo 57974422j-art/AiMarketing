@@ -932,17 +932,19 @@ export function layoutStats(segs: any[]): {
 /**
  * ★VF_DAILY_V25（B1 字体配对，2026-10-14 用户定案「B1+B2+B3，最大目的去同质化：文字/文字动效/配色/样式排版」）：
  *   "文字"这条轴原来只有 serif/sans 两种 ⇒ 20 套皮肤里字体其实只有 2 种。
- *   现在 4 个字体族 → 7 组配对，**皮肤自带默认配对**（见引擎 `PAIR_OF`），AI 可用 `font` 覆盖。
+ *   现在 2 个字体族 → 4 组配对，**皮肤自带默认配对**（见引擎 `PAIR_OF`），AI 可用 `font` 覆盖。
  *   ⚠️ 与引擎 `daily-page.mjs` 的 `FONT_PAIRS` **必须同名同数**（单测卡住，防两处漂移）。
+ *
+ *   ★V40（2026-10-16 用户定案「选 (a)：base64 内嵌；字体雷一起修」）：**删掉 kai-song / fang-hei / kai-hei 三组**
+ *   （7 → 4）。原因见 `daily-page.mjs` 的 V40 说明：`kai` / `fang` 靠的是 Windows 系统**楷体/仿宋**，
+ *   **服务器上没有** ⇒ 这三组在服务器上等于"宋/黑"，开发机却是楷/仿 ⇒ **假变体**（同一皮肤号两台机器两个样）。
+ *   要真恢复这两档，得另做楷体/仿宋的子集 woff2（新字体资产 + 许可）⇒ 单独立项。
  */
 export const PLAN_FONTS: Array<{ id: string; name: string; look: string }> = [
   { id: 'song-hei', name: '宋黑', look: '标题宋体 + 正文黑体（书名感，稳重；餐饮/日报最稳）' },
   { id: 'hei-song', name: '黑宋', look: '标题黑体 + 正文宋体（招牌感，硬朗；夜间/高端）' },
   { id: 'song-song', name: '全宋', look: '全宋体（书卷气，安静；茶/文气/纪录）' },
   { id: 'hei-hei', name: '全黑', look: '全黑体（现代、干净；数码/办公/中性）' },
-  { id: 'kai-song', name: '楷宋', look: '标题楷体 + 正文宋体（手写感、文气；老字号/铜锅/江南）' },
-  { id: 'fang-hei', name: '仿黑', look: '标题仿宋 + 正文黑体（公文式的克制、正式）' },
-  { id: 'kai-hei', name: '楷黑', look: '标题楷体 + 正文黑体（题字感、市井；小吃/街边）' },
 ]
 /**
  * ★VF_DAILY_V25：**文字动效**（用户点名的第四条去同质化轴）。
@@ -1006,15 +1008,17 @@ export function structureTip(id: any): { tone: 'dark' | 'light'; best: string[];
  * ★VF_DAILY_V25：**皮肤 → 默认字体配对**（与引擎 `daily-page.mjs` 的 `PAIR_OF` **必须一致**，单测卡住）。
  *   为什么要抄一份：服务端要判断"这份的字体是否和上一份同款"，而这要求它在**出片前**就知道
  *   皮肤会落到哪一组配对（引擎那边的默认值它拿不到）。抄 + 单测双向核对 = 可接受的重复。
+ *   ★V40：原来指向 kai/fang 的 6 套已随引擎 `PAIR_OF` 一起重指（楷"文气"→全宋；仿"克制"→宋黑）——
+ *   两处**必须逐字一致**，`temp/_spec` 的单测会双向核对。
  */
 export const PLAN_SKIN_FONT: Record<string, string> = {
   'paper-daily': 'song-song', 'night-gold': 'song-song', 'tea-green': 'song-song',
   'blue-print': 'hei-hei', 'coral-warm': 'hei-hei', 'mono-print': 'hei-hei',
-  'copper-pot': 'kai-song', 'amber-cafe': 'song-hei', 'wine-red': 'hei-song',
+  'copper-pot': 'song-song', 'amber-cafe': 'song-hei', 'wine-red': 'hei-song',
   'late-night': 'hei-hei', 'cinema-noir': 'hei-song', 'forest-ink': 'song-song',
-  'jiangnan': 'kai-song', 'bamboo': 'song-hei', 'sand-dune': 'fang-hei',
-  'mist-blue': 'hei-song', 'graphite': 'fang-hei', 'nordic': 'hei-hei',
-  'rose-milk': 'kai-hei', 'morandi': 'kai-song',
+  'jiangnan': 'song-song', 'bamboo': 'song-hei', 'sand-dune': 'song-hei',
+  'mist-blue': 'hei-song', 'graphite': 'song-hei', 'nordic': 'hei-hei',
+  'rose-milk': 'song-hei', 'morandi': 'song-song',
 }
 /** 字体配对校验（AI 可挑；不合法就丢掉并如实记 fixes —— 引擎那边会用该皮肤的默认配对） */
 export function normFont(raw: any): { font?: string; fixes: string[] } {
@@ -1030,7 +1034,8 @@ export function normFont(raw: any): { font?: string; fixes: string[] } {
  *   `probe-variance.mjs` 实测短板：字体只随皮肤走 ⇒ 皮肤一重复、字体就跟着重复（6 轮只有 3 种）。
  *   现在三层：① AI 指定（白名单）→ 直接用；② 与**上一份**的配对同款 ⇒ 按 seed 顺延一组；
  *   ③ 其余情况交给引擎用皮肤默认配对（不写 `font`，产物不变）。
- *   ⚠️ 字体只会改变文字宽度（会影响的只有"竖排/窄列"那类结构），矩阵探针已按 7 组配对 × 4 结构验过不溢出。
+ *   ⚠️ 字体只会改变文字宽度（会影响的只有"竖排/窄列"那类结构），矩阵探针已按（当时的）7 组配对 × 4 结构验过不溢出；
+ *     ★V40 删到 **4 组** ⇒ 那条结论覆盖的是**超集**，仍然成立。
  */
 export function pickFont(opts: { want?: any; themeId?: string; lastTheme?: string; recentThemes?: string[]; key?: number }): { font?: string; fixes: string[] } {
   const fixes: string[] = []

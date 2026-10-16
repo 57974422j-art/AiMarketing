@@ -122,35 +122,53 @@ const DEFAULT_THEME = 'paper-daily'
 
 /* ═══ ★VF_DAILY_V25（2026-10-14 用户定案「B1+B2+B3，最大目的**去同质化**：文字 / 文字动效 / 配色 / 样式排版」）═══
    **B1 字体配对**：原来字体只有 serif/sans 两种（`--fbody` 按 TH.font 二选一）⇒ "文字"这条轴几乎没变化。
-   现口径：字体家族库（4 族）+ **配对库**（标题 × 正文 × 标签 = 7 组），皮肤绑一个默认配对，AI 可用
+   现口径：字体家族库 + **配对库**（标题 × 正文 × 标签），皮肤绑一个默认配对，AI 可用
    `meta.font` 覆盖（白名单校验，非法就回落并如实记 note）。
-   字体栈里 Windows / macOS / Noto 三套名字都给（用户机器是 Windows，服务器是 Linux）——
-   缺哪个都不至于掉成系统默认丑字，最差也落在"衬线/无衬线"这一档，**变体之间的差异不会消失**。 */
+
+   ★★★ ★VF_DAILY_V40（2026-10-16 用户定案「选 (a)：base64 内嵌；用 check-page-fonts 的子集；字体雷一起修」）★★★
+   **原 V25 的字体栈是"日报出片渲染崩溃"的真因**（2026-10-16 本地复现 + 对照实验，见 ISSUES.md 顶部）——
+   栈里写的全是**外部名字**，两种都出事：
+   · **Google Fonts 官方名**（`"Noto Serif SC"` / `"Noto Sans SC"`）⇒ 引擎 compile 的"确定性字体"机制
+     **认得这个名字** ⇒ 去 Google Fonts 抓**全量 1717 个 face（≈87MB）**逐条 base64 内联进页面 ⇒
+     序列化后经 CDP 发 Chrome ⇒ **Node 主进程堆打到 896MB 上限直接 abort（exit=134）**。
+     ⚠️ 崩点**看起来**在 Chrome 侧（`[initSession:screenshot] page.goto start`），实际是 **Node OOM**
+       —— 只有把渲染日志落盘才看得见（`daily-film.mjs` V7 已落盘）。这与"页面 2.5MB / 7MB 一样崩"
+       完全自洽：**字体注入量是常量，与页面体积无关**（此前一路"省体积"全白费，别再来一遍）。
+   · **具体系统字体名** ⇒ 三颗雷：`SimSun`/`宋体` 被引擎**整份内嵌 17.5MB** 而服务器(Linux)没有
+     ⇒ **开发机与服务器字形不一致**；`Georgia` 按 `georgia → eb-garamond` **联网抓 49 face**（非确定来源）；
+     `KaiTi`/`楷体`/`FangSong`/`仿宋` 服务器上根本不存在 ⇒ `kai`/`fang` 是**假变体**。
+   **现口径（引擎侧既有范式，见 `html-deck/pages/*` 与 `fonts/README.md`）**：
+     ① 字体栈**只认自造名** `NotoSerifSC` / `NotoSansSC` —— 引擎认不出这个名字 ⇒ **不会去抓**；
+     ② 页内注入 `@font-face`（见下面 `FONT_FACES`，**base64 内嵌** `fonts/*-sub.woff2` 子集）⇒ 自包含、离机/客户端预览都对；
+     ③ **服务器零字体依赖**（硬口径）：只需仓库里那两个 woff2，不装任何系统 CJK 字体。 */
 const FF = {
-  song: '"Source Han Serif SC","Noto Serif SC","Songti SC",SimSun,"宋体",Georgia,serif',
-  hei: '"Source Han Sans SC","Noto Sans SC","PingFang SC","Microsoft YaHei","微软雅黑",system-ui,sans-serif',
-  kai: 'KaiTi,STKaiti,"Kaiti SC","楷体","Noto Serif SC","Songti SC",serif',
-  fang: 'FangSong,STFangsong,"Fangsong SC","仿宋","Noto Serif SC","Songti SC",serif',
+  song: '"NotoSerifSC",serif',
+  hei: '"NotoSansSC",sans-serif',
 }
+/* ★V40：**删掉 kai / fang 两族**（原为 `KaiTi,STKaiti,"Kaiti SC","楷体",…` / `FangSong,STFangsong,…`）。
+   为什么必须删、而不是"留在栈里兜底"：它们指向的是 **Windows 系统楷体/仿宋**，服务器上没有 ⇒
+   `kai-song` / `kai-hei` / `fang-hei` 三个配对**在服务器上等于没有**（渲出来是宋/黑、开发机却是楷/仿）
+   —— 这就是**假变体**：同一个皮肤号在不同机器上长得不一样。
+   要真恢复这两档，得**另做楷体/仿宋的子集 woff2**（新字体资产 + 许可）⇒ 单独立项，别在这里偷偷回退。 */
 const FONT_PAIRS = {
   'song-hei': { name: '宋黑', title: 'song', body: 'hei', label: 'hei' },   // 书名感：稳重
   'hei-song': { name: '黑宋', title: 'hei', body: 'song', label: 'hei' },   // 招牌感：硬朗
   'song-song': { name: '全宋', title: 'song', body: 'song', label: 'hei' }, // 书卷：安静
   'hei-hei': { name: '全黑', title: 'hei', body: 'hei', label: 'hei' },     // 现代：干净
-  'kai-song': { name: '楷宋', title: 'kai', body: 'song', label: 'hei' },   // 手写感：文气
-  'fang-hei': { name: '仿黑', title: 'fang', body: 'hei', label: 'hei' },   // 公文感：克制
-  'kai-hei': { name: '楷黑', title: 'kai', body: 'hei', label: 'hei' },     // 题字感：市井
 }
 /** 老 6 套皮肤**保持原样**（serif→全宋 / sans→全黑，与改动前逐字节一致，老产物不失效）；
- *  新 14 套显式铺开配对 —— 这样 20 套皮肤在"字体"这条轴上也是散的，而不是只有两种。 */
+ *  新 14 套显式铺开配对 —— 这样 20 套皮肤在"字体"这条轴上也是散的，而不是只有两种。
+ *  ★V40：原来指向 kai/fang 的 6 套已重指到**语义最接近**的现有配对（楷"文气"→全宋；仿"克制"→宋黑）。
+ *  ⚠️ 这在**服务器上观感零变化**（服务器本来就没有楷/仿，那些皮肤早就渲成宋/黑），
+ *     只有开发机不再"假装有楷体"—— 也就是"开发机看到的"与"用户看到的"终于一致了。 */
 const PAIR_OF = {
   'paper-daily': 'song-song', 'night-gold': 'song-song', 'tea-green': 'song-song',
   'blue-print': 'hei-hei', 'coral-warm': 'hei-hei', 'mono-print': 'hei-hei',
-  'copper-pot': 'kai-song', 'amber-cafe': 'song-hei', 'wine-red': 'hei-song',
+  'copper-pot': 'song-song', 'amber-cafe': 'song-hei', 'wine-red': 'hei-song',
   'late-night': 'hei-hei', 'cinema-noir': 'hei-song', 'forest-ink': 'song-song',
-  'jiangnan': 'kai-song', 'bamboo': 'song-hei', 'sand-dune': 'fang-hei',
-  'mist-blue': 'hei-song', 'graphite': 'fang-hei', 'nordic': 'hei-hei',
-  'rose-milk': 'kai-hei', 'morandi': 'kai-song',
+  'jiangnan': 'song-song', 'bamboo': 'song-hei', 'sand-dune': 'song-hei',
+  'mist-blue': 'hei-song', 'graphite': 'song-hei', 'nordic': 'hei-hei',
+  'rose-milk': 'song-hei', 'morandi': 'song-song',
 }
 const pairStacks = (id) => {
   const p = FONT_PAIRS[id] || FONT_PAIRS['song-song']
@@ -668,6 +686,29 @@ const IMG_VARS = (() => {
   return out.join(' ')
 })()
 
+/* ★VF_DAILY_V40：页内 @font-face（**base64 内嵌**我们自己的子集字体，用户 2026-10-16 定案选 (a)）。
+   为什么内嵌而不是外链：日报页要能"双击打开"与"客户端 `iframe srcDoc` 预览"都显示对 ⇒ 自包含最稳
+   （外链 woff2 在 srcDoc 里相对路径解析不到 ⇒ 预览会掉字形）。
+   代价：+约 5.6MB（4.2MB woff2 × 1.33 base64）—— 换来"不崩 + 字形确定"，值。
+   ⚠️ 只允许有**这两条**（两份 woff2 各一次）。**别再加别的 @font-face 源** —— V35/V36 踩过同类坑：
+      同一份二进制在页面里存两处，体积会按引用次数翻倍。
+   字表口径：子集 = `fonts/chars-cmn.txt` 的 6940 个码点（GB2312 全集 + ASCII + 标点 + 我们资产文本）；
+   `check-page-fonts.mjs` 闸门查的就是**同一张表** ⇒ 闸门过了，这里就一定覆盖得住。 */
+const FONT_FACES = (() => {
+  const dir = path.join(HERE, '..', 'fonts')
+  const face = (name, file, range) => {
+    const p = path.join(dir, file)
+    if (!fs.existsSync(p)) {
+      console.log('⚠️ ★V40 字体子集缺失：' + p + ' —— 页面会回落系统字体（服务器上可能出豆腐块），请检查仓库完整性')
+      return ''
+    }
+    return '@font-face{font-family:"' + name + '";src:url(data:font/woff2;base64,'
+      + fs.readFileSync(p).toString('base64') + ') format("woff2");font-weight:' + range + ';font-display:block}'
+  }
+  return face('NotoSerifSC', 'NotoSerifSC-sub.woff2', '200 900')
+    + face('NotoSansSC', 'NotoSansSC-sub.woff2', '100 900')
+})()
+
 const html = `<!DOCTYPE html>
 <html lang="zh-CN" data-mode="preview">
 <head>
@@ -682,6 +723,7 @@ const html = `<!DOCTYPE html>
 ${warns.length ? '<!-- ⚠️ 字数体检警告：\n     ' + warns.join('\n     ') + '\n-->' : ''}
 ${AI_FALLBACKS.length ? '<!-- ⚠️ ★L3 AI 自写段回落记录：\n     ' + AI_FALLBACKS.join('\n     ') + '\n-->' : ''}
 <style>
+${FONT_FACES}
   :root{
     /* ★VF_DAILY_L4：皮肤 token 全部来自 THEMES（AI 挑 / 对比度体检通过才会用它） */
     --paper:${TH.paper}; --paper2:${TH.paper2}; --ink:${TH.ink}; --dim:${TH.dim};
