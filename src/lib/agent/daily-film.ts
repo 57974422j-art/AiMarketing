@@ -263,6 +263,35 @@ export async function startDailyFilm(
       push('[失败] ' + t.error)
       writeTask(uid, t)
     } finally {
+      // ★VF_DAILYFILM_V8（2026-10-16 用户实测「按你给的路径 ls 不到 render.log，被删了」）：
+      //   原来这里**无条件** `rmSync(work)` ⇒ 把 V7 好不容易落盘的 `<outDir>/render.log` **一起删掉**
+      //   ⇒ 用户白跑一轮却拿不到日志（我按 cwd 反推的路径当然找不到 —— 是文件没了，不是路径错）。
+      //   现口径：**成功才清**（省磁盘）；**失败就把日志拷到任务目录**留档（`work` 里可能有几百 MB 中间帧，
+      //   不整份留），并在 tail 里写明路径 ⇒ 下次直接 `cat` 就行，不用再猜。
+      const kept = t.status === 'done' ? '' : (() => {
+        try {
+          const pick = (d: string, depth: number): string => {
+            if (depth > 3) return ''
+            let names: string[] = []
+            try { names = fs.readdirSync(d) } catch { return '' }
+            for (const f of names) {
+              const p = path.join(d, f)
+              let st: fs.Stats
+              try { st = fs.statSync(p) } catch { continue }
+              if (st.isFile()) { if (f === 'render.log') return p; continue }
+              const r = pick(p, depth + 1)
+              if (r) return r
+            }
+            return ''
+          }
+          const src = pick(work, 0)
+          if (!src) return ''
+          const keep = path.join(taskDir(uid), id + '.render.log')
+          fs.copyFileSync(src, keep)
+          return keep
+        } catch { return '' }
+      })()
+      if (kept) push('[日志] 渲染日志已留档：' + kept)
       try { fs.rmSync(work, { recursive: true, force: true }) } catch { /* 中间产物留着也无害 */ }
     }
   })().catch(() => { /* 上面已兜住所有失败路径 */ })

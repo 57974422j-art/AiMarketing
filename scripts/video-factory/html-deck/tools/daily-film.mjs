@@ -169,6 +169,55 @@ html = html.replace('</body>', '<script>\n'
   + '  pause: function () {}, play: function () {}\n'
   + '};\n</script>\n</body>')
 
+/* ═══ ★VF_DAILYFILM_V8（2026-10-16 用户在服务器上 OOM 后定案）═══
+   把页面里的 **base64 资源（内嵌图 + 内嵌字体）全部外置成旁边的小文件**，页面只留相对路径。
+   **为什么必须做（这回是真因级的）**：用户服务器上那份单文件版 **8.3MB**（≈5.6MB 是 V40 内嵌的子集字体 + 2.4MB 图）
+   跑到 **374s 被 OOM killer 杀掉** —— daily-voice 看到的是 `exit=null`（子进程被**信号**杀死，不是正常退出），
+   日志尾部是 `V8_Fatal + Native stack trace`。而**同一份 12.7MB 页面本地外置后**：
+   引擎要吞的字符串 **13035KB → 48KB**、**渲染耗时 128s → 59s**（快一倍多）、四道闸门全过 ⇒ 内存峰值大降。
+   ⚠️ 外置**只作用于出片副本**：交付 / 客户端预览用的单文件版**一个字节都不动**（仍自包含，离机双击也能看）。
+   实现口径（照 `temp/_daily/flatten-assets.mjs` 的已验证实现）：
+     · 只扫 `"data:` 与 `(data:` 两种前缀，**全程 indexOf/slice，绝不用大正则处理长字符串**
+       （V34 那次就是"大字符串 + 正则"把 Node 撑爆的）；
+     · 资源写进 `<outDir>/images/`（借 V39 已有的整套搬图/校验口径），页面里改成 `images/xxx` 相对路径；
+     · 认不出的 mime 原样保留（**不静默丢资源**）。 */
+const flat = (() => {
+  const EXT = { 'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'font/woff2': 'woff2', 'font/ttf': 'ttf' }
+  const imgDir = path.join(outDir, 'images')
+  const s = html
+  let i = 0, out = '', nImg = 0, nFont = 0, bytes = 0
+  while (true) {
+    const a = s.indexOf('"data:', i)
+    const b = s.indexOf('(data:', i)
+    let k = -1, quote = ''
+    if (a >= 0 && (b < 0 || a < b)) { k = a; quote = '"' } else if (b >= 0) { k = b; quote = ')' }
+    if (k < 0) { out += s.slice(i); break }
+    const end = s.indexOf(quote, k + 1)
+    if (end < 0) { out += s.slice(i); break }
+    const uri = s.slice(k + 1, end)
+    const comma = uri.indexOf(',')
+    const head = comma > 0 ? uri.slice(5, comma) : ''
+    const mime = head.split(';')[0].trim().toLowerCase()
+    const ext = EXT[mime]
+    if (!ext || head.indexOf('base64') < 0) { out += s.slice(i, end); i = end; continue }
+    const isFont = mime.indexOf('font') === 0
+    const name = isFont ? ('f' + (++nFont) + '.' + ext) : ('e' + String(++nImg).padStart(3, '0') + '.' + ext)
+    const buf = Buffer.from(uri.slice(comma + 1), 'base64')
+    fs.mkdirSync(imgDir, { recursive: true })
+    fs.writeFileSync(path.join(imgDir, name), buf)
+    bytes += buf.length
+    out += s.slice(i, k + 1) + 'images/' + name   // 原引号/括号留给下一轮，别自己补（否则重复）
+    i = end
+  }
+  return { html: out, n: nImg + nFont, bytes }
+})()
+if (flat.n) {
+  console.log('   ★ 资源外置：' + flat.n + ' 个（' + (flat.bytes / 1048576).toFixed(1) + ' MB）→ ' + path.join(outDir, 'images')
+    + ' · 引擎要吞的页面 ' + (Buffer.byteLength(html, 'utf8') / 1048576).toFixed(2) + ' MB → '
+    + (Buffer.byteLength(flat.html, 'utf8') / 1024).toFixed(0) + ' KB')
+  html = flat.html
+}
+
 fs.mkdirSync(outDir, { recursive: true })
 fs.writeFileSync(path.join(outDir, 'index.html'), html, 'utf8')
 fs.writeFileSync(path.join(outDir, 'hyperframes.json'), JSON.stringify({
@@ -248,8 +297,14 @@ if (r.status !== 0 || !fs.existsSync(mp4)) {
     + (lines.length ? '（完整日志 ' + lines.length + ' 行 → ' + path.relative(process.cwd(), renderLog) + '）' : '')
     + (logFd < 0 ? ' ' + String(r.stderr || '').slice(-200) : ''))
   // 崩溃真因（native crash / OOM / 字体）通常在**最后几行**；`page.goto start` 这种"卡在哪"的线索通常在**首次出现**处。
-  const tail = lines.slice(-8).join(' | ')
-  if (tail) console.log('   日志尾部：' + tail.slice(0, 900))
+  // ★VF_DAILYFILM_V8（2026-10-16 用户实测「贴回来的只有 Native stack trace」）：
+  //   **先抽关键行，再打尾部** —— 原来只打"最后 8 行"，而崩在 OOM 时最后 8 行**全是 Native stack trace**，
+  //   真正有用的 `FATAL ERROR: … out of memory` / `Fetched … font face` 在**更前面** ⇒ 等于白留了日志。
+  const KEY = /FATAL|out of memory|heap|V8_Fatal|RegExp|Fetched .*font face|Embedded system font|Starting browsers|page\.goto|Compiled composition|error\(s\)/i
+  const key = lines.filter((l) => KEY.test(l)).slice(0, 10)
+  if (key.length) console.log('   关键行：' + key.join(' | ').slice(0, 900))
+  const tail = lines.slice(-6).join(' | ')
+  if (tail) console.log('   日志尾部：' + tail.slice(0, 600))
   const at = lines.findIndex((l) => /page\.goto start|initSession/.test(l))
   if (at >= 0) console.log('   卡点附近：' + lines.slice(Math.max(0, at - 2), at + 4).join(' | ').slice(0, 600))
   process.exit(1)
