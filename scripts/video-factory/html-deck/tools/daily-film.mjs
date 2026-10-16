@@ -57,7 +57,17 @@ const quality = String(opt('quality', 'looks'))
 //   实测 4 worker 会直接把渲染进程打崩（native crash，stderr 只剩一个 Windows 异常地址）。
 // ★VF_DAILY_V27（2026-10-16 素材上限 10→20）：页面会明显变大（20 张内嵌）⇒ **按页面体积自动降**，
 //   不要写死 2 —— 写死就会在"图更多"时重演那次 crash。可用 --workers 覆盖。
-const htmlMB = (() => { try { return fs.statSync(srcHtml).size / 1024 / 1024 } catch { return 7 } })()
+// ★VF_DAILY_V38（2026-10-16 修 V27 引入的 bug）：这里原来写的是 **`srcHtml`** —— 那个变量**根本不存在**
+//   ⇒ `fs.statSync(undefined)` 抛错、被 catch 吞掉 ⇒ **永远返回 7** ⇒ "按页面体积自动降 worker"**从来没生效过**
+//   （一直恒等于 2，侥幸没出事）。正确变量是上面 resolve 过的 `abs`。
+//   ⚠️ 教训：`try/catch + 兜底值` 会把"写错变量名"这种硬错误变成**静默的错误行为** ——
+//      这类兜底要么**打日志**，要么就别吞（这里现在改成"出错就明说"）。
+const htmlMB = (() => {
+  try { return fs.statSync(abs).size / 1024 / 1024 } catch (e) {
+    console.log('[警告] 量页面体积失败（' + String((e && e.message) || e).slice(0, 80) + '）⇒ 按 7MB 估')
+    return 7
+  }
+})()
 const autoWorkers = htmlMB > 8 ? '1' : (htmlMB > 4 ? '2' : '3')
 const workers = String(opt('workers', autoWorkers))
 const skipCheck = argv.includes('--skip-check')
