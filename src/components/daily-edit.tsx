@@ -49,9 +49,14 @@ export function DailyEditPanel({ segs, onSend, onClose }: {
   const [rows, setRows] = useState(() => base.map((r) => ({ ...r, del: false })))
   const [drag, setDrag] = useState<number | null>(null)
   useEffect(() => {
-    // ⚠️ 依赖用 base 的“指纹”而不是 base 本身：父组件每次渲染都会新建数组，否则会把用户的拖拽顺序冲掉
+    // ⚠️ 依赖必须是**内容指纹**（而不是 base 本身）—— 父组件每次渲染都会新建数组，用 base 会把用户的拖拽顺序冲掉。
+    // ★VF_DAILY_V29（2026-10-16 用户定案「7」：编辑面板"看着没生效"）：
+    //   老写法只拼**段号序列**（`r.i`）⇒ 段号没变时（**只改了文字 / 版式 / 用图**）这个 effect 根本不重跑
+    //   ⇒ 面板里显示的还是**上一次**的内容 ⇒ 用户保存后再打开面板看，以为"根本没改上"。
+    //   现口径：把每段的**实际内容**都拼进指纹 ⇒ 任何一次真实改动都会让它变 ⇒ 面板回填到最新。
+    //   拖拽顺序仍不受影响（顺序只存在本组件的 `rows` 里，不进这里的指纹）。
     setRows(base.map((r) => ({ ...r, del: false })))
-  }, [base.map((r) => r.i).join(',')])
+  }, [base.map((r) => [r.i, r.t1, r.t2, r.pts, r.imgs, r.layout, r.kind, r.type, r.scale].join('~')).join('|')])
 
   const set = (i: number, patch: any) => setRows((rs) => rs.map((r) => (r.i === i ? { ...r, ...patch } : r)))
   /** 拖拽/上下移：只动**本地面板里的行序**，提交时翻译成 `排序=` 一条命令 */

@@ -41,7 +41,7 @@ import { vfRootDir } from './video-material'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 import { dashscopeFunctionCall } from '@/lib/ai-providers'
 // ★纯函数层（零依赖、可单测：temp/_exp/daily/test-plan.mjs）
-import { DAILY_STYLE, aiPrompt, extractJsonEx, normSegs, normMotion, normTheme, normFont, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, assignTextMotion, pickFont, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer, checkDiversity, fixDiversity, voicePrompt, voicePromptStrict, normVoiceLines, buildVoiceCardPayload, estimateSec, parseVoiceLines, VOICE_MAX_CHARS } from './daily-plan'
+import { DAILY_STYLE, aiPrompt, extractJsonEx, normSegs, normMotion, normTheme, normFont, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, assignTextMotion, pickFont, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer, checkDiversity, fixDiversity, voicePrompt, voicePromptStrict, normVoiceLines, buildVoiceCardPayload, estimateSec, parseVoiceLines, VOICE_MAX_CHARS, voiceKeyOf } from './daily-plan'
 import type { PlanBy } from './daily-plan'
 
 export { DAILY_STYLE }
@@ -94,6 +94,9 @@ export interface DailyDraft {
   filmTaskId?: string
   /** ★VF_DAILYVOICE_V1：最近一版**逐段口播稿**（配音稿卡上给用户改的那份；合成时以卡上回传的为准） */
   voice?: string[]
+  /** ★VF_DAILYVOICE_V6：这份口播对应的**画面指纹**（`voiceKeyOf(plan.segments)`）——
+   *  出稿时比对：画面字没变才沿用旧稿；变了就当没有（宁可让 AI 重写，也不给错配的稿）。 */
+  voiceKey?: string
 }
 
 export function newDailyDraft(): DailyDraft { return { step: 'topic' } }
@@ -1219,12 +1222,16 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
           // ⚠️ 别在这里承诺"你把文案发我我照排" —— 那条路径**还没做**（记在 ISSUES 里了）。
           + '\n\n可以回一句「再写一次」重试。**若反复失败，把上面那行「诊断」发我**（它会写清是空响应还是解析不出来、原文长什么样）。'
       }
-      // ★VF_DAILYVOICE_V4（2026-10-15 用户「改了半天口播、刷新一下就白改」）：
-      //   把**上一版**（用户上次改完提交的）留一份给卡片回填 —— 刷新后能从它恢复，不必重写。
+      // ★VF_DAILYVOICE_V4：把**上一版**（用户上次改完提交的）留一份给卡片回填（刷新后能恢复）。
       //   ⚠️ 必须在 `d.voice = lines` **之前**取，否则拿到的是刚生成的新稿（那就不叫"恢复"了）。
-      const prevVoice = Array.isArray(d.voice) ? d.voice : []
+      // ★VF_DAILYVOICE_V6（2026-10-16 用户定案「6」：配音稿"换一单就失效"）：**只有"画面没变"时才认它** ——
+      //   老口径无条件带过去 ⇒ 用户改了标题 / 换了素材之后再出稿，卡片上会显示**上一版的口播**
+      //   （念的和看的不是一回事，比丢稿更糟）。现口径：比对**画面指纹**，一致才沿用，否则当没有。
+      const curKey = voiceKeyOf(d.plan.segments)
+      const prevVoice = (d.voiceKey === curKey && Array.isArray(d.voice)) ? d.voice : []
       const lines = v.lines || []
       d.voice = lines
+      d.voiceKey = curKey
       await saveDailyDraft(ctx.prisma, uid, d)
       const note = v.sawImages
         ? '口播是 AI **看过每张素材**后写的'

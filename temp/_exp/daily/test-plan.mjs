@@ -17,6 +17,7 @@ import {
   cmdOf, cmdDel, cmdMotion, applyEditBatch,
   assignTextLayer, PLAN_TEXT_TYPES, PLAN_TSCALES,
   segDirection, sharedDims, checkDiversity, fixDiversity,
+  VOICE_MAX_CHARS, voicePrompt, voicePromptStrict, normVoiceLines, estimateSec, buildVoiceCardPayload, parseVoiceLines, voiceKeyOf,
 } from './run/daily-plan.js'
 
 let pass = 0, fail = 0
@@ -624,6 +625,104 @@ console.log('\n=== 15. V22：去同质化硬判据（借 oil-ui：任意两方�
   ok(p.includes('【去同质化·硬要求】') && p.includes('最多只能共享一项'), '提示词写了去同质化硬要求')
   ok(p.includes('【减法·每段一个焦点】'), '提示词写了"每段一个焦点"的减法口径')
   ok(p.includes('【首屏给谁看】') && p.includes('开场版式'), '提示词写了首屏判据（说服类要有开场版式）')
+}
+
+console.log('=== ★VF_DAILYVOICE_V1：口播稿（AI 写、人可改；它是**字幕与段时长的唯一真相源**）===')
+{
+  // ① 字数上限：超了必须截断 —— 一句话的长短**决定这一段有多长**，不能任它长
+  const n1 = normVoiceLines({ voice: ['短句', '这一句特别长'.repeat(6)] }, 2)
+  ok('超上限被截断', [...n1.lines[1]].length === VOICE_MAX_CHARS, String([...n1.lines[1]].length))
+  ok('截断如实记进 fixes（不静默改）', n1.fixes.some((f) => f.includes('超上限')), JSON.stringify(n1.fixes))
+
+  // ② 数量必须与段数**严格相等**：时间轴一格一格排，差一条整片就错位
+  const n2 = normVoiceLines({ voice: ['只有一句'] }, 3)
+  ok('缺段补空（长度 = 段数）', n2.lines.length === 3 && n2.lines[2] === '')
+  const n3 = normVoiceLines({ voice: ['a', 'b', 'c', 'd'] }, 2)
+  ok('多段丢弃并记 fixes', n3.lines.length === 2 && n3.fixes.some((f) => f.includes('多出')))
+
+  // ③ 换行会破坏 SRT 结构、emoji 念不出来也渲染不出 ⇒ 一律清掉
+  const n4 = normVoiceLines({ voice: ['第一行\n第二行 😋'] }, 1)
+  ok('换行与 emoji 被清', !/[\r\n]/.test(n4.lines[0]) && !/😋/.test(n4.lines[0]), JSON.stringify(n4.lines[0]))
+
+  // ④ 容错：null / 缺字段 ⇒ 不抛异常、补空
+  ok('乱输入不抛异常', normVoiceLines(null, 2).lines.length === 2 && normVoiceLines({}, 1).lines[0] === '')
+
+  // ⑤ 时长估算：4.5 字/秒；空口播估 0（那段静音，不该给它算时长）
+  ok('估算 = 字数 / 4.5', estimateSec('九个汉字的一句话呀') === Math.round((9 / 4.5) * 10) / 10)
+  ok('空口播估 0', estimateSec('') === 0 && estimateSec('   ') === 0)
+
+  // ⑥ 提示词必须把几条硬口径都写进去（改口径只改这一处）
+  const pr = voicePrompt([{ title: ['厚切成片', '纹理分明'], points: [['手切现片', '立盘不掉']] }], '1. 一张手切羊肉', '铜锅涮肉')
+  ok('提示词含字数上限', pr.includes(String(VOICE_MAX_CHARS)))
+  ok('提示词要求不复读画面字', pr.includes('不要复读'))
+  ok('提示词要求不编造', pr.includes('不许编造'))
+  ok('提示词带上了画面字与看图摘要', pr.includes('厚切成片') && pr.includes('一张手切羊肉'))
+  ok('提示词给出 JSON 形状（与成片线旁白文件同格式）', pr.includes('"voice"'))
+
+  // ⑦ 卡片 payload：行数=段数、总估时长含 0.5s/段尾巴、空段被计数
+  const cp = buildVoiceCardPayload({
+    segs: [{ title: ['A'], layout: 'hero' }, { title: ['B'], layout: 'split' }],
+    lines: ['好好吃', ''], name: 'gen_x.html', theme: 'night-gold', by: 'ai',
+  })
+  ok('卡片 step/proto 对', cp.step === 'daily_voice' && cp.proto === 'VF_DAILY_FORM')
+  ok('行数=段数，带回显与估算', cp.rows.length === 2 && cp.rows[0].est > 0 && cp.rows[0].title === 'A')
+  ok('空段被计数（卡片上提醒静音）', cp.emptyN === 1)
+  ok('总估时长 = 各段估时 + 0.5s/段尾巴', cp.totalEst === Math.round((cp.rows[0].est + cp.rows[1].est + 1.0) * 10) / 10)
+
+  // ⑧ 行兜底（★VF_DAILYVOICE_V1b，2026-10-14 用户实测「AI 回了个空响应」后补的救回路径）：
+  //    模型经常**无视"只回 JSON"**、直接一行一句 ⇒ JSON 失败后要能按行救回来。
+  const fb1 = parseVoiceLines('1. 先喝口汤\n2. 再涮肉\n3. 蘸麻酱')
+  ok('行兜底：带序号的纯文本能救回', !!fb1 && fb1.length === 3 && fb1[1] === '再涮肉', JSON.stringify(fb1))
+  const fb2 = parseVoiceLines('{\n  "voice": [\n    "先喝口汤",\n    "再涮肉"\n  ]\n}')
+  ok('行兜底：JSON 外壳与行尾逗号都被剔掉', !!fb2 && fb2.length === 2 && fb2[0] === '先喝口汤' && fb2[1] === '再涮肉', JSON.stringify(fb2))
+  ok('行兜底：乱文本 / 空 / 只有外壳 ⇒ 一律不认（宁可不认也不产胡说）',
+    parseVoiceLines('???') === null && parseVoiceLines('') === null && parseVoiceLines('{\n}') === null)
+
+  // ⑨ 静音标记归一（★V1c）：提示词让模型"没什么可说就写短横线"，但模型可能写成 — – 无 / 等
+  const sm = normVoiceLines({ voice: ['-', '—', '无', '好好吃'] }, 4).lines
+  ok('静音标记归一成空串（- — 无 ...）', sm.join('|') === '|||好好吃', JSON.stringify(sm))
+  ok('正常句子不被误吃', normVoiceLines({ voice: ['无骨鸡爪真好吃'] }, 1).lines[0] === '无骨鸡爪真好吃',
+    JSON.stringify(normVoiceLines({ voice: ['无骨鸡爪真好吃'] }, 1).lines))
+
+  // ⑩ 分批（★V1d，服务端日志确证主模型 60s 超时后改的）：两个提示词都要支持"段子集 + 全局序号接续"
+  const p3 = voicePrompt([{ title: ['甲'] }, { title: ['乙'] }], '', '主题', 5)
+  ok('分批：全局段号接续（第 6、7 段，不是第 1、2 段）',
+    p3.includes('段6') && p3.includes('段7') && !p3.includes('段1：'), p3.slice(0, 60))
+  ok('分批：按本批条数收口（不是全片条数）', p3.includes('本批 2 条'))
+  const ps = voicePromptStrict([{ title: ['甲'] }, { title: ['乙'] }], '', 5)
+  ok('极简版：同样接续全局段号 + 要全本批',
+    ps.includes('6. 甲') && ps.includes('7. 乙') && ps.includes('必须给全 2 条'), ps.slice(0, 80))
+  ok('极简版比长版短得多（第 2 次尝试要真换变量）', ps.length < p3.length / 2, ps.length + ' vs ' + p3.length)
+
+  // ⑪ saved 回填（★V4，2026-10-15 用户「改了半天口播、刷新一下就白改」）：
+  //    卡片初始化时优先用它恢复；但**长度必须与段数一致**，否则宁可丢弃（防把上一单的张冠李戴进来）
+  const cp2 = buildVoiceCardPayload({
+    segs: [{ title: ['A'] }, { title: ['B'] }], lines: ['新稿1', '新稿2'],
+    name: 'x.html', saved: ['我改的1', '我改的2'],
+  })
+  ok('saved 原样带出（长度一致）', cp2.saved.length === 2 && cp2.saved[0] === '我改的1', JSON.stringify(cp2.saved))
+  const cp3 = buildVoiceCardPayload({
+    segs: [{ title: ['A'] }, { title: ['B'] }], lines: ['a', 'b'], name: 'x.html', saved: ['只有一条'],
+  })
+  ok('saved 长度不符 ⇒ 丢弃（不当回填源）', Array.isArray(cp3.saved) && cp3.saved.length === 0, JSON.stringify(cp3.saved))
+  const cp4 = buildVoiceCardPayload({ segs: [{ title: ['A'] }], lines: ['a'], name: 'x.html' })
+  ok('没给 saved ⇒ 空数组（不报错）', Array.isArray(cp4.saved) && cp4.saved.length === 0)
+
+  // ⑫ 画面指纹（★VF_DAILYVOICE_V6，2026-10-16 用户定案「6」）= "上一版口播还能不能沿用"的判据。
+  //    口径：**只看画面字 + 段数** —— 换版式/字号/动效不该让口播作废；改字/改段才该作废。
+  const vk1 = voiceKeyOf([{ title: ['甲', '乙'] }, { title: ['丙'] }])
+  ok('同一套画面字 ⇒ 指纹相同（这是"重新生成后口播还在"的前提）',
+    vk1 === voiceKeyOf([{ title: ['甲', '乙'] }, { title: ['丙'] }]), vk1)
+  ok('只换版式/文字层/字号 ⇒ 指纹不变（口播不该因此作废）',
+    voiceKeyOf([{ title: ['甲', '乙'], layout: 'grid3', type: 'list', scale: 1.3 }, { title: ['丙'] }]) === vk1)
+  ok('改了画面字 ⇒ 指纹变（旧口播必须作废，否则念的和看的不是一回事）',
+    voiceKeyOf([{ title: ['甲', '丙'] }, { title: ['丙'] }]) !== vk1)
+  ok('段数变了 ⇒ 指纹变', voiceKeyOf([{ title: ['甲', '乙'] }]) !== vk1)
+  ok('指纹形状稳定（可当 localStorage 键用）', /^v\d+-[0-9a-z]+$/.test(vk1), vk1)
+  ok('空/异常输入不抛异常', typeof voiceKeyOf(null) === 'string' && typeof voiceKeyOf([]) === 'string')
+  // 卡片必须把它下发（前端拿它当暂存键；不下发就会退回"按文件名存"⇒ 换单即丢）
+  const cp5 = buildVoiceCardPayload({ segs: [{ title: ['甲'] }], lines: ['a'], name: 'x.html' })
+  ok('卡片下发 voiceKey', typeof cp5.voiceKey === 'string' && cp5.voiceKey.length > 2, String(cp5.voiceKey))
 }
 
 console.log(`\n结果：通过 ${pass} · 失败 ${fail}`)

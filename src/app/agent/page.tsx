@@ -2024,7 +2024,11 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
   //     ③ payload 里的 AI 原稿。
   //   ⚠️ 长度必须与段数一致才认（否则会把上一单的张冠李戴进来）。
   const savedLines: string[] = Array.isArray(vj?.saved) ? vj.saved.map((x: any) => String(x == null ? '' : x)) : []
-  const lsKey = 'dailyVoice:' + String(vj?.name || '')
+  // ★VF_DAILYVOICE_V6（2026-10-16 用户定案「6」：配音稿"换一单就失效"）：
+  //   老键是**单文件版文件名**（每次重新生成都不同）⇒ 改了半天口播、回去微调版式重新生成 ⇒ 全丢。
+  //   现口径：用**服务端下发的画面指纹**当键 —— 画面字没变 ⇒ 自动沿用；变了 ⇒ 自动作废
+  //   （绝不会把上一版口播错配到新画面上）。指纹**不在前端算** ⇒ 与草稿那条判据零漂移。
+  const lsKey = 'dailyVoice:' + String(vj?.voiceKey || vj?.name || '')
   const [lines, setLines] = useState<string[]>(() => {
     const base = rows.map((r: any) => String(r?.text || ''))
     try {

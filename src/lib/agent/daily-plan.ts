@@ -414,6 +414,29 @@ export function voicePromptStrict(segs: any[], captions: string, offset = 0): st
     + (captions ? '\n这些图实际拍的是：\n' + String(captions).slice(0, 600) : '')
     + '\n\n只回一个 JSON 对象：{"voice":["第1句","第2句"]} —— 必须给全 ' + list.length + ' 条，不要留空。'
 }
+/**
+ * ★VF_DAILYVOICE_V6（2026-10-16 用户定案「6」：配音稿"换一单就失效"）：**画面指纹** ——
+ * 用来判断"这份口播还算不算数"。
+ * 病灶：口播稿的暂存键原来是**单文件版文件名**（每次重新生成都不同）⇒ 用户改了半天口播、
+ *   回去微调一下版式重新生成 ⇒ 口播**全丢**，得重写一遍。
+ * 现口径：指纹由**各段画面字 + 段数**算出来，**服务端算出后随卡片下发**（前端不自己算 ⇒ 零漂移），
+ *   前端拿它当"本机暂存"的键、服务端拿它判"旧口播还能不能沿用"：
+ *   · 画面字**没变**（只改了版式 / 字号 / 动效 / 配色）⇒ 指纹相同 ⇒ **口播自动沿用**（这正是要的效果）；
+ *   · 画面字**变了**（改了标题 / 信息点 / 换了段）⇒ 指纹不同 ⇒ 旧口播**自动作废** ⇒
+ *     **绝不会把上一版的口播错配到新画面上**（那比丢稿更糟：念的和看的不是一回事）。
+ * ⚠️ **只看 title 是有意的**：口播的职责是"补充画面没说的"，画面标题就是它的对照物；
+ *   若把 layout / scale 也算进来，那"只换个版式"就会丢掉全部口播 —— 恰恰是本条要修的痛点。
+ */
+export function voiceKeyOf(segs: any[]): string {
+  const list = Array.isArray(segs) ? segs : []
+  const s = list.map((x: any) => (Array.isArray(x?.title) ? x.title : [x?.title])
+    .map((t: any) => String(t == null ? '' : t)).filter(Boolean).join('/')).join('|')
+  const raw = s + '#' + list.length
+  let h = 2166136261
+  for (let i = 0; i < raw.length; i++) { h ^= raw.charCodeAt(i); h = Math.imul(h, 16777619) }
+  return 'v' + list.length + '-' + (h >>> 0).toString(36)
+}
+
 /** ★VF_DAILYVOICE_V1：**配音稿卡**（第 4 步）payload —— 每段一行、可改、可静音，末尾给"开始合成"。
  *  ⚠️ 卡片上给的是**估算**时长，且必须写明"以实际配音为准"——
  *     本项目纪律：时间轴的真值只能来自 TTS 实测（估算值只配用来给人一个量级感）。 */
@@ -449,6 +472,8 @@ export function buildVoiceCardPayload(o: {
     note: o.note || '',
     sawImages: !!o.sawImages,
     topic: String(o.topic || ''),
+    // ★VF_DAILYVOICE_V6：当前方案的**画面指纹** —— 前端拿它当本机暂存的键、服务端拿它判旧口播能否沿用
+    voiceKey: voiceKeyOf(segs),
     // ★VF_DAILYVOICE_V4：上次提交过的口播（跨设备恢复用；长度与段数不符时前端会忽略它）
     saved: Array.isArray(o.saved) && o.saved.length === rows.length ? o.saved.map((x) => String(x == null ? '' : x)) : [],
     theme: themeName(o.theme),
