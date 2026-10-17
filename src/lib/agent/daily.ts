@@ -41,7 +41,7 @@ import { vfRootDir } from './video-material'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 import { dashscopeFunctionCall } from '@/lib/ai-providers'
 // ★纯函数层（零依赖、可单测：temp/_exp/daily/test-plan.mjs）
-import { DAILY_STYLE, aiPrompt, extractJsonEx, normSegs, normMotion, normTheme, normFont, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, assignTextMotion, pickFont, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer, checkDiversity, fixDiversity, voicePrompt, voicePromptStrict, normVoiceLines, buildVoiceCardPayload, estimateSec, parseVoiceLines, VOICE_MAX_CHARS, voiceKeyOf } from './daily-plan'
+import { DAILY_STYLE, aiPrompt, extractJsonEx, normSegs, normMotion, normTheme, normFont, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, assignTextMotion, pickFont, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer, checkDiversity, fixDiversity, voicePrompt, voicePromptStrict, normVoiceLines, buildVoiceCardPayload, estimateSec, parseVoiceLines, VOICE_MAX_CHARS, voiceKeyOf, aiDesignPrompt } from './daily-plan'
 import type { PlanBy } from './daily-plan'
 
 export { DAILY_STYLE }
@@ -437,6 +437,88 @@ export async function aiPlanSegments(picks: DailyPick[], topic: string, lastThem
  * ⚠️ **既不判死也不编造**：视觉或文字模型任一失败 ⇒ `ok:false` + 原因，让调用方如实告知
  *    （用户可自己写口播、或重试）；**绝不**退回"拿画面字当口播"那种看着成功、实际复读的假产物。
  */
+/* ═══ ★VF_DAIDESIGN_V1（2026-10-17 用户定案「先做阶段1」）：**AI 自由档** —— 让 AI 直接写整页 HTML ═══
+   与既有模板档（8 种 layout）并存：模板档保证"可复现 + 稳定"，自由档解决"8 个框架的天花板"。
+   可行依据 = 2026-10-17 的**端到端实测**（不是设想）：AI 写的页面经 `adapt-ai-page.mjs` 做 3 条机械转换后，
+   **不改一个排版动效**即可过四道闸门并出片（9 段 41s / 20.8MB）。
+   ⚠️ 两个必须的配套（缺一不可，实测出来的）：
+     ① **先读图**（`describeImagesWithVL`）再把摘要拼进提示词 —— 否则 AI 会瞎编文案
+        （实测：不读图时，它给"徽派古建"素材写出一整套火锅文案）；
+     ② **超时给足**（240s）：自由页输出 20~25k 字，实测 **162.5s**；用方案档的 180s 会很险。 */
+const DESIGN_TIMEOUT_MS = 240000
+export async function aiDesignPage(
+  picks: DailyPick[], topic: string,
+  opts?: { failNote?: string },
+): Promise<{ ok: boolean; html?: string; error?: string; captions?: string; vlErr?: string; diag?: string }> {
+  const n = picks.length
+  if (!n) return { ok: false, error: '没有素材' }
+
+  // ① 读图（复用成片线那条已验证的通路；失败不判死，但原因要如实带出去）
+  let summary = ''
+  let vlErr = ''
+  try {
+    const { describeImagesWithVL, vlReady, vlModel } = await import('@/lib/ai-providers')
+    if (!vlReady()) vlErr = '服务端没配视觉模型 key（DASHSCOPE_API_KEY）'
+    else {
+      const { signedUrl } = await import('@/lib/oss')
+      const urls: string[] = []
+      for (const p of picks) {
+        try {
+          if (p.local && p.abs) {
+            const b = fs.readFileSync(p.abs)
+            if (b.length > 6 * 1024 * 1024) continue            // 单张太大就跳过（不缩图，避免再踩 ffmpeg）
+            const mime = /\.png$/i.test(p.name) ? 'image/png' : 'image/jpeg'
+            urls.push(`data:${mime};base64,${b.toString('base64')}`)
+          } else {
+            urls.push(await signedUrl(p.key, 3600))
+          }
+        } catch { /* 单张失败跳过 */ }
+      }
+      if (!urls.length) vlErr = '素材 URL 拿不到（OSS 签名失败）'
+      else {
+        const ask = '这是一组要做成「旅行纪实视频页」的实拍照片（共 ' + urls.length + ' 张，按给定顺序编号 1..' + urls.length + '）。'
+          + '第一行：一句话总结这组素材拍的是什么（≤30 字）。'
+          + '之后**逐张一行**，写清第 N 张拍的是什么（主体/场景/细节/氛围，≤20 字），格式「N. …」。'
+          + '只回这些，不要解释、不要 markdown 代码块。'
+        for (let tries = 1; tries <= 2 && !summary; tries++) {
+          try {
+            const r = await describeImagesWithVL(urls, ask, 900)
+            if (String(r || '').trim()) summary = String(r).trim()
+          } catch { /* 试第二次 */ }
+        }
+        if (!summary) vlErr = '视觉模型读图失败（' + vlModel() + '）'
+      }
+    }
+  } catch (e: any) { vlErr = String(e?.message || e).slice(0, 100) }
+
+  // ② 让 AI 出整页 HTML（关思考 + 大额度 + 长超时，与方案档同口径）
+  const prompt = aiDesignPrompt(n, topic, { failNote: opts?.failNote })
+    + (summary ? '\n\n【素材实拍内容（视觉模型逐张读出，写文案必须据此，不许编造）】\n' + summary : '')
+  let txt = ''
+  let diag = ''
+  try {
+    const res = await dashscopeFunctionCall(
+      [{ role: 'user', content: prompt }], [], PLAN_MAX_TOKENS, 0.8, false, undefined, DESIGN_TIMEOUT_MS, true,
+    )
+    txt = String(res?.content || '')
+    diag = '模型 ' + String((res as any)?.model || '?') + ' · finish ' + String((res as any)?.finishReason || '?')
+      + ' · 输出 ' + txt.length + ' 字 · prompt ' + prompt.length + ' 字'
+  } catch (e: any) {
+    return { ok: false, error: String(e?.message || e).slice(0, 200), captions: summary, vlErr, diag }
+  }
+  if (!txt.trim()) return { ok: false, error: 'AI 返回空内容', captions: summary, vlErr, diag }
+
+  // ③ 提 HTML（AI 可能包 markdown 围栏）
+  const m = /<!DOCTYPE html[\s\S]*<\/html>/i.exec(txt) || /<html[\s\S]*<\/html>/i.exec(txt)
+  if (!m) {
+    return {
+      ok: false, captions: summary, vlErr, diag,
+      error: 'AI 没给出完整 HTML（前 120 字：' + txt.slice(0, 120).replace(/\s+/g, ' ') + '）',
+    }
+  }
+  return { ok: true, html: m[0], captions: summary, vlErr, diag }
+}
+
 export async function aiVoiceLines(
   picks: DailyPick[], segs: any[], topic = '',
 ): Promise<{ ok: boolean; lines?: string[]; fixes?: string[]; error?: string; sawImages?: boolean; vlErr?: string; diag?: string }> {

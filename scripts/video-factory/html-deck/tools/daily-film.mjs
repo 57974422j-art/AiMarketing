@@ -76,7 +76,12 @@ const skipCheck = argv.includes('--skip-check')
 let html = fs.readFileSync(abs, 'utf8')
 // ⚠️ 用**前缀**匹配 `class="sec` —— 打包过一次的副本里是 `class="sec clip"`，
 //    写死 `class="sec"` 会把合法输入误判成"不是日报页"（2026-10-14 自测时就这么误报的）。
-if (!/<section class="sec/.test(html)) { console.log('stage=html ✗ 这不是日报落地页（没找到 .sec 段）'); process.exit(1) }
+/* ★VF_DAIDESIGN_V1（2026-10-17 AI 自由页实测）：**检查也要放宽**。
+   原来写死 `<section class="sec`（要求 class **紧跟** section）⇒ AI 常写成
+   `<section id="s1" class="sec" ...>`（id 在前）⇒ 误判"这不是日报落地页"（实测第二轮就撞到）。
+   ⚠️ 这是同一轮里第 4 处"只认我们自己的产物写法"：打包(SEC_RE)/clip 注入/root 属性/这里。
+   凡是"自由输入"的入口，判据都不该假设属性顺序。 */
+if (!/<section[^>]*\bclass="[^"]*\bsec\b/.test(html)) { console.log('stage=html ✗ 这不是日报落地页（没找到 .sec 段）'); process.exit(1) }
 /* ★VF_DAILY_V39（2026-10-16 **本地复现后**改）：
    原来这里**明确拒绝**"配图版"（注释理由：*服务端本来就能出单文件版*）。
    但本地复现证明那条理由已经不成立 —— **单文件版（7MB 就够）会让浏览器在 `page.goto` 阶段直接崩**
@@ -112,8 +117,15 @@ if (extRefs.length) {
 }
 
 // ── ② 打包 ────────────────────────────────────────────────────────────────────
-const secRe = /<section class="sec"[\s\S]*?<\/section>/g
-const secs = html.match(secRe) || []
+/* ★VF_DAILYFILM_V8c（2026-10-17 AI 自由页实测）：**放宽到"多 class 的 .sec"**。
+   病灶：这里原本写死 `class="sec"`（精确匹配），而第 79 行的**检查**用的是**前缀**（`/class="sec/`，能过）
+   ⇒ 两者口径不一致：AI 自由写的页面很自然写成 `class="sec s1"`（每段带自己的语义类）
+   ⇒ 检查通过、这里却匹配到 **0 段** ⇒ 报 `stage=html ✗ 算不出总时长（data-start/data-duration 缺失）`
+   而字段其实都在（用户实测就是这条）。
+   ⚠️ 现有产物写的是 `class="sec"` ⇒ 这条放宽对它们**逐字节等价**（已用标准产物回归验证）。 */
+// ★VF_DAIDESIGN_V1：class 不要求紧跟 section（AI 常把 id 写在前面）
+const SEC_RE = /<section[^>]*\bclass="[^"]*\bsec\b[^"]*"[\s\S]*?<\/section>/g
+const secs = html.match(SEC_RE) || []
 let total = 0
 secs.forEach((s) => {
   const a = Number((s.match(/data-start="([\d.]+)"/) || [])[1] || 0)
@@ -138,16 +150,39 @@ const noopDef = '<script>window.__noopNow=function(){return 0};window.__noopRaf=
 html = html.replace(/performance\.now/g, 'window.__noopNow')
 html = html.replace(/requestAnimationFrame/g, 'window.__noopRaf')
 html = html.replace('</head>', noopDef + '\n</head>')
-html = html.replace(/class="sec"/g, 'class="sec clip" data-track-index="1"')
+/* ★VF_DAILYFILM_V8c：同上放宽，且**幂等** —— 已经打过包的副本（`class="sec clip"`）不要再叠一层 clip。
+   ⚠️ 原来写死 `/class="sec"/g` ⇒ 遇到 `class="sec s1"` 一处都替换不到 ⇒ 段包裹也会失败。 */
+/* ★VF_DAIDESIGN_V1：**属性顺序任意**也能注入 clip（AI 常写 `<section id="s1" class="sec">`），且幂等 */
+html = html.replace(/(<section[^>]*\bclass=")([^"]*\bsec\b[^"]*)"/g,
+  (m, head, cls) => /\bclip\b/.test(cls) ? m : head + cls + ' clip" data-track-index="1"')
 html = html.replace('data-mode="preview"', 'data-mode="film"')
 
-const first = html.indexOf('<section class="sec clip"')
+const first = html.search(/<section[^>]*\bclass="[^"]*\bsec\b[^"]*\bclip\b/)
 const lastEnd = html.lastIndexOf('</section>') + '</section>'.length
 if (first < 0 || lastEnd <= first) { console.log('stage=html ✗ 段包裹失败（.sec 结构异常）'); process.exit(1) }
-html = html.slice(0, first)
-  + '<div id="stage" data-composition-id="main" data-start="0" data-duration="' + total
-  + '" data-fps="' + fps + '" data-width="720" data-height="1280">\n'
-  + html.slice(first, lastEnd) + '\n</div>' + html.slice(lastEnd)
+/* ★VF_DAILYFILM_V8d（2026-10-17 AI 自由页实测）：**root 属性该给谁**。
+   引擎把"**body 的第一个元素**"当 root composition（要 `data-composition-id` / `data-width` / `data-height`）。
+   · 我们自己的产物：body 里直接就是段 ⇒ 插入的 `<div id="stage">` 正好是第一个元素 ✅
+   · AI 自由写的页面：通常有一层自己的容器（`<div class="stage">`）⇒ 插入的 `#stage` 成了**它的子元素**
+     ⇒ 引擎看第一个元素（那个容器，没属性）⇒ 报
+       `root_missing_composition_id` + `root_missing_dimensions`（本轮实测就是这两条）。
+   现口径：**body 第一个元素若已是容器（不是 section）⇒ 直接把 root 属性补到它身上**，不再新建 div；
+   否则维持原逻辑（新建 `#stage` 包裹）。两种分支的最终结构都是"一个带 root 属性的元素包住所有段"。 */
+const rootAttrs = 'data-composition-id="main" data-start="0" data-duration="' + total
+  + '" data-fps="' + fps + '" data-width="720" data-height="1280"'
+const bodyWrap = /<body[^>]*>\s*<([a-zA-Z]+)/i.exec(html)
+const wrapIsContainer = !!bodyWrap && bodyWrap[1].toLowerCase() !== 'section'
+if (wrapIsContainer) {
+  html = html.replace(/(<body[^>]*>\s*)(<[a-zA-Z]+)([^>]*?)(\s*\/?)>/i, (m0, pre, open, attrs, slash) => {
+    if (/data-composition-id/.test(attrs)) return m0          // 已是 root ⇒ 幂等，不重复加
+    const idAttr = /\bid=/.test(attrs) ? '' : ' id="stage"'
+    return pre + open + attrs + idAttr + ' ' + rootAttrs + slash + '>'
+  })
+} else {
+  html = html.slice(0, first)
+    + '<div id="stage" ' + rootAttrs + '>\n'
+    + html.slice(first, lastEnd) + '\n</div>' + html.slice(lastEnd)
+}
 
 html = html.replace('</body>', '<script>\n'
   + '/* ★VF_DAILYFILM_V2：把 __seek 包一层 —— 写 CSS 变量是异步应用的，\n'

@@ -241,6 +241,11 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
   （顺带修正 ISSUES ⑪"standard 只有 3.39Mbps ⇒ 像素被抹掉"的旧判断）。
 - **验证**：生成期**系统字体名残留全 0** · **端到端出片 9.2MB / 19.4s / 61s** · 浏览器探针两条 FontFace `status=loaded` +
   **判据自证**（塞坏字体得 `failed`）· 抽两真帧目视（标题衬线宋体 / 标签无衬线黑体 / 无豆腐块）。一条判据被证伪也如实记进 EXECUTION_LOG。
+- 🟡 **2026-10-17 追加（`VF_DAIDESIGN_V1` 阶段 1 第 1~2 步）**：把「AI 自由写整页」接进产品（用户定案"8 个框架就是天花板"）。
+  已完成：`adapt-ai-page.mjs`（图路径/字体名/@font-face 三件机械转换 + 禁用 API 检测）、`aiDesignPrompt`（只框"能不能拍成视频"）、
+  `aiDesignPage`（**先读图**再写、32000 tokens、关思考、240s）、`daily-film.mjs` 4 处格式放宽。
+  **真素材实测**：AI 出 15 段/54s 的页面 → 四道闸门全过 → 渲染 34.7MB/68s，抽帧确认文案按素材写、暗素材没被遮罩吃掉。
+  待做：`at:'aiDesign'` 入口 + 修错循环 + 前端按钮。
 - ✅ **2026-10-17 追加（`VF_DAILY_V44`）修两处"让用户看不出变化"的真问题**：① **皮肤乒乓漏洞**（数据库实测序列 `copper-pot, mono-print, copper-pot, amber-cafe, copper-pot…`
   ⇒ `rotateTheme` 里"只跟上一次比"⇒ AI 挑的只要 ≠ 上一次就放行，哪怕 == 上上次）⇒ 改为"必须不在最近 **2** 条里才采纳"，并加机器闸门；
   ② **提示词自相矛盾**（`【省字段能救命】` 无条件说 `scale` 等"都可省"，而"放手排版"又硬要求"对齐/字号至少两种" ⇒ AI 听前者；
