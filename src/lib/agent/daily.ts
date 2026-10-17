@@ -1293,28 +1293,40 @@ async function runDesign(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Prom
     /* ★VF_DAIDESIGN_V5（2026-10-17 实测 225）：段都 1280 高、display 全 flex、图也都在，
        但 `scrollHeight` 仍只有 1280 ⇒ **被某个外层容器裁住**（AI 不一定叫 `.stage`，可能是 `.wrap/.page/.container`）。
        现口径：直接放开 `body` 的**任意直接子元素**（高度自适应 + 不裁）—— 比猜类名稳。 */
-    const guard = '<style id="ai-preview-guard">'
-      + 'html:not([data-mode="film"]),html:not([data-mode="film"]) body{height:auto!important;overflow:auto!important;background:#000}'
-      + 'html:not([data-mode="film"]) body>*{height:auto!important;max-height:none!important;overflow:visible!important}'
-      + 'html:not([data-mode="film"]) .stage{height:auto!important;overflow:visible!important}'
-      + 'html:not([data-mode="film"]) .sec{display:flex!important;position:relative!important;inset:auto!important;'
-      + 'left:auto!important;top:auto!important;width:720px!important;height:1280px!important;'
-      + '--p:1!important;opacity:1!important;margin:0 auto 12px}'
-      + '</style>'
+    /* ★★★ ★VF_DAIDESIGN_V7（2026-10-17 用户定案「**不要管 AI 怎么写，你要管你怎么获取**」）★★★
+       前六版 guard 全在"改页面/抹平动效"（强制 `display:flex`、强制 `--p:1`、纵向堆叠）
+       ⇒ 后果正是用户说的两件事：**预览里"连一点动效都没有了"**（244，每段被钉在终态）、
+         而**出片是空片**（`film` 态整套规则失效 ⇒ 回到 AI 的 `.sec{display:none}`）。
+       现口径（**唯一正确的事：驱动，不改造**）：
+         · **完全不碰 AI 的 CSS / 版式 / 动效**（不再有任何 `!important` 改造）；
+         · 包一层 `window.__seek(t)`：① 按 `data-start/duration` 推每段 `--p`（**按时间推、绝不钉 1** ⇒ 动效保留）；
+           ② 按时间切 `display`（当前段用它**原本该有的** display，其余 `none`）——
+              因为 AI 常写 `.sec{display:none}` 却没写"谁来切"，而引擎只按 `data-start` 排帧、**不会替你改 display**
+              ⇒ 不接管就必然是空片（`246.mp4` 就是这么空的）；
+         · **预览态**（非 film）自己用 rAF 循环推时间 ⇒ **像视频一样自动播 10 段，动效完整**；
+         · **出片态**（film）不自己推时间，只由引擎调 `__seek(t)` ⇒ 走**同一份 apply 逻辑** ⇒ 预览与成片一致。
+       安全性：`daily-film.mjs` 打包时本就会把 `requestAnimationFrame` 全替换成 `__noopRaf`（模板页同款）⇒ 出片时预览循环自动失效。
+       ⚠️ 位置必须插在 `</head>` 之前（`<style>` 之外）——插在 `</style>` 前会 style 嵌套、CSS 全失效（V4 的血教训）。 */
+    const guard = '<style id="ai-preview-guard">html:not([data-mode="film"]) body{background:#000}</style>'
       + '<script id="ai-preview-guard-js">(function(){'
-      + 'var d=document.documentElement;if(d.getAttribute("data-mode")==="film")return;'
-      /* ★VF_DAIDESIGN_V6（2026-10-17 实测 225）：CSS 猜不到"AI 到底套了几层容器"
-         （段 14×1280 高，但 scrollHeight 仍 1280 ⇒ 被某层祖先用 `overflow:hidden`+固定高度裁掉）。
-         现口径：**用内联样式强推**（优先级最高，压得住 AI 的类/内联）——
-         ① 每个 `.sec`：position:relative / inset:auto / 720×1280 / --p:1 / display:flex / opacity:1；
-         ② **沿着 parentElement 一路往上**，把每个祖先的 overflow/height 都放开（直到 body）。 */
-      + 'function boot(){var l=document.querySelectorAll(".sec");for(var i=0;i<l.length;i++){var s=l[i];'
-      + 's.style.setProperty("--p","1");s.style.display="flex";s.style.opacity="1";'
-      + 's.style.position="relative";s.style.inset="auto";s.style.left="auto";s.style.top="auto";'
-      + 's.style.width="720px";s.style.height="1280px";s.style.margin="0 auto 12px";'
-      + 'var a=s.parentElement;while(a&&a!==document.body){a.style.overflow="visible";a.style.height="auto";a.style.maxHeight="none";a=a.parentElement;}'
-      + 'if(a){a.style.overflow="auto";a.style.height="auto";}'
-      + '}}'
+      + 'var root=document.documentElement;var film=root.getAttribute("data-mode")==="film";'
+      + 'function boot(){'
+      + 'var secs=[].slice.call(document.querySelectorAll(".sec"));if(!secs.length)return;'
+      + 'for(var i=0;i<secs.length;i++){var d=getComputedStyle(secs[i]).display;secs[i].__pvDisp=(d&&d!=="none")?d:"flex";}'
+      + 'function apply(t){for(var i=0;i<secs.length;i++){var s=secs[i];'
+      + 'var st=+s.dataset.start||0,du=+s.dataset.duration||3;'
+      + 'var p=Math.min(1,Math.max(0,(t-st)/du));'
+      + 's.style.setProperty("--p",String(p));'
+      + 'var on=(t>=st-0.001&&t<st+du);'
+      + 's.style.display=on?(s.__pvDisp||"flex"):"none";}}'
+      + 'var o=window.__seek;'
+      + 'window.__seek=function(t){if(typeof o==="function"){try{o(t)}catch(e){}}apply(t);};'
+      + 'apply(0);'
+      + 'if(!film){var total=0;for(var j=0;j<secs.length;j++){var a=+secs[j].dataset.start||0,b=+secs[j].dataset.duration||3;if(a+b>total)total=a+b;}'
+      + 'if(!(total>0))total=secs.length*3;var t0=null;'
+      + 'function frame(ts){if(t0===null)t0=ts;apply(((ts-t0)/1000)%total);window.requestAnimationFrame(frame);}'
+      + 'window.requestAnimationFrame(frame);}'
+      + '}'
       + 'if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",boot);else boot();'
       + '})();</script>'
     /* ⚠️⚠️ ★VF_DAIDESIGN_V4（2026-10-17 **这就是"改了半天没效果"的总根因**）：
