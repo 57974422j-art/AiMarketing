@@ -1307,25 +1307,41 @@ async function runDesign(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Prom
          · **出片态**（film）不自己推时间，只由引擎调 `__seek(t)` ⇒ 走**同一份 apply 逻辑** ⇒ 预览与成片一致。
        安全性：`daily-film.mjs` 打包时本就会把 `requestAnimationFrame` 全替换成 `__noopRaf`（模板页同款）⇒ 出片时预览循环自动失效。
        ⚠️ 位置必须插在 `</head>` 之前（`<style>` 之外）——插在 `</style>` 前会 style 嵌套、CSS 全失效（V4 的血教训）。 */
-    const guard = '<style id="ai-preview-guard">html:not([data-mode="film"]) body{background:#000}</style>'
+    /* ★★★ ★VF_DAIDESIGN_V8（2026-10-17 用户定案「**265 按 018 方式展示预览**」）★★★
+       018 的预览是什么（代码）：`.sec{--sp:1}`（段在**文档流**里）+ `body{overflow-y:auto}`（**能滚**）
+         + `--sp` 24 处 ⇒ **滚着看，滚到哪段，那段就在播动效**。
+       265 的预览是什么：`.sec{position:absolute;...;opacity:clamp(0,var(--p)*6,1)}` + `body{overflow:hidden}`
+         ⇒ 14 段**全叠在一屏、不能滚**，只能靠时间一个个切出来。
+       我前两版各错一半：V1c~V6 **铺开了但钉死 `--p:1`**（动效没了）；
+                       V7 **改成播放器**（动效回来但不能滚）。
+       现口径（**两者合体，就是用户要的 018 形态**）：
+         · **铺开**（纯 CSS，只在非 film 生效）：段 `position:relative` + 固定 1280 高 + `display:flex`（压掉 AI 的
+           `display:none`）+ `opacity:1`（压掉 AI 的"整段随 --p 透明"）+ 沿祖先放开 `overflow/height`（不猜类名/层数）；
+         · **`--p` 由"段在视口里的可见度"驱动**（滚到哪段 → 它的 `--p` 从 0 走到 1）⇒ 动效随滚动播，**绝不钉 1**；
+         · **出片态（film）一个字都不动** —— 由引擎 `data-start` + `__seek(t)` 驱动（引擎本来就推 `--p`）。
+       安全性：用 rAF 轮询（不挂 scroll 监听，避免被"滚动触发"类判据误伤）；而 `daily-film.mjs` 打包时本就会把
+         `requestAnimationFrame` 全替换成 `__noopRaf`（模板页同款）⇒ 出片时这套预览逻辑自动失效。 */
+    const guard = '<style id="ai-preview-guard">'
+      + 'html:not([data-mode="film"]),html:not([data-mode="film"]) body{height:auto!important;overflow-y:auto!important;background:#000}'
+      + 'html:not([data-mode="film"]) body>*{height:auto!important;max-height:none!important;overflow:visible!important}'
+      + 'html:not([data-mode="film"]) .stage,html:not([data-mode="film"]) #stage{height:auto!important;overflow:visible!important}'
+      + 'html:not([data-mode="film"]) .sec{display:flex!important;position:relative!important;inset:auto!important;'
+      + 'left:auto!important;top:auto!important;width:720px!important;height:1280px!important;'
+      + 'opacity:1!important;margin:0 auto 12px}'
+      + '</style>'
       + '<script id="ai-preview-guard-js">(function(){'
-      + 'var root=document.documentElement;var film=root.getAttribute("data-mode")==="film";'
+      + 'var root=document.documentElement;if(root.getAttribute("data-mode")==="film")return;'
       + 'function boot(){'
       + 'var secs=[].slice.call(document.querySelectorAll(".sec"));if(!secs.length)return;'
-      + 'for(var i=0;i<secs.length;i++){var d=getComputedStyle(secs[i]).display;secs[i].__pvDisp=(d&&d!=="none")?d:"flex";}'
-      + 'function apply(t){for(var i=0;i<secs.length;i++){var s=secs[i];'
-      + 'var st=+s.dataset.start||0,du=+s.dataset.duration||3;'
-      + 'var p=Math.min(1,Math.max(0,(t-st)/du));'
-      + 's.style.setProperty("--p",String(p));'
-      + 'var on=(t>=st-0.001&&t<st+du);'
-      + 's.style.display=on?(s.__pvDisp||"flex"):"none";}}'
-      + 'var o=window.__seek;'
-      + 'window.__seek=function(t){if(typeof o==="function"){try{o(t)}catch(e){}}apply(t);};'
-      + 'apply(0);'
-      + 'if(!film){var total=0;for(var j=0;j<secs.length;j++){var a=+secs[j].dataset.start||0,b=+secs[j].dataset.duration||3;if(a+b>total)total=a+b;}'
-      + 'if(!(total>0))total=secs.length*3;var t0=null;'
-      + 'function frame(ts){if(t0===null)t0=ts;apply(((ts-t0)/1000)%total);window.requestAnimationFrame(frame);}'
-      + 'window.requestAnimationFrame(frame);}'
+      + 'for(var i=0;i<secs.length;i++){var a=secs[i].parentElement;'
+      + 'while(a&&a!==document.body){a.style.overflow="visible";a.style.height="auto";a.style.maxHeight="none";a=a.parentElement;}'
+      + 'if(a){a.style.overflowY="auto";a.style.height="auto";}}'
+      + 'function tick(){var vh=window.innerHeight||1280;'
+      + 'for(var i=0;i<secs.length;i++){var r=secs[i].getBoundingClientRect();'
+      + 'var p=(vh-r.top)/(vh+r.height);p=Math.min(1,Math.max(0,p));'
+      + 'secs[i].style.setProperty("--p",String(p));}'
+      + 'window.requestAnimationFrame(tick);}'
+      + 'window.requestAnimationFrame(tick);'
       + '}'
       + 'if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",boot);else boot();'
       + '})();</script>'
