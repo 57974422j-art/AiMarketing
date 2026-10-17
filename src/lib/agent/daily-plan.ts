@@ -223,8 +223,16 @@ export function rotateTheme(aiTheme: string, recent: string[], seed: string): { 
   const want = String(aiTheme || '')
   const last = String(recent[0] || '')
   if (want === 'custom') return { theme: 'custom', rotated: false, from: '' }
-  if (want && want !== last) return { theme: want, rotated: false, from: '' }
+  /* ★VF_DAILY_V44（2026-10-17 用户服务器**数据库实测**的皮肤序列定案）：
+     病灶（原第 226 行）：`if (want && want !== last) return want` —— **只跟"上一次"比**，
+     于是"AI 挑的皮肤只要 ≠ 上一次就无条件采纳"，**哪怕它 == 上上次** ⇒ 必然出现乒乓。
+     用户库里的真实序列（新→旧）：`copper-pot, mono-print, copper-pot, amber-cafe, copper-pot, mono-print`
+     ⇒ **A→B→A→C→A→B**：A 每隔一次就回来 ⇒ 用户「怎么改都看不出变化」的一半原因就在这
+       （另一半是提示词把 align/scale 劝退了，见 aiPrompt）。
+     现口径：`want` 必须**不在最近 2 条里**才采纳；否则把它与最近 2 条一起 ban，从池里按 seed 稳定挑。
+     （`ban` 里那句 `ban.add(want)` 保留：want 为空串时靠 `last`/`recent` 兜底，行为与改动前一致。） */
   const ban = new Set(recent.slice(0, 2).filter(Boolean))
+  if (want && !ban.has(want)) return { theme: want, rotated: false, from: '' }
   ban.add(want)
   let pool = PLAN_THEMES.map((t) => t.id).filter((id) => id !== 'custom' && !ban.has(id))
   if (!pool.length) pool = PLAN_THEMES.map((t) => t.id).filter((id) => id !== want && id !== 'custom')
@@ -348,7 +356,19 @@ export function aiPrompt(n: number, topic: string, opts?: { lastTheme?: string; 
     // ★VF_DAILY_V25b：**能省就省** —— 用户实测"AI 没吐出可解析的 JSON"，长 JSON 被截断是最常见死因。
     '【省字段能救命】（响应越长越容易被截断，截断 = 整份白做）：',
     '  · **只写 `layout` + `title` + `imgs` 就能出片**；`points` 只在 split / vertical / quote 里有用，别的结构写了也不显示；',
-    '  · `scale` / `stamp` / `kicker` / `tm` / `font` / `form` / `place` **都可省**（服务端会补、会轮换）；',
+    // ★VF_DAILY_V44（2026-10-17 用户实测「'放手排版'开关也看不出变化」后定案，**提示词自己打架**）：
+    //   原来这里**无条件**说「`scale`/`form`/`place`… **都可省**」，而下面 `aiLayout` 段又**硬要求**
+    //   "对齐/字号档/叠法/动效里至少三个排出 2 种以上" ⇒ 两句话互相抵消，而 AI 选择听"可省"那句。
+    //   实测证据（用户三份真产物 018/038/057）：**`scale` 三份全是空**；038 连 `align` 也全空。
+    //   现口径：**开了"放手排版"就不许省 `align` / `scale`** ——
+    //   这两项**服务端不会替你轮换**（不像 `type` / `tm` 有 `assignTextLayer` / `assignTextMotion` 兜着），
+    //   不写就等于这一维完全没用上，而它恰恰是"同一版式两张脸"最直观的两项。其余字段仍可省。
+    //   没开开关时**逐字保持原文**（零回归）。
+    aiLayout
+      ? '  · ⚠️ **本份例外（用户已开"放手排版"）**：**`align` 与 `scale` 不许省** —— 这两项服务端**不会**'
+        + '替你轮换（不像 `type`/`tm`），不写就等于整份没用上它们，而那正是"看着像同一套"的主因之一。'
+        + '其余（`stamp`/`kicker`/`type`/`tm`/`font`/`form`/`place`）仍可省。'
+      : '  · `scale` / `stamp` / `kicker` / `tm` / `font` / `form` / `place` **都可省**（服务端会补、会轮换）；',
     '  · 省下的字符留给"标题写准"，比堆字段有用得多。',
     // ★VF_DAILY_V32：开关①「让 AI 放手排版」—— 默认那句"相邻两段别撞"是**下限**，
     //   打开后把目标从"别撞"提到"要有明显不同的视觉气质"，并明确点出可以混搭哪几条轴。

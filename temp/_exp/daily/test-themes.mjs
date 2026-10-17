@@ -123,6 +123,14 @@ ok(!['copper-pot', 'wine-red', 'bamboo'].includes(r3.theme),
 const r3b = rotateTheme('copper-pot', ['copper-pot', 'wine-red', 'bamboo'], 'seed-x')
 ok(!['copper-pot', 'wine-red', 'bamboo'].includes(r3b.theme),
   'AI 又挑到最近用过的那套 ⇒ 仍然被排除（不允许沿用）', r3b.theme)
+
+// ★VF_DAILY_V44（2026-10-17）：**"AI 挑到上上次那套"也必须否掉** —— 这是乒乓的真正漏洞。
+//   病证据（用户服务器数据库的真实皮肤序列，新→旧）：
+//     copper-pot, mono-print, copper-pot, amber-cafe, copper-pot, mono-print   ⇒ A→B→A→C→A
+//   旧逻辑 `if (want && want !== last) return want` **只跟上一次比** ⇒ A 永远回得来（用户「看不出变化」的一半原因）。
+//   ⚠️ 这条断言必须用"want ≠ last 但 want == recent[1]"的场景，否则测不到这个漏洞。
+const r5 = rotateTheme('copper-pot', ['wine-red', 'copper-pot', 'bamboo'], 'seed-y')
+ok(r5.theme !== 'copper-pot', 'AI 挑到"**上上次**"用过的那套 ⇒ 必须否掉（防乒乓）', r5.theme)
 // 引擎侧解析
 const fpBlock = src.slice(src.indexOf('const FONT_PAIRS = {'), src.indexOf('const PAIR_OF = {'))
 const engFonts = Array.from(fpBlock.matchAll(/'([a-z-]+)':\s*\{/g)).map((m) => m[1])
