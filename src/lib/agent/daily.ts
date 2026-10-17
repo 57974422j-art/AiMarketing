@@ -1194,8 +1194,65 @@ async function buildSingleFile(uid: number | string, buf: Buffer | undefined, pi
   return { name: String(saved?.name || ''), embedded: rc.embedded }
 }
 
+/* ═══ ★VF_DAIDESIGN_V1（阶段 1 第 4 步，2026-10-17）：**AI 自由档** —— AI 整页写 HTML，其余交付链路复用 ═══
+   流程：aiDesignPage（**先读图** → 出整页 HTML）→ 适配（图名归一 / 字体名 → 自造名 / 注入 base64 @font-face）
+        → 造一个"最小 plan"（只为交付卡的段数统计）→ `finishDaily(prebuilt)` 走完交付
+        （图入库 / 单文件版 / 交付卡 / 出片 / 配音**全部复用**，一行不用改）。
+   ⚠️ 适配逻辑与 `scripts/video-factory/html-deck/tools/adapt-ai-page.mjs` **同口径**（那边给 CLI/实验用）。
+   ⏳ 本轮**未做**"闸门报错自动回喂 AI 重写"：一次要 3~5 分钟，且**还没有真实失败样本**可依。
+      先让入口能用，出片时 `daily-film.mjs` 会把溢出/缺图/越界**如实点名**（V8 起失败还会留 render.log）
+      ⇒ 拿真样本再补重试策略，比凭空设计稳。 */
+async function runDesign(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Promise<string> {
+  const uid = ctx.uid
+  const design = await aiDesignPage(picks, String(d.topic || ''))
+  try {
+    ctx.log?.(uid, '[日报落地页] AI 自由设计：' + (design.ok ? 'OK' : '失败') + ' ｜ ' + String(design.diag || '')
+      + (design.vlErr ? ' ｜ 读图：' + design.vlErr : ''))
+  } catch { /* ignore */ }
+  if (!design.ok || !design.html) {
+    return '⚠️ AI 自由设计这轮没成功：' + String(design.error || '未知原因')
+      + '\n（想稳妥出片就点「✅ 生成 HTML」走模板版；或再点一次「🎨 AI 自由设计」重试）'
+  }
+  // ① 图入库（同级扁平名）—— 与模板档同一套
+  let imageNames: string[] = []
+  try { imageNames = await publishPickedImages(uid, picks) } catch { /* 失败不拦 */ }
+  // ② 适配
+  let html = String(design.html)
+  html = html.replace(/src="(?:images\/)?(\d+)\.[a-zA-Z]+"/g, (m0, n) => {
+    const nm = String(imageNames[Number(n) - 1] || '')
+    return nm ? 'src="' + nm + '"' : m0
+  })
+  html = html.replace(/["']?TXT-Serif["']?/g, '"NotoSerifSC"').replace(/["']?TXT-Sans["']?/g, '"NotoSansSC"')
+    .replace(/"Noto Serif SC"/g, '"NotoSerifSC"').replace(/"Noto Sans SC"/g, '"NotoSansSC"')
+  if (!/@font-face/.test(html)) {
+    try {
+      const fdir = path.join(vfRootDir(), 'scripts', 'video-factory', 'html-deck', 'fonts')
+      const face = (fname: string, f: string, w: string) => {
+        const p = path.join(fdir, f)
+        if (!fs.existsSync(p)) return ''
+        return '@font-face{font-family:"' + fname + '";src:url(data:font/woff2;base64,'
+          + fs.readFileSync(p).toString('base64') + ') format("woff2");font-weight:' + w + ';font-display:block}'
+      }
+      const faces = face('NotoSerifSC', 'NotoSerifSC-sub.woff2', '200 900')
+        + face('NotoSansSC', 'NotoSansSC-sub.woff2', '100 900')
+      if (faces) html = html.replace(/<\/style>/i, '\n' + faces + '\n</style>')
+    } catch { /* 注入失败就退系统字体（服务器会豆腐块）——日志里能看出来 */ }
+  }
+  // ③ 最小 plan（只服务交付卡的段数统计；自由档没有"8 种版式"概念）
+  const secN = Math.max(1, (html.match(/<section[^>]*\bclass="[^"]*\bsec\b/g) || []).length)
+  d.plan = {
+    meta: { theme: '' },
+    segments: Array.from({ length: secN }, () => ({ layout: 'free', title: ['', ''] })),
+    imageNames,
+  } as any
+  d.planBy = 'ai'
+  const buf = Buffer.from(html, 'utf8')
+  try { ctx.log?.(uid, '[日报落地页] AI 自由设计：' + secN + ' 段 · ' + (buf.length / 1048576).toFixed(2) + ' MB（适配后）') } catch { /* ignore */ }
+  return await finishDaily(ctx, d, picks, { buf })
+}
+
 /** ★VF_DAILY_V6：真的生成 HTML 入库（**卡片按钮 `at:'go'` 与打字 `确认` 两条路共用**） */
-async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Promise<string> {
+async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[], prebuilt?: { buf: Buffer }): Promise<string> {
   const uid = ctx.uid
   const plan = d.plan
   if (!plan || !Array.isArray(plan.segments) || !plan.segments.length) {
@@ -1215,7 +1272,21 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Pr
   }
   if (imageNames.some(Boolean)) plan.imageNames = imageNames
   // ★L3/B：走"生成 → 真浏览器逐段体检 → 不合格段逐段退回 L2 模板 → 重生"（纯模板件自动跳过体检）
-  const r = await generateVerified(ctx, plan)
+  /* ★VF_DAIDESIGN_V1（阶段 1 第 4 步，2026-10-17）：**AI 自由档**直接把成品 HTML 交进来（`prebuilt`），
+     跳过"模板生成 + 逐段体检"这一步 —— 但**交付链路完全复用**：
+     图入库 / 单文件版 / 交付卡 / 出片(`at:'film'`) / 配音(`at:'voice'`) **一行都不用改**。
+     ⇒ 一套交付代码服务两条档（模板档 / 自由档），这也是为什么它必须是"可选参数"而不是新函数。 */
+  let r: any
+  if (prebuilt) {
+    const saved = await saveToPersonalRepo({ userId: uid, buffer: prebuilt.buf, ext: 'html', mime: 'text/html', gen: true })
+    r = {
+      ok: !!saved?.name, name: String(saved?.name || ''), buf: prebuilt.buf,
+      note: 'AI 自由设计版（整页版式由 AI 写；未过四道闸门，出片时若有问题会如实报）',
+      dropped: [],
+    }
+  } else {
+    r = await generateVerified(ctx, plan)
+  }
   if (!r.ok || !r.name) {
     try { ctx.log?.(uid, '[日报落地页] 生成失败：' + String(r.error || '')) } catch { /* ignore */ }
     return '⚠️ HTML 生成失败：' + String(r.error || '未知原因') + '\n（可以回 `确认` 再试一次；若反复失败，把这句发给开发者）'
@@ -1369,6 +1440,16 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
     if (at === 'go') {
       if (d.step !== 'review' || !d.plan) return null
       return await finishDaily(ctx, d, toPicks(uid, d.source || { kind: 'repo' }, d.names || []))
+    }
+    /* ★VF_DAIDESIGN_V1（阶段 1 第 4 步）：**🎨 AI 自由设计** —— "AI 整页写 HTML"这条档。
+       与 `at:'go'`（模板档）**并列**，不替换：自由档失败 / 想要可复现时，用户仍可点「✅ 生成 HTML」。
+       前置条件与 go 相同（`step==='review'` 且方案在）—— 方案卡本身就是"素材已选好 + 已读图"的产物，
+       自由档直接用它带的 picks/topic（**不重新选素材**）。 */
+    if (at === 'aiDesign') {
+      if (d.step !== 'review' || !d.plan) {
+        return '⚠️ 现在不能走 AI 自由设计：本单不在"方案确认"这一步。先选好素材、等方案卡出来。'
+      }
+      return await runDesign(ctx, d, toPicks(uid, d.source || { kind: 'repo' }, d.names || []))
     }
     // ① ★VF_DAILY_V32（2026-10-16 用户定案「这个生成HTML 改成 2个 AI开关」）：
     //   切换两个 AI 开关 ⇒ **立刻按新设置重排一遍方案**。

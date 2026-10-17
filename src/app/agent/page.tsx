@@ -2051,10 +2051,22 @@ function VfDailyPlanCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
           <span className="text-gray-500">改完点「🔄 按新开关重排方案」才会生效</span>
         )}
       </div>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <button onClick={() => send('go')}
           className="flex-1 px-4 py-2 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100 text-sm font-medium">
           ✅ 生成 HTML
+        </button>
+        {/* ★VF_DAIDESIGN_V1（阶段 1 第 4 步，2026-10-17 用户定案「先做阶段1」）：
+            **🎨 AI 自由设计** —— 与「✅ 生成 HTML」**并列**的第二条档：
+              · 模板档（✅ 生成 HTML）：AI 只在 8 种版式里挑 ⇒ 稳定、可复现、快（~20s）；
+              · 自由档（🎨 AI 自由设计）：AI **直接整页写 HTML**（不受 8 种骨架限制）⇒ 每份长得都不一样，
+                但要读图 + 出 2 万字 ⇒ **约 3 分钟**，且可能被出片闸门挑毛病（会如实报）。
+            两条档**共用后面的交付/出片/配音链路**（交付卡上能直接点「🎬 出片」）。
+            ⚠️ 失败不要慌：再点一次，或直接用「✅ 生成 HTML」走模板档。 */}
+        <button onClick={() => send('aiDesign')}
+          title="让 AI 直接整页写 HTML（不受 8 种版式限制）：配色/版式/动效由它按素材自由发挥，每份都不一样。约 3 分钟（要先读图再写）。出片时若被闸门挑出问题会如实报；想稳就用左边的「✅ 生成 HTML」。"
+          className="px-3 py-2 rounded-lg bg-fuchsia-500/20 hover:bg-fuchsia-500/35 border border-fuchsia-400/40 text-fuchsia-100 text-xs whitespace-nowrap">
+          🎨 AI 自由设计
         </button>
         <button onClick={() => setShowEdit((v) => !v)}
           className={`px-3 py-2 rounded-lg text-xs border ${showEdit

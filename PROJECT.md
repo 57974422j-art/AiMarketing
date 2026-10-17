@@ -245,7 +245,8 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
   已完成：`adapt-ai-page.mjs`（图路径/字体名/@font-face 三件机械转换 + 禁用 API 检测）、`aiDesignPrompt`（只框"能不能拍成视频"）、
   `aiDesignPage`（**先读图**再写、32000 tokens、关思考、240s）、`daily-film.mjs` 4 处格式放宽。
   **真素材实测**：AI 出 15 段/54s 的页面 → 四道闸门全过 → 渲染 34.7MB/68s，抽帧确认文案按素材写、暗素材没被遮罩吃掉。
-  待做：`at:'aiDesign'` 入口 + 修错循环 + 前端按钮。
+  **第 3~4 步已完成**：`at:'aiDesign'` 入口（`runDesign` → `finishDaily(prebuilt)`，交付/出片/配音链路全复用）+ 方案卡「🎨 AI 自由设计」按钮。
+  待做：修错循环（闸门报错喂回 AI，≤3 轮）—— 留到有真实失败样本后再做。
 - ✅ **2026-10-17 追加（`VF_DAILY_V44`）修两处"让用户看不出变化"的真问题**：① **皮肤乒乓漏洞**（数据库实测序列 `copper-pot, mono-print, copper-pot, amber-cafe, copper-pot…`
   ⇒ `rotateTheme` 里"只跟上一次比"⇒ AI 挑的只要 ≠ 上一次就放行，哪怕 == 上上次）⇒ 改为"必须不在最近 **2** 条里才采纳"，并加机器闸门；
   ② **提示词自相矛盾**（`【省字段能救命】` 无条件说 `scale` 等"都可省"，而"放手排版"又硬要求"对齐/字号至少两种" ⇒ AI 听前者；
