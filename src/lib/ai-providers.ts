@@ -1377,7 +1377,22 @@ export async function dashscopeFunctionCall(
   // ★VF_MODELSWITCH_V1（2026-09-30）：新增可选 model 覆盖主模型 —— **不传 = 逐字保持现状**。
   //   背景（用户原话）：「我试试 deepseek-v4.1_flash 和 阿里的多模态模型……每个模型可能理解能力也不一样」。
   //   注意：只覆盖【主模型】；下面的兜底链（deepseek-v4-flash）**原样保留**，绝不因切模型把大脑搞挂。
-  model?: string
+  model?: string,
+  /* ★VF_DAILY_V43（2026-10-17 用户实测 + 日志定因后定案「提高 tokens 输出 我们试试」）：
+     **单次请求超时**（毫秒）。**不传 = 逐字保持现状（60s）** ⇒ 零回归。
+     为什么必须加：日志实证
+       `[qwen3.8] 调用异常: The operation was aborted due to timeout`（60s 到点、主模型压根没返回）
+     而日报线那条 prompt 有 7900 字、且 qwen3.8-flash 是**思考型**模型（先"想"再写）
+     ⇒ **60s 连"想完"都不够**。⚠️ 只提输出额度、不提超时会更糟（额度大了思考更久 ⇒ 更容易超时）。
+     现口径：日报线传 180s（见 `daily.ts` 的 `PLAN_TIMEOUT_MS`）。 */
+  timeoutMs?: number,
+  /* ★VF_DAILY_V43：**关掉"思考"**（百炼 OpenAI 兼容模式的 `enable_thinking:false`）。**不传 = 逐字保持现状**。
+     为什么必须加（本机用**真实方案提示词**实测，不是推测）：
+       · `max_tokens 8000`  ⇒ 连 200s 都没跑完（思考还没结束）⇒ 必然超时；
+       · `max_tokens 32000` ⇒ **188.6s**、思考 **34195 字**、才吐出 2382 字 JSON（贴着超时线，随时会挂）；
+       · `max_tokens 32000 + 关思考` ⇒ **15.9s**、思考 0 字、**3279 字** JSON（**快 12 倍，正文还更长**）。
+     ⇒ 日报线的"方案生成/口播生成"必须关思考；**其它调用方不传 ⇒ 行为不变**。 */
+  noThink?: boolean
 ): Promise<FunctionCallResult> {
   const key = getDashScopeKey()
   if (!key) return { content: null }
@@ -1398,11 +1413,14 @@ export async function dashscopeFunctionCall(
   try {
     // ① 主模型（百炼 OpenAI 兼容——支持 function calling）
     const qwBody: any = { model: primaryModel, messages, max_tokens: maxTokens, temperature, stream: false }
+    // ★VF_DAILY_V43：**只在调用方明确要求时**关思考（不传 ⇒ 一字不改，其它调用方行为不变）
+    if (noThink) qwBody.enable_thinking = false
     if (tools.length > 0) { qwBody.tools = tools.map((t: any) => ({ type: 'function', function: { name: t.name, description: t.description || '', parameters: t.parameters || {} } })); qwBody.tool_choice = 'auto' }
     const qwRes = await fetchJSON('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
       method: 'POST', body: JSON.stringify(qwBody),
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + qwKey },
-      timeoutMs: 60000,
+      // ★VF_DAILY_V43：调用方给了更长的超时就用它；**不传 = 现状 60s**（零回归）
+      timeoutMs: (timeoutMs && timeoutMs > 0) ? timeoutMs : 60000,
     }).catch((eQw: any) => {
       // ★VF_TEXTHEAL_V1：主模型若"在本账号不存在" ⇒ 记账 ⇒ 下一次进来直接用替代名（不再白撞）
       noteDeadModel(primaryModel, eQw)
@@ -1440,7 +1458,8 @@ export async function dashscopeFunctionCall(
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + dsKey },
         body: JSON.stringify(dsBody),
-        signal: AbortSignal.timeout(120000),
+        // ★VF_DAILY_V43：调用方给了更长的超时就跟它（**不传 = 现状 120s**）
+        signal: AbortSignal.timeout(Math.max(120000, timeoutMs || 0)),
       })
       const dsChoice = dsRes?.choices?.[0]
       const dsMsg = dsChoice?.message
@@ -1459,7 +1478,8 @@ export async function dashscopeFunctionCall(
       }
       console.error('[deepseek] 返回**空内容**（finish=' + String(dsChoice?.finish_reason || '?')
         + '）⇒ 继续降级：' + JSON.stringify(dsRes || {}).slice(0, 150))
-      console.error('[deepseek] V4 flash 调用异常:', JSON.stringify(dsRes).slice(0, 200))
+      // ★VF_DAILY_V43：这句原来**无条件**执行 ⇒ 明明只是"空内容"也报"调用异常"，日志误导排查（用户那轮就被它带偏过）
+      if (!dsChoice) console.error('[deepseek] V4 flash 响应里没有 choices:', JSON.stringify(dsRes).slice(0, 200))
     } catch (eDs) { console.error('[deepseek] 异常降级百炼:', eDs?.message || eDs) }
   }
 

@@ -300,6 +300,18 @@ function toPicks(uid: number | string, src: DailySource, names: string[]): Daily
  *   两段式：① 视觉模型逐张读出"拍的是什么" ② **文字模型**（qwen3.8-flash，稳）据此出 JSON 方案。
  *   视觉不可用时**不判死**：退成"按主题+序号排"，并把原因如实写进方案卡。
  */
+/* ★VF_DAILY_V43（2026-10-17 用户实测 + 日志定因后定案「提高 tokens 输出 我们试试 —— 我前面没要求过限制输出」）：
+   日志把两条链路的瓶颈**分开暴露**得很清楚：
+     · `[qwen3.8] 调用异常: The operation was aborted due to timeout` ⇒ 主模型**60 秒超时**，根本没返回；
+     · `[deepseek] 返回空内容（finish length · 思考 17324 字 · maxTokens 8000）` ⇒ **思考把额度吃光、正文一个字没吐**。
+   ⇒ 所以要**同时**提两样，缺一不可（只提额度 ⇒ 思考更久 ⇒ 那条 60s 超时会更频繁）：
+     ① **输出额度 8000 → 32000**（本机探针实测：百炼 qwen3.8-flash 对 8000/16000/32000/64000 **全部 200 不拒绝**）；
+     ② **单次超时 60s → 180s**（思考型模型本来就慢）。
+   ⚠️ 备选（这次**没做**，已实测有效，要用再说）：给请求加 `enable_thinking:false` ⇒ 探针里**思考 0 字**、
+     更快更稳；但它会改变模型的"想不想"，可能影响文案质量，所以不擅自开。 */
+const PLAN_MAX_TOKENS = 32000
+const PLAN_TIMEOUT_MS = 180000
+
 export async function aiPlanSegments(picks: DailyPick[], topic: string, lastTheme = '', aiOpts?: { aiLayout?: boolean; aiPickSkin?: boolean }): Promise<{ ok: boolean; segs?: any[]; error?: string; added?: number; fixes?: string[]; theme?: string; custom?: any; font?: string; motion?: string; sawImages?: boolean; vlErr?: string; captions?: string; parseNote?: string; rawHead?: string }> {
   const n = picks.length
   if (!n) return { ok: false, error: '没有素材' }
@@ -364,9 +376,11 @@ export async function aiPlanSegments(picks: DailyPick[], topic: string, lastThem
   let rawHead = ''
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
+      // ★VF_DAILY_V43：额度 8000→32000、超时 60s→180s、**并关掉思考**
+      //   （三条是一组：实测 8000 连 200s 都跑不完；32000 要 188.6s 且贴着超时线；关思考后只要 15.9s）
       const res = await dashscopeFunctionCall(
         [{ role: 'user', content: attempt === 1 ? prompt : prompt + '\n\n' + strict }],
-        [], 8000, attempt === 1 ? 0.6 : 0.3, false,
+        [], PLAN_MAX_TOKENS, attempt === 1 ? 0.6 : 0.3, false, undefined, PLAN_TIMEOUT_MS, true,
       )
       const txt = String(res?.content || '')
       const ex = extractJsonEx(txt)
@@ -489,7 +503,8 @@ export async function aiVoiceLines(
     for (let attempt = 1; attempt <= 2 && !okPart; attempt++) {
       try {
         const ask = attempt === 1 ? voicePrompt(part, summary, topic, s) : voicePromptStrict(part, summary, s)
-        const res = await dashscopeFunctionCall([{ role: 'user', content: ask }], [], 8000, attempt === 1 ? 0.5 : 0.3, false)
+        // ★VF_DAILY_V43：口播这条是**同一个病**（10-14 的日志里就是"空响应"三条连发）⇒ 同样 提额度 + 提超时 + 关思考
+        const res = await dashscopeFunctionCall([{ role: 'user', content: ask }], [], PLAN_MAX_TOKENS, attempt === 1 ? 0.5 : 0.3, false, undefined, PLAN_TIMEOUT_MS, true)
         const txt = String(res?.content || '')
         const ex = extractJsonEx(txt)
         // 兜底：模型常无视"只回 JSON"、直接一行一句 ⇒ JSON 失败后再按行抽一次
@@ -497,7 +512,13 @@ export async function aiVoiceLines(
         const usage = (res && (res as any).usage) ? ' · 用量 ' + JSON.stringify((res as any).usage) : ''
         diags.push(tag + ' 第' + attempt + '次：响应 ' + txt.length + ' 字 · '
           + (ex.value ? '解析 ' + ex.how : (fb ? '行兜底救回 ' + fb.length + ' 行' : '既不是 JSON 也不像逐行文本')) + usage)
-        if (!ex.value && !fb) { lastErr = txt.length ? ('解析不出来：' + ex.how) : '空响应（多半是主模型 60s 超时）'; continue }
+        if (!ex.value && !fb) {
+          // ★VF_DAILY_V43：文案跟着额度/超时一起改（旧文案写死"60s 超时"，现已 180s ⇒ 会误导排查）
+          lastErr = txt.length
+            ? ('解析不出来：' + ex.how)
+            : `空响应（超时 ${PLAN_TIMEOUT_MS / 1000}s 到了，或思考把 ${PLAN_MAX_TOKENS} 额度吃光了）`
+          continue
+        }
         const { lines, fixes } = normVoiceLines(ex.value || fb, part.length)
         if (!lines.filter(Boolean).length) { lastErr = '这批全是空的'; continue }
         lines.forEach((t, k) => { out[s + k] = t })
