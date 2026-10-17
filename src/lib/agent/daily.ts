@@ -1213,15 +1213,12 @@ async function runDesign(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Prom
     return '⚠️ AI 自由设计这轮没成功：' + String(design.error || '未知原因')
       + '\n（想稳妥出片就点「✅ 生成 HTML」走模板版；或再点一次「🎨 AI 自由设计」重试）'
   }
-  // ① 图入库（同级扁平名）—— 与模板档同一套
-  let imageNames: string[] = []
-  try { imageNames = await publishPickedImages(uid, picks) } catch { /* 失败不拦 */ }
-  // ② 适配
+  /* ⚠️ ★VF_DAIDESIGN_V1b（2026-10-17 用户实测「单文件版没生成、出片按钮变灰」）：
+     **这里绝不能再调 `publishPickedImages`** —— 它会给同一批图另生成一套名字，
+     而 `finishDaily` 内部还会上传一次 ⇒ 两套名字 ⇒ 页面里写的是旧的、单文件版拿新的去匹配 ⇒ 0 匹配。
+     图名替换已整体移进 `finishDaily`（在它拿到 `imageNames` 之后做）。
+     本函数只负责与"图名"无关的适配：**字体**。 */
   let html = String(design.html)
-  html = html.replace(/src="(?:images\/)?(\d+)\.[a-zA-Z]+"/g, (m0, n) => {
-    const nm = String(imageNames[Number(n) - 1] || '')
-    return nm ? 'src="' + nm + '"' : m0
-  })
   html = html.replace(/["']?TXT-Serif["']?/g, '"NotoSerifSC"').replace(/["']?TXT-Sans["']?/g, '"NotoSansSC"')
     .replace(/"Noto Serif SC"/g, '"NotoSerifSC"').replace(/"Noto Sans SC"/g, '"NotoSansSC"')
   if (!/@font-face/.test(html)) {
@@ -1238,21 +1235,35 @@ async function runDesign(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Prom
       if (faces) html = html.replace(/<\/style>/i, '\n' + faces + '\n</style>')
     } catch { /* 注入失败就退系统字体（服务器会豆腐块）——日志里能看出来 */ }
   }
+  /* ② 预览态兜底（★VF_DAIDESIGN_V1b，用户实测「预览只看到一张照片」）：
+     AI 页的段全是 `position:absolute; inset:0`，而它只在加载时调过一次 `__seek(0)`
+     ⇒ **12 段全部叠在一起**（最上面那张盖住一切）⇒ 用户以为页面坏了。
+     引擎出片**不受影响**（按 `data-start` 的 clip 时间轴管显隐），**只有浏览器预览会这样**。
+     现口径：标 `data-mode="preview"` + 一条只在**非 film** 生效的规则 ⇒ 预览默认只显示第 1 段。
+     ⚠️ 安全性：`daily-film.mjs` 打包时本就会把 `data-mode="preview"` 改成 `film`（老机制）⇒ 出片时该规则失效。 */
+  if (!/data-mode=/.test(html)) html = html.replace(/<html\b/i, '<html data-mode="preview"')
+  if (!/id="ai-preview-guard"/.test(html)) {
+    const guard = '<style id="ai-preview-guard">'
+      + 'html:not([data-mode="film"]) .sec{opacity:0}'
+      + 'html:not([data-mode="film"]) .sec:first-of-type{opacity:1}'
+      + '</style>'
+    html = /<\/style>/i.test(html)
+      ? html.replace(/<\/style>/i, '\n' + guard + '\n</style>')
+      : html.replace(/<\/head>/i, guard + '\n</head>')
+  }
   // ③ 最小 plan（只服务交付卡的段数统计；自由档没有"8 种版式"概念）
   const secN = Math.max(1, (html.match(/<section[^>]*\bclass="[^"]*\bsec\b/g) || []).length)
   d.plan = {
     meta: { theme: '' },
     segments: Array.from({ length: secN }, () => ({ layout: 'free', title: ['', ''] })),
-    imageNames,
   } as any
   d.planBy = 'ai'
-  const buf = Buffer.from(html, 'utf8')
-  try { ctx.log?.(uid, '[日报落地页] AI 自由设计：' + secN + ' 段 · ' + (buf.length / 1048576).toFixed(2) + ' MB（适配后）') } catch { /* ignore */ }
-  return await finishDaily(ctx, d, picks, { buf })
+  try { ctx.log?.(uid, '[日报落地页] AI 自由设计：' + secN + ' 段 · ' + (Buffer.byteLength(html, 'utf8') / 1048576).toFixed(2) + ' MB（适配后）') } catch { /* ignore */ }
+  return await finishDaily(ctx, d, picks, { html })
 }
 
 /** ★VF_DAILY_V6：真的生成 HTML 入库（**卡片按钮 `at:'go'` 与打字 `确认` 两条路共用**） */
-async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[], prebuilt?: { buf: Buffer }): Promise<string> {
+async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[], prebuilt?: { html: string }): Promise<string> {
   const uid = ctx.uid
   const plan = d.plan
   if (!plan || !Array.isArray(plan.segments) || !plan.segments.length) {
@@ -1278,9 +1289,21 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[], pre
      ⇒ 一套交付代码服务两条档（模板档 / 自由档），这也是为什么它必须是"可选参数"而不是新函数。 */
   let r: any
   if (prebuilt) {
-    const saved = await saveToPersonalRepo({ userId: uid, buffer: prebuilt.buf, ext: 'html', mime: 'text/html', gen: true })
+    /* ★VF_DAIDESIGN_V1b（2026-10-17 用户实测「单文件版没生成 ⇒ 出片按钮变灰」后定案）：
+       **自由档绝不能在别处自己调 `publishPickedImages`** —— 那会给同一批图**另生成一套名字**，
+       而页面里写的是上一套 ⇒ `buildSingleFile` 拿新名字去页面里找 ⇒ **0 匹配 ⇒ 单文件版为空 ⇒ 出片按钮变灰**
+       （用户截图：`单文件版: gen_..._112.html ｜ 配图版: gen_..._112.html` 两个名字一样、按钮灰）。
+       现口径：自由档只交"**还没换图名**的 HTML"（`prebuilt.html`），
+       **图名替换必须在这里、拿到 `imageNames` 之后做** ⇒ 保证"页面里的名字 = 交付卡 `imgNames` = 单文件版用的名字"。
+       这也是模板档一直以来的硬口径：**一次生成只许上传一批图**。 */
+    const h1 = String(prebuilt.html).replace(/src="(?:images\/)?(\d+)\.[a-zA-Z]+"/g, (m0, n) => {
+      const nm = String(imageNames[Number(n) - 1] || '')
+      return nm ? 'src="' + nm + '"' : m0
+    })
+    const pb = Buffer.from(h1, 'utf8')
+    const saved = await saveToPersonalRepo({ userId: uid, buffer: pb, ext: 'html', mime: 'text/html', gen: true })
     r = {
-      ok: !!saved?.name, name: String(saved?.name || ''), buf: prebuilt.buf,
+      ok: !!saved?.name, name: String(saved?.name || ''), buf: pb,
       note: 'AI 自由设计版（整页版式由 AI 写；未过四道闸门，出片时若有问题会如实报）',
       dropped: [],
     }
