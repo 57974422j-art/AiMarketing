@@ -1278,24 +1278,29 @@ async function runDesign(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Prom
        按 `data-start/data-duration` 循环推 `--p` + 只让"当前段"可见。
        ⚠️ 出片零影响：① `data-mode` 打包时变 `film` ⇒ 第一行就 return；② `daily-film.mjs` 打包时本就会把
           `requestAnimationFrame` 全替换成 `__noopRaf`（模板页正是靠这条才敢用 rAF）⇒ 出片时它也跑不起来。 */
+    /* ★★ ★VF_DAIDESIGN_V3（2026-10-17 **截图 + 代码双证**之后定案，V2 的播放器方案作废）★★
+       铁证（用户给的 `gen_20261017_206.html`）：
+         · 截图：只有第 1 段（封面火锅图），段 2 以后看不见、总高只有 1292 ⇒ 不能滚；
+         · 代码：AI 自己的 CSS 是 `.sec{position:absolute;inset:0;display:none;flex-direction:column;...}`
+           —— **它用 `display:none` 做段显隐**，而 V1c/V1d/V2 的 guard 只覆盖了 `position`/`opacity`
+           ⇒ 段 2 以后仍是 `display:none` ⇒ **高度 0** ⇒ 只剩第 1 段。
+         · AI 每次写法都不同（187 那份就没这个问题）⇒ guard **必须同时覆盖 display**，否则随机复现。
+      现口径（**最确定的一种**）：预览态把段**纵向堆叠成一条长页**（可滚，一次看完全部段），
+        并**强制** `display:flex!important`（压掉 `display:none`）+ `--p:1!important`（压掉"入场中"的透明）。
+        **不再注入播放器**（V2 那版作废）：AI 自己有时也会写显隐脚本，两个播放器会打架；
+        堆叠是纯 CSS，AI 写什么都压得住。
+        ⚠️ 出片零影响：`daily-film.mjs` 打包时把 `data-mode="preview"` 改成 `film` ⇒ 整段规则失效。 */
     const guard = '<style id="ai-preview-guard">'
-      + 'html:not([data-mode="film"]) body{background:#000}'
+      + 'html:not([data-mode="film"]),html:not([data-mode="film"]) body{height:auto!important;overflow:auto!important;background:#000}'
+      + 'html:not([data-mode="film"]) .stage{height:auto!important;overflow:visible!important}'
+      + 'html:not([data-mode="film"]) .sec{display:flex!important;position:relative!important;inset:auto!important;'
+      + 'left:auto!important;top:auto!important;width:720px!important;height:1280px!important;'
+      + '--p:1!important;opacity:1!important;margin:0 auto 12px}'
       + '</style>'
       + '<script id="ai-preview-guard-js">(function(){'
       + 'var d=document.documentElement;if(d.getAttribute("data-mode")==="film")return;'
-      + 'function boot(){'
-      + 'var secs=[].slice.call(document.querySelectorAll(".sec"));if(!secs.length)return;'
-      + 'var total=0;for(var i=0;i<secs.length;i++){var s=+secs[i].dataset.start||0,du=+secs[i].dataset.duration||3;if(s+du>total)total=s+du;}'
-      + 'if(!(total>0))total=secs.length*3;'
-      + 'var t0=null;'
-      + 'function frame(ts){if(t0===null)t0=ts;var t=((ts-t0)/1000)%total;'
-      + 'for(var i=0;i<secs.length;i++){var s=+secs[i].dataset.start||0,du=+secs[i].dataset.duration||3;'
-      + 'var p=Math.min(1,Math.max(0,(t-s)/du));'
-      + 'secs[i].style.setProperty("--p",String(p));'
-      + 'secs[i].style.opacity=(t>=s&&t<s+du)?"1":"0";}'
-      + 'window.requestAnimationFrame(frame);}'
-      + 'window.requestAnimationFrame(frame);'
-      + '}'
+      + 'function boot(){var l=document.querySelectorAll(".sec");for(var i=0;i<l.length;i++){'
+      + 'l[i].style.setProperty("--p","1");l[i].style.display="flex";l[i].style.opacity="1";}}'
       + 'if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",boot);else boot();'
       + '})();</script>'
     html = /<\/style>/i.test(html)
