@@ -1249,13 +1249,27 @@ async function runDesign(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Prom
        ⇒ **能滚动看完全部段**；出片时 `data-mode` 变 `film` ⇒ 这些规则全部失效，引擎照旧按 clip 排。
        ⚠️ 不做"自动逐段播放"：那要 rAF/时钟，引擎 check 会判 `non_deterministic_code`
          （模板页是靠打包时把 rAF 打桩才做到的）—— 自由档不引入这个复杂度，预览用滚动就够。 */
+    /* ★VF_DAIDESIGN_V1d（2026-10-17 用户实测「还是只有一张图，这次连文字都没有了」）：
+       **guard 忘了把 `--p` 抬起来**。AI 页所有文字/图层的透明度都写成
+       `opacity: clamp(0, calc(var(--p) * 3), 1)`，而 `__seek(0)` 把每段的 `--p` 都设成 **0**
+       ⇒ 文字**全透明**（用户："连文字都没有"），只剩封面那张不受 `--p` 控 opacity 的图
+       ⇒ 观感"只有一张图"。
+       现口径：预览态给每段 `--p:1`（CSS `!important` 压内联 + `load` 后补一次内联，双保险）
+       ⇒ **每段都完整呈现**（文字/图全在），配合纵向堆叠即可滚动看完全部段。
+       ⚠️ 出片时 `daily-film.mjs` 把 `data-mode` 改成 `film` ⇒ CSS 规则失效，且下面那段 JS
+          第一行就 `return` ⇒ **出片路径完全不受影响**（引擎仍按 `data-start` 的 clip + `__seek(t)` 驱动）。 */
     const guard = '<style id="ai-preview-guard">'
       + 'html:not([data-mode="film"]),html:not([data-mode="film"]) body{height:auto!important;overflow:auto!important;background:#000}'
       + 'html:not([data-mode="film"]) .stage{height:auto!important;overflow:visible!important}'
-      + 'html:not([data-mode="film"]) .sec{position:relative!important;inset:auto!important;'
+      + 'html:not([data-mode="film"]) .sec{--p:1!important;position:relative!important;inset:auto!important;'
       + 'left:auto!important;top:auto!important;width:720px!important;height:1280px!important;'
       + 'opacity:1!important;margin:0 auto 12px}'
       + '</style>'
+      + '<script id="ai-preview-guard-js">(function(){'
+      + 'var d=document.documentElement;if(d.getAttribute("data-mode")==="film")return;'
+      + 'function fill(){var l=document.querySelectorAll(".sec");for(var i=0;i<l.length;i++){l[i].style.setProperty("--p","1");}}'
+      + 'if(document.readyState==="complete")fill();else window.addEventListener("load",fill);'
+      + '})();</script>'
     html = /<\/style>/i.test(html)
       ? html.replace(/<\/style>/i, '\n' + guard + '\n</style>')
       : html.replace(/<\/head>/i, guard + '\n</head>')
