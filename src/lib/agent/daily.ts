@@ -1268,17 +1268,35 @@ async function runDesign(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Prom
        ⇒ **每段都完整呈现**（文字/图全在），配合纵向堆叠即可滚动看完全部段。
        ⚠️ 出片时 `daily-film.mjs` 把 `data-mode` 改成 `film` ⇒ CSS 规则失效，且下面那段 JS
           第一行就 `return` ⇒ **出片路径完全不受影响**（引擎仍按 `data-start` 的 clip + `__seek(t)` 驱动）。 */
+    /* ★★ ★VF_DAIDESIGN_V2（2026-10-17 **量出来之后**才改，不再猜）★★
+       事实（本地用 puppeteer 量真产物 187，逐段读数）：`12 段 · 每段 1280 高 · --p 全=1 · 每段都有可见文字 · 11/12 段图已加载`
+       ⇒ **页面本身完全正常**，问题在"预览根本没有播放器"：
+         · **模板页（daily-page.mjs）在预览态有 rAF 循环**（`__seek(t)` 推时间）⇒ 能自动一段段过完；
+         · **AI 自由页只在加载时调了一次 `__seek(0)`** ⇒ **永远停在第 1 段** ⇒ 用户看到"一张照片、滚不动"
+           （预览框是固定一屏 `720×1280`，看第 1 段当然就是一张封面图）。
+       前几轮我一直在改"布局/滚动"（堆叠、overflow、--p）——**方向错了**。正解是**给 AI 页装同款播放器**：
+       按 `data-start/data-duration` 循环推 `--p` + 只让"当前段"可见。
+       ⚠️ 出片零影响：① `data-mode` 打包时变 `film` ⇒ 第一行就 return；② `daily-film.mjs` 打包时本就会把
+          `requestAnimationFrame` 全替换成 `__noopRaf`（模板页正是靠这条才敢用 rAF）⇒ 出片时它也跑不起来。 */
     const guard = '<style id="ai-preview-guard">'
-      + 'html:not([data-mode="film"]),html:not([data-mode="film"]) body{height:auto!important;overflow:auto!important;background:#000}'
-      + 'html:not([data-mode="film"]) .stage{height:auto!important;overflow:visible!important}'
-      + 'html:not([data-mode="film"]) .sec{--p:1!important;position:relative!important;inset:auto!important;'
-      + 'left:auto!important;top:auto!important;width:720px!important;height:1280px!important;'
-      + 'opacity:1!important;margin:0 auto 12px}'
+      + 'html:not([data-mode="film"]) body{background:#000}'
       + '</style>'
       + '<script id="ai-preview-guard-js">(function(){'
       + 'var d=document.documentElement;if(d.getAttribute("data-mode")==="film")return;'
-      + 'function fill(){var l=document.querySelectorAll(".sec");for(var i=0;i<l.length;i++){l[i].style.setProperty("--p","1");}}'
-      + 'if(document.readyState==="complete")fill();else window.addEventListener("load",fill);'
+      + 'function boot(){'
+      + 'var secs=[].slice.call(document.querySelectorAll(".sec"));if(!secs.length)return;'
+      + 'var total=0;for(var i=0;i<secs.length;i++){var s=+secs[i].dataset.start||0,du=+secs[i].dataset.duration||3;if(s+du>total)total=s+du;}'
+      + 'if(!(total>0))total=secs.length*3;'
+      + 'var t0=null;'
+      + 'function frame(ts){if(t0===null)t0=ts;var t=((ts-t0)/1000)%total;'
+      + 'for(var i=0;i<secs.length;i++){var s=+secs[i].dataset.start||0,du=+secs[i].dataset.duration||3;'
+      + 'var p=Math.min(1,Math.max(0,(t-s)/du));'
+      + 'secs[i].style.setProperty("--p",String(p));'
+      + 'secs[i].style.opacity=(t>=s&&t<s+du)?"1":"0";}'
+      + 'window.requestAnimationFrame(frame);}'
+      + 'window.requestAnimationFrame(frame);'
+      + '}'
+      + 'if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",boot);else boot();'
       + '})();</script>'
     html = /<\/style>/i.test(html)
       ? html.replace(/<\/style>/i, '\n' + guard + '\n</style>')
