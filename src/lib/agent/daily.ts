@@ -1439,10 +1439,24 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[], pre
        现口径：自由档只交"**还没换图名**的 HTML"（`prebuilt.html`），
        **图名替换必须在这里、拿到 `imageNames` 之后做** ⇒ 保证"页面里的名字 = 交付卡 `imgNames` = 单文件版用的名字"。
        这也是模板档一直以来的硬口径：**一次生成只许上传一批图**。 */
-    const h1 = String(prebuilt.html).replace(/src="(?:images\/)?(\d+)\.[a-zA-Z]+"/g, (m0, n) => {
-      const nm = String(imageNames[Number(n) - 1] || '')
-      return nm ? 'src="' + nm + '"' : m0
-    })
+    /* ★VF_DAIDESIGN_V13（2026-10-17 用户实测 381「全黑」后定案）：
+       原来这里**只替换 `<img src="N.jpg">`**，**漏了 CSS 的 `url(N.jpg)`**。
+       而 AI 一旦用**异形图**（圆形/蜂窝/跨页）就会写 `background-image: url(4.jpg)` ⇒
+       这些引用**永远保持原始编号名**，与入库后的 `gen_xxx.jpg` 对不上 ⇒ 浏览器 404 ⇒ 页面全黑（实测 381）。
+       ⇒ 现口径：**两种引用一起换**（`src="…"` 与 `url(…)`，含带引号写法），其余逻辑不动。 */
+    const mapImgRef = (raw: string): string => {
+      const m = /^(?:images\/)?(\d+)\.[a-zA-Z]+$/.exec(String(raw || '').trim())
+      return m ? String(imageNames[Number(m[1]) - 1] || '') : ''
+    }
+    let h1 = String(prebuilt.html)
+      .replace(/src="((?:images\/)?\d+\.[a-zA-Z]+)"/g, (m0, ref) => {
+        const nm = mapImgRef(ref)
+        return nm ? 'src="' + nm + '"' : m0
+      })
+      .replace(/url\(\s*(['"]?)((?:images\/)?\d+\.[a-zA-Z]+)\1\s*\)/g, (m0, _q, ref) => {
+        const nm = mapImgRef(ref)
+        return nm ? 'url(' + nm + ')' : m0
+      })
     const pb = Buffer.from(h1, 'utf8')
     const saved = await saveToPersonalRepo({ userId: uid, buffer: pb, ext: 'html', mime: 'text/html', gen: true })
     r = {
