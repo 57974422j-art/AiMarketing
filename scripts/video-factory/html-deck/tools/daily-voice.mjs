@@ -85,7 +85,11 @@ const TTS_NODE = path.join(TOOLS, 'tts-node.mjs')
 
 // ── ① 读页面 + 口播，逐段 TTS 拿实测时长 ─────────────────────────────────────
 let html = fs.readFileSync(srcHtml, 'utf8')
-const secs = html.match(/<section class="sec"[\s\S]*?<\/section>/g) || []
+/* ★VF_DAIDESIGN_V1c（2026-10-17 用户实测「stage=html ✗ 段1 的 data-start/data-duration 没找到」）：
+   **AI 自由档的页面没有 `data-seg`**（那是模板页 `daily-page.mjs` 才写的），而且属性顺序也不同
+   （AI 常写 `<section id="s1" class="sec" data-start=…>`）⇒ 下面 ② 里"按 `data-seg` 定位"必然找不到。
+   这里把段匹配放宽（class 不必紧跟 section），并把 ② 的回填改成"**按 section 出现顺序**"。 */
+const secs = html.match(/<section\b[^>]*\bclass="[^"]*\bsec\b[^"]*"[\s\S]*?<\/section>/g) || []
 if (!secs.length) fail('stage=html ✗ 这不是日报落地页（没找到 .sec 段）')
 let voices = []
 try {
@@ -142,16 +146,34 @@ console.log('   有配音 ' + withVoice + '/' + secs.length + ' 段 · ffmpeg �
 let acc = 0
 const tl = timed.map((t) => { const o = { start: +acc.toFixed(2), dur: t.dur }; acc += t.dur; return o })
 const total = +acc.toFixed(2)
-for (const t of timed) {
-  const n = t.i + 1
-  const re = new RegExp('(<section[^>]*\\bdata-seg="' + n + '"[^>]*\\bdata-start=")[\\d.]+("[^>]*\\bdata-duration=")[\\d.]+(")')
-  if (!re.test(html)) fail('stage=html ✗ 段' + n + ' 的 data-start/data-duration 没找到（页面结构变了？）')
-  html = html.replace(re, '$1' + tl[t.i].start + '$2' + tl[t.i].dur + '$3')
-}
+/* ★VF_DAIDESIGN_V1c：**不靠 `data-seg`**，按"第几个 .sec 段"回填 —— AI 页没有 `data-seg`，
+   而且属性顺序任意（`<section id="s1" class="sec" data-start=…>`）⇒ 老写法必挂（用户实测就是这条）。
+   缺属性就补上，绝不因"属性顺序不同"失败。 */
+let secIdx = 0
+html = html.replace(/<section\b[^>]*>/g, (tag) => {
+  if (!/\bclass="[^"]*\bsec\b/.test(tag)) return tag           // 不是段标签 ⇒ 不动
+  const i = secIdx++
+  if (i >= tl.length) return tag                               // 口播只覆盖前 N 段 ⇒ 后面的段保持原时长
+  let t = tag
+  t = /\bdata-start="-?[\d.]+"/.test(t)
+    ? t.replace(/\bdata-start="-?[\d.]+"/, 'data-start="' + tl[i].start + '"')
+    : t.replace(/<section\b/, '<section data-start="' + tl[i].start + '"')
+  t = /\bdata-duration="[\d.]+"/.test(t)
+    ? t.replace(/\bdata-duration="[\d.]+"/, 'data-duration="' + tl[i].dur + '"')
+    : t.replace(/<section\b/, '<section data-duration="' + tl[i].dur + '"')
+  return t
+})
+if (!secIdx) fail('stage=html ✗ 段1 的 data-start/data-duration 没找到（页面结构变了？）')
 const secsJson = JSON.stringify(tl.map((t) => ({ s: t.start, d: t.dur })))
 const beforeSecs = html
 html = html.replace(/var SECS = \[[^\]]*\]/, 'var SECS = ' + secsJson)
-if (html === beforeSecs) fail('stage=html ✗ 没找到 var SECS 数组（页面时间轴结构变了？—— 只改 section 属性不改它，段内动画会全部错位）')
+if (html === beforeSecs) {
+  /* ★VF_DAIDESIGN_V1c：**AI 自由档没有 `var SECS`** —— 它的 `__seek` 直接遍历 `.sec` 读
+     `data-start`/`data-duration` ⇒ 属性回填完就对了。所以不再一律 fail：
+     只有"确实是模板页（含 `data-seg`）却找不到 SECS"才判结构异常。 */
+  if (/\bdata-seg=/.test(html)) fail('stage=html ✗ 没找到 var SECS 数组（页面时间轴结构变了？—— 只改 section 属性不改它，段内动画会全部错位）')
+  console.log('   （这份页面没有 var SECS —— 由 .sec 的 data-start/data-duration 驱动，跳过）')
+}
 console.log('② 时间轴已按实测时长回填：' + secs.length + ' 段 · 总长 ' + total + 's（原 ' + gap + 's 尾巴/段）')
 
 // ── ③ 写 SRT（按**音频区间**，不是按估算）────────────────────────────────────

@@ -1243,9 +1243,18 @@ async function runDesign(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Prom
      ⚠️ 安全性：`daily-film.mjs` 打包时本就会把 `data-mode="preview"` 改成 `film`（老机制）⇒ 出片时该规则失效。 */
   if (!/data-mode=/.test(html)) html = html.replace(/<html\b/i, '<html data-mode="preview"')
   if (!/id="ai-preview-guard"/.test(html)) {
+    /* ★VF_DAIDESIGN_V1c（2026-10-17 用户实测「在卡里预览还是只有一个图、没滚轮」）：
+       上一版 guard 只显示第 1 段 ⇒ 用户看到的**还是一张图**（虽然不再是叠团）。
+       现口径：预览态把段改成**纵向堆叠**（`position:relative` + 固定 1280 高、容器高度放开）
+       ⇒ **能滚动看完全部段**；出片时 `data-mode` 变 `film` ⇒ 这些规则全部失效，引擎照旧按 clip 排。
+       ⚠️ 不做"自动逐段播放"：那要 rAF/时钟，引擎 check 会判 `non_deterministic_code`
+         （模板页是靠打包时把 rAF 打桩才做到的）—— 自由档不引入这个复杂度，预览用滚动就够。 */
     const guard = '<style id="ai-preview-guard">'
-      + 'html:not([data-mode="film"]) .sec{opacity:0}'
-      + 'html:not([data-mode="film"]) .sec:first-of-type{opacity:1}'
+      + 'html:not([data-mode="film"]),html:not([data-mode="film"]) body{height:auto!important;overflow:auto!important;background:#000}'
+      + 'html:not([data-mode="film"]) .stage{height:auto!important;overflow:visible!important}'
+      + 'html:not([data-mode="film"]) .sec{position:relative!important;inset:auto!important;'
+      + 'left:auto!important;top:auto!important;width:720px!important;height:1280px!important;'
+      + 'opacity:1!important;margin:0 auto 12px}'
       + '</style>'
     html = /<\/style>/i.test(html)
       ? html.replace(/<\/style>/i, '\n' + guard + '\n</style>')
