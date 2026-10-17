@@ -1290,8 +1290,12 @@ async function runDesign(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Prom
         **不再注入播放器**（V2 那版作废）：AI 自己有时也会写显隐脚本，两个播放器会打架；
         堆叠是纯 CSS，AI 写什么都压得住。
         ⚠️ 出片零影响：`daily-film.mjs` 打包时把 `data-mode="preview"` 改成 `film` ⇒ 整段规则失效。 */
+    /* ★VF_DAIDESIGN_V5（2026-10-17 实测 225）：段都 1280 高、display 全 flex、图也都在，
+       但 `scrollHeight` 仍只有 1280 ⇒ **被某个外层容器裁住**（AI 不一定叫 `.stage`，可能是 `.wrap/.page/.container`）。
+       现口径：直接放开 `body` 的**任意直接子元素**（高度自适应 + 不裁）—— 比猜类名稳。 */
     const guard = '<style id="ai-preview-guard">'
       + 'html:not([data-mode="film"]),html:not([data-mode="film"]) body{height:auto!important;overflow:auto!important;background:#000}'
+      + 'html:not([data-mode="film"]) body>*{height:auto!important;max-height:none!important;overflow:visible!important}'
       + 'html:not([data-mode="film"]) .stage{height:auto!important;overflow:visible!important}'
       + 'html:not([data-mode="film"]) .sec{display:flex!important;position:relative!important;inset:auto!important;'
       + 'left:auto!important;top:auto!important;width:720px!important;height:1280px!important;'
@@ -1299,13 +1303,29 @@ async function runDesign(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Prom
       + '</style>'
       + '<script id="ai-preview-guard-js">(function(){'
       + 'var d=document.documentElement;if(d.getAttribute("data-mode")==="film")return;'
-      + 'function boot(){var l=document.querySelectorAll(".sec");for(var i=0;i<l.length;i++){'
-      + 'l[i].style.setProperty("--p","1");l[i].style.display="flex";l[i].style.opacity="1";}}'
+      /* ★VF_DAIDESIGN_V6（2026-10-17 实测 225）：CSS 猜不到"AI 到底套了几层容器"
+         （段 14×1280 高，但 scrollHeight 仍 1280 ⇒ 被某层祖先用 `overflow:hidden`+固定高度裁掉）。
+         现口径：**用内联样式强推**（优先级最高，压得住 AI 的类/内联）——
+         ① 每个 `.sec`：position:relative / inset:auto / 720×1280 / --p:1 / display:flex / opacity:1；
+         ② **沿着 parentElement 一路往上**，把每个祖先的 overflow/height 都放开（直到 body）。 */
+      + 'function boot(){var l=document.querySelectorAll(".sec");for(var i=0;i<l.length;i++){var s=l[i];'
+      + 's.style.setProperty("--p","1");s.style.display="flex";s.style.opacity="1";'
+      + 's.style.position="relative";s.style.inset="auto";s.style.left="auto";s.style.top="auto";'
+      + 's.style.width="720px";s.style.height="1280px";s.style.margin="0 auto 12px";'
+      + 'var a=s.parentElement;while(a&&a!==document.body){a.style.overflow="visible";a.style.height="auto";a.style.maxHeight="none";a=a.parentElement;}'
+      + 'if(a){a.style.overflow="auto";a.style.height="auto";}'
+      + '}}'
       + 'if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",boot);else boot();'
       + '})();</script>'
-    html = /<\/style>/i.test(html)
-      ? html.replace(/<\/style>/i, '\n' + guard + '\n</style>')
-      : html.replace(/<\/head>/i, guard + '\n</head>')
+    /* ⚠️⚠️ ★VF_DAIDESIGN_V4（2026-10-17 **这就是"改了半天没效果"的总根因**）：
+       guard 自己含 `<style>` 标签，却被插在 **已有 `<style>` 内部**（原写法 `replace(/<\/style>/i, …)`）
+       ⇒ 变成 `<style> … <style id="ai-preview-guard">…</style> </style>` **嵌套**
+       ⇒ 浏览器把内层当**文本** ⇒ **CSS 一条都不生效**，`getElementById('ai-preview-guard')` 也返回 null
+         （实测 225：`guard:false`、`body高 1280`、段 2 以后仍按 AI 的 `display:none`/`opacity:0` ⇒ 只看到第 1 段）。
+       ⇒ **必须插到 `</head>` 之前（`<style>` 之外）**。兜底：`</body>` → 末尾追加。 */
+    html = /<\/head>/i.test(html)
+      ? html.replace(/<\/head>/i, guard + '\n</head>')
+      : (/<\/body>/i.test(html) ? html.replace(/<\/body>/i, guard + '\n</body>') : html + guard)
   }
   // ③ 最小 plan（只服务交付卡的段数统计；自由档没有"8 种版式"概念）
   const secN = Math.max(1, (html.match(/<section[^>]*\bclass="[^"]*\bsec\b/g) || []).length)
