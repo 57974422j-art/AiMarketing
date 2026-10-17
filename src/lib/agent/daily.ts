@@ -1345,7 +1345,16 @@ async function runDesign(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Prom
          我把段铺成 `position:relative` 后**没补 `overflow`** ⇒ 段内 `top > 1280` 的元素**漏到下一段**
          ⇒ 观感"几段接在一起"（不是被裁，是**没裁**）。
          现口径：铺开时**补 `overflow:hidden`**，与播放时的裁切行为保持一致 ⇒ 段与段边界干净。 */
-      + 'html:not([data-mode="film"]) .sec{display:flex!important;position:relative!important;inset:auto!important;'
+      /* ★VF_DAIDESIGN_V12（2026-10-17 用户实测 363「除了第一张图能显示，后面全黑」）：
+         AI 这次用 **`visibility:hidden`** 藏段（`.sec{…opacity:0;visibility:hidden;…}`），
+         而 V9/V10 只覆盖了 `display` / `opacity` / 尺寸 ⇒ **段 2 起永远 hidden ⇒ 全黑**。
+         ⇒ 这是"AI 藏段"的第 3 种写法（display:none → opacity:0 → visibility:hidden）。
+         现口径：**把几种"藏段手段"一次性覆盖**（display / visibility / opacity / height / inset），
+         以后不管它换哪种，预览都不会再黑。
+         ⚠️ **故意不覆盖 `transform` 和 `clip-path`** —— 那两个是 AI 做**动效**（位移/缩放）
+            和**异形图**（圆形/蜂窝）的正当手段，盖掉就把它的设计毁了。 */
+      + 'html:not([data-mode="film"]) .sec{display:flex!important;visibility:visible!important;'
+      + 'position:relative!important;inset:auto!important;'
       + 'left:auto!important;top:auto!important;width:720px!important;height:1280px!important;'
       + 'overflow:hidden!important;opacity:1!important;margin:0 auto 12px}'
       + '</style>'
@@ -1353,7 +1362,12 @@ async function runDesign(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Prom
       + 'var root=document.documentElement;if(root.getAttribute("data-mode")==="film")return;'
       + 'function boot(){'
       + 'var secs=[].slice.call(document.querySelectorAll(".sec"));if(!secs.length)return;'
-      + 'for(var i=0;i<secs.length;i++){var a=secs[i].parentElement;'
+      + 'for(var i=0;i<secs.length;i++){var s0=secs[i];'
+      // ★VF_DAIDESIGN_V12：**内联**把它显出来（内联优先级最高，AI 用什么选择器都压不住）
+      // ⚠️ display 只在"算出来是 none"时才强设 flex（AI 可能用 grid/block，别破坏它的布局）
+      + 's0.style.visibility="visible";'
+      + 'if(window.getComputedStyle(s0).display==="none")s0.style.display="flex";'
+      + 'var a=s0.parentElement;'
       + 'while(a&&a!==document.body){a.style.overflow="visible";a.style.height="auto";a.style.maxHeight="none";a=a.parentElement;}'
       + 'if(a){a.style.overflowY="auto";a.style.height="auto";}}'
       + 'var t0=[],wasIn=[];'
