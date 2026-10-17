@@ -1140,10 +1140,20 @@ async function buildSingleFile(uid: number | string, buf: Buffer | undefined, pi
     try {
       if (p.local && p.abs && fs.existsSync(p.abs)) b = fs.readFileSync(p.abs)
       else {
-        const { signedUrl } = await import('@/lib/oss')
-        const u = await signedUrl(p.key, 600)
-        const res = await fetch(u)
-        if (res.ok) b = Buffer.from(await res.arrayBuffer())
+        /* ★VF_DAIDESIGN_V1e（2026-10-17 用户实测「视频里很多段没有图片」→ 查实：单文件版只内嵌了 1 张）：
+           原来走 `signedUrl` + `fetch`（**多一跳 HTTP**）。线上实测：同一批 17 张图**只读到 1 张**
+           ⇒ 其余走 `continue` ⇒ 单文件版缺图（出片**不报错**，只是画面空 —— 用户看到的正是这个）。
+           而 `publishPickedImages`（**同一批图、同一时刻**）走 OSS SDK `getObject` **全部成功**
+           ⇒ SDK 路径稳、HTTP 路径不稳。现口径：**优先 `getObject`**，失败才退回 fetch。 */
+        try {
+          const { getObject } = await import('@/lib/oss')
+          b = await getObject(p.key)
+        } catch {
+          const { signedUrl } = await import('@/lib/oss')
+          const u = await signedUrl(p.key, 600)
+          const res = await fetch(u)
+          if (res.ok) b = Buffer.from(await res.arrayBuffer())
+        }
       }
     } catch { b = null }
     if (!b || !b.length) continue
