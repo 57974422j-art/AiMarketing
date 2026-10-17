@@ -1339,9 +1339,15 @@ async function runDesign(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Prom
       + 'html:not([data-mode="film"]),html:not([data-mode="film"]) body{height:auto!important;overflow-y:auto!important;background:#000}'
       + 'html:not([data-mode="film"]) body>*{height:auto!important;max-height:none!important;overflow:visible!important}'
       + 'html:not([data-mode="film"]) .stage,html:not([data-mode="film"]) #stage{height:auto!important;overflow:visible!important}'
+      /* ★VF_DAIDESIGN_V10（2026-10-17 用户实测「**没裁掉，是几段接一起了**」）：
+         AI 的 `.sec` 只写 `width/height:1280` + `opacity:0`，**没有 `overflow:hidden`**（324 实测确认）。
+         播放时靠 `opacity` 一层层遮 + `body{overflow:hidden}` 挡住溢出 ⇒ 看不出问题；
+         我把段铺成 `position:relative` 后**没补 `overflow`** ⇒ 段内 `top > 1280` 的元素**漏到下一段**
+         ⇒ 观感"几段接在一起"（不是被裁，是**没裁**）。
+         现口径：铺开时**补 `overflow:hidden`**，与播放时的裁切行为保持一致 ⇒ 段与段边界干净。 */
       + 'html:not([data-mode="film"]) .sec{display:flex!important;position:relative!important;inset:auto!important;'
       + 'left:auto!important;top:auto!important;width:720px!important;height:1280px!important;'
-      + 'opacity:1!important;margin:0 auto 12px}'
+      + 'overflow:hidden!important;opacity:1!important;margin:0 auto 12px}'
       + '</style>'
       + '<script id="ai-preview-guard-js">(function(){'
       + 'var root=document.documentElement;if(root.getAttribute("data-mode")==="film")return;'
