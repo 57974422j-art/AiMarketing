@@ -1321,6 +1321,20 @@ async function runDesign(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Prom
          · **出片态（film）一个字都不动** —— 由引擎 `data-start` + `__seek(t)` 驱动（引擎本来就推 `--p`）。
        安全性：用 rAF 轮询（不挂 scroll 监听，避免被"滚动触发"类判据误伤）；而 `daily-film.mjs` 打包时本就会把
          `requestAnimationFrame` 全替换成 `__noopRaf`（模板页同款）⇒ 出片时这套预览逻辑自动失效。 */
+    /* ★★★ ★VF_DAIDESIGN_V9（2026-10-17 用户定案「**日报预览必须是滚轮，和现在一样不能改**」）★★★
+       铁证（304 模板档 vs 284 AI 档）：
+         · 304：`.sec{--sp:1}`（**文档流**）+ `body` 可滚 + `--sp`×24 ⇒ **滚轮，滚到哪段播哪段**；
+         · 284：`.sec{position:absolute;inset:0}`（**全叠一屏**）+ `body` 不可滚 ⇒ 原生是"播放型"。
+       用户要求：**预览必须是滚轮**（像 304 那样），**成片用引擎时间驱动**（这个已验通，见 exp284 45s 成片）。
+       V8 的病：把 `--p` 映射成"段在视口的位置"⇒ 段一进屏 `--p` 就跳到大半 ⇒ **动效看起来没了**。
+       V9 的正解（**`--p` 语义一个字不改**，只改"时间的起点"）：
+         · **铺开**（纯 CSS）：段 `position:relative` + 1280 高 + `display:flex` + `opacity:1` + 沿祖先放开裁剪 ⇒ 能滚；
+         · **每段"进屏那一刻开始计时"**：`--p = (now - 该段进屏时刻) / 该段 data-duration`
+           ⇒ 还是"段内时间进度"，只是起点从"全片 0 秒"换成"该段进屏那刻"
+           ⇒ **滚到哪段，那段就从 0 播到 1**，跟 304 的 `--sp` 体验一致；
+         · **film 态整段 return** ⇒ 成片仍由引擎 `__seek(t)` 驱动（已验：11 段/45s/四道闸门全过）。
+       ⚠️ 出片安全性：`performance.now` / `requestAnimationFrame` 在 `daily-film.mjs` 打包时都会被替换成空实现，
+          加上 film 态首行 return ⇒ **双保险，出片路径完全不受影响**。 */
     const guard = '<style id="ai-preview-guard">'
       + 'html:not([data-mode="film"]),html:not([data-mode="film"]) body{height:auto!important;overflow-y:auto!important;background:#000}'
       + 'html:not([data-mode="film"]) body>*{height:auto!important;max-height:none!important;overflow:visible!important}'
@@ -1336,10 +1350,15 @@ async function runDesign(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Prom
       + 'for(var i=0;i<secs.length;i++){var a=secs[i].parentElement;'
       + 'while(a&&a!==document.body){a.style.overflow="visible";a.style.height="auto";a.style.maxHeight="none";a=a.parentElement;}'
       + 'if(a){a.style.overflowY="auto";a.style.height="auto";}}'
+      + 'var t0=[],wasIn=[];'
       + 'function tick(){var vh=window.innerHeight||1280;'
-      + 'for(var i=0;i<secs.length;i++){var r=secs[i].getBoundingClientRect();'
-      + 'var p=(vh-r.top)/(vh+r.height);p=Math.min(1,Math.max(0,p));'
-      + 'secs[i].style.setProperty("--p",String(p));}'
+      + 'for(var i=0;i<secs.length;i++){var s=secs[i],r=s.getBoundingClientRect();'
+      + 'var inView=(r.top<vh*0.85)&&(r.bottom>0);'
+      + 'if(inView&&!wasIn[i]){wasIn[i]=true;t0[i]=window.performance.now();}'
+      + 'if(!inView){wasIn[i]=false;t0[i]=null;}'
+      + 'var du=(+s.dataset.duration||3)*1000;'
+      + 'var p=(t0[i]==null)?0:Math.min(1,(window.performance.now()-t0[i])/du);'
+      + 's.style.setProperty("--p",String(p));}'
       + 'window.requestAnimationFrame(tick);}'
       + 'window.requestAnimationFrame(tick);'
       + '}'
