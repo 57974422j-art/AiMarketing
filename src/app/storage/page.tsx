@@ -373,17 +373,22 @@ export default function StoragePage() {
                 {/* 缩略图 */}
                 <div className="aspect-video bg-white/5 rounded mb-1 overflow-hidden flex items-center justify-center">
                   {f.isVideo ? (
+                    /* ★VF_STORAGE_OOM_V1（2026-10-18 用户实测「成片可以进入 但一会就崩溃 页面没有了只有底色」）：
+                       `preload="metadata"` ⇒ **每个视频一进列表就去拉文件头 + 建一个解码器实例**。
+                       成片一多（20+ 个 mp4）⇒ 内存爆 ⇒ **标签页崩溃**（"进去几秒后只剩底色"正是元数据陆续加载完的那一刻）。
+                       现口径：**`preload="none"`** —— 只显示 poster（缩略图），**点播放才真正加载**。
+                       显示效果不变（缩略图照旧），内存从"N 个解码器"降到 0。 */
                     <video
                       src={`/api/storage/file?userId=${userId}&name=${encodeURIComponent(f.name)}`}
                       poster={f.thumbUrl || undefined}
                       className="w-full h-full object-cover"
                       controls
-                      preload="metadata"
+                      preload="none"
                     />
                   ) : f.thumbUrl ? (
-                    <img src={f.thumbUrl} alt={f.name} className="w-full h-full object-cover" />
+                    <img src={f.thumbUrl} alt={f.name} loading="lazy" className="w-full h-full object-cover" />
                   ) : /\.(jpg|jpeg|png|gif|webp)$/i.test(f.name) ? (
-                    <img src={`/api/storage/file?userId=${userId}&name=${encodeURIComponent(f.name)}`} alt={f.name} className="w-full h-full object-cover" />
+                    <img src={`/api/storage/file?userId=${userId}&name=${encodeURIComponent(f.name)}`} alt={f.name} loading="lazy" className="w-full h-full object-cover" />
                   ) : (
                     <span className="text-2xl">📄</span>
                   )}
