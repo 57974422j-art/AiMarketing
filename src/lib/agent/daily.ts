@@ -518,7 +518,11 @@ export async function aiDesignPage(
         body: JSON.stringify({
           model: 'deepseek-v4-pro',
           messages: [{ role: 'user', content: prompt }],
-          max_tokens: 16000,          // 约 2 万字中文够用；不设太高以免超模型上限
+          /* ★VF_DAIDESIGN_V3b（2026-10-18 用户实测「AI 没给出完整 HTML」→ 3 轮全挂）：
+             原来 16000 **不够** —— deepseek 是思考型，思考先吃掉一大截，正文写 HTML 又需要 1.5~2 万字
+             ⇒ **每轮都被截断**（报错里那段 "html <!DOCTYPE html> <html lang="zh"> …" 就是**开了头没有结尾**）。
+             现口径：**32000**（与百炼那条同额度）；若模型上限更低，API 会直接报错 ⇒ 走下面的回落分支，不会静默失败。 */
+          max_tokens: 32000,
           temperature: 0.8,
           stream: false,
         }),
@@ -548,7 +552,16 @@ export async function aiDesignPage(
   if (!txt.trim()) return { ok: false, error: 'AI 返回空内容', captions: summary, vlErr, diag }
 
   // ③ 提 HTML（AI 可能包 markdown 围栏）
-  const m = /<!DOCTYPE html[\s\S]*<\/html>/i.exec(txt) || /<html[\s\S]*<\/html>/i.exec(txt)
+  /* ★VF_DAIDESIGN_V3b：**提取兜底** —— 原来只认 `<!DOCTYPE … </html>` 完整闭合，
+     一旦输出被截断（缺 `</html>`）就判"没给出完整 HTML"⇒ 3 轮全挂、白等 600 秒（用户实测）。
+     现口径：缺结尾也接受 —— 从 `<!DOCTYPE`（或 `<html`）截到末尾，**自动补 `</html>`**。
+     另外先剥掉 AI 爱加的 markdown 围栏（```html … ```），否则开头会带 `html ` 这种残渣。 */
+  const clean = String(txt).replace(/^\s*```[a-zA-Z]*\s*/m, '').replace(/```\s*$/m, '')
+  const m = /<!DOCTYPE html[\s\S]*<\/html>/i.exec(clean)
+    || /<html[\s\S]*<\/html>/i.exec(clean)
+    || (/<!DOCTYPE html/i.test(clean)
+      ? [clean.slice(clean.search(/<!DOCTYPE html/i)) + '\n</html>'] : null)
+    || (/<html/i.test(clean) ? [clean.slice(clean.search(/<html/i)) + '\n</html>'] : null)
   if (!m) {
     return {
       ok: false, captions: summary, vlErr, diag,
