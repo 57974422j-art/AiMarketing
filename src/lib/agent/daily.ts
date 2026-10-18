@@ -448,7 +448,11 @@ export async function aiPlanSegments(picks: DailyPick[], topic: string, lastThem
 const DESIGN_TIMEOUT_MS = 240000
 export async function aiDesignPage(
   picks: DailyPick[], topic: string,
-  opts?: { failNote?: string },
+  /* ★VF_DAIDESIGN_V2b（2026-10-18 用户实测「网络连接失败」→ 服务器 nginx `proxy_read_timeout 600s`）：
+     单轮默认 240s，**可由调用方按剩余预算收紧** —— 修错循环必须保证总耗时 < 600s，
+     否则请求会在网关被掐断，前端只看到"网络连接失败"（用户遇到的就是这个）。
+     **不传 = 240s（逐字保持现状）**。 */
+  opts?: { failNote?: string; timeoutMs?: number },
 ): Promise<{ ok: boolean; html?: string; error?: string; captions?: string; vlErr?: string; diag?: string }> {
   const n = picks.length
   if (!n) return { ok: false, error: '没有素材' }
@@ -497,8 +501,9 @@ export async function aiDesignPage(
   let txt = ''
   let diag = ''
   try {
+    const budget = Math.max(60000, Number(opts?.timeoutMs) || DESIGN_TIMEOUT_MS)
     const res = await dashscopeFunctionCall(
-      [{ role: 'user', content: prompt }], [], PLAN_MAX_TOKENS, 0.8, false, undefined, DESIGN_TIMEOUT_MS, true,
+      [{ role: 'user', content: prompt }], [], PLAN_MAX_TOKENS, 0.8, false, undefined, budget, true,
     )
     txt = String(res?.content || '')
     diag = '模型 ' + String((res as any)?.model || '?') + ' · finish ' + String((res as any)?.finishReason || '?')
@@ -1278,8 +1283,20 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
   const topic = String(d.topic || '')
   let failNote = ''
   let lastErr = ''
+  /* ★VF_DAIDESIGN_V2b（2026-10-18 用户实测「网络连接失败」→ 服务器 `/etc/nginx/conf.d/ai-niuma.cc.conf`
+     配的是 `proxy_read_timeout 600s`）：**总预算 500s**，保证一定在网关掐断前返回。
+     为什么必须加：3 轮跑满 = 3×(162s 生成 + 30s 闸门) ≈ 600s ⇒ 必然撞上 600s 上限 ⇒
+     用户看到的是"网络连接失败"（**看起来像崩了，其实是被网关断掉**），而且**白等 10 分钟、什么也没拿到**。
+     现口径：剩余时间不足 90s 就不再开新一轮（开了也出不来），把已拿到的报错如实带出去。 */
+  const T0 = Date.now()
+  const BUDGET_MS = 500000
   for (let attempt = 1; attempt <= 3; attempt++) {
-    const design = await aiDesignPage(picks, topic, { failNote })
+    const left = BUDGET_MS - (Date.now() - T0)
+    if (left < 90000) {
+      lastErr = (lastErr ? lastErr + '\n' : '') + '（已到总时长预算 ' + Math.round(BUDGET_MS / 1000) + 's，停止重试）'
+      break
+    }
+    const design = await aiDesignPage(picks, topic, { failNote, timeoutMs: Math.min(DESIGN_TIMEOUT_MS, left - 20000) })
     try {
       ctx.log?.(uid, '[日报落地页] AI 自由设计 第' + attempt + '轮：' + (design.ok ? 'OK' : '失败')
         + ' ｜ ' + String(design.diag || '') + (design.vlErr ? ' ｜ 读图：' + design.vlErr : ''))
