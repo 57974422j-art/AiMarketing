@@ -2326,13 +2326,11 @@ function VfDailyDoneCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) 
               {showPv ? '▾ 收起预览' : '▶ 在卡里预览'}{vj?.plainUrl ? '（含真图）' : ''}
             </button>
           : null}
-        {/* ★VF_CLIENT_OPENLOCAL_V1：本地打开（客户端里点了会先镜像、再用系统浏览器打开 ⇒ 离线看真图） */}
-        {vj?.plainName
-          ? <button onClick={() => void openLocal()}
-              className="px-3 py-2 rounded-lg text-xs border border-white/15 text-gray-200 hover:bg-white/[0.08]">
-              📂 本地打开（离线看）
-            </button>
-          : null}
+        {/* ★VF_CLIENT_OPENLOCAL_V2（2026-10-18 用户定案「本地打开 功能如果 不影响成片 预览 分享 就直接删」）：
+            **删掉「📂 本地打开（离线看）」按钮**。查证结论：它只是"用系统浏览器打开本地镜像那份页面"的便利功能，
+            出片 / 卡内预览 / 分享 **都不依赖它**（出片从 OSS 取单文件版、预览走 htmlview、分享走短链）。
+            而且它在客户端里一直报 `shell is not defined`（1.0.236 没暴露该能力）⇒ 是个**坏按钮**。
+            如需恢复：等客户端补 `shell.openPath` 桥接后再加回来。 */}
         {/* ★VF_DAILY_V20：交付后仍可改 —— 编辑面板（改文字/版式/类型、删段 ⇒ 回方案，再点确认重出） */}
         {segsBrief.length
           ? <button onClick={() => setShowEdit((v) => !v)}
