@@ -1540,7 +1540,17 @@ export function embedImages(
     const size = typeof im.bytes === 'number' ? im.bytes : Math.floor((im.b64.length * 3) / 4)
     if (used + size > cap) { skipped++; continue }
     used += size
-    out = out.split(ref).join(`data:${im.mime};base64,${im.b64}`)
+    /* ⚠️⚠️ ★VF_DAIDESIGN_V2c（2026-10-18 **线上日志实锤**，这条 bug 让 AI 自由档白跑 3 轮、578 秒、最后 504）：
+       原来写 `out.split(ref).join(dataUri)` —— **`ref` 是子串时会污染别的图名**：
+         `ref = "1.jpg"` 会命中 `"11.jpg"` ~ `"17.jpg"` 里的 `"1.jpg"` 部分
+         ⇒ `src="11.jpg"` 变成 `src="1data:image/jpeg;base64,…"`
+        ⇒ 引擎报 `missing_local_asset: … not found: 1data:image/jpeg;base64,/9j/4AAQ…`（用户服务器日志原文）
+        ⇒ 闸门每轮都判"不过" ⇒ **AI 那 3 轮生成的页面可能本来是好的**，全被这条误判废掉。
+       现口径：**只替换"完整引用"** —— 前面不能接字母数字点横（避免 `1.jpg` 命中 `11.jpg` 的尾巴），
+       后面不能接字母数字点横（避免 `1.jpg` 命中 `1.jpg.bak`）。这同时修好了 `buildSingleFile`（模板档也吃这条）。 */
+    const esc = ref.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const reRef = new RegExp('(?<![\\w.\\-])' + esc + '(?![\\w.\\-])', 'g')
+    out = out.replace(reRef, `data:${im.mime};base64,${im.b64}`)
     embedded++
   }
   return { html: out, embedded, skipped }
