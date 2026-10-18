@@ -12,7 +12,7 @@ import { readOutcomeNames } from '@/lib/agent/video-material'
 import { materialStateOf } from '@/lib/agent/vf/material-pool'
 
 // ★VF_QUOTA_V2（2026-10-11 用户定案「到 450 就不给传」）：配额常量与判定**只认 lib/storage-quota**（一处真源）
-import { QUOTA_TOTAL, QUOTA_REJECT, quotaUsed, quotaCheck } from '@/lib/storage-quota'
+import { QUOTA_TOTAL, QUOTA_REJECT, quotaUsed, quotaCheck, quotaGenUsed } from '@/lib/storage-quota'
 
 // ★2026-09-22：缩略图补齐的**并发闸门**（同时最多 2 个，其余排队）。
 //   为什么：ensureThumb 每个任务都要"整段下载视频 → ffmpeg 抽帧 → 上传"，无限制并发会把
@@ -103,11 +103,16 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => b.mtime.localeCompare(a.mtime))
 
     const used = await quotaUsed(auth.userId)
+    /* ★VF_QUOTA_V3：**额外**返回"生成素材占用"（`gen_` 前缀 + 它的缩略图）——
+       只用于**展示**，**不参与拒传判定**（否则一生成就撞 450MB，连原始素材都传不上来）。
+       用户实测：面板显示 `0.0MB / 450MB (0%)`，因为 `gen_` 被 `NOT_USAGE` 排除 ⇒ 完全看不到生成物占了多少。 */
+    const genUsed = await quotaGenUsed(auth.userId)
     // ★VF_QUOTA_V2：给前端的口径与拒传阈值**一致**（total = 拒传阈值 450MB；totalReal = 总空间 500MB）
     return NextResponse.json({
       success: true,
       data: {
         files, used: used < 0 ? 0 : used,
+        genUsed: genUsed < 0 ? null : genUsed,     // null = 统计失败（前端显示 "—" 而不是 0）
         total: QUOTA_REJECT, totalReal: QUOTA_TOTAL, quotaUnknown: used < 0,
         userId: auth.userId,
       },

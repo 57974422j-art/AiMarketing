@@ -21,6 +21,22 @@ export const QUOTA_REJECT = 450 * 1024 * 1024  // 450MB —— 到这个值就�
 /** 不计入用户配额的三类：缩略图（系统产生）、历史 `_gen/` 目录、**生成物**（`gen_日期_序号.ext`） */
 const NOT_USAGE = /\/\.thumbs\/|\/_gen\/|\/gen_\d{8}_/
 
+/* ★VF_QUOTA_V3（2026-10-18 用户实测「存储空间 0.0MB / 450MB (0%)，这个要改，没计算生成素材」）：
+   **只加"生成素材占用"的展示，不改拒传口径** —— 这是刻意的：
+   · 若把 `gen_` 从 `NOT_USAGE` 里去掉，配额会**瞬间暴涨**（一单 HTML+图+mp4 就 20~40MB，
+     几单就撞 450MB）⇒ **用户连原始素材都传不上来** ⇒ 等于把功能锁死；
+   · 所以：**拒传只看"用户自己上传的原始素材"**（口径不变），
+     但**另外算一份"生成素材占用"给用户看** ⇒ 看得见、能自己清理，又不会突然不让传。
+   实现：只统计 `gen_` 前缀（含它的 `.thumbs` 缩略图），其余不计。 */
+export async function quotaGenUsed(uid: number | string): Promise<number> {
+  try {
+    const objs = await listObjects(listPrefix({ uid }))
+    return objs
+      .filter((o) => /\/gen_\d{8}_/.test(String(o.name)) || /\/\.thumbs\/gen_\d{8}_/.test(String(o.name)))
+      .reduce((a, o) => a + (o.size || 0), 0)
+  } catch { return -1 }   // -1 = 统计失败（前端显示"—"而不是 0，避免误导）
+}
+
 export const mb = (n: number): number => Math.round((n / 1024 / 1024) * 10) / 10
 
 /**

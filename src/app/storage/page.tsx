@@ -9,7 +9,8 @@ interface FileInfo {
   /** ★VF_REPOSPLIT_V1：`gen` = 系统生成物（`gen_日期_序号.ext`）｜`asset` = 用户原始素材（列表接口下发） */
   kind?: 'gen' | 'asset'
 }
-interface Quota { used: number; total: number }
+/* ★VF_QUOTA_V3：加 `genUsed`（生成素材占用，只展示不参与拒传判定 —— 见 lib/storage-quota.ts 注释） */
+interface Quota { used: number; total: number; genUsed?: number | null }
 
 export default function StoragePage() {
   const { user } = useAuth()
@@ -40,7 +41,7 @@ export default function StoragePage() {
     try {
       const r = await fetch('/api/storage/files', { credentials: 'include' })
       const d = await r.json()
-      if (d.success) { setFiles(d.data.files); setQuota({ used: d.data.used, total: d.data.total }); setUserId(d.data.userId) }
+      if (d.success) { setFiles(d.data.files); setQuota({ used: d.data.used, total: d.data.total, genUsed: d.data.genUsed }); setUserId(d.data.userId) }
     } catch {}
     setLoading(false)
   }
@@ -295,7 +296,22 @@ export default function StoragePage() {
         <div className="card-glass p-3 mb-4">
           <div className="flex justify-between text-[10px] text-gray-400 mb-1">
             <span>存储空间</span>
-            <span>{fmt(quota.used)} / {fmt(quota.total)} ({pct}%)</span>
+            <span>
+              {fmt(quota.used)} / {fmt(quota.total)} ({pct}%)
+              {/* ★VF_QUOTA_V3（2026-10-18 用户实测「存储空间 0.0MB / 450MB (0%)，这个要改，没计算生成素材」）：
+                  **生成素材占用单独显示**。⚠️ 刻意**不并入**这条进度条：
+                  拒传判定仍只看"用户自己上传的原始素材"，否则生成几单就撞 450MB、连原图都传不上来。
+                  这一行是"看得见、能自己清"，不是配额。 */}
+              {typeof quota.genUsed === 'number' && (
+                <span className="ml-2 text-amber-300/80"
+                  title="AI 生成物的实际占用（HTML + 配图 + 成片 mp4 + 缩略图）。不计入上面的配额，但确实占 OSS 空间，建议定期用「删整单」清理。">
+                  · 生成素材 {fmt(quota.genUsed)}
+                </span>
+              )}
+              {quota.genUsed === null && (
+                <span className="ml-2 text-gray-500" title="统计失败（OSS 列表拿不到）">· 生成素材 —</span>
+              )}
+            </span>
           </div>
           <div className="w-full h-2 bg-white/5 rounded-full overflow-hidden">
             <div className="h-full bg-emerald-500/60 rounded-full transition-all" style={{ width: Math.min(pct, 100) + '%' }} />
