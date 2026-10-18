@@ -518,11 +518,12 @@ export async function aiDesignPage(
         body: JSON.stringify({
           model: 'deepseek-v4-pro',
           messages: [{ role: 'user', content: prompt }],
-          /* ★VF_DAIDESIGN_V3b（2026-10-18 用户实测「AI 没给出完整 HTML」→ 3 轮全挂）：
-             原来 16000 **不够** —— deepseek 是思考型，思考先吃掉一大截，正文写 HTML 又需要 1.5~2 万字
-             ⇒ **每轮都被截断**（报错里那段 "html <!DOCTYPE html> <html lang="zh"> …" 就是**开了头没有结尾**）。
-             现口径：**32000**（与百炼那条同额度）；若模型上限更低，API 会直接报错 ⇒ 走下面的回落分支，不会静默失败。 */
-          max_tokens: 32000,
+          /* ★VF_DAIDESIGN_V3c（2026-10-18 用户定案「**max_tokens 取消这个不限制**」）：
+             **不再传 `max_tokens`** —— 之前 16000/32000 都是拍脑袋，结果 16000 那版每轮都被截断
+             （思考先吃额度、正文要 1.5~2 万字 ⇒ 缺 `</html>` ⇒ 3 轮全挂）。
+             现口径：交给模型自己的默认输出上限（deepseek 会按模型能力给到最大），
+             **超时仍由 `AbortSignal.timeout(budget)` 兜住**，不会无限等。
+             ⚠️ 百炼那条回落路径保持原样（`PLAN_MAX_TOKENS` 32000），它本来就够用。 */
           temperature: 0.8,
           stream: false,
         }),
