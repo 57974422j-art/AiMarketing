@@ -2109,6 +2109,25 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
         try { ctx.log?.(uid, '[日报落地页] ' + ed.msg) } catch { /* ignore */ }
         return planOut(d, picksForEdit, d.planBy || 'fallback', d.planNote || '', ed.msg)
       }
+      /* ★VF_DAILYEDIT_V2（2026-10-18 用户定案「两个你确定了就改…不要改了后会话窗口出 AI 接管的提示」）：
+         复查结论：`applyEditBatch` 其实**已经支持**全部 7 项（标题/信息点/用图/版式/类型/文字层/字号/删除/排序/动效），
+         改完也会用 `ed.msg` 回读（"已改：段3 标题"）⇒ **功能不是死的**，我之前判断错了。
+         **唯一真缺口**：命令**完全没被识别**时（如把"改第三段标题"写成自然语言），
+         会落到下面这段话 ⇒ 用户只看到"等你拍板"，**不知道自己的命令没生效**（以为改了）。
+         现口径：**看起来像编辑命令、但没被识别 ⇒ 明确告知"没识别 + 原方案没动 + 正确写法"**。
+         ⚠️ 刻意**不触发任何 AI 重新生成**，只回事实（用户要求：不要出"AI 接管/重做"的提示）。 */
+      const rawTrim = String(raw || '').trim()
+      if (/^(?:改|删|排序|动效|节奏)\s*[\d=:：]/.test(rawTrim) || /^(?:改|删)\s*\d+/.test(rawTrim)) {
+        return '⚠️ 这条我没识别成编辑命令，**原方案一个字没动**：\n'
+          + '`' + rawTrim.slice(0, 48) + '`\n\n'
+          + '正确写法（可直接复制改数字）：\n'
+          + '· 改标题 → `改 3 标题=第一行/第二行`\n'
+          + '· 改信息点 → `改 3 信息点=甲,乙;丙,丁`\n'
+          + '· 换图 → `改 3 用图=2,4`\n'
+          + '· 换版式/文字层/字号 → `改 3 版式=竖排` / `改 3 文字层=引文体` / `改 3 字号=1.15`\n'
+          + '· 删一段 → `删 3`\n'
+          + '· 调顺序 → `排序=3,1,2`'
+      }
       return '这一步在等你**拍板**：\n'
         + '· 满意 → 回 `确认`（我就生成 HTML 文件）\n'
         + '· 想换素材 → 回 `重选`\n'
@@ -2140,6 +2159,18 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
       await saveDailyDraft(ctx.prisma, uid, d)
       try { ctx.log?.(uid, '[日报落地页] 交付后编辑：' + ed.msg) } catch { /* ignore */ }
       return planOut(d, picksForEdit, d.planBy || 'fallback', d.planNote || '', ed.msg)
+    }
+    /* ★VF_DAILYEDIT_V2b（2026-10-18）：**交付后**的编辑命令没被识别时，**不要放回主流程**。
+       原来这里直接 `return null` ⇒ 消息落到主 AI ⇒ **AI 会"接管"并把整份方案重排**（用户明确讨厌这个：
+       "不要改了后会话窗口出 AI 接管的提示说重做什么的"），而且用户会以为"精确改了那一段"，其实全变了。
+       现口径：看起来像编辑命令但没识别 ⇒ **明确说"没识别、原方案没动、正确写法"**，绝不交给 AI 重排。 */
+    const rawTrimDone = String(raw || '').trim()
+    if (/^(?:改|删|排序|动效|节奏)\s*[\d=:：]/.test(rawTrimDone) || /^(?:改|删)\s*\d+/.test(rawTrimDone)) {
+      await saveDailyDraft(ctx.prisma, uid, d)
+      return '⚠️ 这条我没识别成编辑命令，**交付的那份一个字没动**：\n'
+        + '`' + rawTrimDone.slice(0, 48) + '`\n\n'
+        + '正确写法：`改 3 标题=第一行/第二行` · `删 3` · `排序=3,1,2` · `改 3 用图=2,4`\n'
+        + '（改完我会把改后的方案列出来，你满意再点「✅ 生成 HTML」重出文件）'
     }
     await saveDailyDraft(ctx.prisma, uid, d)   // 保留草稿 ⇒ 下次还能改；但这条消息不归本线
     return null
