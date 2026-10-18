@@ -84,9 +84,56 @@ export default function StoragePage() {
     } catch { showToast('删除失败', 'error') }
   }
 
-  const toggleSelect = (name: string) => {
-    setSelected(prev => { const s = new Set(prev); s.has(name) ? s.delete(name) : s.add(name); return s })
-  }
+  /* ★VF_DELORDER_V1（2026-10-18 用户定案「**现在你看怎么成套删，能删除就行**」）：
+       **删整单** —— 点一个 `.html`，把它这一单的文件一起彻底删：
+         ① 该 HTML 本身（单文件版或配图版）
+         ② **它引用的所有生成素材图**（从 HTML 原文里读 `src="gen_…"` / `url(gen_…)`）
+         ③ **同一天、编号相邻的另一份 HTML**（`gen_YYYYMMDD_N` 的 N 差 1~3）——
+            因为「单文件版 / 配图版」是连着编号的，用户不必点两次
+         ④ 缩略图由服务端 `/api/storage/delete` 自动连带删（`storage/<uid>/.thumbs/<stem>.jpg`）
+       ⚠️ 两步保险：**先弹确认框列出清单**（含个数），再删 ⇒ 不会误删。
+       ⚠️ 读的是 `/api/storage/file`（**原始 HTML**），不是 `htmlview`（那个会把图名改写成签名短链，提取不到）。 */
+  const delOrder = async (htmlName: string) => {
+      try {
+        showToast('正在读取这一单引用的图…', 'success')
+        const r = await fetch(`/api/storage/file?userId=${userId}&name=${encodeURIComponent(htmlName)}`, { credentials: 'include' })
+        if (!r.ok) { showToast('读不到这份 HTML（可能已被删）', 'error'); return }
+        const txt = await r.text()
+        const imgs = Array.from(new Set(
+          Array.from(txt.matchAll(/(?:src\s*=\s*["']|url\(\s*["']?)(gen_[A-Za-z0-9_.-]+\.(?:jpg|jpeg|png|webp))/gi)).map((m) => m[1]),
+        ))
+        const names: string[] = [htmlName, ...imgs]
+        // 同一天、编号相邻的 HTML（单文件版 / 配图版是一对）
+        const base = htmlName.replace(/\.html?$/i, '')
+        const mm = base.match(/^(gen_\d{8})_(\d+)$/)
+        if (mm) {
+          const day = mm[1], num = Number(mm[2])
+          try {
+            const r2 = await fetch(`/api/storage/files?userId=${userId}`, { credentials: 'include' })
+            const j2 = await r2.json()
+            const all: string[] = ((j2?.data?.files) || j2?.files || []).map((x: any) => String(x.name || ''))
+            for (let d = -3; d <= 3; d++) {
+              if (!d) continue
+              const cand = day + '_' + String(num + d).padStart(3, '0') + '.html'
+              if (all.includes(cand)) { names.push(cand); break }   // 只取最近的一份，避免连带别的单
+            }
+          } catch { /* 列表拿不到就只删当前这份 */ }
+        }
+        const list = Array.from(new Set(names))
+        if (!window.confirm('将**彻底删除**这一单的 ' + list.length + ' 个文件（含缩略图，不可恢复）：\n\n'
+          + list.slice(0, 8).join('\n') + (list.length > 8 ? '\n… 等 ' + list.length + ' 个' : ''))) return
+        const d = await fetch('/api/storage/delete', {
+          method: 'DELETE', body: JSON.stringify({ names: list }),
+          headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        }).then((x) => x.json())
+        if (d.success) { showToast(d.message || '已删除', 'success'); setSelected(new Set()); load() }
+        else showToast(d.message || '删除失败', 'error')
+      } catch { showToast('删除失败', 'error') }
+      }
+
+      const toggleSelect = (name: string) => {
+      setSelected(prev => { const s = new Set(prev); s.has(name) ? s.delete(name) : s.add(name); return s })
+      }
   // ★VF_REPOSPLIT_V1b：两组 + 当前显示的那组（全选/批量删除只作用于**当前显示**的这组）
   const assetFiles = files.filter(f => (f.kind === 'gen' ? false : true))
   const genFiles = files.filter(f => f.kind === 'gen')
@@ -365,6 +412,12 @@ export default function StoragePage() {
                   )}
                   <button onClick={() => download(f.name)} className="w-6 h-6 bg-sky-500/80 text-white rounded-full text-[10px] opacity-0 group-hover:opacity-100 transition" title="下载">⬇</button>
                   <button onClick={() => del(f.name)} className="w-6 h-6 bg-red-500/80 text-white rounded-full text-[10px] opacity-0 group-hover:opacity-100 transition" title="删除">×</button>
+                  {/* ★VF_DELORDER_V1：**删整单** —— 只对 .html 显示（把这份页面 + 它引用的图 + 相邻的另一份一起删） */}
+                  {/\.html?$/i.test(f.name) && (
+                    <button onClick={() => void delOrder(f.name)}
+                      className="w-6 h-6 bg-rose-600/90 text-white rounded-full text-[10px] opacity-0 group-hover:opacity-100 transition"
+                      title="删整单（这份页面 + 它引用的全部图 + 另一份封装，含缩略图）">🗑</button>
+                  )}
                 </div>
               </div>
             ))}
