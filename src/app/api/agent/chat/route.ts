@@ -22,6 +22,8 @@ import {
   materialStateOf, VF_MAT_POLICY_TAG, ensureListDuration, mergeAdjacentSameShots,
   // ★VF_MATUI_V1（2026-09-30 用户定案）：清单改版（可用在前 / 上限 40 / 缩略图）+ 「🔄 换一张」
   applyMatSwap, parseMatSwapMessage, buildMatUIList, pickSwapTarget, VF_MAT_UI_LIMIT,
+  // ★VF_MATSIG_V1（2026-10-17 改造包 A）：素材指纹**复用看图缓存的键公式**（key@size）⇒ 与缓存命中口径零漂移
+  vlCacheKey,
 } from '@/lib/agent/vf/material-pool'
 import type { MatPolicy, MatSetAction, MatUIItem } from '@/lib/agent/vf/material-pool'
 // ★VF_THEMENAME_FIX_V1（2026-09-30）：主题 id → 中文名（唯一真相源，见 theme-labels.ts）
@@ -440,6 +442,45 @@ async function vfSpreadMats(uid: number | string, mats: any[]): Promise<any[]> {
   const dem = demoteRecent(shuf, recentNamesOf(recentRuns))
   if (dem.demoted) vfLog(uid, `[素材池] 最近用过 ${dem.demoted} 张已排到后面（不是排除，素材不够时仍可用）`)
   return dem.items
+}
+
+/* ══════════════ ★VF_MATSIG_V1（2026-10-17 改造包 A）素材指纹：「换了素材 ⇒ 旧文案自动作废」 ══════════════
+ * 事故（用户实测）：用「图片成片」，个人仓库里**全是火锅照片**，产出的文字却还是"以前关于项目的语言"。
+ * 根因：草稿是 DB 持久化的（跨会话/跨天都在），而它里面的 topic/script/shots **只在"重申命令 / 表单 / 换线"
+ *   时才作废** —— **没有任何一条判据看"素材还是不是同一批"** ⇒ 换了素材、没重申命令，旧内容一路沿用。
+ *
+ * 口径（照「HTML 成片」线 VF_FILMSRC_V2 的形制）：素材指纹变了 ⇒
+ *   ① 只清**内容**（topic/script/shots/cover/subLen/imgs/brief/briefOverride/matSig）
+ *   ② `step` 退回 'source' ③ **如实告知**让用户按当前素材重排；
+ *   **用户设置（皮肤/音色/画幅/时长/i2v/风格/大字…）一律保留** —— 绝不用 clearVfDraft 整条清。
+ *
+ * 为什么复用 `vlCacheKey`：指纹的键公式必须与"看图缓存是否命中"**完全一致**，否则会出现
+ *   "缓存把这张图当成新图重算、指纹却认为素材没变"这种自相矛盾（一处漂移，两处都不可信）。
+ * ══════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** 素材清单 → 指纹串（**纯函数**）：逐条 `<仓库key>@<字节大小>#<文件名>`，**排序后** join。
+ *  · `vlCacheKey(key,size)` = `key@size`（★与看图缓存同源）⇒ 替换/换图/大小变化都会变；
+ *  · 再拼 `name`：防"key 与 size 恰好都相同"的漏判（历史上改名=换 key，正好也是我们希望它变）；
+ *  · **排序后 join** ⇒ **与清单顺序无关**（起草前会打乱 + 「最近用过」降权重排，顺序不能进指纹）；
+ *  · 只算图片（本线画面只吃图片，视频进不了画面）；空清单 → `''`（= 没指纹可比，调用方必须跳过判断）。 */
+function matSigOf(items: any[] | null | undefined): string {
+  const arr = (Array.isArray(items) ? items : []).filter((m: any) => m && (m.kind === 'image' || m.kind === undefined))
+  if (!arr.length) return ''
+  const keys = arr.map((m: any) => `${vlCacheKey(String(m.key || m.name || ''), Number(m.size) || 0)}#${String(m.name || '')}`)
+  return keys.sort().join('|')
+}
+
+/** 候选池 → 指纹（**纯函数**）：先套用起草时的「上传模式精确名单」口径（vd.uploaded 命中就用那几张），
+ *  再算 matSigOf。**起草处写指纹 / 入口处比指纹必须都走这一个函数** —— 两处各写一份必然漂移。 */
+function matSigFromPool(draft: any, rawPool: any[]): string {
+  let pool = Array.isArray(rawPool) ? rawPool : []
+  const want = Array.isArray(draft?.uploaded) ? draft.uploaded.map((x: any) => String(x)) : []
+  if (draft?.useRecent && want.length) {
+    const byName = new Map(pool.map((m: any) => [String(m?.name), m]))
+    const picked = want.map((n: string) => byName.get(n)).filter(Boolean) as any[]
+    if (picked.length) pool = picked
+  }
+  return matSigOf(pool)
 }
 
 /** 归一化后：同一张图在一份分镜里最多用一次（素材不足则至少隔 2 镜）；返回本份用到的文件名。 */
@@ -4630,6 +4671,20 @@ PUBLISH_DRAFT.delete(uidW)
               }
             }
 
+            /** ★VF_MATSIG_V1（2026-10-17 改造包 A）：按**起草时的同一口径**重取素材候选池。
+             *  口径三处必须对齐（少一处就对不上，会误判"素材变了"把用户文案清掉）：
+             *    · limit = `Math.max(40, 上传名单长度 + 20)`（与起草处一致）
+             *    · mode  = `vd.useRecent ? 'recent' : 'spread'`
+             *    · 名单  = 用户「提拔/禁用」（loadMatPolicy 的 allow/deny）
+             *  ⚠️ 返工前的 `vfMats` 还会被 `vfSpreadMats` 打乱 + 降权重排 —— 那是**同一批、只换顺序**，
+             *     而指纹是**排序后**拼的 ⇒ 打乱/降权不会造成误判（所以这里不需要重跑那一步）。 */
+            const _vfMatPoolOf = async (d: any): Promise<any[]> => {
+              const _w = Array.isArray(d?.uploaded) ? d.uploaded.map((x: any) => String(x)) : []
+              const _pol = await loadMatPolicy(uidVF2)
+              return await listRepoMaterials(uidVF2, Math.max(40, _w.length + 20), d?.useRecent ? 'recent' : 'spread',
+                { allow: _pol.allow, deny: _pol.deny })
+            }
+
             // ═══ ★VF_REPLAN_V1（2026-10-08）：**「分镜重排」的唯一实现**（一处覆盖三个入口）═══
             // 为什么必须抽出来（用户实测根因）：成片的画面大字 / 字幕 / 配音**全部来自 `shots`**
             //   （出片走 make.py 的 `--plan`；`script` 只在"完全没有分镜"时才用来切句；tts.py 念的也是
@@ -4681,6 +4736,15 @@ PUBLISH_DRAFT.delete(uidW)
               const _est = Math.round(_subN / VF_SUB_CPS)
               draft.shots = (_shots.length >= 2 && _cover >= 0.8) ? _shots : undefined
               draft.cover = _cover; draft.subLen = _subN
+              // ★VF_MATSIG_V1（2026-10-17 改造包 A）：重排 = "同一批素材再排一次" ⇒ **指纹同步刷新**。
+              //   素材没变 ⇒ 值不变（天然无副作用）；素材真变了 ⇒ 这里如实对齐，免得入口判据拿着旧指纹
+              //   反复把刚排好的分镜判成"作废"。取不到池（列目录失败）⇒ **保留原指纹**，绝不写成空串。
+              try {
+                const _sigP = matSigFromPool(draft, await _vfMatPoolOf(draft))
+                if (_sigP) draft.matSig = _sigP
+              } catch (eSigR: any) {
+                vfLog(uidVF2, '[素材指纹] 重排后刷新失败（保留原指纹）：' + String(eSigR?.message || eSigR).slice(0, 120))
+              }
               // ★VF_I2V_BASELINE_V1：重排后重算"让哪几张图动起来"（与首次起草同口径，报价同源）
               const _i2vR = buildI2vShots({
                 shots: _shots, keyByPath: draft.i2vKeys || {},
@@ -4710,10 +4774,60 @@ PUBLISH_DRAFT.delete(uidW)
               vfLog(uidVF2, '[草稿认领] 已按本次表单参数重新起草（不再回表单卡）')
             }
 
+            // ═══ ★VF_MATSIG_V1（2026-10-17 改造包 A）：**素材指纹变了 ⇒ 旧内容自动作废 + 如实告知** ═══
+            // 位置：**必须**在三条旁路之后 —— ① `running` 过期自清（上面 4589/4648）② `VF_FORM` 孤儿认领（4775）
+            //   ③ 紧跟本段的 `VF_EDIT` 只重渲（本判据**整体排除** VF_EDIT，只重渲 / 出片前逐行改分镜都不受它影响）。
+            //   旧草稿在 4648 被 vfIntent / 换线 / 过期 / 孤儿 清掉时 `vd` 已是 undefined ⇒ 这里自然跳过。
+            // 限定 `line === 'local'`：本块与「PPT+图视」（vf_pptimg）**共用**，不能弄坏它的"换线作废"
+            //   （2026-10-07 刚修过的点）。历史草稿没写 line ⇒ 它本来就属于本线（local）。
+            // 只在 vd.matSig 存在时比对：① 老草稿 / 刚认领的新草稿没有指纹 ② 没指纹就清 = 误伤。
+            // 触发条件（省成本）：只在这三种"可能重来"的消息上花一次列目录 —— vfIntent / 表单 / 停在文案卡。
+            const _vfEditMsg = /^VF_EDIT\s*[:{]/.test(String(userMessage || '').trim())
+            let _vfMatSigWiped = false
+            if (vd && String(vd.line || 'local') === 'local' && !_vfEditMsg
+              && String(vd.matSig || '')
+              && (vfIntent || _vfIsForm || vd.step === 'script')) {
+              try {
+                const _sigNow = matSigFromPool(vd, await _vfMatPoolOf(vd))
+                if (_sigNow && _sigNow !== String(vd.matSig)) {
+                  vfLog(uidVF2, `[素材指纹] 素材变了 → 旧文案/旧分镜作废（step=${vd.step}；` +
+                    `起草时 ${String(vd.matSig).split('|').length} 张 → 现在 ${_sigNow.split('|').length} 张），设置项保留`)
+                  // ① 只清**内容**（⚠️ 绝不用 clearVfDraft：那会把用户设置一起清掉）
+                  vd.topic = ''
+                  vd.script = ''
+                  vd.shots = undefined
+                  vd.cover = 0
+                  vd.subLen = 0
+                  vd.imgs = []
+                  vd.brief = ''
+                  vd.briefOverride = ''
+                  // ② 指纹对齐"现在的素材" ⇒ **只作废一次**（否则每来一条消息就再清一遍、日志刷屏）
+                  vd.matSig = _sigNow
+                  // ③ 退回"素材来源"：下一条消息（「素材合成」）会按新素材重写文案 + 重排分镜
+                  vd.step = 'source'
+                  VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
+                  _vfMatSigWiped = true
+                  // ④ 如实告知（形制照 vf-htmlfilm.ts 的"版本戳不一致"：说清作废了什么 + 要用户做什么）
+                  wfEarlyReply = '你个人仓库里的素材变了（和上一次起草用的不是同一批）⇒ **旧文案 / 旧分镜已作废**，'
+                    + '没有拿旧内容去配新画面。\n'
+                    + '你的设置都还在（画面风格 / 音色 / 画幅 / 时长 / 图生视频 / 大字）。\n'
+                    + '回一句「**素材合成**」，我就按当前这批素材重写文案 + 重排分镜（约十几秒）。'
+                  finalResult = wfEarlyReply
+                }
+              } catch (eSig: any) {
+                // 列目录失败 ≠ 素材变了：只记日志 —— 绝不因为一次网络抖动把用户的内容清掉
+                vfLog(uidVF2, '[素材指纹] 比对失败（保留旧内容）：' + String(eSig?.message || eSig).slice(0, 120))
+              }
+            }
+
             // ★VF_RENDER_ONESHOT_V1（2026-09-29 team-lead 要求 ④）：片已出、草稿已作废后，
             //   客户端「🔁 只重渲第 N 镜」/ 分镜清单 → VF_EDIT:{taskId, edits} —— 没有草稿可改，
             //   直接走【只重渲染】（复用已有配音，不重新 TTS，约 1~2 分钟、不扣点），见 vf-edit.ts。
-            if (!vd && /^VF_EDIT\s*[:{]/.test(String(userMessage || '').trim())) {
+            if (_vfMatSigWiped) {
+              // ★VF_MATSIG_V1：本轮已回过"素材变了 / 已作废"的告知 ⇒ 不再进下面任何分支
+              //   （既不自动重写、也不出素材卡 —— 重写是花钱的 AI 调用，必须让用户先知道再决定）
+              finalResult = wfEarlyReply
+            } else if (!vd && /^VF_EDIT\s*[:{]/.test(String(userMessage || '').trim())) {
               let _editsR: any[] = []
               let _tidR = ''
               // ★VF_REVOICE_V1（2026-10-08）：客户端「🎙 连配音一起重录」勾选 → revoice:true
@@ -5198,6 +5312,11 @@ PUBLISH_DRAFT.delete(uidW)
                 }
                 // 存进草稿：**「重试分镜」时不用重新取素材/看图**（直接复用）
                 vd.imgs = vfImgs
+                // ★VF_MATSIG_V1（2026-10-17 改造包 A）：把"这一版文案/分镜是基于**哪批素材**写的"记进草稿 ——
+                //   下次进块时比对（判据在本块开头）；换了素材却没说命令 ⇒ 旧内容自动作废，不再"文案配错画面"。
+                //   口径 = `matSigFromPool(vd, vfMatsAll)`：池用本次起草**未打乱**的原始清单，
+                //   与入口处重取的口径（_vfMatPoolOf）逐项对齐（limit / mode / allow+deny / 上传精确名单）。
+                vd.matSig = matSigFromPool(vd, vfMatsAll)
                 vd.brief = String(vfBrief || '').slice(0, 1500)
                 // ★VF_COVER_V1（2026-09-20，用户定案“严格 180 秒 = 文案要写成 ~810 字且被念完”）：
                 //   实测 1370 字文案 + 17 镜 → subtitle 只覆盖 ~30% → 成片 110 秒、后 70% 文案从没被念。
