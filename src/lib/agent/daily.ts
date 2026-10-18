@@ -519,6 +519,61 @@ export async function aiDesignPage(
   return { ok: true, html: m[0], captions: summary, vlErr, diag }
 }
 
+/* ═══ ★VF_DAIDESIGN_V2（2026-10-18 用户实测「content_overlap / 对比度 1.8:1」后定案「修吧」）：
+   **只跑闸门、不交付** —— 给"修错循环"用：AI 出页面 → 这里跑四道闸门 → 不过就把报错喂回去重写。
+   三个设计要点（都是踩过的坑）：
+     ① **图内嵌再检查**，**绝不调 `publishPickedImages`** —— 那会占用图名、和交付时那次冲突
+        （V1b 就是"两批名字 ⇒ 单文件版 0 匹配 ⇒ 出片按钮变灰"）；
+     ② 页面用**原始图名**（`1.jpg`~`N.jpg`）检查，与 AI 交付时一致 —— 图名替换留到 `finishDaily` 做；
+     ③ 只跑 `--check-only`（不渲染），一次约 **20~40 秒**；渲染才是 60 秒级，那种不能进重试环。 */
+async function checkDesignPage(html: string, picks: DailyPick[], tag: string): Promise<{ ok: boolean; note: string }> {
+  // ① 图内嵌（只为让 check 能读到图；不进 OSS、不占名字）
+  const imgs: any[] = []
+  for (let i = 0; i < picks.length; i++) {
+    try {
+      const p = picks[i]
+      let b: Buffer | null = null
+      if (p.local && p.abs && fs.existsSync(p.abs)) b = fs.readFileSync(p.abs)
+      else {
+        // 与 buildSingleFile 同一口径：优先 OSS SDK（signedUrl+fetch 线上实测只读到 1/17 张）
+        const { getObject } = await import('@/lib/oss')
+        b = await getObject(p.key)
+      }
+      if (!b || !b.length) continue
+      const mime = /\.png$/i.test(p.name) ? 'image/png' : 'image/jpeg'
+      imgs.push({ n: i + 1, mime, b64: b.toString('base64'), bytes: b.length, ref: String(i + 1) + '.jpg' })
+    } catch { /* 单张失败就跳过 */ }
+  }
+  if (!imgs.length) return { ok: false, note: '素材读不出来（一张都没读到），无法跑闸门' }
+  const emb = embedImages(html, imgs, 48 * 1024 * 1024)
+  // ② 写临时目录 + 跑 check-only
+  let tmp = ''
+  try {
+    const os = await import('node:os')
+    const { execFile } = await import('node:child_process')
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'aidchk-'))
+    const f = path.join(tmp, 'index.html')
+    fs.writeFileSync(f, emb.html, 'utf8')
+    const script = path.join(vfRootDir(), 'scripts', 'video-factory', 'html-deck', 'tools', 'daily-film.mjs')
+    const out = path.join(tmp, 'out')
+    const r = await new Promise<{ code: number; text: string }>((resolve) => {
+      execFile('node', [script, f, '--outdir', out, '--check-only'], { timeout: 240000, maxBuffer: 8 * 1024 * 1024 },
+        (err, so, se) => resolve({ code: err ? 1 : 0, text: String(so || '') + '\n' + String(se || '') }))
+    })
+    // ③ 摘出真正有用的行（✗ 开头的判据 + 四个阶段的结论），别把整段日志喂回去
+    const lines = r.text.split('\n').map((l) => l.trim())
+      .filter((l) => /^✗|stage=(html|check|render)/.test(l))
+      .slice(0, 8)
+    const okAll = r.code === 0 && /引擎校验 OK/.test(r.text)
+    if (okAll) return { ok: true, note: '四道闸门全过' }
+    return { ok: false, note: lines.length ? lines.join('\n') : ('check 失败但没给出可用报错（exit=' + r.code + '）') }
+  } catch (e: any) {
+    return { ok: false, note: '跑闸门时出错：' + String(e?.message || e).slice(0, 160) }
+  } finally {
+    try { if (tmp) fs.rmSync(tmp, { recursive: true, force: true }) } catch { /* ignore */ }
+  }
+}
+
 export async function aiVoiceLines(
   picks: DailyPick[], segs: any[], topic = '',
 ): Promise<{ ok: boolean; lines?: string[]; fixes?: string[]; error?: string; sawImages?: boolean; vlErr?: string; diag?: string }> {
@@ -1212,6 +1267,101 @@ async function buildSingleFile(uid: number | string, buf: Buffer | undefined, pi
    ⏳ 本轮**未做**"闸门报错自动回喂 AI 重写"：一次要 3~5 分钟，且**还没有真实失败样本**可依。
       先让入口能用，出片时 `daily-film.mjs` 会把溢出/缺图/越界**如实点名**（V8 起失败还会留 render.log）
       ⇒ 拿真样本再补重试策略，比凭空设计稳。 */
+/* ★VF_DAIDESIGN_V2（2026-10-18 用户实测「content_overlap + 对比度 1.8:1」后定案「修吧」）：
+   **修错循环** —— AI 出页面 → 跑四道闸门 → 不过就把**报错原文**喂回去，只让它改那几处 → 最多 3 轮。
+   为什么这是必需的（不是可选）：AI 自由排版时"字压字 / 对比度不足"是**必然偶发**，提示词防不住；
+   但闸门能**精确点名是哪两个元素**（`div.bc > span:nth-of-type(3)` 压到 `div.loc`），所以改起来很准。
+   3 轮仍不过 ⇒ **回落模板档**（`d.plan` 还是方案卡那份，没被覆盖），并**如实报** AI 版的报错原文 ——
+   绝不给黑片、也不假装成功。 */
+async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Promise<string> {
+  const uid = ctx.uid
+  const topic = String(d.topic || '')
+  let failNote = ''
+  let lastErr = ''
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const design = await aiDesignPage(picks, topic, { failNote })
+    try {
+      ctx.log?.(uid, '[日报落地页] AI 自由设计 第' + attempt + '轮：' + (design.ok ? 'OK' : '失败')
+        + ' ｜ ' + String(design.diag || '') + (design.vlErr ? ' ｜ 读图：' + design.vlErr : ''))
+    } catch { /* ignore */ }
+    if (!design.ok || !design.html) { lastErr = String(design.error || '未知原因'); failNote = ''; continue }
+
+    // 字体适配（必须在 check 前：服务器无 CJK ⇒ 不换字体会误报对比度/溢出）
+    let html = String(design.html)
+    html = html.replace(/["']?TXT-Serif["']?/g, '"NotoSerifSC"').replace(/["']?TXT-Sans["']?/g, '"NotoSansSC"')
+      .replace(/"Noto Serif SC"/g, '"NotoSerifSC"').replace(/"Noto Sans SC"/g, '"NotoSansSC"')
+    if (!/@font-face/.test(html)) {
+      try {
+        const fdir = path.join(vfRootDir(), 'scripts', 'video-factory', 'html-deck', 'fonts')
+        const face = (fname: string, f: string, w: string) => {
+          const fp = path.join(fdir, f)
+          if (!fs.existsSync(fp)) return ''
+          return '@font-face{font-family:"' + fname + '";src:url(data:font/woff2;base64,'
+            + fs.readFileSync(fp).toString('base64') + ') format("woff2");font-weight:' + w + ';font-display:block}'
+        }
+        const faces = face('NotoSerifSC', 'NotoSerifSC-sub.woff2', '200 900')
+          + face('NotoSansSC', 'NotoSansSC-sub.woff2', '100 900')
+        if (faces) html = html.replace(/<\/style>/i, '\n' + faces + '\n</style>')
+      } catch { /* 注入失败就退系统字体 */ }
+    }
+
+    // ⭐ 闸门：不过就把报错原文交给下一轮
+    const chk = await checkDesignPage(html, picks, 'r' + attempt)
+    try {
+      ctx.log?.(uid, '[日报落地页] AI 自由设计 第' + attempt + '轮闸门：' + (chk.ok ? '✅ 通过' : '✗ 未过\n' + chk.note))
+    } catch { /* ignore */ }
+    if (!chk.ok) { lastErr = chk.note; failNote = chk.note; continue }
+
+    // 通过 ⇒ 预览兜底 + 最小 plan ⇒ 交付（以下与 runDesign 成功路径一致）
+    if (!/data-mode=/.test(html)) html = html.replace(/<html\b/i, '<html data-mode="preview"')
+    if (!/id="ai-preview-guard"/.test(html)) {
+      const guard = '<style id="ai-preview-guard">'
+        + 'html:not([data-mode="film"]),html:not([data-mode="film"]) body{height:auto!important;overflow-y:auto!important;background:#000}'
+        + 'html:not([data-mode="film"]) body>*{height:auto!important;max-height:none!important;overflow:visible!important}'
+        + 'html:not([data-mode="film"]) .stage,html:not([data-mode="film"]) #stage{height:auto!important;overflow:visible!important}'
+        + 'html:not([data-mode="film"]) .sec{display:flex!important;visibility:visible!important;'
+        + 'position:relative!important;inset:auto!important;left:auto!important;top:auto!important;'
+        + 'width:720px!important;height:1280px!important;overflow:hidden!important;opacity:1!important;margin:0 auto 12px}'
+        + '</style>'
+        + '<script id="ai-preview-guard-js">(function(){'
+        + 'var root=document.documentElement;if(root.getAttribute("data-mode")==="film")return;'
+        + 'function boot(){var secs=[].slice.call(document.querySelectorAll(".sec"));if(!secs.length)return;'
+        + 'for(var i=0;i<secs.length;i++){var s0=secs[i];'
+        + 's0.style.visibility="visible";'
+        + 'if(window.getComputedStyle(s0).display==="none")s0.style.display="flex";'
+        + 'var a=s0.parentElement;'
+        + 'while(a&&a!==document.body){a.style.overflow="visible";a.style.height="auto";a.style.maxHeight="none";a=a.parentElement;}'
+        + 'if(a){a.style.overflowY="auto";a.style.height="auto";}}'
+        + 'var t0=[],wasIn=[];'
+        + 'function tick(){var vh=window.innerHeight||1280;'
+        + 'for(var i=0;i<secs.length;i++){var s=secs[i],r=s.getBoundingClientRect();'
+        + 'var inView=(r.top<vh*0.85)&&(r.bottom>0);'
+        + 'if(inView&&!wasIn[i]){wasIn[i]=true;t0[i]=window.performance.now();}'
+        + 'if(!inView){wasIn[i]=false;t0[i]=null;}'
+        + 'var du=(+s.dataset.duration||3)*1000;'
+        + 'var p=(t0[i]==null)?0:Math.min(1,(window.performance.now()-t0[i])/du);'
+        + 's.style.setProperty("--p",String(p));}'
+        + 'window.requestAnimationFrame(tick);}'
+        + 'window.requestAnimationFrame(tick);}'
+        + 'if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",boot);else boot();'
+        + '})();</script>'
+      html = /<\/head>/i.test(html)
+        ? html.replace(/<\/head>/i, guard + '\n</head>')
+        : (/<\/body>/i.test(html) ? html.replace(/<\/body>/i, guard + '\n</body>') : html + guard)
+    }
+    const secN = Math.max(1, (html.match(/<section[^>]*\bclass="[^"]*\bsec\b/g) || []).length)
+    d.plan = { meta: { theme: '' }, segments: Array.from({ length: secN }, () => ({ layout: 'free', title: ['', ''] })) } as any
+    d.planBy = 'ai'
+    try { ctx.log?.(uid, '[日报落地页] AI 自由设计：第' + attempt + '轮过闸门 · ' + secN + ' 段') } catch { /* ignore */ }
+    return await finishDaily(ctx, d, picks, { html })
+  }
+  // 3 轮都不过 ⇒ 回落模板档（d.plan 仍是方案卡那份，没被覆盖）
+  try { ctx.log?.(uid, '[日报落地页] AI 自由设计：3 轮均未过闸门 ⇒ 回落模板档。最后一次报错：' + lastErr) } catch { /* ignore */ }
+  return '⚠️ AI 版连续 3 轮没过闸门，**已自动改用模板版**（下面附 AI 的报错原文，便于判断是排版问题还是素材问题）：\n'
+    + '```\n' + (lastErr || '（无报错信息）') + '\n```\n\n'
+    + await finishDaily(ctx, d, picks)
+}
+
 async function runDesign(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Promise<string> {
   const uid = ctx.uid
   const design = await aiDesignPage(picks, String(d.topic || ''))
@@ -1629,7 +1779,8 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
       if (d.step !== 'review' || !d.plan) {
         return '⚠️ 现在不能走 AI 自由设计：本单不在"方案确认"这一步。先选好素材、等方案卡出来。'
       }
-      return await runDesign(ctx, d, toPicks(uid, d.source || { kind: 'repo' }, d.names || []))
+      // ★VF_DAIDESIGN_V2：走**带修错循环**的入口（3 轮 + 回落模板档）
+      return await runDesignRetry(ctx, d, toPicks(uid, d.source || { kind: 'repo' }, d.names || []))
     }
     // ① ★VF_DAILY_V32（2026-10-16 用户定案「这个生成HTML 改成 2个 AI开关」）：
     //   切换两个 AI 开关 ⇒ **立刻按新设置重排一遍方案**。
