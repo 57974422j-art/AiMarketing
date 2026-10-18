@@ -168,6 +168,13 @@ if (first < 0 || lastEnd <= first) { console.log('stage=html ✗ 段包裹失败
        `root_missing_composition_id` + `root_missing_dimensions`（本轮实测就是这两条）。
    现口径：**body 第一个元素若已是容器（不是 section）⇒ 直接把 root 属性补到它身上**，不再新建 div；
    否则维持原逻辑（新建 `#stage` 包裹）。两种分支的最终结构都是"一个带 root 属性的元素包住所有段"。 */
+/* ★VF_DAIDESIGN_V2d（2026-10-18 线上日志实锤：`duplicate_composition_id: Composition id "main" is used by 2 elements`
+   ⇒ **AI 自由档 3 轮全挂**、白等 578 秒、504）：
+   病：V8d 的"把 root 属性加在 body 第一个容器上"只检查**那个元素**有没有 `data-composition-id`，
+      **没管页面别处已经写过** —— AI 常常自己写一个（它学契约时看得到我们的样例）⇒ 我再加一个 ⇒ **两个 main** ⇒ 引擎直接判失败。
+   现口径（**防御式**）：**先清掉页面里所有 `data-composition-id`**，再加唯一的一个。
+     这样不管 AI 写 0 个、1 个还是 3 个，结果都只有 1 个。 */
+html = html.replace(/\s*data-composition-id="[^"]*"/g, '')
 const rootAttrs = 'data-composition-id="main" data-start="0" data-duration="' + total
   + '" data-fps="' + fps + '" data-width="720" data-height="1280"'
 const bodyWrap = /<body[^>]*>\s*<([a-zA-Z]+)/i.exec(html)
