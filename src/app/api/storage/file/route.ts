@@ -38,7 +38,14 @@ export async function GET(request: NextRequest) {
   const ownerId = parseInt(userId, 10)
   if (isNaN(ownerId)) return NextResponse.json({ success: false, message: 'userId 无效' }, { status: 400 })
   if (ownerId !== auth.userId && auth.role !== 'admin') return NextResponse.json({ success: false, message: '无权访问该文件' }, { status: 403 })
-  if (!/^[a-zA-Z0-9._\-]+$/.test(name)) return NextResponse.json({ success: false, message: '文件名非法' }, { status: 400 })
+  /* ★VF_THUMB_400_V1（2026-10-18 用户实测 console：`GET /api/storage/file?…&name=.thumbs/gen_…jpg` **400 Bad Request**）：
+     病灶：这条校验正则 `/^[a-zA-Z0-9._\-]+$/` **不允许 `/`**，而**缩略图的 key 就是 `.thumbs/<同名>.jpg`**
+     ⇒ **所有缩略图请求都 400** ⇒ 列表里图/视频封面全挂（用户看到的"只有底色"有一半是这个）。
+     现口径：**只额外允许 `.thumbs/` 这一个子目录前缀**，并显式禁掉 `..`（防目录穿越）；
+     其余字符集不变 ⇒ 安全性不降低。
+     ⚠️ 边界：`storage/<uid>/.thumbs/xxx.jpg` 仍在**同一用户目录**下 ⇒ 归属校验照旧生效。 */
+  const NAME_OK = /^(?:\.thumbs\/)?[a-zA-Z0-9._\-]+$/.test(name) && !name.includes('..')
+  if (!NAME_OK) return NextResponse.json({ success: false, message: '文件名非法' }, { status: 400 })
 
   const key = `storage/${userId}/${name}`
   const ext = name.split('.').pop()?.toLowerCase() || ''
