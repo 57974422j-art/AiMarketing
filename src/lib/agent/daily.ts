@@ -502,12 +502,46 @@ export async function aiDesignPage(
   let diag = ''
   try {
     const budget = Math.max(60000, Number(opts?.timeoutMs) || DESIGN_TIMEOUT_MS)
-    const res = await dashscopeFunctionCall(
-      [{ role: 'user', content: prompt }], [], PLAN_MAX_TOKENS, 0.8, false, undefined, budget, true,
-    )
-    txt = String(res?.content || '')
-    diag = '模型 ' + String((res as any)?.model || '?') + ' · finish ' + String((res as any)?.finishReason || '?')
-      + ' · 输出 ' + txt.length + ' 字 · prompt ' + prompt.length + ' 字'
+    /* ★VF_DAIDESIGN_V3（2026-10-18 用户「换 deepseek 试试」→ 服务器实测账号里只有
+       `deepseek-flash` / `deepseek-v4-pro` 两个（**没有 v4.1 / 1017**）⇒ 用其中最强的 `deepseek-v4-pro`）：
+       为什么要换：AI 自由页要一次写 2 万字 HTML，`qwen3.8-flash` 是**小模型**，空间坐标算不准
+       ⇒ 压字/对比度这类"低级错误"频发（实测 3 轮全挂）。
+       保底：deepseek 失败（无 key / 报错 / 空内容）**自动回落百炼 qwen**，不让整条线挂掉。 */
+    let used = ''
+    try {
+      const dsKey = process.env.DEEPSEEK_API_KEY
+        || (() => { try { const c = fs.readFileSync(path.join(process.cwd(), '.env.local'), 'utf-8'); const m = c.match(/^DEEPSEEK_API_KEY=(.+)$/m); return m ? m[1].trim().replace(/^["']|["']$/g, '') : '' } catch { return '' } })()
+      if (!dsKey) throw new Error('没有 DEEPSEEK_API_KEY')
+      const r = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + dsKey },
+        body: JSON.stringify({
+          model: 'deepseek-v4-pro',
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 16000,          // 约 2 万字中文够用；不设太高以免超模型上限
+          temperature: 0.8,
+          stream: false,
+        }),
+        signal: AbortSignal.timeout(budget),
+      } as any)
+      if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + (await r.text()).slice(0, 160))
+      const j: any = await r.json()
+      const ch = j?.choices?.[0]
+      txt = String(ch?.message?.content || '')
+      used = 'deepseek-v4-pro'
+      diag = '模型 deepseek-v4-pro · finish ' + String(ch?.finish_reason || '?')
+        + ' · 输出 ' + txt.length + ' 字 · prompt ' + prompt.length + ' 字'
+    } catch (eDs: any) {
+      // 回落百炼（原路径，逐字不变）
+      const res = await dashscopeFunctionCall(
+        [{ role: 'user', content: prompt }], [], PLAN_MAX_TOKENS, 0.8, false, undefined, budget, true,
+      )
+      txt = String(res?.content || '')
+      used = 'qwen(回落)'
+      diag = 'deepseek 失败(' + String(eDs?.message || eDs).slice(0, 80) + ') ⇒ 回落百炼 · 模型 '
+        + String((res as any)?.model || '?') + ' · 输出 ' + txt.length + ' 字 · prompt ' + prompt.length + ' 字'
+    }
+    diag = '[' + used + '] ' + diag
   } catch (e: any) {
     return { ok: false, error: String(e?.message || e).slice(0, 200), captions: summary, vlErr, diag }
   }
