@@ -486,7 +486,9 @@ export async function aiPlanSegments(picks: DailyPick[], topic: string, lastThem
      ① **先读图**（`describeImagesWithVL`）再把摘要拼进提示词 —— 否则 AI 会瞎编文案
         （实测：不读图时，它给"徽派古建"素材写出一整套火锅文案）；
      ② **超时给足**（240s）：自由页输出 20~25k 字，实测 **162.5s**；用方案档的 180s 会很险。 */
-const DESIGN_TIMEOUT_MS = 240000
+/* ★VF_DAIDESIGN_V4：240s → 170s（deepseek-v4-pro 单轮实测 152s + 余量）。
+   配合总预算 420s / 2 轮 ⇒ 最坏 460s，不会再撞 nginx 600s。 */
+const DESIGN_TIMEOUT_MS = 170000
 export async function aiDesignPage(
   picks: DailyPick[], topic: string,
   /* ★VF_DAIDESIGN_V2b（2026-10-18 用户实测「网络连接失败」→ 服务器 nginx `proxy_read_timeout 600s`）：
@@ -1377,15 +1379,27 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
      为什么必须加：3 轮跑满 = 3×(162s 生成 + 30s 闸门) ≈ 600s ⇒ 必然撞上 600s 上限 ⇒
      用户看到的是"网络连接失败"（**看起来像崩了，其实是被网关断掉**），而且**白等 10 分钟、什么也没拿到**。
      现口径：剩余时间不足 90s 就不再开新一轮（开了也出不来），把已拿到的报错如实带出去。 */
+  /* ★VF_DAIDESIGN_V4（2026-10-19 用户实测「AI 自由设计 又 网络连接失败」）：
+     病根：**预算只算了"生成"，没算"闸门"** ——
+       · 单轮生成上限 240s，闸门（打包+用字+引擎校验）每轮还要 30~60s
+       · 3 轮最坏 = 3×240 + 3×60 = **900s** ⇒ 远超 nginx `proxy_read_timeout 600s` ⇒ 504 ⇒ 前端只看到"网络连接失败"
+       · 且换成 `deepseek-v4-pro` 后单轮实测 **152s**（比 qwen 慢一倍）⇒ 3 轮必超
+     现口径（**保证 600s 内一定返回**）：
+       · **轮次 3 → 2**（第 1 轮就过的情况占多数；第 2 轮仍挂说明是 AI 真排版问题，第 3 轮也救不回来）
+       · **总预算 500s → 420s**，且每轮判断时**预留 100s 给闸门**
+       · 单轮生成上限 240s → **170s**（152s 实测 + 余量）
+     ⇒ 最坏 2×(170 + 60) = **460s**，稳在 600s 内。 */
   const T0 = Date.now()
-  const BUDGET_MS = 500000
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  const BUDGET_MS = 420000
+  for (let attempt = 1; attempt <= 2; attempt++) {
     const left = BUDGET_MS - (Date.now() - T0)
     if (left < 90000) {
       lastErr = (lastErr ? lastErr + '\n' : '') + '（已到总时长预算 ' + Math.round(BUDGET_MS / 1000) + 's，停止重试）'
       break
     }
-    const design = await aiDesignPage(picks, topic, { failNote, timeoutMs: Math.min(DESIGN_TIMEOUT_MS, left - 20000) })
+    // ★VF_DAIDESIGN_V4：单轮时长要**给闸门留 80s**（打包/用字/引擎校验约 30~60s）——
+    //   原来只留 20s ⇒ 生成吃满后闸门没时间、整轮白跑，最后整体超时被网关掐断。
+    const design = await aiDesignPage(picks, topic, { failNote, timeoutMs: Math.min(DESIGN_TIMEOUT_MS, left - 80000) })
     try {
       ctx.log?.(uid, '[日报落地页] AI 自由设计 第' + attempt + '轮：' + (design.ok ? 'OK' : '失败')
         + ' ｜ ' + String(design.diag || '') + (design.vlErr ? ' ｜ 读图：' + design.vlErr : ''))
