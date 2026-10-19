@@ -559,7 +559,7 @@ export async function aiDesignPage(
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + dsKey },
         body: JSON.stringify({
-          model: 'deepseek-v4-pro',
+          model: 'deepseek-flash',
           messages: [{ role: 'user', content: prompt }],
           /* ★VF_DAIDESIGN_V3c（2026-10-18 用户定案「**max_tokens 取消这个不限制**」）：
              **不再传 `max_tokens`** —— 之前 16000/32000 都是拍脑袋，结果 16000 那版每轮都被截断
@@ -576,8 +576,8 @@ export async function aiDesignPage(
       const j: any = await r.json()
       const ch = j?.choices?.[0]
       txt = String(ch?.message?.content || '')
-      used = 'deepseek-v4-pro'
-      diag = '模型 deepseek-v4-pro · finish ' + String(ch?.finish_reason || '?')
+      used = 'deepseek-flash'
+      diag = '模型 deepseek-flash · finish ' + String(ch?.finish_reason || '?')
         + ' · 输出 ' + txt.length + ' 字 · prompt ' + prompt.length + ' 字'
     } catch (eDs: any) {
       // 回落百炼（原路径，逐字不变）
