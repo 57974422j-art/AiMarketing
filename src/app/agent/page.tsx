@@ -3156,6 +3156,21 @@ function AgentPageInner() {
     try { tid = String(JSON.parse(mDf[1])?.id || '') } catch { tid = '' }
     if (!tid) return
     if (handledDailyFilms.current.has(tid)) return
+    /* ★VF_FILMTASK_STALE_V1（2026-10-19 用户实测「刚选完图片、出文案、一编辑就弹 2 个视频」）：
+       病：这个 effect **每次 messages 变化都会重跑**（选图/出方案/编辑都算），而它找的是
+           「**整个聊天历史里**最后一条 `VF_DAILY_FILM_TASK`」——**不判断新旧**。
+           历史里只要有几笔旧出片任务没被标记处理（`handledDailyFilms` 是 useRef，**刷新即清空**），
+           就会被反复拉起来轮询；任务早已 done ⇒ **立刻各插一张完成卡** ⇒ 用户看到"2 个旧视频"。
+       现口径：**只看 2 小时内启动的任务**（taskId 形如 `df<毫秒时间戳>`，可直接解析）。
+               更早的一律跳过并标记已处理 —— 旧任务不该再打扰当前对话。
+       为什么是 2 小时：出片最长 30 分钟（含重试），2 小时足够覆盖"刚出完还想看"的场景，
+       又不会把前几天的历史任务拉起来。 */
+    const _mTs = /^df(\d{10,})$/.exec(tid)
+    const _ts = _mTs ? Number(_mTs[1]) : 0
+    if (!_ts || Date.now() - _ts > 2 * 3600 * 1000) {
+      handledDailyFilms.current.add(tid)
+      return
+    }
     let stopped = false
     let ticks = 0
     const iv = setInterval(async () => {
