@@ -9,7 +9,9 @@ import path from 'path'
 import { spawnSync, execFile } from 'child_process'
 // ★VF_OSS_MAXKEYS_V1：素材池要**分页全量**（单次最多 1000 ⇒ 素材多的仓库会漏）
 import { listObjects, listAllObjects, getObject, signedUrl } from '@/lib/oss'
-import { describeImageWithVL, describeImagesWithVL } from '@/lib/ai-providers'
+// ★VF_VLM_SINGLE_FIX_V1（2026-10-19）：只保留**多图版** —— 单图版 `describeImageWithVL` 把模型名写死成
+//   `qwen-vl-max`（本账号没有这个模型）⇒ 每次都 404；本文件所有看图（单张素材 / 视频抽帧）统一走多图版。
+import { describeImagesWithVL } from '@/lib/ai-providers'
 // ★VF_POOL_V1（2026-09-30）：成片素材池治理的**纯函数**（判定"本系统出片产物" / 视觉摘要缓存键）。
 //   逻辑在 material-pool.ts（零依赖、可单测），本文件只负责 IO（读任务文件、读写缓存文件）。
 import { selectMaterialPool, cacheGet, cacheSet, cacheGetRaw, cacheSetRaw, vlClipCacheKey } from './vf/material-pool'
@@ -676,11 +678,20 @@ async function vlDescribeMaterial(localPath: string): Promise<string | null> {
   const p = shrinkForVL(localPath)
   try {
     const b64 = 'data:image/jpeg;base64,' + fs.readFileSync(p).toString('base64')
-    const cls = (await describeImageWithVL(b64,
+    /* ★VF_VLM_SINGLE_FIX_V1（2026-10-19 用户实测「图片成片」素材全显示（未识别）⇒「它没去看图」）：
+       **病灶**：这里原来调的是**单图版** `describeImageWithVL`，而它把模型名**写死成 `qwen-vl-max`**
+       （`ai-providers.ts` 里那个函数，源码注释自己写着"别处在用，保持不动"）—— 但 `src/lib/vl-model.ts`
+       的注释记录着：**本账号的可用模型列表里根本没有 `qwen-vl-max`**，能用的只有 `qwen3-vl-plus`
+       ⇒ 单图版每次调用 **404** ⇒ 返回 null ⇒ 落到 `（未识别）`。**两条线的差异就在这里**：
+       HTML成片走的是**多图版** `describeImagesWithVL`（候选链 + `/models` 探测 + 404 自愈），所以它 17/17 成功。
+       **修**：改成多图版并只传一张（`[b64]`）。签名兼容（同样 `(images, prompt, maxTokens) => Promise<string|null>`），
+       本文件第 12 行**早已 import**、第 540 行（抽视频帧）也一直这么用 ⇒ **不是引入新机制，是统一到同一条路**。
+       ⇒ 立刻继承：候选链、`VF_VL_MODEL` 覆写、404 自愈、"读图模型锁定"日志。 */
+    const cls = (await describeImagesWithVL([b64],
       '这张图属于哪一类？只回一个词：软件界面（软件/网页/手机界面截图、工具或后台界面）／海报（成品宣传图、带大字的图）／实拍（照片、人物、场景、产品实拍）／图表（数据图表、表格、看板）。',
       24)) || ''
     const hit = VL_PROMPT_BY_CLASS.find((c) => cls.indexOf(c.kw) >= 0)
-    const desc = await describeImageWithVL(b64, hit ? hit.prompt : VL_PROMPT_GENERIC, 400)
+    const desc = await describeImagesWithVL([b64], hit ? hit.prompt : VL_PROMPT_GENERIC, 400)
     // ★VF_I2VSUIT_V1（2026-09-30 用户定案「i2v 只对有主体可动的素材开」）：
     //   把第一段的**分类结果**（软件界面 / 海报 / 实拍 / 图表）作为前缀钉进摘要 ——
     //   ① 让 i2v 分类器（i2v-suit.ts）有一个**可靠**判据（靠自然语言关键词猜分类不够稳：
@@ -737,8 +748,14 @@ export async function summarizeMaterials(
       // ② 未命中 → ★VF_VLM_2STAGE_V1：缩图 → ①分类 → ②按类别细看（提示词见上方 VL_PROMPT_* 常量）
       const desc = await vlDescribeMaterial(m.localPath)
       if (cacheSet(vlCache, m.key || m.name, m.size, desc)) vlDirty = true
+      // ★VF_VLM_SINGLE_FIX_V1：**失败必须留痕**。
+      //   原来这里两个出口都是**静默**的（`（未识别）` 直接进摘要、`catch` 连 `e` 都不用、且从不写 vf_debug.log）
+      //   ⇒ 用户看到"每张都是（未识别）"，日志里却一片空白 ⇒ 只能猜"它是不是没看图"（正是 2026-10-19 的现场）。
+      //   ⚠️ 这里**不把失败写进缓存**（`cacheSet` 对空值拒写）⇒ 下次仍会重试，不会把"没识别出来"永久固化。
+      if (!desc) vfLog(userId, `[成片素材] 读图失败 图${i}（${m.name}）：模型未返回内容（若为模型名问题，看是否 [百炼VL] 报 model_not_found）`)
       lines.push(`图${i}（${m.name}）：${desc || '（未识别）'}`)
     } catch (e: any) {
+      vfLog(userId, `[成片素材] 读图异常 图${i}（${m.name}）：` + String(e?.message || e).slice(0, 160))
       lines.push(`图${i}（${m.name}）：（读图失败）`)
     }
   }
