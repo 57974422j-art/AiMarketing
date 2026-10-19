@@ -2675,9 +2675,19 @@ export async function describeImagesWithVL(images: string[], prompt?: string, ma
   let lastErr: any = null
   for (const model of cands) {
     try {
+      /* ★VF_VLM_TIMEOUT_V1（2026-10-19 用户线上实测「发完 VF_FORM，10 分钟后回『网络连接失败』」）：
+         **病灶**：这里传的超时是 **`0`**，而 `fetchJSON` 的实现是
+         `timeoutMs ? { …signal: AbortSignal.timeout(timeoutMs) } : restOpts` —— **0 是 falsy ⇒ 根本不设超时**
+         ⇒ 模型不回包时请求**永远挂着** ⇒ 前端等到自己的超时才报"网络连接失败"（10 分钟），
+         而服务端其实一直在等（不会自己结束，也不留失败日志）。
+         **修**：给读图加上 **120 秒**超时 —— 正常一次读图几秒内就回，**正常场景完全不受影响**；
+         真卡住时 120 秒就失败并进 `catch`（`isVlModelMissing` 换候选 / 否则如实报），
+         而不是无声地挂 10 分钟。
+         ⚠️ 注意 `retries` 仍是 **0**（不重试）：模型"不回包"重试只会把等待翻倍。 */
       const data = await fetchJSON(`${DASHSCOPE_CHAT_BASE}/chat/completions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+        timeoutMs: 120000,
         body: JSON.stringify({
           model,
           messages: [{
