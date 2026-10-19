@@ -4690,6 +4690,20 @@ function AgentPageInner() {
 
   const renderContent = (content: string) => {
     if (!content) return null
+    /* ★VF_RENDER_DIAG_V1（2026-10-19 用户实测「部署到 f97c2343 后仍显示裸 JSON」）：
+       本地已验证 `pickProtoJson` 对那段真实结构（AI 文字 + VF_JSON + VF_DAILY_FILM_DONE + 模型尾巴）
+       两个协议都能解析成功 ⇒ 所以只能是「这段分支没被执行」。
+       这里加一行 Console 日志：只要消息里出现 `VF_`，就打「命中哪几个协议 + 前 30 字」
+       ⇒ 一眼看出是 content 里没这些字符串，还是被前面的分支抢走了。 */
+    if (typeof window !== 'undefined' && /VF_/.test(String(content))) {
+      try {
+        console.log('[渲染诊断] head=' + String(content).slice(0, 30).replace(/\n/g, '⏎')
+          + ' ｜ json=' + String(content).includes('VF_JSON:')
+          + ' ｜ done=' + String(content).includes('VF_DAILY_FILM_DONE:')
+          + ' ｜ task=' + String(content).includes('VF_DAILY_FILM_TASK:')
+          + ' ｜ 长度=' + String(content).length)
+      } catch { /* ignore */ }
+    }
     // ★VF_DAILYFILM_V2（2026-10-14 用户定案「先做1」）：**日报出片**的两个标记 ——
     //   ① 回执：内容是「人话 + `VF_DAILY_FILM_TASK:{...}`」，**标记只给上面那个轮询 effect 用**，不显示给用户；
     //   ② 完成：`VF_DAILY_FILM_DONE:{...}` ⇒ 直接出成片卡（video + 入库名）。
