@@ -5215,14 +5215,29 @@ PUBLISH_DRAFT.delete(uidW)
 
                 vfLog(uidVF2, `[素材配比] 时长${vfDur}s → 取图上限 ${vfMatN} 张（仓库实际 ${vfMats.filter((m: any) => m.kind === 'image').length} 张，可用 ${vfLocal.length} 张）`)
                 const vfNeed = Math.round(vfDur * 4.5)
-                const vfCtx = `【用户画像】${vfProfile || '（未知）'}\n【今日热点（可参考，不结合也行）】${vfHot || '（无）'}\n【他的素材】${vfBrief ? '\n' + vfBrief : '（仓库里没有可用图片）'}`
+                /* ★VF_VFPROFILE_V1（2026-10-19 用户定案「把画像关了先」）：
+                   **病灶（有实证，不是推断）**：原顺序是 `【用户画像】→【今日热点】→【他的素材】` ——
+                     · 画像**排最前、且没有任何"仅供参考"的限定**（对比：热点那段写着"可参考，不结合也行"）；
+                     · 素材只是**描述块**，提示词里**没有一句"必须围绕素材写"**；
+                     · 主题兜底还写着"贴合素材**与画像**"（把画像并列成"围绕的对象"）。
+                   ⇒ 用户实测：素材是**火锅**（看图已成功，摘要里是肥牛片/冰镇虾/铜扣蒸笼），
+                     但文案写成"**AI管理员下班后的快乐**"—— 因为他的画像（`User.industry`）是
+                     「AI / 大模型 / 智能体」⇒ **画像赢了**。
+                   **修**：① **画像默认不注入**（`vd.useProfile` 为真才给，字段留给设置卡开关；
+                     开关 UI 等日报线那边改完再加，见 ISSUES）；② **素材提到最前**（顺序即权重）；
+                     ③ 画像若真给了，明确标注"**仅语气参考，不要围绕它写内容**"。
+                   ⚠️ 只影响「图片成片」这一条线 —— 其余 6 条制片线的文案提示词**本来就没注入画像**（已逐条核对）。 */
+                const vfCtx = (vd.useProfile
+                  ? `【用户画像（**仅作语气/口吻参考，不要围绕它写内容**）】${vfProfile || '（未知）'}\n` : '')
+                  + `【他的素材】${vfBrief ? '\n' + vfBrief : '（仓库里没有可用图片）'}`
+                  + `\n【今日热点（可参考，不结合也行）】${vfHot || '（无）'}`
                 // ① 文案：用户在表单里直接贴了文案就用他的（★VF_FORM_V1），否则 AI 写
                 let vfScript2 = String(vd.formScript || '').slice(0, 4000)
                 if (vfScript2) {
                   vfLog(uidVF2, `[文案] 用用户贴的文案 ${vfScript2.length} 字（目标 ${vfNeed}）`)
                 } else {
                   try {
-                    const vfS1 = await generateText(`你是短视频口播文案写手。写一条约 ${vfDur} 秒的中文口播文案。\n${vfCtx}\n【主题】${vd.topic || '（自行决定，贴合素材与画像）'}\n要求：①【必须 ${vfNeed} 字左右，不得少于 ${Math.round(vfDur * 3)} 字】②开头 3 秒抓人 ③句子用「。」「！」断句 ④保留数字与专业术语 ⑤只输出文案本身，不要标题、不要解释、不要 markdown、不要引号。`, writerModel) || ''
+                    const vfS1 = await generateText(`你是短视频口播文案写手。写一条约 ${vfDur} 秒的中文口播文案。\n${vfCtx}\n【主题】${vd.topic || '（未指定 ⇒ **由素材决定**）'}\n⚠️【硬要求】文案**必须围绕【他的素材】里写到的具体主体 / 场景 / 动作 / 细节**来写：素材里出现的东西（菜名、食材、器具、动作）要出现在文案里；**不得脱离素材另写一个不相干的话题**。\n要求：①【必须 ${vfNeed} 字左右，不得少于 ${Math.round(vfDur * 3)} 字】②开头 3 秒抓人 ③句子用「。」「！」断句 ④保留数字与专业术语 ⑤只输出文案本身，不要标题、不要解释、不要 markdown、不要引号。`, writerModel) || ''
                     vfScript2 = String(vfS1).replace(/[*#`]/g, '').replace(/^[\s"'“”「」『』]+|[\s"'“”「」『』]+$/g, '').trim().slice(0, 4000)
                     vfLog(uidVF2, `[文案] AI 写 ${vfScript2.length} 字（目标 ${vfNeed}）`)
                   } catch (e: any) { vfLog(uidVF2, '[文案失败] ' + String(e?.message || e).slice(0, 120)) }
