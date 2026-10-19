@@ -4779,15 +4779,18 @@ function AgentPageInner() {
       )
     }
     // ★VF_FORM_V1（2026-09-20）：成片设置表单（一次选完一次提交）
-    if (content.startsWith('VF_JSON:')) {
+    /* ★VF_PROTO_WRAPPED_V1（2026-10-19 用户实测「吐字不是卡片」）：原来只认「以 VF_JSON: 开头」，
+       一旦服务端在协议串前面拼了提示文字（如"⚠️ AI 版 3 轮没过闸门…"）整条就降级成纯文本。
+       现口径：**包含即解析**（从 VF_JSON: 的位置开始），前后有什么文字都不影响出卡。 */
+    if (content.includes('VF_JSON:')) {
       try {
         /* ★VF_PROTO_JSONTAIL_V1（2026-10-19 用户实测「改 15 标题… 返回的不是卡片」）：
          后端曾给**所有**回复尾部追加「（模型：xxx）」，连 `VF_JSON:{…}` 也追加
-         ⇒ 这里 `content.slice(8)` 拿到 `{"…"}\n\n（模型：…）` ⇒ `JSON.parse` 抛错 ⇒ **卡片降级成裸文本**。
+         ⇒ 这里 `content.slice(content.indexOf('VF_JSON:') + 8)` 拿到 `{"…"}\n\n（模型：…）` ⇒ `JSON.parse` 抛错 ⇒ **卡片降级成裸文本**。
          后端已在出口修掉（协议串不加尾巴），这里再做一道**前端容错**：
          **只取到最后一个 `}`** ⇒ 将来任何尾巴（模型名 / 日志 / 空行）都不会再毁掉卡片。
          ⚠️ 纯解析容错，不改协议、不改渲染。 */
-      const _rawJ = content.slice(8)
+      const _rawJ = content.slice(content.indexOf('VF_JSON:') + 8)
       const _lastBrace = _rawJ.lastIndexOf('}')
       const _vj = JSON.parse(_lastBrace >= 0 ? _rawJ.slice(0, _lastBrace + 1) : _rawJ)
         // ★VF_LINES_V1（2026-09-21）：AI 制片走**专属卡**（卡1 主题+上传 / 卡2 横竖屏+时长+风格）
@@ -4979,10 +4982,11 @@ function AgentPageInner() {
       } catch {}
     }
     // ★VF_FLOW_V1（2026-09-18）：成片状态机结构化消息（VF_JSON —— 文案确认卡）
-    if (content.startsWith('VF_JSON:')) {
+    // ★VF_PROTO_WRAPPED_V1：同上，包含即解析（防协议串前面被拼提示文字）
+    if (content.includes('VF_JSON:')) {
       try {
         // ★VF_PROTO_JSONTAIL_V1：同上，只取到最后一个 `}`（防尾巴毁掉卡片）
-        const _rawV = content.slice(8)
+        const _rawV = content.slice(content.indexOf('VF_JSON:') + 8)
         const _vb = _rawV.lastIndexOf('}')
         const vj = JSON.parse(_vb >= 0 ? _rawV.slice(0, _vb + 1) : _rawV)
         if (vj.step === 'source') {
@@ -5233,7 +5237,7 @@ function AgentPageInner() {
     if (content.startsWith('WF_JSON:')) {
       try {
         // ★VF_PROTO_JSONTAIL_V1：同上，只取到最后一个 `}`（防尾巴毁掉卡片）
-        const _rawW = content.slice(8)
+        const _rawW = content.slice(content.indexOf('VF_JSON:') + 8)
         const _wb = _rawW.lastIndexOf('}')
         const wj = JSON.parse(_wb >= 0 ? _rawW.slice(0, _wb + 1) : _rawW)
         // 2026-09-03 时机A：full 方案卡出现 → 镜像封面+视频到本地仓库（单向 OSS→本地——发布时 bu_exec 直接用）

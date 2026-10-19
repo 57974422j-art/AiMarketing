@@ -1422,9 +1422,25 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
   }
   // 3 轮都不过 ⇒ 回落模板档（d.plan 仍是方案卡那份，没被覆盖）
   try { ctx.log?.(uid, '[日报落地页] AI 自由设计：3 轮均未过闸门 ⇒ 回落模板档。最后一次报错：' + lastErr) } catch { /* ignore */ }
-  return '⚠️ AI 版连续 3 轮没过闸门，**已自动改用模板版**（下面附 AI 的报错原文，便于判断是排版问题还是素材问题）：\n'
-    + '```\n' + (lastErr || '（无报错信息）') + '\n```\n\n'
-    + await finishDaily(ctx, d, picks)
+  /* ★VF_DAILYEDIT_V3（2026-10-19 用户实测「**吐字不是卡片**」）：原来这里把**提示文字拼在 `VF_JSON` 前面**：
+       `'⚠️ AI 版连续 3 轮没过闸门…' + 报错 + await finishDaily(...)` ⇒ 整条回复**以 ⚠️ 开头** ⇒
+       前端 `content.startsWith('VF_JSON:')` 判否 ⇒ **降级成纯文本**（用户看到"文字 + 一坨裸 JSON"）。
+       现口径：**先拿到卡片串，再把提示塞进卡片的 `hint` / `aiFailNote` 字段** ⇒ 整条回复仍是**纯 `VF_JSON`**，
+       卡片正常渲染，提示也不丢（显示在卡片顶部）。
+       ⚠️ 不调 `finishDaily` 的签名（避免牵连模板档），只在它返回的 JSON 里注入字段。 */
+  const cardStr = String(await finishDaily(ctx, d, picks) || '')
+  const PREFIX = 'VF_JSON:'
+  if (cardStr.startsWith(PREFIX)) {
+    try {
+      const j = JSON.parse(cardStr.slice(PREFIX.length))
+      const why = '⚠️ AI 版 3 轮没过闸门，已自动改用模板版'
+      j.hint = why + ' · ' + String(j.hint || '')
+      if (lastErr) j.aiFailNote = String(lastErr).slice(0, 600)
+      return PREFIX + JSON.stringify(j)
+    } catch { return cardStr }
+  }
+  // 兜底（极端情况拿到的不是卡片）：至少把提示带上
+  return '⚠️ AI 版 3 轮没过闸门，已自动改用模板版：\n' + (lastErr || '（无报错信息）') + '\n\n' + cardStr
 }
 
 async function runDesign(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Promise<string> {
