@@ -2057,7 +2057,14 @@ function VfDailyPlanCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
         )}
       </div>
       <div className="flex flex-wrap gap-2">
-        <button onClick={() => send('go', { segs: segs.map((s: any) => ({ i: s.i, title: s.title, points: s.points, imgs: s.imgs })) })}
+        {/* ★VF_PLAN_FROM_CARD_V2（2026-10-19 用户实测「删了一段、交付还是 15 段」）：
+            V1 只带了 title/points/imgs ⇒ 后端只覆盖文案、**段数仍按草稿** ⇒ 删段没用。
+            现在带**完整段结构**（kind/layout/type/scale + 文案 + 用图）⇒ 后端据此**重建整份 segments**
+            ⇒ 删段、改版式、改字号、改用图，全部"看到什么就生成什么"。 */}
+        <button onClick={() => send('go', { segs: segs.map((s: any) => ({
+          i: s.i, kind: s.kind, layout: s.layout, type: s.type, scale: s.scale,
+          title: s.title, points: s.points, imgs: s.imgs,
+        })) })}
           className="flex-1 px-4 py-2 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100 text-sm font-medium">
           ✅ 生成 HTML
         </button>

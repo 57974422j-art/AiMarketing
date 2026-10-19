@@ -1913,20 +1913,31 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
          ⚠️ 覆盖后立刻存库，并把"用的是哪版"打进日志 —— 以后再出问题，日志能直接对上。 */
       const cardSegs = Array.isArray((f as any)?.segs) ? (f as any).segs : []
       if (cardSegs.length && Array.isArray((d.plan as any)?.segments)) {
-        const segs = (d.plan as any).segments
-        const n = Math.min(cardSegs.length, segs.length)
-        let applied = 0
-        for (let i = 0; i < n; i++) {
-          const s = cardSegs[i] || {}
-          const t = segs[i] || {}
-          if (Array.isArray(s.title)) { t.title = s.title.map((x: any) => String(x || '')); applied++ }
-          if (Array.isArray(s.points)) t.points = s.points.map((p: any) => (Array.isArray(p) ? p.map(String) : p))
-          if (Array.isArray(s.imgs)) t.imgs = s.imgs.map((x: any) => Number(x)).filter((x: number) => x > 0)
-        }
+        /* ★VF_PLAN_FROM_CARD_V2（2026-10-19 用户实测「删了第 4、10 段，方案卡 13 段，交付还是 15 段」）：
+           V1 只覆盖 title/points/imgs，**段数仍按草稿** ⇒ 删段无效。
+           现口径：**用卡片上的段完全重建 `segments`**（段数、顺序、版式、字号、用图全听卡片的）
+           ⇒ 删段/改版式/改字号/改用图，全部"看到什么就生成什么"。
+           ⚠️ 只保留生成 HTML 真正需要的字段；`src`（图名展示）由 `publishPickedImages` 重新给，
+              不依赖卡片（卡片里的 src 是旧的、且可能指向已删除的图）。 */
+        const rebuilt = cardSegs.map((s: any, idx: number) => {
+          const t = Array.isArray(s.title) ? s.title.map((x: any) => String(x || '')).filter(Boolean) : []
+          const pts = Array.isArray(s.points) ? s.points : []
+          const im = Array.isArray(s.imgs) ? s.imgs.map((x: any) => Number(x)).filter((x: number) => x > 0) : []
+          return {
+            layout: String(s.layout || 'hero'),
+            kind: String(s.kind || (idx === 0 ? 'cover' : idx === cardSegs.length - 1 ? 'end' : 'feature')),
+            type: String(s.type || 'band'),
+            scale: Number(s.scale) || 1,
+            title: t.length ? t.slice(0, 2) : ['', ''],
+            points: pts,
+            imgs: im.length ? im : [1],
+          }
+        })
+        ;(d.plan as any).segments = rebuilt
         await saveDailyDraft(ctx.prisma, uid, d)
         try {
-          ctx.log?.(uid, '[日报落地页] 生成用**卡片上的方案**（覆盖 ' + applied + ' 段标题）· seg1='
-            + JSON.stringify((segs[0] || {}).title) + ' · segN=' + JSON.stringify((segs[segs.length - 1] || {}).title))
+          ctx.log?.(uid, '[日报落地页] 生成用**卡片上的方案重建**：' + rebuilt.length + ' 段 · seg1='
+            + JSON.stringify(rebuilt[0]?.title) + ' · segN=' + JSON.stringify(rebuilt[rebuilt.length - 1]?.title))
         } catch { /* ignore */ }
       }
       return await finishDaily(ctx, d, toPicks(uid, d.source || { kind: 'repo' }, d.names || []))
