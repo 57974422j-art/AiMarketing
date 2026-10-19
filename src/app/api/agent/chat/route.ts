@@ -4425,6 +4425,17 @@ PUBLISH_DRAFT.delete(uidW)
               try { vfLog(uidVF2, '[日报落地页-DIAG] 编辑命令未被接管 → 已拦截（不落 AI，防它自己编卡）') } catch { /* ignore */ }
             }
             try { vfLog(uidVF2, `[日报落地页-DIAG] hit=true entry=${!!stdCmdHit && stdCmdHit.id === 'daily'} r=${_rDL ? 'ok' : 'null'}`) } catch { /* ignore */ }
+            /* ★VF_DAILYEDIT_DIAG_V1（2026-10-19 用户实测「7 条编辑命令 → AI 说"已改好 7 处"，但库里没改」）：
+               本地已证明 `applyEditBatch` 7/7 全部识别（matched=true/ok=true），所以问题**不在解析**，
+               而在"本条消息最终**返回给前端的到底是什么**"。原来日志只打 hit/entry/r，看不出是：
+                 · 返回了 **卡片串**（`VF_JSON:{…}`）⇒ 那就是前端渲染问题；
+                 · 返回了 **提示文字**（"等你拍板" / "这条像是在改…"）⇒ 那是命令没被识别；
+                 · 返回 **空**（`_rDL=null`）⇒ 那就是**漏给了主 AI**（用户看到 AI"已改好"就是这种）。
+               现口径：把 `_rDL` 与 `wfEarlyReply` 的**前 60 字**都打出来（换行显示成 ⏎）⇒ 一眼可辨。只加日志。 */
+            try {
+              vfLog(uidVF2, '[日报落地页-DIAG] reply=' + String(_rDL || '').slice(0, 60).replace(/\n/g, '⏎')
+                + ' ｜ early=' + String(wfEarlyReply || '').slice(0, 40).replace(/\n/g, '⏎'))
+            } catch { /* ignore */ }
           }
         } catch (eDL: any) {
           try { vfLog(uidVF2, '[日报落地页] 分派异常：' + String(eDL?.message || eDL)) } catch { /* ignore */ }
