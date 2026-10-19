@@ -1892,6 +1892,14 @@ export async function callChatModel(modelId: string, prompt: string, maxTokens =
   const via = async (m: string): Promise<string | null> => {
     if (m.startsWith('qwen')) return await dashscopeChat(prompt, maxTokens, m)
     if (m.startsWith('deepseek')) {
+      /* ★VF_DS_DIRECT_V1（2026-10-19 服务器实测后定案）：
+         **病灶**：原来 `deepseek*` 是"**先撞百炼**、失败再走官方" —— 而**百炼的模型目录里没有 deepseek 系**
+         （`vl-model.ts` 有实证：本账号没有 `deepseek-v4-flash`）⇒ 每次调用都要**先白等一轮百炼的 404**，
+         再走官方。起草链路上有十几次文本调用（分镜×2 + banner + 扩写/压缩…）⇒ **累积成"10 分钟"**。
+         **实测（服务器，官方 API）**：`deepseek-flash` → 200 · **1.8s** · content 正常；
+            `deepseek-v4-pro` → 200 · 5.0s · **content 为空**（思考更长，300 token 额度被 reasoning 吃光）。
+         **修**：**配了官方 key 就直接走官方**，不再白撞百炼；**没配官方 key 时才退回老路径**（零回归）。 */
+      if (process.env.DEEPSEEK_API_KEY) return await deepSeekChat(prompt, maxTokens, m)
       const viaDash = getDashScopeKey() ? await dashscopeChat(prompt, maxTokens, m) : null
       if (viaDash) return viaDash
       return await deepSeekChat(prompt, maxTokens, m)

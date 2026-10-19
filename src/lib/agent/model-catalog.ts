@@ -69,8 +69,19 @@ export const BRAIN_MODELS: ModelInfo[] = [
 
 /** writer 槽位候选（分镜 / 文案书写） */
 export const WRITER_MODELS: ModelInfo[] = [
+  /* ★VF_DS_DIRECT_V1（2026-10-19 服务器实测后定案）：**DeepSeek 官方名 `deepseek-flash` 放第一位**。
+     实测（官方 API · 服务器）：`deepseek-flash` → 200 · **1.8s** · content 正常（"一锅滚烫，治愈所有不快乐。"）；
+     `deepseek-v4-pro` → 200 · 5.0s · **content 为空**（思考更长，额度被 reasoning 吃光 ⇒ **不能用来写文案**）。
+     为什么用这个名字：官方公告原话「**模型名请使用 `deepseek-flash`**，该模型已升级为 V4.1-Flash-1017，
+     调用方式保持不变」⇒ **不带版本号、模型自己升级，以后不用改代码**。
+     ⚠️ 旧的 `deepseek-v4-flash` 在**百炼**目录里不存在（每次 404、白等一轮），这正是"起草 10 分钟"的一个来源。 */
   {
-    id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash', vendor: 'DeepSeek / 百炼',
+    id: 'deepseek-flash', name: 'DeepSeek Flash（官方·自动跟版本）', vendor: 'DeepSeek 官方',
+    multimodal: false, fc: false, keyEnv: ['DEEPSEEK_API_KEY'],
+    fit: '默认首选：官方名不带版本号，实测 1.8s、正文正常',
+  },
+  {
+    id: 'deepseek-v4-flash', name: 'DeepSeek V4 Flash（旧名）', vendor: 'DeepSeek / 百炼',
     multimodal: false, fc: false, keyEnv: ['DASHSCOPE_API_KEY', 'DEEPSEEK_API_KEY'],
     fit: '默认，现状分镜 / 文案书写就用它',
   },
@@ -114,8 +125,10 @@ export interface ModelPreset {
 export const MODEL_PRESETS: Record<ModelPresetId, ModelPreset> = {
   fast: {
     id: 'fast', name: '默认·快',
-    desc: '现状：大脑 qwen3.8-flash ｜ 书写 deepseek-v4-flash',
-    brain: 'qwen3.8-flash', writer: 'deepseek-v4-flash',
+    // ★VF_DS_DIRECT_V1：书写默认改成 **`deepseek-flash`**（官方名，实测 1.8s 且正文正常）；
+    //   旧名 `deepseek-v4-flash` 在百炼目录里不存在 ⇒ 每次先撞 404 白等一轮（"起草 10 分钟"的来源之一）。
+    desc: '现状：大脑 qwen3.8-flash ｜ 书写 deepseek-flash（官方·自动跟版本）',
+    brain: 'qwen3.8-flash', writer: 'deepseek-flash',
   },
   'strong-deepseek': {
     id: 'strong-deepseek', name: 'DeepSeek 强',
