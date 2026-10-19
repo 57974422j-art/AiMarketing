@@ -140,6 +140,21 @@ export async function saveDailyDraft(db: any, uid: number | string, d: DailyDraf
     if (ex) await db.agentMemory.update({ where: { id: ex.id }, data: { content } })
     else await db.agentMemory.create({ data: { userId: String(uid), content, tags: DAILY_TAG, salience: 0.5 } })
     console.log('[日报草稿] 已保存 step=' + String((d as any)?.step) + ' 段数=' + segs.length + ' 长度=' + content.length + ' ' + key)
+    /* ★VF_DRAFT_VERIFY_V1（2026-10-19 用户实测：方案卡显示 6 处已改、DB 里却是旧文案 ⇒ 生成用了旧版）：
+       **保存完立刻读回来比对** —— 这是唯一能当场判定"到底存进去没有"的办法。
+       不一致就打 `**读回不一致**`，把"存的"和"读的"两行都打出来 ⇒ 一眼看出是写失败、还是读错条。 */
+    try {
+      const back = await loadDailyDraft(db, uid)
+      const bs = Array.isArray((back as any)?.plan?.segments) ? (back as any).plan.segments : []
+      const a0 = JSON.stringify(segs[0]?.title || null)
+      const b0 = JSON.stringify(bs[0]?.title || null)
+      const aN = JSON.stringify(segs[segs.length - 1]?.title || null)
+      const bN = JSON.stringify(bs[bs.length - 1]?.title || null)
+      if (a0 !== b0 || aN !== bN || bs.length !== segs.length) {
+        console.error('[日报草稿] **读回不一致**！存: 段数=' + segs.length + ' seg1=' + a0 + ' segN=' + aN
+          + ' ｜ 读: 段数=' + bs.length + ' seg1=' + b0 + ' segN=' + bN)
+      }
+    } catch { /* 自校验失败不影响主流程 */ }
   } catch (e: any) {
     // ⚠️ 原来这里吞错 ⇒ 用户改了字、库里没变、日志一片安静。现在必须喊出来。
     console.error('[日报草稿] **保存失败**：' + String(e?.message || e).slice(0, 300)
