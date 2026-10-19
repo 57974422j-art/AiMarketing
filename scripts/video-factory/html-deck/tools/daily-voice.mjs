@@ -109,15 +109,29 @@ fs.mkdirSync(build, { recursive: true })
 fs.mkdirSync(renderDir, { recursive: true })
 
 /** 逐段 TTS（纯 Node 后端 tts-node.mjs；失败换 python 兜底，全失败则该段静音）—— 返回实测秒数 */
+/* ★VF_TTS_RETRY_V1（2026-10-19 **实测实锤**：用户那条 60.7s 的片子里
+   28.13~31.03s / 38.71~41.63s 各有 **约 2.9 秒静音**（正好 = MIN_DUR 2.2 + gap）
+   ⇒ 段 8、段 11 的 TTS **单次失败就被静音兜底**，而这里原来 **只试 1 次、不重试**。
+   现口径：**每段最多试 3 次**（间隔 400ms）——TTS 失败绝大多数是偶发（网络/限流），再试一次基本就过。
+   仍失败则返回 0（该段静音），由下面的 `ttsFail` 汇总**明确报出来**（不再只是悄悄降级）。 */
 const ttsOne = (i, text, out) => {
-  const tries = [['node', () => run(process.execPath, [TTS_NODE, '--text', text, '--out', out].concat(VOICE ? ['--voice', VOICE] : []), { cwd: HERE })]]
-  for (const [tag, go] of tries) {
-    const r = go()
+  const tag = 'node'
+  let lastErr = ''
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    rmQuiet(out)
+    const r = run(process.execPath, [TTS_NODE, '--text', text, '--out', out].concat(VOICE ? ['--voice', VOICE] : []), { cwd: HERE })
     if (okFile(out, 512)) {
       if (i === 0) console.log('  TTS 后端 = ' + tag + '（tts-node.mjs · 纯 Node）' + (VOICE ? ' 音色=' + VOICE : ''))
+      if (attempt > 1) console.log('  ✓ 第 ' + (i + 1) + ' 段第 ' + attempt + ' 次重试成功')
       return ffDur(out)
     }
-    console.log('  ⚠ 第 ' + (i + 1) + ' 段 ' + tag + ' 后端失败：' + String(r && (r.stderr || r.stdout) || '').replace(/\s+/g, ' ').slice(-140))
+    lastErr = String(r && (r.stderr || r.stdout) || '').replace(/\s+/g, ' ').slice(-140)
+    if (attempt < 3) {
+      console.log('  ⚠ 第 ' + (i + 1) + ' 段 ' + tag + ' 第 ' + attempt + ' 次失败（' + (400 * attempt) + 'ms 后重试）：' + lastErr)
+      try { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 400 * attempt) } catch { /* ignore */ }
+    } else {
+      console.log('  ✗ 第 ' + (i + 1) + ' 段 ' + tag + ' **3 次都失败**（该段将静音）：' + lastErr)
+    }
   }
   return 0
 }
@@ -139,7 +153,16 @@ for (let i = 0; i < secs.length; i++) {
 }
 const withVoice = timed.filter((t) => t.audio).length
 if (!withVoice) fail('stage=tts ✗ ' + secs.length + ' 段配音**全部失败**（没有一条音频）—— 见上面的后端报错；拒绝产出无声假片')
-if (ttsFail) console.log('  ⚠ ' + ttsFail + ' 段配音失败（已按静音处理，那几段只有画面）')
+/* ★VF_TTS_RETRY_V1（2026-10-19 用户实测「有 2 段 TTS 和文案被删除」→ **音轨实测 28.1~31.0s / 38.7~41.6s 各 2.9 秒静音**）：
+   原来这里**只打一行日志就继续出片** ⇒ 用户拿到一条"两段哑掉"的片子，事后才发现。
+   现口径：**有任何一段配音失败 ⇒ 直接拦下、不出片**，并把失败段号列清楚。
+   为什么必须拦：无声段对用户是**废片**（60 秒里哑 6 秒），重出一遍的成本远低于事后返工。
+   （配合每段 3 次重试 —— 偶发失败基本会被救回来，只有真的持续失败才走到这里。） */
+if (ttsFail) {
+  const bad = timed.filter((t) => !t.audio).map((t) => t.i + 1).join('、')
+  fail('stage=tts ✗ ' + ttsFail + '/' + secs.length + ' 段配音失败（第 ' + bad + ' 段）—— 已自动重试 3 次仍失败，'
+    + '拒绝产出"部分无声"的片子。请重试一次；若持续失败，看上面的后端报错。')
+}
 console.log('   有配音 ' + withVoice + '/' + secs.length + ' 段 · ffmpeg 环境：' + capsLine())
 
 // ── ② 回填时间轴（两处一起改）────────────────────────────────────────────────

@@ -131,7 +131,12 @@ export async function saveDailyDraft(db: any, uid: number | string, d: DailyDraf
   const segs = Array.isArray((d as any)?.plan?.segments) ? (d as any).plan.segments : []
   const key = 'seg1=' + JSON.stringify(segs[0]?.title) + ' segN=' + JSON.stringify(segs[segs.length - 1]?.title)
   try {
-    const ex = await db.agentMemory.findFirst({ where: { userId: String(uid), tags: { equals: DAILY_TAG } }, orderBy: { updatedAt: 'desc' } })
+    /* ★VF_DRAFT_ORDER_V1（2026-10-19 排查「编辑改了、生成还是旧文案」）：
+       原来按 `updatedAt desc` 取，**同一毫秒内两条记录的顺序不稳定**（SQLite 时间精度 + 并发保存可能产生多条）
+       ⇒ 可能出现"`save` 更新了 A 条、`load` 读到 B 条"⇒ **生成用旧文案**（DB 实测就是这个现象）。
+       现口径：**按自增 `id` 倒序**（id 是单调递增的，永远能准确指向"最后一次写入的那条"）。
+       读写**同一口径**，不会再错位。 */
+    const ex = await db.agentMemory.findFirst({ where: { userId: String(uid), tags: { equals: DAILY_TAG } }, orderBy: { id: 'desc' } })
     if (ex) await db.agentMemory.update({ where: { id: ex.id }, data: { content } })
     else await db.agentMemory.create({ data: { userId: String(uid), content, tags: DAILY_TAG, salience: 0.5 } })
     console.log('[日报草稿] 已保存 step=' + String((d as any)?.step) + ' 段数=' + segs.length + ' 长度=' + content.length + ' ' + key)
@@ -144,7 +149,8 @@ export async function saveDailyDraft(db: any, uid: number | string, d: DailyDraf
 
 export async function loadDailyDraft(db: any, uid: number | string): Promise<DailyDraft | null> {
   try {
-    const dm = await db.agentMemory.findFirst({ where: { userId: String(uid), tags: { equals: DAILY_TAG } }, orderBy: { updatedAt: 'desc' } })
+    // ★VF_DRAFT_ORDER_V1：与 save 同一口径（id 倒序）—— 见 saveDailyDraft 注释
+    const dm = await db.agentMemory.findFirst({ where: { userId: String(uid), tags: { equals: DAILY_TAG } }, orderBy: { id: 'desc' } })
     if (!dm) { console.log('[日报草稿] 读取：**没有草稿**'); return null }
     const s = String(dm.content || '')
     const i = s.indexOf('{')
