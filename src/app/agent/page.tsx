@@ -3177,8 +3177,15 @@ function AgentPageInner() {
           handledDailyFilms.current.add(tid)
           if (!stopped) {
             setMessages(prev => {
+              /* ★VF_FILMDONE_DEDUP_V1（2026-10-19 用户实测「我编辑文字，你回 2 个视频给我」）：
+                 原来只按 `taskId` 去重 ⇒ 若**同一个视频文件**被两个任务各出一次
+                 （先点「🎬 出片」再点「🎙 带配音出片」，或连点两次），
+                 两条通知的 `taskId` 不同、`repoName` 相同 ⇒ **同一部片子被插两张卡**（用户看到 2 个视频）。
+                 现口径：**taskId 相同 或 视频文件名相同** ⇒ 都算重复，只保留第一条。 */
+              const _rn = String(t.repoName || '')
               const dup = prev.some((m: any) => typeof m.content === 'string'
-                && m.content.includes('VF_DAILY_FILM_DONE:') && m.content.includes(tid))
+                && m.content.includes('VF_DAILY_FILM_DONE:')
+                && (m.content.includes(tid) || (!!_rn && m.content.includes(_rn))))
               if (dup) return prev
               return [...prev, { id: 'df-' + Date.now(), role: 'assistant',
                 content: 'VF_DAILY_FILM_DONE:' + JSON.stringify({ taskId: tid, url: t.url || '', repoName: t.repoName || '', elapsedSec: t.elapsedSec || 0, voiced: !!t.voiced }) }]
