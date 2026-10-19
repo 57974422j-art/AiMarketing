@@ -6062,7 +6062,17 @@ PUBLISH_DRAFT.delete(uidW)
     // #5 模型标注 + #6 敏感过滤（2026-08-21：回复末尾标注实际模型；剔除后台链接/IP/API key）
     const usedModel = (fcResult as any)?.model || (hasImage ? 'qwen3.8-flash' : 'qwen3.8-flash') // 2026-08-30: 统一 qwen3.8（不切 qwen-plus）
     reply = String(reply || '')
-    if (reply && !/（模型：/.test(reply)) {
+    /* ★VF_PROTO_MODELTAIL_V1（2026-10-19 用户实测「改 15 标题=… 返回的不是卡片，必须返回卡片」）：
+       病灶：这行给**所有**回复尾部追加「（模型：xxx）」，**包括 `VF_JSON:{…}` 卡片载荷**
+       ⇒ 前端 `JSON.parse(从 VF_JSON: 到结尾)` 拿到 `{"…":…}\n\n（模型：qwen3.8-flash）`
+       ⇒ **JSON 不合法 ⇒ 解析失败 ⇒ 卡片降级成一大坨文本**（用户看到的就是裸 JSON）。
+       证据：用户贴的回复结尾正好是 `…}]}` 后跟空行 + `（模型：qwen3.8-flash）`；
+             而 `route.ts L3514` 的注释早把这个尾巴记成"AI 自由发挥的铁证"，只是没人处理它会被当成 JSON 尾巴。
+       现口径：**协议串一律不加尾巴**（`VF_JSON:` / `VF_xxx_FORM:` 等所有以 `VF_` 开头的机读回复）；
+               普通对话回复照旧加（那是给用户看"这条是谁说的"）。
+       ⚠️ 只改"加不加尾巴"，不动任何协议内容与解析逻辑。 */
+    const _isProtoReply = /^\s*VF_/.test(String(reply || ''))
+    if (reply && !_isProtoReply && !/（模型：/.test(reply)) {
       reply = reply + String.fromCharCode(10, 10) + '（模型：' + usedModel + '）'
     }
     reply = reply
