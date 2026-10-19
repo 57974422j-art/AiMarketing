@@ -57,6 +57,27 @@ const VOICE = ['Cherry', 'Serena', 'Ethan', 'Chelsie'].includes(voiceIn) ? voice
 /** 文本预处理：与 prepareTextForTTS 同规矩 —— 全大写 ≥3 字母的缩写拆成逐字母读（避免"API 读成日语腔"） */
 const prep = (s) => String(s).replace(/[A-Z]{3,}/g, (m) => m.split('').join(' ')).replace(/\s+/g, ' ').trim()
 
+/* ★VF_TTS_LANG_V1（2026-10-19 用户实测「配音普遍出现日语」）：
+   **病灶**：请求体只有 { model, input: { text, voice } } —— **没有 language 字段**
+   （见本文件头 L11 的协议说明，确实没有）。而 `qwen3-tts-flash` 是**多语言模型**，
+   语言**靠它自己猜** ⇒ 中文短句被念成日语。
+   **修**：按**文字本身**判定语种，显式传给 `input.language_type`
+   （官方文档：`{"input":{"text":"…","voice":"Cherry","language_type":"Chinese"}}`）。
+   ⚠️ **不能无条件锁中文** —— 强制 Chinese 会让英文单词/品牌名念成中文腔（用户的顾虑成立）。
+   判定规则（中文与日文都用汉字，但**日文有假名**）：
+     · 有假名（ぁ-ん / ァ-ヶ）⇒ Japanese
+     · 有汉字、无假名       ⇒ Chinese
+     · 只有拉丁字母/数字     ⇒ English
+   ⚠️ 与 `src/lib/ai-providers.ts` 的 `dashscopeTTS` 里那份**必须同口径**（两处各存一份纯函数，
+      因为一个在 scripts/ 一个在 src/，不能互相 import）。 */
+const detectLang = (s) => {
+  const t = String(s || '')
+  if (/[\u3041-\u3096\u30a1-\u30FA\u30FC]/.test(t)) return 'Japanese'
+  if (/[\u4E00-\u9FFF]/.test(t)) return 'Chinese'
+  return 'English'
+}
+const LANG = arg('lang', detectLang(TEXT))
+
 /** 在任意嵌套结构里挖第一个 http 音频地址（与 ai-providers 的 digAudioUrl 同思路） */
 const digAudioUrl = (obj, depth = 0) => {
   if (!obj || depth > 6) return ''
@@ -77,7 +98,8 @@ try {
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + KEY },
-    body: JSON.stringify({ model, input: { text: prep(TEXT), voice: VOICE } }),
+    // ★VF_TTS_LANG_V1：带上 language_type（否则多语言模型会自己猜 ⇒ 中文念成日语）
+    body: JSON.stringify({ model, input: { text: prep(TEXT), voice: VOICE, language_type: LANG } }),
     signal: AbortSignal.timeout(60000),
   })
   if (!res.ok) { console.error('✗ 百炼 TTS HTTP ' + res.status + ' ' + String(await res.text()).slice(0, 240)); process.exit(4) }

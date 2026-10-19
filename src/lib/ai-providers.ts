@@ -2115,19 +2115,35 @@ function digAudioUrl(obj: any, depth = 0): string {
   return ''
 }
 
+/* ★VF_TTS_LANG_V1（2026-10-19 用户实测「配音普遍出现日语」）：**按文字判定语种**，显式传 `language_type`。
+   病灶：请求体只有 `{ model, input: { text, voice } }` —— 没有语言字段；而 `qwen3-tts-flash` 是
+   **多语言模型**，语言靠它自己猜 ⇒ 中文短句被念成日语。
+   判定（中文与日文都用汉字，但**日文有假名**）：有假名 ⇒ Japanese；有汉字无假名 ⇒ Chinese；纯拉丁 ⇒ English。
+   ⚠️ **不能无条件锁 Chinese** —— 强制中文会把英文单词/品牌名念成中文腔（用户顾虑成立）。
+   ⚠️ 与 `scripts/video-factory/html-deck/tools/tts-node.mjs` 里那份**必须同口径**
+     （两处各存一份纯函数：一个在 scripts/、一个在 src/，不能互相 import）。
+   官方文档示例：`{"model":"qwen3-tts-flash","input":{"text":"…","voice":"Cherry","language_type":"Chinese"}}` */
+function ttsLangOf(s: string): 'Chinese' | 'Japanese' | 'English' {
+  const t = String(s || '')
+  if (/[\u3041-\u3096\u30a1-\u30FA\u30FC]/.test(t)) return 'Japanese'
+  if (/[\u4E00-\u9FFF]/.test(t)) return 'Chinese'
+  return 'English'
+}
+
 async function dashscopeTTS(text: string, voice = 'longxiaochun'): Promise<ArrayBuffer | null> {
   const key = getDashScopeKey()
   if (!key) return null
   const url = process.env.DASHSCOPE_TTS_URL || 'https://dashscope.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation'
   const model = process.env.DASHSCOPE_TTS_MODEL || 'qwen3-tts-flash'
   const qv = qwenTtsVoice(voice)
-  console.log(`[DashScope TTS] 请求: model=${model}, voice=${voice}→${qv}, text_len=${text.length}`)
+  const lang = ttsLangOf(text)
+  console.log(`[DashScope TTS] 请求: model=${model}, voice=${voice}→${qv}, lang=${lang}, text_len=${text.length}`)
   try {
     const res = await fetch(url, {
       method: 'POST',
       // ★不要带 X-DashScope-Async（qwen3-tts-flash 是同步接口，带了会 403）
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-      body: JSON.stringify({ model, input: { text, voice: qv } }),
+      body: JSON.stringify({ model, input: { text, voice: qv, language_type: lang } }),
       signal: AbortSignal.timeout(60000),
     })
     if (!res.ok) {
