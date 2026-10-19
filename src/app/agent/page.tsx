@@ -3178,7 +3178,7 @@ function AgentPageInner() {
           if (!stopped) {
             setMessages(prev => {
               const dup = prev.some((m: any) => typeof m.content === 'string'
-                && m.content.startsWith('VF_DAILY_FILM_DONE:') && m.content.includes(tid))
+                && m.content.includes('VF_DAILY_FILM_DONE:') && m.content.includes(tid))
               if (dup) return prev
               return [...prev, { id: 'df-' + Date.now(), role: 'assistant',
                 content: 'VF_DAILY_FILM_DONE:' + JSON.stringify({ taskId: tid, url: t.url || '', repoName: t.repoName || '', elapsedSec: t.elapsedSec || 0, voiced: !!t.voiced }) }]
@@ -4696,9 +4696,12 @@ function AgentPageInner() {
     if (content.includes('VF_DAILY_FILM_TASK:')) {
       return <span className="whitespace-pre-wrap">{content.split('VF_DAILY_FILM_TASK:')[0].trim()}</span>
     }
-    if (content.startsWith('VF_DAILY_FILM_DONE:')) {
+    // ★VF_PROTO_PARSE_V1：改为「包含即解析 + 括号配对」—— 它原来只认开头，
+    //   一旦这条消息前面还有 AI 文字（或和别的协议串拼在一起）就永远解析不出来，直接显示成裸 JSON。
+    if (content.includes('VF_DAILY_FILM_DONE:')) {
       try {
-        const df = JSON.parse(content.slice('VF_DAILY_FILM_DONE:'.length))
+        const df = pickProtoJson(content, 'VF_DAILY_FILM_DONE:')
+        if (!df) throw new Error('VF_DAILY_FILM_DONE 解析失败')
         // 签名直链会过期；失效时回退到服务端接口地址（它每次重新签名 ⇒ 永远可用）
         const apiSrc = df.repoName
           ? '/api/storage/file?userId=' + (user?.id || '') + '&name=' + encodeURIComponent(String(df.repoName)) + '&download=1'
@@ -4728,15 +4731,15 @@ function AgentPageInner() {
     }
     // ★VF_EDIT_V1（2026-09-24）：卡片提交的协议串别把原文（一大坨 JSON）显示在气泡里 ——
     //   用户点「💾 保存修改」发的是 VF_EDIT:{edits:[…]}，这里给他看一句人话。
-    if (content.startsWith('VF_EDIT:')) {
+    if (content.includes('VF_EDIT:')) {
       return <span className="text-emerald-300/80">✏️ 已提交分镜修改（改的是出片前的清单，保存后点「确认出片」即按新版出片）</span>
     }
     // ★VF_DECKCONFIRM_V1：新引擎出片确认的协议串同理，气泡里给一句人话（不显示 JSON 原文）
-    if (content.startsWith('VF_DECK_CONFIRM:')) {
+    if (content.includes('VF_DECK_CONFIRM:')) {
       return <span className="text-emerald-300/80">🎬 已确认用新引擎出片（HTML 逐帧 · 动态 PPT）——正在后台渲染，可随时问「视频做得怎么样了」</span>
     }
     // ★VF_BRIEF_EDIT_V1（P0②）：提交"纠正过的素材结论"时，气泡里显示一句人话而不是 JSON
-    if (content.startsWith('VF_BRIEF:')) {
+    if (content.includes('VF_BRIEF:')) {
       return <span className="text-emerald-300/80">🔍 已提交修改后的素材结论（写文案与排分镜会用它）</span>
     }
     // ★VF_I2VDFLT_V1（2026-09-30）：分镜卡「🚫 关掉动图重出」的协议串别把 JSON 显示在气泡里
@@ -4790,9 +4793,9 @@ function AgentPageInner() {
          后端已在出口修掉（协议串不加尾巴），这里再做一道**前端容错**：
          **只取到最后一个 `}`** ⇒ 将来任何尾巴（模型名 / 日志 / 空行）都不会再毁掉卡片。
          ⚠️ 纯解析容错，不改协议、不改渲染。 */
-      const _rawJ = content.slice(content.indexOf('VF_JSON:') + 8)
-      const _lastBrace = _rawJ.lastIndexOf('}')
-      const _vj = JSON.parse(_lastBrace >= 0 ? _rawJ.slice(0, _lastBrace + 1) : _rawJ)
+      // ★VF_PROTO_PARSE_V1：改为"括号配对"截取第一个完整 JSON（不再用 lastIndexOf，防被后续协议串带偏）
+      const _vj = pickProtoJson(content, 'VF_JSON:')
+      if (!_vj) throw new Error('VF_JSON 解析失败')
         // ★VF_LINES_V1（2026-09-21）：AI 制片走**专属卡**（卡1 主题+上传 / 卡2 横竖屏+时长+风格）
         // ★2026-09-22：把当前用户 id 透传给卡片（上传后要在客户端镜像到本地仓库）
         if (_vj && _vj.step === 'ai_setup') return <VfAiSetupCard vj={_vj} onStart={sendMessage} userId={user?.id} />
@@ -4893,9 +4896,11 @@ function AgentPageInner() {
     }
     // ★VF_PREVIEW_V1（2026-09-29 用户定案 P0①「样板镜先确认」，出自 video-talkcraft 的"首镜先做先确认"）：
     //   先出 8 秒样板镜（不配音、不扣点）看画面风格，满意再出整片 —— 治「看到成品才发现风格不对」。
-    if (content.startsWith('VF_PREVIEW_DONE:')) {
+    // ★VF_PROTO_PARSE_V1：同上 —— 包含即解析 + 括号配对（原来只认开头、且硬编码 slice(16)）
+    if (content.includes('VF_PREVIEW_DONE:')) {
       try {
-        const pd = JSON.parse(content.slice(16))
+        const pd = pickProtoJson(content, 'VF_PREVIEW_DONE:')
+        if (!pd) throw new Error('VF_PREVIEW_DONE 解析失败')
         return (
           <div className="mb-2 p-3 rounded-xl border border-sky-500/30 bg-sky-500/[0.06]">
             <div className="text-xs text-sky-300 mb-2">
@@ -4986,9 +4991,9 @@ function AgentPageInner() {
     if (content.includes('VF_JSON:')) {
       try {
         // ★VF_PROTO_JSONTAIL_V1：同上，只取到最后一个 `}`（防尾巴毁掉卡片）
-        const _rawV = content.slice(content.indexOf('VF_JSON:') + 8)
-        const _vb = _rawV.lastIndexOf('}')
-        const vj = JSON.parse(_vb >= 0 ? _rawV.slice(0, _vb + 1) : _rawV)
+        // ★VF_PROTO_PARSE_V1：括号配对，截第一个完整 JSON
+        const vj = pickProtoJson(content, 'VF_JSON:')
+        if (!vj) throw new Error('VF_JSON 解析失败')
         if (vj.step === 'source') {
           return (
             <div className="mb-2 p-3 rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/[0.06]">
@@ -5237,9 +5242,9 @@ function AgentPageInner() {
     if (content.startsWith('WF_JSON:')) {
       try {
         // ★VF_PROTO_JSONTAIL_V1：同上，只取到最后一个 `}`（防尾巴毁掉卡片）
-        const _rawW = content.slice(content.indexOf('VF_JSON:') + 8)
-        const _wb = _rawW.lastIndexOf('}')
-        const wj = JSON.parse(_wb >= 0 ? _rawW.slice(0, _wb + 1) : _rawW)
+        // ★VF_PROTO_PARSE_V1：括号配对，截第一个完整 JSON
+        const wj = pickProtoJson(content, 'VF_JSON:')
+        if (!wj) throw new Error('VF_JSON 解析失败')
         // 2026-09-03 时机A：full 方案卡出现 → 镜像封面+视频到本地仓库（单向 OSS→本地——发布时 bu_exec 直接用）
         if (wj.step === 'full') {
           const covUrl = wj.coverUrl || ''
@@ -6999,6 +7004,43 @@ function AgentPageInner() {
       </div>
     </div>
   )
+}
+
+/* ★VF_PROTO_PARSE_V1（2026-10-19 用户实测「AI 文字 + 两份协议串拼在同一条消息里 ⇒ 整条变成裸 JSON」）：
+   病灶：原来用 `content.slice(起点)` + **`lastIndexOf('}')`** 截 JSON —— 一条消息里若有两个协议串
+   （如 `VF_JSON:{…}` 后面又跟一个 `VF_DAILY_FILM_DONE:{…}`），`lastIndexOf` 抓到的是**第二个的结尾**
+   ⇒ 拼出的字符串不是合法 JSON ⇒ `JSON.parse` 抛错 ⇒ **整条消息降级成纯文本**（用户看到一大坨协议原文）。
+   现口径：**从 tag 之后第一个 `{` 开始做"括号配对"**（区分字符串/转义），找到 depth 归零的位置截断
+   ⇒ 无论后面还跟着什么、前面有多少文字，都能截出**第一个完整 JSON**。
+   配套：所有协议解析都改用「包含即解析」（不再要求 `startsWith`）。 */
+function pickProtoJson(content: string, tag: string): any | null {
+  const s0 = String(content || '')
+  const i = s0.indexOf(tag)
+  if (i < 0) return null
+  const s = s0.slice(i + tag.length)
+  const st = s.indexOf('{')
+  if (st < 0) return null
+  let depth = 0
+  let inStr = false
+  let esc = false
+  for (let k = st; k < s.length; k++) {
+    const c = s[k]
+    if (inStr) {
+      if (esc) { esc = false; continue }
+      if (c === '\\') { esc = true; continue }
+      if (c === '"') inStr = false
+      continue
+    }
+    if (c === '"') { inStr = true; continue }
+    if (c === '{') depth++
+    else if (c === '}') {
+      depth--
+      if (depth === 0) {
+        try { return JSON.parse(s.slice(st, k + 1)) } catch { return null }
+      }
+    }
+  }
+  return null
 }
 
 export default function AgentPage() {
