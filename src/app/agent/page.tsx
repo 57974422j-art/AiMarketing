@@ -1948,7 +1948,12 @@ function VfDeckConfirm({ vj, onSend }: { vj: any; onSend: (m: string) => void })
 function VfDailyPlanCard({ vj, onSend }: { vj: any; onSend: (m: string) => void }) {
   const segs: any[] = Array.isArray(vj?.segs) ? vj.segs : []
   const proto = String(vj?.proto || 'VF_DAILY_FORM')
-  const send = (at: string) => onSend(proto + ':' + JSON.stringify({ at }))
+  /* ★VF_PLAN_FROM_CARD_V1（2026-10-19 用户实测「改了 6 处、生成出来的 HTML 一个字没改」）：
+     根治思路：**不再依赖"数据库草稿"在两次请求之间传方案** ——
+     「✅ 生成 HTML」时把**当前这张卡上的方案**（title/points/imgs）一起带回去，
+     后端 `at:'go'` 用它**覆盖**草稿里的对应字段 ⇒ **你看到什么，就生成什么**，与草稿是否被重置/读偏无关。
+     （只带这三项：生成 HTML 真正需要的文案与配图；其余 layout/type/scale 仍以草稿为准，避免破坏排版。） */
+  const send = (at: string, extra?: Record<string, any>) => onSend(proto + ':' + JSON.stringify({ at, ...(extra || {}) }))
   const [showEdit, setShowEdit] = useState(false)   // ★VF_DAILY_V20：编辑面板开关
   // ★VF_DAILY_V32b（2026-10-16 用户实测「我点了一下它就开始执行、✅ 没打上、点击就触发了」）：
   //   病灶两处，都是我的写法问题：
@@ -2052,7 +2057,7 @@ function VfDailyPlanCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
         )}
       </div>
       <div className="flex flex-wrap gap-2">
-        <button onClick={() => send('go')}
+        <button onClick={() => send('go', { segs: segs.map((s: any) => ({ i: s.i, title: s.title, points: s.points, imgs: s.imgs })) })}
           className="flex-1 px-4 py-2 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100 text-sm font-medium">
           ✅ 生成 HTML
         </button>

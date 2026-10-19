@@ -1891,6 +1891,30 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
     // ① 方案卡「✅ 生成 HTML」→ 真的生成（与打字 `确认` 同一份实现）
     if (at === 'go') {
       if (d.step !== 'review' || !d.plan) return null
+      /* ★VF_PLAN_FROM_CARD_V1（2026-10-19 用户实测「改了 6 处、生成出来一个字没改」，且 DB 里存的仍是旧文案）：
+         **根治**：卡片点「✅ 生成 HTML」时会把**卡片上显示的方案**（title/points/imgs）一起带回来，
+         这里**用它覆盖草稿**再生成 ⇒ **你看到什么就生成什么**，不再依赖"草稿有没有存对/读对"。
+         为什么只覆盖这三项：生成 HTML 真正需要的就是"文案 + 用哪张图"；`layout/type/scale/kind` 仍以草稿为准
+         （它们是排版参数，卡片上的 label 只是中文描述，反解回 id 反而容易错）。
+         ⚠️ 覆盖后立刻存库，并把"用的是哪版"打进日志 —— 以后再出问题，日志能直接对上。 */
+      const cardSegs = Array.isArray((f as any)?.segs) ? (f as any).segs : []
+      if (cardSegs.length && Array.isArray((d.plan as any)?.segments)) {
+        const segs = (d.plan as any).segments
+        const n = Math.min(cardSegs.length, segs.length)
+        let applied = 0
+        for (let i = 0; i < n; i++) {
+          const s = cardSegs[i] || {}
+          const t = segs[i] || {}
+          if (Array.isArray(s.title)) { t.title = s.title.map((x: any) => String(x || '')); applied++ }
+          if (Array.isArray(s.points)) t.points = s.points.map((p: any) => (Array.isArray(p) ? p.map(String) : p))
+          if (Array.isArray(s.imgs)) t.imgs = s.imgs.map((x: any) => Number(x)).filter((x: number) => x > 0)
+        }
+        await saveDailyDraft(ctx.prisma, uid, d)
+        try {
+          ctx.log?.(uid, '[日报落地页] 生成用**卡片上的方案**（覆盖 ' + applied + ' 段标题）· seg1='
+            + JSON.stringify((segs[0] || {}).title) + ' · segN=' + JSON.stringify((segs[segs.length - 1] || {}).title))
+        } catch { /* ignore */ }
+      }
       return await finishDaily(ctx, d, toPicks(uid, d.source || { kind: 'repo' }, d.names || []))
     }
     /* ★VF_DAIDESIGN_V1（阶段 1 第 4 步）：**🎨 AI 自由设计** —— "AI 整页写 HTML"这条档。
