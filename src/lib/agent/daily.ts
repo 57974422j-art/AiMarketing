@@ -120,23 +120,43 @@ const DAILY_BACK_RE = /^(重选|重挑|换素材|改素材|重新选|返回|上�
 
 /* ─────────────── 草稿（照 lead.ts 同款：db.agentMemory + tag 精确匹配） ─────────────── */
 
+/* ★VF_DRAFT_LOG_V1（2026-10-19 **实测证据**：用户编辑 3 处后，DB 里仍全是旧文案：
+   段1「京味铜锅鲜」/ 段7「生菜垫底·兰花点缀」/ 段14「丰盛一席」都被原样存着 ⇒
+   方案卡显示"已改 3 处"（内存里是新的），**但库里是旧的** ⇒ 生成时读旧版 ⇒ 用户看到"完全没按我的做"。
+   原来这里 `catch {}` **把错完全吞掉**，所以从日志里看不到任何异常。
+   现口径：**失败必须打出来**（带错误信息 + content 长度 + 关键段标题），成功也打一行
+   "关键段标题"——这样一眼能看出"存进去的到底是哪一版"。**只加日志，不改逻辑**。 */
 export async function saveDailyDraft(db: any, uid: number | string, d: DailyDraft): Promise<void> {
   const content = DAILY_PREFIX + JSON.stringify(d)
+  const segs = Array.isArray((d as any)?.plan?.segments) ? (d as any).plan.segments : []
+  const key = 'seg1=' + JSON.stringify(segs[0]?.title) + ' segN=' + JSON.stringify(segs[segs.length - 1]?.title)
   try {
     const ex = await db.agentMemory.findFirst({ where: { userId: String(uid), tags: { equals: DAILY_TAG } }, orderBy: { updatedAt: 'desc' } })
     if (ex) await db.agentMemory.update({ where: { id: ex.id }, data: { content } })
     else await db.agentMemory.create({ data: { userId: String(uid), content, tags: DAILY_TAG, salience: 0.5 } })
-  } catch { /* 草稿存不上不影响本轮回复 */ }
+    console.log('[日报草稿] 已保存 step=' + String((d as any)?.step) + ' 段数=' + segs.length + ' 长度=' + content.length + ' ' + key)
+  } catch (e: any) {
+    // ⚠️ 原来这里吞错 ⇒ 用户改了字、库里没变、日志一片安静。现在必须喊出来。
+    console.error('[日报草稿] **保存失败**：' + String(e?.message || e).slice(0, 300)
+      + ' ｜ step=' + String((d as any)?.step) + ' 段数=' + segs.length + ' 长度=' + content.length + ' ' + key)
+  }
 }
 
 export async function loadDailyDraft(db: any, uid: number | string): Promise<DailyDraft | null> {
   try {
     const dm = await db.agentMemory.findFirst({ where: { userId: String(uid), tags: { equals: DAILY_TAG } }, orderBy: { updatedAt: 'desc' } })
-    if (!dm) return null
+    if (!dm) { console.log('[日报草稿] 读取：**没有草稿**'); return null }
     const s = String(dm.content || '')
     const i = s.indexOf('{')
     if (i < 0) return null
     const d = JSON.parse(s.slice(i))
+    /* ★VF_DRAFT_LOG_V1：读取时也打一行"关键段标题" —— 与保存那行对照，
+       就能直接看出"存的哪版 / 读的哪版"，不用再翻产物。 */
+    try {
+      const sg = Array.isArray(d?.plan?.segments) ? d.plan.segments : []
+      console.log('[日报草稿] 读取 id=' + dm.id + ' step=' + String((d as any)?.step) + ' 段数=' + sg.length
+        + ' seg1=' + JSON.stringify(sg[0]?.title) + ' segN=' + JSON.stringify(sg[sg.length - 1]?.title))
+    } catch { /* ignore */ }
     return d && typeof d === 'object' ? (d as DailyDraft) : null
   } catch { return null }
 }
