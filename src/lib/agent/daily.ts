@@ -1542,14 +1542,15 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
   if (cardStr.startsWith(PREFIX)) {
     try {
       const j = JSON.parse(cardStr.slice(PREFIX.length))
-      const why = '⚠️ AI 版 3 轮没过闸门，已自动改用模板版'
+      // ★VF_AIDESIGN_DIAG_V1b：轮次改成 1 轮后，这句还写死"3 轮"⇒ 会误导。统一成"未过闸门"（不含轮次数字）。
+      const why = '⚠️ AI 版未过闸门，已自动改用模板版'
       j.hint = why + ' · ' + String(j.hint || '')
       if (lastErr) j.aiFailNote = String(lastErr).slice(0, 600)
       return PREFIX + JSON.stringify(j)
     } catch { return cardStr }
   }
   // 兜底（极端情况拿到的不是卡片）：至少把提示带上
-  return '⚠️ AI 版 3 轮没过闸门，已自动改用模板版：\n' + (lastErr || '（无报错信息）') + '\n\n' + cardStr
+  return '⚠️ AI 版未过闸门，已自动改用模板版：\n' + (lastErr || '（无报错信息）') + '\n\n' + cardStr
 }
 
 async function runDesign(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]): Promise<string> {
