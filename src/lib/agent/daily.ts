@@ -1460,7 +1460,22 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
     // ⭐ 闸门：不过就把报错原文交给下一轮
     const chk = await checkDesignPage(html, picks, 'r' + attempt)
     try {
-      ctx.log?.(uid, '[日报落地页] AI 自由设计 第' + attempt + '轮闸门：' + (chk.ok ? '✅ 通过' : '✗ 未过\n' + chk.note))
+      /* ★VF_AIDESIGN_DIAG_V1（2026-10-20 用户要求「闸门不要只说失败，失败要有日志什么原因；需要方便我们分析」）：
+       病灶：① `chk.note` 是**多行**（每条 `✗` 一行），`pm2 logs | grep` 只能抓到第一行 ⇒ 看起来"只说失败"；
+             ② **失败的 HTML 直接丢了** ⇒ 无法复现、无法量（哪段溢出/对比度多少/哪两块字叠）。
+       现口径：**失败时把 HTML 落盘到 temp/ 并打出路径**；报错**压成单行**（` ｜ ` 分隔）⇒ 一行 grep 看全。 */
+    const _note1 = String(chk.note || '').replace(/\s*\n+\s*/g, ' ｜ ').slice(0, 1200)
+    let _failPath = ''
+    if (!chk.ok) {
+      try {
+        const _dir = path.join(vfRootDir(), 'temp', 'aidesign-fail')
+        fs.mkdirSync(_dir, { recursive: true })
+        _failPath = path.join(_dir, 'fail-' + Date.now() + '-r' + attempt + '.html')
+        fs.writeFileSync(_failPath, html, 'utf8')
+      } catch { /* 落盘失败不影响主流程 */ }
+    }
+    ctx.log?.(uid, '[日报落地页] AI 自由设计 第' + attempt + '轮闸门：' + (chk.ok ? '✅ 通过' : '✗ 未过 ｜ ' + _note1)
+      + (_failPath ? ' ｜ HTML 已存 ' + _failPath : ''))
     } catch { /* ignore */ }
     if (!chk.ok) { lastErr = chk.note; failNote = chk.note; continue }
 
@@ -1508,7 +1523,13 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
     return await finishDaily(ctx, d, picks, { html })
   }
   // 3 轮都不过 ⇒ 回落模板档（d.plan 仍是方案卡那份，没被覆盖）
-  try { ctx.log?.(uid, '[日报落地页] AI 自由设计：3 轮均未过闸门 ⇒ 回落模板档。最后一次报错：' + lastErr) } catch { /* ignore */ }
+  /* ★VF_AIDESIGN_DIAG_V1（2026-10-20 用户要求「闸门不要只说失败，失败要有日志什么原因」）：
+     ① 报错**压成单行**（原来多行 ⇒ `pm2 logs | grep` 只看得到第一行 ⇒ 像是"只说失败"）；
+     ② 轮次不再硬编码"3 轮"（已改成 1 轮，硬编码会误导）。 */
+  try {
+    ctx.log?.(uid, '[日报落地页] AI 自由设计：' + Math.max(1, attempt - 1) + ' 轮均未过闸门 ⇒ 回落模板档 ｜ 最后报错：'
+      + String(lastErr || '（无）').replace(/\s*\n+\s*/g, ' ｜ ').slice(0, 1500))
+  } catch { /* ignore */ }
   /* ★VF_DAILYEDIT_V3（2026-10-19 用户实测「**吐字不是卡片**」）：原来这里把**提示文字拼在 `VF_JSON` 前面**：
        `'⚠️ AI 版连续 3 轮没过闸门…' + 报错 + await finishDaily(...)` ⇒ 整条回复**以 ⚠️ 开头** ⇒
        前端 `content.startsWith('VF_JSON:')` 判否 ⇒ **降级成纯文本**（用户看到"文字 + 一坨裸 JSON"）。
