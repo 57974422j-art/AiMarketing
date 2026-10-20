@@ -679,6 +679,23 @@ async function checkDesignPage(html: string, picks: DailyPick[], tag: string): P
       .slice(0, 8)
     const okAll = r.code === 0 && /引擎校验 OK/.test(r.text)
     if (okAll) return { ok: true, note: '四道闸门全过' }
+    /* ★VF_AIDESIGN_SOFTGATE_V1（2026-10-21 用户定案「**取消可以吗？就和生图生视频一样，不行我重新生成就是了。你这一稿 3 次我一次看不到都给你打回了，长什么样我都不知道**」）：
+       病：闸门把「**审美类**告警」和「**致命类**错误」一视同仁地拦下 ⇒
+           · `content_overlap`（动效/叠化转场期间的 0.6~2 秒包围盒相交）属于**审美**，片子完全能跑；
+           · 结果 AI 版被反复打回，用户**一次都没看到产物**，只能拿到模板版。
+       现口径：**分两类**——
+         · **致命**（页面渲不出来 / 满屏豆腐块）：`css_parse_error`、`missing_local_asset`、`表外字`、
+           `font_family_without_font_face`、`Timeline did not advance`、`stage=pack`、`stage=fonts`
+           ⇒ **仍然拦**（拦得有道理，否则用户拿到的是打不开的页面）；
+         · **审美**（能跑但可能不好看）：`content_overlap`、对比度 ⇒ **放行**，把告警写进日志/返回，
+           让用户先看到片子，不满意再改或重生成（和生图生视频一个逻辑）。
+       ⚠️ 只改"拦不拦"，不改任何渲染/排版逻辑。 */
+    const FATAL_RE = /css_parse_error|missing_local_asset|表外字|font_family_without_font_face|Timeline did not advance|stage=pack|stage=fonts/i
+    const fatalLines = lines.filter((l) => FATAL_RE.test(l))
+    const softLines = lines.filter((l) => !FATAL_RE.test(l))
+    if (!fatalLines.length && softLines.length) {
+      return { ok: true, note: '（放行·仅审美告警）' + softLines.join(' ｜ ').slice(0, 600) }
+    }
     /* ★VF_DAIDESIGN_V19b：原来这里只说"没给出可用报错"，**把 stderr/stdout 整个丢掉了**
        ⇒ 线上出现过 `exit=1` 且零输出的情况（OOM 被 SIGKILL），完全无法定位。
        现口径：**没抓到报错行时，把输出尾部 600 字也打出来**；真的一无所有则明说"疑似 OOM 被杀"。 */
