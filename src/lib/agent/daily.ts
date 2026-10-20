@@ -1527,7 +1527,8 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
      ① 报错**压成单行**（原来多行 ⇒ `pm2 logs | grep` 只看得到第一行 ⇒ 像是"只说失败"）；
      ② 轮次不再硬编码"3 轮"（已改成 1 轮，硬编码会误导）。 */
   try {
-    ctx.log?.(uid, '[日报落地页] AI 自由设计：' + Math.max(1, attempt - 1) + ' 轮均未过闸门 ⇒ 回落模板档 ｜ 最后报错：'
+    // 当前配置只跑 1 轮（见上方 for 循环的 attempt <= 1）；如改轮次，这里同步改数字
+    ctx.log?.(uid, '[日报落地页] AI 自由设计：1 轮未过闸门 ⇒ 回落模板档 ｜ 最后报错：'
       + String(lastErr || '（无）').replace(/\s*\n+\s*/g, ' ｜ ').slice(0, 1500))
   } catch { /* ignore */ }
   /* ★VF_DAILYEDIT_V3（2026-10-19 用户实测「**吐字不是卡片**」）：原来这里把**提示文字拼在 `VF_JSON` 前面**：
