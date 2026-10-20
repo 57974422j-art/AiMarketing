@@ -922,15 +922,28 @@ export async function generateLongVideo(
    现口径：
      · **连续 3 次 UNKNOWN 就终止**（返回 failed）—— 等下去毫无意义；
      · **maxWait 900000 → 240000**（4 分钟）—— 文生视频通常 1~3 分钟，超过基本就是挂了。 */
+/* ★VF_VPOLL_UNKNOWN_V2（2026-10-20 线上实测「重启后还在刷 UNKNOWN，停不掉」）：
+   V1 把 `unknownStreak` 写成**函数内局部** ⇒ 但**前端每 15 秒请求一次**，每次请求都新调本函数
+   ⇒ 每次只查 1~2 次就返回 ⇒ **streak 永远到不了 3** ⇒ 永远在查、日志永远刷。
+   现口径：**改成模块级 Map，跨请求累计** ⇒ 同一个 taskId 累计 3 次 UNKNOWN 后，
+          之后**任何请求**都会立刻返回 failed（不再打百炼），日志立刻安静。
+   ⚠️ 键用 taskId；成功后立刻 delete，避免长期占用（量级：同时最多几个任务，可忽略）。 */
+const _vPollUnknown = new Map<string, number>()
+
 async function pollVideoTask(taskId: string, maxWait = 240000): Promise<{ videoUrl?: string; status: string } | null> {
   const start = Date.now()
   const maxAttempts = Math.floor(maxWait / 15000)
-  let unknownStreak = 0
+  // ★VF_VPOLL_UNKNOWN_V2：跨请求累计（不是局部）
+  if ((_vPollUnknown.get(taskId) || 0) >= 3) {
+    console.log(`[文生视频] 跳过（该任务已判定不存在）task=${taskId.substring(0, 8)}...`)
+    return { status: 'failed' }
+  }
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, 15000))
     const result = await dashscopeQueryVideoTask(taskId)
     const elapsed = Math.round((Date.now() - start) / 1000)
     if (result?.videoUrl) {
+      _vPollUnknown.delete(taskId)   // ★VF_VPOLL_UNKNOWN_V2：成功即清计数
       console.log(`[文生视频] 轮询完成 task=${taskId.substring(0, 8)}... status=SUCCEEDED, 耗时=${elapsed}s`)
       return result
     }
@@ -938,15 +951,16 @@ async function pollVideoTask(taskId: string, maxWait = 240000): Promise<{ videoU
       console.log(`[文生视频] 轮询失败 task=${taskId.substring(0, 8)}... status=FAILED, 耗时=${elapsed}s, 请检查上方[百炼查询]日志中的详细错误`)
       return { status: 'failed' }
     }
-    // ★VF_VPOLL_UNKNOWN_V1：UNKNOWN / 空结果 = 任务不存在 ⇒ 连续 3 次就放弃
+    // ★VF_VPOLL_UNKNOWN_V2：UNKNOWN / 空结果 = 任务不存在 ⇒ **跨请求**累计 3 次就永久放弃
     const st = String(result?.status || '').toUpperCase()
     if (st === 'UNKNOWN' || !st) {
-      unknownStreak++
-      if (unknownStreak >= 3) {
-        console.log(`[文生视频] 轮询终止 task=${taskId.substring(0, 8)}... status=UNKNOWN 连续 ${unknownStreak} 次（任务不存在/已过期），耗时=${elapsed}s`)
+      const n = (_vPollUnknown.get(taskId) || 0) + 1
+      _vPollUnknown.set(taskId, n)
+      if (n >= 3) {
+        console.log(`[文生视频] 轮询终止 task=${taskId.substring(0, 8)}... status=UNKNOWN 累计 ${n} 次（任务不存在/已过期），后续请求直接跳过，耗时=${elapsed}s`)
         return { status: 'failed' }
       }
-    } else { unknownStreak = 0 }
+    } else { _vPollUnknown.delete(taskId) }
     if (i % 5 === 0 || i === maxAttempts - 1) {
       console.log(`[文生视频] 轮询中 task=${taskId.substring(0, 8)}... status=${result?.status || 'unknown'}, ${i + 1}/${maxAttempts}, 耗时=${elapsed}s`)
     }
