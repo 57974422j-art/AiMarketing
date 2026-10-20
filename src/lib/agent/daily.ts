@@ -674,9 +674,16 @@ async function checkDesignPage(html: string, picks: DailyPick[], tag: string): P
         (err, so, se) => resolve({ code: err ? 1 : 0, text: String(so || '') + '\n' + String(se || '') }))
     })
     // ③ 摘出真正有用的行（✗ 开头的判据 + 四个阶段的结论），别把整段日志喂回去
+    /* ★VF_AIDESIGN_SOFTGATE_V1b（2026-10-21 自审发现的两个漏洞，会导致"该拦的没拦"）：
+       ① 采集正则只认 `stage=(html|check|render)` ⇒ 而**致命**的那几行恰恰是别的阶段：
+          `stage=fonts ✗ 表外字 1 个：進`（行首不是 ✗）⇒ **整行被丢弃** ⇒ 分类时匹配不到
+          ⇒ 会**误放行一个满屏豆腐块的页面**（上次能拦住纯属走"lines 为空"的兜底分支，歪打正着）。
+       ② `slice(0, 8)` ⇒ 如果前 8 条都是 `content_overlap`，**第 9 条的 `missing_local_asset` 就被截掉**
+          ⇒ 同样会误放行。
+       现口径：**所有 stage 都采集 + 上限放宽到 40 条**（喂回给 AI 时再单独截短，不在这里丢信息）。 */
     const lines = r.text.split('\n').map((l) => l.trim())
-      .filter((l) => /^✗|stage=(html|check|render)/.test(l))
-      .slice(0, 8)
+      .filter((l) => /^✗|stage=/.test(l) || /css_parse_error|missing_local_asset|表外字|font_family_without_font_face|Timeline did not advance/i.test(l))
+      .slice(0, 40)
     const okAll = r.code === 0 && /引擎校验 OK/.test(r.text)
     if (okAll) return { ok: true, note: '四道闸门全过' }
     /* ★VF_AIDESIGN_SOFTGATE_V1（2026-10-21 用户定案「**取消可以吗？就和生图生视频一样，不行我重新生成就是了。你这一稿 3 次我一次看不到都给你打回了，长什么样我都不知道**」）：
@@ -691,8 +698,13 @@ async function checkDesignPage(html: string, picks: DailyPick[], tag: string): P
            让用户先看到片子，不满意再改或重生成（和生图生视频一个逻辑）。
        ⚠️ 只改"拦不拦"，不改任何渲染/排版逻辑。 */
     const FATAL_RE = /css_parse_error|missing_local_asset|表外字|font_family_without_font_face|Timeline did not advance|stage=pack|stage=fonts/i
+    /* ★VF_AIDESIGN_SOFTGATE_V1c：**只有"明确的审美类错误"才放行**。
+       为什么加这条：`lines` 现在也会采到 `① 打包 OK` 这类正常行，
+       若直接 `softLines = 非致命行`，可能**一堆正常行 + 引擎崩了** ⇒ 被判"仅审美" ⇒ 误放行。
+       现口径：soft 必须**命中具体审美判据**（content_overlap / 对比度），否则**一律按失败拦下**。 */
+    const SOFT_RE = /content_overlap|contrast|need\s*4\.5:1|对比度/i
     const fatalLines = lines.filter((l) => FATAL_RE.test(l))
-    const softLines = lines.filter((l) => !FATAL_RE.test(l))
+    const softLines = lines.filter((l) => SOFT_RE.test(l) && !FATAL_RE.test(l))
     if (!fatalLines.length && softLines.length) {
       return { ok: true, note: '（放行·仅审美告警）' + softLines.join(' ｜ ').slice(0, 600) }
     }
