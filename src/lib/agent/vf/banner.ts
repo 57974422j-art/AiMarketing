@@ -356,14 +356,20 @@ export function buildVideoPlan(shots: any[], vd: any, opts?: { sizeDefault?: num
   const _shots = (Array.isArray(shots) ? shots : []).map((s: any) => {
     if (!s || typeof s !== 'object') return s
     const _deckHit = _noDeck && String(s.variant || '').indexOf('deck') === 0
-    // ★VF_NOENDPAGE_V1：末页不再用纯文字收尾页（改成复用最后一张素材图）
-    const _endHit = _noDeck && String(s.type || '') === 'end' && _lastPick != null
+    /* ★VF_NOENDPAGE_V1b（2026-10-20 用户实测「新片还是这样」⇒ 上一版判断没命中，改成"无论如何都改"）：
+       上一版要求 `_lastPick != null` 才改 —— 一旦那个镜的 `pick` 取不到（字段形态不同 / 空值），
+       就会**静默保留 end**（正是用户看到的样子）。现改为：
+         · 有可用图号 ⇒ 用它（最后一张用过的图）；
+         · **没有 ⇒ 退回第 1 张图**（`pick: 1`）—— 绝不因为"取不到号"就保留纯文字页。
+       ⚠️ 只在"确实一张图都没有"时才真正保留 end（此时也没有图可放）。 */
+    const _endHit = _noDeck && String(s.type || '') === 'end'
     if (!_fxOff && !_deckHit && !_endHit) return s
     const o: any = { ...s }
     if (_deckHit) delete o.variant
     if (_endHit) {
       o.type = 'bgimage'
-      o.pick = _lastPick
+      o.pick = _lastPick != null ? _lastPick : 1
+      // 兼容某些老卡把大字写在 `text` 上的形态：bgimage 读 `text` 当大字，保持原样即可
     }
     if (_fxOff) {
       for (const k of FX_STRIP_KEYS) if (o[k] !== undefined) delete o[k]
@@ -371,6 +377,17 @@ export function buildVideoPlan(shots: any[], vd: any, opts?: { sizeDefault?: num
     }
     return o
   })
+  try {
+    /* 一行可 grep 的留痕（2026-10-20 加）：
+       · `剩余 end=0` ⇒ 末页替换生效；
+       · `剩余 end=1` ⇒ 没改成功（说明本段没走到 / 或被后续覆盖）；
+       · 若 end=0 但成片末页仍是纯文字 ⇒ **那一页其实是别的镜型**（title / list / number… 本身就是整页文字卡）
+         ⇒ 这时看后面的 `镜型` 分布，就知道该改哪种 type 了。 */
+    const _dist: Record<string, number> = {}
+    _shots.forEach((s: any) => { const t = String((s && s.type) || '?'); _dist[t] = (_dist[t] || 0) + 1 })
+    if (_noDeck) console.log('[VF] [末页] line=' + String(vd?.line || '') + ' 剩余 end='
+      + (_dist.end || 0) + ' · 镜型 ' + JSON.stringify(_dist))
+  } catch { /* 日志失败绝不影响出片 */ }
   return planWithBanner({
     size,
     fps: VF_PLAN_FPS,
