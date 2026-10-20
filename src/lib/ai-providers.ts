@@ -916,9 +916,16 @@ export async function generateLongVideo(
 }
 
 /** 轮询视频任务直到完成 */
-async function pollVideoTask(taskId: string, maxWait = 900000): Promise<{ videoUrl?: string; status: string } | null> {
+/* ★VF_VPOLL_UNKNOWN_V1（2026-10-20 线上实测「[百炼查询] task=vf179247… status=UNKNOWN 一直刷屏」）：
+   病：`task_status=UNKNOWN`（任务不存在 / 已过期 / 被清理）时，**既不等于 FAILED 也不等于 RUNNING**
+       ⇒ 循环不退出 ⇒ 每 15 秒查一次、一直查到 `maxWait`（原来 **15 分钟**）⇒ **白占一个 HTTP 请求 + 刷爆日志**。
+   现口径：
+     · **连续 3 次 UNKNOWN 就终止**（返回 failed）—— 等下去毫无意义；
+     · **maxWait 900000 → 240000**（4 分钟）—— 文生视频通常 1~3 分钟，超过基本就是挂了。 */
+async function pollVideoTask(taskId: string, maxWait = 240000): Promise<{ videoUrl?: string; status: string } | null> {
   const start = Date.now()
   const maxAttempts = Math.floor(maxWait / 15000)
+  let unknownStreak = 0
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise(r => setTimeout(r, 15000))
     const result = await dashscopeQueryVideoTask(taskId)
@@ -931,6 +938,15 @@ async function pollVideoTask(taskId: string, maxWait = 900000): Promise<{ videoU
       console.log(`[文生视频] 轮询失败 task=${taskId.substring(0, 8)}... status=FAILED, 耗时=${elapsed}s, 请检查上方[百炼查询]日志中的详细错误`)
       return { status: 'failed' }
     }
+    // ★VF_VPOLL_UNKNOWN_V1：UNKNOWN / 空结果 = 任务不存在 ⇒ 连续 3 次就放弃
+    const st = String(result?.status || '').toUpperCase()
+    if (st === 'UNKNOWN' || !st) {
+      unknownStreak++
+      if (unknownStreak >= 3) {
+        console.log(`[文生视频] 轮询终止 task=${taskId.substring(0, 8)}... status=UNKNOWN 连续 ${unknownStreak} 次（任务不存在/已过期），耗时=${elapsed}s`)
+        return { status: 'failed' }
+      }
+    } else { unknownStreak = 0 }
     if (i % 5 === 0 || i === maxAttempts - 1) {
       console.log(`[文生视频] 轮询中 task=${taskId.substring(0, 8)}... status=${result?.status || 'unknown'}, ${i + 1}/${maxAttempts}, 耗时=${elapsed}s`)
     }
