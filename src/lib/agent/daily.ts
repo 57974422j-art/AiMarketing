@@ -488,7 +488,9 @@ export async function aiPlanSegments(picks: DailyPick[], topic: string, lastThem
      ② **超时给足**（240s）：自由页输出 20~25k 字，实测 **162.5s**；用方案档的 180s 会很险。 */
 /* ★VF_DAIDESIGN_V4：240s → 170s（deepseek-v4-pro 单轮实测 152s + 余量）。
    配合总预算 420s / 2 轮 ⇒ 最坏 460s，不会再撞 nginx 600s。 */
-const DESIGN_TIMEOUT_MS = 170000
+/* ★VF_DAIDESIGN_V20：170s → **240s** —— 看图之后单轮变慢（17 张图 + 1.8 万字），
+   170s 会把"本来能写完的一轮"掐断；配合"只跑 1 轮"仍稳在 600s 内（240+60+余量≈340s）。 */
+const DESIGN_TIMEOUT_MS = 240000
 export async function aiDesignPage(
   picks: DailyPick[], topic: string,
   /* ★VF_DAIDESIGN_V2b（2026-10-18 用户实测「网络连接失败」→ 服务器 nginx `proxy_read_timeout 600s`）：
@@ -1412,8 +1414,14 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
        · 单轮生成上限 240s → **170s**（152s 实测 + 余量）
      ⇒ 最坏 2×(170 + 60) = **460s**，稳在 600s 内。 */
   const T0 = Date.now()
+  /* ★VF_DAIDESIGN_V20（2026-10-20 用户实测「at:aiDesign 已经 8 分钟还在转」）：
+     看图之后单轮变慢（要同时处理 17 张图 + 写 1.8 万字），**2 轮必然撞 nginx 600s**：
+       2 × (生成 ~190s + 闸门 ~60s) ≈ 500s，再加取图/缩图 ⇒ 直接 504。
+     现口径：**只跑 1 轮**（看图后第 1 轮质量已足够；前几次第 2 轮从来没救回来过）
+             ⇒ 最坏 240(生成) + 60(闸门) + 40(余量) = **340s**，稳在 600s 内。 */
   const BUDGET_MS = 420000
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  for (let attempt = 1; attempt <= 1; attempt++) {
+    const _tRound = Date.now()   // ★VF_DAIDESIGN_V20：本轮计时（日志里打耗时）
     const left = BUDGET_MS - (Date.now() - T0)
     if (left < 90000) {
       lastErr = (lastErr ? lastErr + '\n' : '') + '（已到总时长预算 ' + Math.round(BUDGET_MS / 1000) + 's，停止重试）'
@@ -1423,7 +1431,9 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
     //   原来只留 20s ⇒ 生成吃满后闸门没时间、整轮白跑，最后整体超时被网关掐断。
     const design = await aiDesignPage(picks, topic, { failNote, timeoutMs: Math.min(DESIGN_TIMEOUT_MS, left - 80000) })
     try {
-      ctx.log?.(uid, '[日报落地页] AI 自由设计 第' + attempt + '轮：' + (design.ok ? 'OK' : '失败')
+      // ★VF_DAIDESIGN_V20：加**耗时**（用户反复问"到底多久"，没这个数字只能猜）
+    ctx.log?.(uid, '[日报落地页] AI 自由设计 第' + attempt + '轮：' + (design.ok ? 'OK' : '失败')
+      + ' · 耗时 ' + Math.round((Date.now() - _tRound) / 1000) + 's'
         + ' ｜ ' + String(design.diag || '') + (design.vlErr ? ' ｜ 读图：' + design.vlErr : ''))
     } catch { /* ignore */ }
     if (!design.ok || !design.html) { lastErr = String(design.error || '未知原因'); failNote = ''; continue }
