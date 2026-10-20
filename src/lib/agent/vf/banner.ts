@@ -332,12 +332,39 @@ export function buildVideoPlan(shots: any[], vd: any, opts?: { sizeDefault?: num
      ✅ **影响面**：`buildVideoPlan` 只被 图片成片 / 图视混剪 / PPT+图视 用 ——
        **PPT+图视 保留**（`line==='pptimg'` 不处理）；**HTML 成片走 film-spec.ts、日报走自己的渲染器** ⇒ 不受影响。 */
   const _noDeck = String(vd?.line || '') !== 'pptimg'
+  /* ★VF_NOENDPAGE_V1（2026-10-20 用户看完成片定案「最后一帧 PPT 太丑 ⇒ 完全不要」）：
+     **现场**（我切帧看过，最后 1.5 秒）：深蓝黑渐变底、**一点图都没有**、
+       顶部两行小字 + 中间超大「聚餐狂欢」+ 底部一行小字、**下半屏 60% 全空**、
+       左上角一条孤零零的橙线 ⇒ 跟前 9 页的暖色实拍反差极大 ⇒ 用户原话「太丑」。
+     **病因**：`type:'end'` 是**老引擎的固定画法**（纯文字收尾页，不配素材图）——
+       跟 `variant=deck*` 无关（那个已在 ★VF_NODECK_V1 清掉了），所以它还留着。
+     **修**：`line !== 'pptimg'` 时，把 `end` 镜**改成 `bgimage`**，`pick` 复用
+       **前面最后一镜用过的图号** ⇒ 最后一张素材图再出现一次 + 大字收尾 ⇒ 与前文统一。
+       ⚠️ **不删镜头**（subtitle 还在 ⇒ 文案覆盖 100% 不丢），只换画法 ——
+          与 ★VF_FX_SWITCH_V1 / ★VF_NODECK_V1 同一手法。
+       ⚠️ 找不到可用图号（全场没有 bgimage）时才保留 end（此时也没图可复用）。
+     ✅ **影响面**：只走 `buildVideoPlan`（图片成片 / 图视混剪 / PPT+图视）；
+        **PPT+图视 跳过**；HTML 成片（film-spec.ts）与日报（自有渲染器）**不受影响**。 */
+  const _lastPick = (() => {
+    const list = Array.isArray(shots) ? shots : []
+    for (let i = list.length - 1; i >= 0; i--) {
+      const p = list[i]?.pick
+      if (p != null && String(p) !== '') return p
+    }
+    return null
+  })()
   const _shots = (Array.isArray(shots) ? shots : []).map((s: any) => {
     if (!s || typeof s !== 'object') return s
     const _deckHit = _noDeck && String(s.variant || '').indexOf('deck') === 0
-    if (!_fxOff && !_deckHit) return s
+    // ★VF_NOENDPAGE_V1：末页不再用纯文字收尾页（改成复用最后一张素材图）
+    const _endHit = _noDeck && String(s.type || '') === 'end' && _lastPick != null
+    if (!_fxOff && !_deckHit && !_endHit) return s
     const o: any = { ...s }
     if (_deckHit) delete o.variant
+    if (_endHit) {
+      o.type = 'bgimage'
+      o.pick = _lastPick
+    }
     if (_fxOff) {
       for (const k of FX_STRIP_KEYS) if (o[k] !== undefined) delete o[k]
       o.sustain = 'none'
