@@ -3008,6 +3008,17 @@ function AgentPageInner() {
       try {
         const r = await fetch('/api/agent/video-task-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ taskId }), credentials: 'include' }).then(r2 => r2.json())
         if (!r.success) return
+        /* ★VF_VTPOLLSTOP_V1（2026-10-20 线上实测「[百炼查询] status=UNKNOWN 每分钟一条，关不掉」）：
+           **断点在前端，不在客户端**：服务端早已把 `UNKNOWN` 判成 `failed: true`
+           （见 `video-task-status/route.ts` 的 ★VF_VIDEOSTATUS_UNKNOWN_V1），
+           但这里**只认 `done`** ⇒ `failed` 时什么也不做 ⇒ 定时器继续每 60 秒问一次、**永远不停**。
+           修：收到 `failed` 立刻停轮询，并记进 `handledVideoTasks`（同一 task 不再起新的定时器）。
+           ⚠️ 只加这一条判断，不动原有 `done` 分支的逻辑与提示。 */
+        if ((r as any).failed) {
+          clearInterval(iv)
+          handledVideoTasks.current.add(taskId)
+          return
+        }
         if (r.done) {
           clearInterval(iv)
           handledVideoTasks.current.add(taskId)
