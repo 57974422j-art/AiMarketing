@@ -1661,6 +1661,17 @@ function VfStyleSamples({ cur, onPick }: { cur: string; onPick: (v: string) => v
  *  每镜抽一张"内容全就位"的 PNG → 入库 + 签名 URL → 这里以缩略图网格展示（可点开大图）。
  *  ⚠️ 不扣点（审核用）；出片不依赖它；失败**如实显示原因**（服务端回的人话 error 原样贴出来）。 */
 function VfPptPreview({ plan }: { plan: any }) {
+  /* ★VF_NOUSELESSBTN_V1（2026-10-20 用户定案「这 2 个按键没用就隐藏了」「后面这个图片没用的该删就删」）：
+     **「👀 先看 PPT 页（不扣点）」整块已隐藏** —— 直接 return null，按钮和下面的缩略图面板都不再渲染。
+     **为什么**（三条，都有据）：
+       ① 它走**老引擎**逐镜抽图（`render.py --ppt-preview`），而新版 `deck-preview` 才是完整预览；
+       ② 用户实测：在图片成片/图视混剪上它**基本用不到**（真正常用的是"分镜清单 + 生成 HTML"）；
+       ③ 这条线做减法（只留合成+字幕）⇒ 这个入口多余。
+     ⚠️ **后台一行不动**：`/api/agent/vf/ppt-preview` 路由、`render.py --ppt-preview`（6 个测试脚本在用）、
+        `ppt-pages.mjs` 换页、以及 **PPT+图视线**（前台无入口、手动敲命令进）**全部保留**。
+     ↩️ 想恢复：删掉这一行 return null 即可（组件内部逻辑一个字没动）。 */
+  return null
+  // eslint-disable-next-line no-unreachable
   const [loading, setLoading] = useState(false)
   const [err, setErr] = useState('')
   const [imgs, setImgs] = useState<any[]>([])
@@ -5167,9 +5178,15 @@ function AgentPageInner() {
                   <span className="text-[10px] text-emerald-300/70">成片方式：新引擎 · 动态 PPT（配音+BGM+素材图）—— 选好皮肤点下面按钮出片</span>
                 ) : (
                   <>
-                    <button onClick={() => sendMessage('先看样板镜')}
-                      title="只渲染开头约 8 秒（无配音、不扣点），先看画面风格对不对；满意再点右边「确认出片」"
-                      className="px-4 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-sm text-gray-200">🎬 先看样板镜（8 秒）</button>
+                    {/* ★VF_NOUSELESSBTN_V1（2026-10-20 用户定案「这 2 个按键没用就隐藏了」）：
+                       **「🎬 先看样板镜（8 秒）」按钮已隐藏**。
+                       原因（有代码证据）：这个按钮发的是一句**纯中文**「先看样板镜」，而
+                       「图片成片」这条线**根本没有对应分支**（唯一实现在 `vf-video.ts` 的图视混剪线，
+                       且它读的是自己那张草稿表）⇒ 点下去会掉进「文案微调」兜底 ⇒
+                       **原样重发一张裁剪版卡片**（分镜/素材清单消失、"先看 PPT 页"变灰）⇒ 用户实测"点了回原卡"。
+                       ⚠️ 后端工具 `preview_video_shot` 与 `VF_PREVIEW_DONE` 协议**全部保留**
+                          （只是本线不再给入口）；图视混剪线自己的识别分支也没动。
+                       ↩️ 想恢复：把这三个属性的 button 放回来即可。 */}
                     {/* ★VF_I2VDFLT_V1（2026-09-30 用户定案）：一键关掉动图重出（省 N 点）——
                         替代让用户手打「关掉图转视频，直接生成」（那句会被标准模式白名单拦）。
                         发的是**机器协议串**（不是中文人话）：服务端收到后把草稿 i2v 置 'off' 并重出确认卡。 */}
