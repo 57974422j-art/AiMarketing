@@ -316,11 +316,32 @@ export function buildVideoPlan(shots: any[], vd: any, opts?: { sizeDefault?: num
   //     ② 填根级 `fx: 'off'`（渲染层的总闸，见 render.py 的 ★VF_FX_SWITCH_V1）。
   //   ⚠️ 默认（'on'/缺省）**一个键都不写、一个字段都不动** ⇒ 老草稿/老行为逐字不变（零回归）。
   const _fxOff = String(vd?.fx || '') === 'off'
+  /* ★VF_NODECK_V1（2026-10-20 用户实测「最后还是出了 3 个 PPT」→ 定案「做减法，只留合成+字幕」）：
+     **病灶**：图片成片的分镜提示词里有一段 `VF_DECK_PROMPT`，明确教 AI「信息量大的页就该排成
+       整页 PPT（variant=deck*）」⇒ **AI 会主动写几页 PPT** ⇒ 成片里混进 3 页整页文字排版。
+       ⚠️ 这跟 `pptpage`（新引擎换页）**不是一回事** —— 图片成片根本不写 `pptpage` 键
+       （`make.py` 的第一道闸就拦了），所以那些 PPT 页**100% 来自 AI 写的 `variant`**。
+     **修**：`line !== 'pptimg'` 时，把 `variant` 以 `deck` 开头的镜**清掉这个字段** ⇒
+       该镜退回"按 type 走的老画法"（bgimage / duo / frame / title / list…），
+       **画面语汇仍在，但不再有整页 PPT 版式页**。
+     ⚠️ **为什么只清 variant、不删镜头**：删镜头会把文案弄丢（subtitle 还在，覆盖会掉）⇒
+       清字段 = **内容一字不丢，只是换个画法**（与 ★VF_FX_SWITCH_V1 的"清字段"同一手法）。
+     ⚠️ **为什么用 `indexOf('deck') === 0` 而不是 import 白名单**：`variant` 白名单只有
+       `title` / `bgimage` / `deck*` 三族（见 anti-ai.ts 的 VF_VARIANTS / VF_DECK_VARIANTS），
+       以 `deck` 开头的**只有那 6 个** ⇒ 前缀判断等价且不引入新依赖。
+     ✅ **影响面**：`buildVideoPlan` 只被 图片成片 / 图视混剪 / PPT+图视 用 ——
+       **PPT+图视 保留**（`line==='pptimg'` 不处理）；**HTML 成片走 film-spec.ts、日报走自己的渲染器** ⇒ 不受影响。 */
+  const _noDeck = String(vd?.line || '') !== 'pptimg'
   const _shots = (Array.isArray(shots) ? shots : []).map((s: any) => {
-    if (!_fxOff || !s || typeof s !== 'object') return s
+    if (!s || typeof s !== 'object') return s
+    const _deckHit = _noDeck && String(s.variant || '').indexOf('deck') === 0
+    if (!_fxOff && !_deckHit) return s
     const o: any = { ...s }
-    for (const k of FX_STRIP_KEYS) if (o[k] !== undefined) delete o[k]
-    o.sustain = 'none'
+    if (_deckHit) delete o.variant
+    if (_fxOff) {
+      for (const k of FX_STRIP_KEYS) if (o[k] !== undefined) delete o[k]
+      o.sustain = 'none'
+    }
     return o
   })
   return planWithBanner({
