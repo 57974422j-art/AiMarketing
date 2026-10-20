@@ -797,62 +797,23 @@ function VideoFormCard({ vj, onStart, userId }: { vj: any; onStart: (msg: string
         </div>
       </div>
 
-      {/* ★VF_STYLES_WIRE_V1（2026-10-01 用户定案「目前模版有2套我是不是有点乱。能统一一下吗？或者删减不成熟的」）：
-          把原来并列的【主题（10 个）】+【🎨 画面模版（6 个）】两套下拉，收敛成**一个「🎨 画面风格」主入口**
-          （5 套成品风格 + 一个「跟随 AI / 不指定」）。选项键名/中文名逐字来自渲染层 themes.py 的 STYLES。
-          「跟随 AI / 不指定」= ''（不写 plan 根级 style）→ 老链路 theme + deck_style，行为与今天逐字一致。
-          ★VF_ONELAYER_V1（2026-10-06 用户定案）：当时"旧能力收进高级"只是过渡 —— 现已**整段删除**
-             （theme / deck_style 与风格同维度，见下面 ★VF_ONELAYER_V1 注释），本卡**只剩这一层视觉选择**。 */}
-      <div className="mb-3">
-        <div className="text-[10px] text-gray-400 mb-1">
-          🎨 画面风格 <span className="text-gray-600">{isPptimgLine
-            ? '（新引擎母版；只选一个母版，配色可换 —— 共 10 母版 × 4 配色）'
-            : '（一套搞定配色 + 整页 PPT 版式；只选一个）'}</span>
-        </div>
-        {/* ★VF_PPTIMG_V1：新线走**新引擎 10 母版 × 4 配色**（和老的 5 套画面风格是两套东西、互不共用）；
-            老两条线（图片成片/图视混剪）**一个字都不动**，仍是下面那 5 套 + 样张。 */}
-        {isPptimgLine ? (
-          <>
-            <div className="flex flex-wrap gap-1.5">
-              {VF_PPTIMG_SKINS.map((s) => R(skin, s.id, '🎨 ' + s.name, setSkin))}
-            </div>
-            <div className="text-[10px] text-gray-400 mb-1 mt-2">
-              配色 <span className="text-gray-600">（{_curSkin.name} 的 4 个配色，点色点切换）</span>
-            </div>
-            <div className="flex flex-wrap gap-1.5 items-center">
-              {_curSkin.palettes.map((p) => (
-                <button key={p.id} onClick={() => setPalette(p.id)}
-                  title={p.color}
-                  className={`flex items-center gap-1.5 px-2 py-1 rounded text-[11px] border transition ${palette === p.id ? 'bg-fuchsia-500/30 border-fuchsia-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-300 hover:bg-white/[0.1]'}`}>
-                  <span className="inline-block w-3 h-3 rounded-full border border-white/30" style={{ background: p.color }} />
-                  {p.id}
-                </button>
-              ))}
-            </div>
-            <div className="text-[10px] text-gray-500 mt-1">
-              本线 = 素材（图片）+ 新引擎整页版式页混排：纯文字镜会按所选母版排成**整页版式**
-              （标签条/要点/步骤/目录/金句/大数字/数据卡/页码），**页型由内容决定**，不会通篇"一页三排字"。
-              <br />要不含素材、整片都是 PPT 版式页的，请用独立入口词「<b>PPT成片</b>」。
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="flex flex-wrap gap-1.5">
-              {R(style, '', '🤖 跟随 AI / 不指定', setStyle)}
-              {VF_STYLES.map((s) => R(style, s.id, '🎨 ' + s.name, setStyle))}
-            </div>
-            {/* ★VF_STYLEPREVIEW_WIRE_V1（2026-10-02 用户原话「当前5个风格最好能加个模版样式。点了能看到…
-                这看不到效果盲猜」）：每套风格下方嵌渲染层样张缩略图（/style-preview/<key>-thumb.png），
-                点开看大图（<key>.png 要点页 + <key>-data.png 数据页）。缺图时隐藏并显示"样张生成中"，绝不显示破图。 */}
-            <VfStyleSamples onPick={setStyle} cur={style} />
-            <div className="text-[10px] text-gray-500 mt-1">
-              选一套 → 纯文字页会自动排成该风格的整页 PPT（标签条/要点/数据卡/页码）；不选则由 AI 按题材决定。
-              <br />本线 = 图文成片（素材画面 + 整页 PPT 版式页混排）。要做**不含素材、整片都是 PPT 版式页**的
-              「动态 PPT 成片」请用独立入口词「PPT成片」。
-            </div>
-          </>
-        )}
-      </div>
+      {/* ★VF_ONEFORM_V1（2026-10-20 用户定案「其它先不动，一个一个去」「图视成片也去掉」）：
+         **「🎨 画面风格」整块已从前台去掉** —— 连同 5 套成品风格按钮、4 张样张缩略图、以及
+         「🤖 跟随 AI / 不指定」那一排（原文见 git 历史里的 ★VF_STYLES_WIRE_V1 / ★VF_STYLEPREVIEW_WIRE_V1）。
+         用户口径：图片成片 / 图视混剪 做减法，只保留"合成 + 字幕"，不再选风格。
+
+         ✅ **后台一行不动**：`style` 仍按原字段提交（固定为 `''`）—— 而 `''` 在服务端的语义**本来就是
+            「跟随 AI / 不指定」**（不写 plan 根级 style ⇒ 走老链路 theme + deck_style）
+            ⇒ **行为与"选跟随 AI"逐字一致，零回归**。
+
+         ⚠️ **影响面（已逐条核过）**：
+            · 本组件 `VideoFormCard` **只在 `step === 'form'` 时渲染**（`page.tsx:4857`）；
+            · **HTML 成片**走 `VfFilmCard`（`film_mat / film_style / film_confirm`，`4858-4860`）⇒ **不受影响**；
+            · **日报落地页**走 `VfDailyPlanCard / VfDailyVoiceCard / VfDailyDoneCard` ⇒ **不受影响**；
+            · 本卡还被 `line === 'pptimg'`（PPT+图视，**前台无按钮、只能手动敲命令进**）共用 ⇒ 那条线也没有风格可选了。
+
+         ↩️ **想恢复**：把这段 JSX 放回去即可 —— 组件（`VfStyleSamples`）、数据（`VF_STYLES` / `VF_PPTIMG_SKINS`）、
+            提交字段（`style` / `skin` / `palette`）**全都还在**，一个字都没删。 */}
 
       {/* ★VF_ONELAYER_V1（2026-10-06 用户定案「目的只有一套 PPT 选择 … 确定重复内容冗余 删除」）：
           原「高级：主题 / PPT 版式」**两段整段删除**（连同 ★VF_STYLELOCK_ADV_V1 的置灰逻辑与两条 amber 提示、
