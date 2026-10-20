@@ -639,8 +639,20 @@ async function checkDesignPage(html: string, picks: DailyPick[], tag: string): P
         b = await getObject(p.key)
       }
       if (!b || !b.length) continue
-      const mime = /\.png$/i.test(p.name) ? 'image/png' : 'image/jpeg'
-      imgs.push({ n: i + 1, mime, b64: b.toString('base64'), bytes: b.length, ref: String(i + 1) + '.jpg' })
+      /* ★VF_DAIDESIGN_V19（2026-10-20 线上实测「第1轮闸门 ✗ 未过 + `check 失败但没给出可用报错（exit=1）`」）：
+         病：这一步把 **17 张原图** base64 内嵌进 HTML 再跑闸门 —— 餐饮素材单张 250KB ⇒ 内嵌后约 5.6MB
+             ⇒ `daily-film.mjs --check-only` 处理 5.6MB 时**被 OOM kill**（SIGKILL 不产生 stderr）
+             ⇒ 只看到 `exit=1` 没有任何报错 ⇒ 无法判断是排版问题还是崩溃。
+         现口径：**内嵌前先缩到 512px / q70**（单张约 30KB ⇒ 17 张约 500KB）
+             ⇒ 闸门内存占用降到 1/10，同时更快；闸门只看排版与对比度，不需要原图分辨率。
+         （与 `aiDesignPage` 里传给模型看的图同一口径，保持一致。） */
+      let bSmall = b
+      try {
+        const sharpMod: any = (await import('sharp')).default
+        bSmall = await sharpMod(b).resize(512, 512, { fit: 'inside' }).jpeg({ quality: 70 }).toBuffer()
+      } catch { /* 没有 sharp 或缩失败 ⇒ 用原图（老行为） */ }
+      const mime = 'image/jpeg'
+      imgs.push({ n: i + 1, mime, b64: bSmall.toString('base64'), bytes: bSmall.length, ref: String(i + 1) + '.jpg' })
     } catch { /* 单张失败就跳过 */ }
   }
   if (!imgs.length) return { ok: false, note: '素材读不出来（一张都没读到），无法跑闸门' }
@@ -665,7 +677,14 @@ async function checkDesignPage(html: string, picks: DailyPick[], tag: string): P
       .slice(0, 8)
     const okAll = r.code === 0 && /引擎校验 OK/.test(r.text)
     if (okAll) return { ok: true, note: '四道闸门全过' }
-    return { ok: false, note: lines.length ? lines.join('\n') : ('check 失败但没给出可用报错（exit=' + r.code + '）') }
+    /* ★VF_DAIDESIGN_V19b：原来这里只说"没给出可用报错"，**把 stderr/stdout 整个丢掉了**
+       ⇒ 线上出现过 `exit=1` 且零输出的情况（OOM 被 SIGKILL），完全无法定位。
+       现口径：**没抓到报错行时，把输出尾部 600 字也打出来**；真的一无所有则明说"疑似 OOM 被杀"。 */
+    if (!lines.length) {
+      const tail = String(r.text || '').replace(/\s+/g, ' ').trim().slice(-600)
+      return { ok: false, note: 'check 异常退出（exit=' + r.code + '）：' + (tail || '（无任何输出，疑似内存不足被系统杀掉）') }
+    }
+    return { ok: false, note: lines.join('\n') }
   } catch (e: any) {
     return { ok: false, note: '跑闸门时出错：' + String(e?.message || e).slice(0, 160) }
   } finally {
