@@ -500,42 +500,35 @@ export async function aiDesignPage(
   const n = picks.length
   if (!n) return { ok: false, error: '没有素材' }
 
-  // ① 读图（复用成片线那条已验证的通路；失败不判死，但原因要如实带出去）
+  /* ★VF_DAIDESIGN_V17（2026-10-20 用户定案「**让 AI 自己看素材自己定**」）：
+     原来这里先调**视觉模型**把图转成"物体清单"文字（`1.jpg = 铜锅，白盘，红枣`），再塞进 prompt ——
+     结果 AI **只知道"有什么"，不知道"主体在哪 / 背景多亮 / 哪儿留白"**
+     ⇒ 于是压字压到主体上（`content_overlap`）、对比度算不准（3.04:1 vs 要 4.5）—— 这是 AI 档反复回落模板的真因。
+     本地实测（`temp/_daily/test-vision.mjs`）：**deepseek-flash 原生支持图片输入**，同一次调用就直接给出
+       "一桌火锅菜品与中央点餐牌；中；亮；左上角及左侧边缘留白"
+     ⇒ 所以**不再转述，直接把图（缩到 512px/q70 的 base64）塞进 messages**，让它自己看。
+     · 体积可控：单张约 30~50KB ⇒ 17 张约 800KB（deepseek context 1M 装得下）
+     · 耗时可控：实测 3 张 5 秒，17 张约 15~25 秒
+     ⚠️ `summary` 变量保留：若取图全失败，回落"纯文本 + 无图"也能出（只是回到旧水平）。 */
   let summary = ''
   let vlErr = ''
+  const imgParts: any[] = []
   try {
-    const { describeImagesWithVL, vlReady, vlModel } = await import('@/lib/ai-providers')
-    if (!vlReady()) vlErr = '服务端没配视觉模型 key（DASHSCOPE_API_KEY）'
-    else {
-      const { signedUrl } = await import('@/lib/oss')
-      const urls: string[] = []
-      for (const p of picks) {
-        try {
-          if (p.local && p.abs) {
-            const b = fs.readFileSync(p.abs)
-            if (b.length > 6 * 1024 * 1024) continue            // 单张太大就跳过（不缩图，避免再踩 ffmpeg）
-            const mime = /\.png$/i.test(p.name) ? 'image/png' : 'image/jpeg'
-            urls.push(`data:${mime};base64,${b.toString('base64')}`)
-          } else {
-            urls.push(await signedUrl(p.key, 3600))
-          }
-        } catch { /* 单张失败跳过 */ }
+    const { getObject } = await import('@/lib/oss')
+    let sharpMod: any = null
+    try { sharpMod = (await import('sharp')).default } catch { /* 没有 sharp 就不缩，直接原图 base64 */ }
+    for (const p of picks) {
+      let b: Buffer | null = null
+      if (p.local && p.abs) { try { b = fs.readFileSync(p.abs) } catch { /* 走 OSS */ } }
+      if (!b) { try { b = await getObject(p.key) } catch { /* 单张失败跳过 */ } }
+      if (!b) continue
+      let buf = b
+      if (sharpMod) {
+        try { buf = await sharpMod(b).resize(512, 512, { fit: 'inside' }).jpeg({ quality: 70 }).toBuffer() } catch { buf = b }
       }
-      if (!urls.length) vlErr = '素材 URL 拿不到（OSS 签名失败）'
-      else {
-        const ask = '这是一组要做成「旅行纪实视频页」的实拍照片（共 ' + urls.length + ' 张，按给定顺序编号 1..' + urls.length + '）。'
-          + '第一行：一句话总结这组素材拍的是什么（≤30 字）。'
-          + '之后**逐张一行**，写清第 N 张拍的是什么（主体/场景/细节/氛围，≤20 字），格式「N. …」。'
-          + '只回这些，不要解释、不要 markdown 代码块。'
-        for (let tries = 1; tries <= 2 && !summary; tries++) {
-          try {
-            const r = await describeImagesWithVL(urls, ask, 900)
-            if (String(r || '').trim()) summary = String(r).trim()
-          } catch { /* 试第二次 */ }
-        }
-        if (!summary) vlErr = '视觉模型读图失败（' + vlModel() + '）'
-      }
+      imgParts.push({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + buf.toString('base64') } })
     }
+    if (!imgParts.length) vlErr = '取图失败（OSS 与本地都没有可读文件）'
   } catch (e: any) { vlErr = String(e?.message || e).slice(0, 100) }
 
   // ② 让 AI 出整页 HTML（关思考 + 大额度 + 长超时，与方案档同口径）
@@ -560,7 +553,17 @@ export async function aiDesignPage(
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + dsKey },
         body: JSON.stringify({
           model: 'deepseek-flash',
-          messages: [{ role: 'user', content: prompt }],
+          /* ★VF_DAIDESIGN_V17：**把图直接给它看**（不是文字转述）。
+             顺序 = picks 顺序 = 1.jpg, 2.jpg …；prompt 里已写明"第 i 张就是 i.jpg"。 */
+          messages: [{
+            role: 'user',
+            content: imgParts.length
+              ? [
+                  { type: 'text', text: prompt + '\n\n【下面按顺序给出 ' + imgParts.length + ' 张实拍照片，第 i 张就是 ' + 'i.jpg】请逐张看，据此决定：每段用哪张、字压在哪（避开主体）、遮罩要多深（暗处浅、亮处深）。' },
+                  ...imgParts,
+                ]
+              : prompt,
+          }],
           /* ★VF_DAIDESIGN_V3c（2026-10-18 用户定案「**max_tokens 取消这个不限制**」）：
              **不再传 `max_tokens`** —— 之前 16000/32000 都是拍脑袋，结果 16000 那版每轮都被截断
              （思考先吃额度、正文要 1.5~2 万字 ⇒ 缺 `</html>` ⇒ 3 轮全挂）。
