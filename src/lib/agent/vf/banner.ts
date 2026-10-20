@@ -288,7 +288,17 @@ export function buildVideoPlan(shots: any[], vd: any, opts?: { sizeDefault?: num
   const size = (Array.isArray(vd?.size) && vd.size.length === 2 ? vd.size : null) || opts?.sizeDefault || [1080, 1920]
   // ★VF_STYLES_WIRE_V1（2026-10-01）：「🎨 画面风格」= 5 套成品风格之一；未选 / 非法 → normalizeStyle 返回 ''
   //   → 下面**不写 style 键**（render.py 的 apply_style 不触发）→ 老链路（theme + deck_style）逐字不变。
-  const _style = normalizeStyle(vd?.style)
+  /* ★VF_NOSTYLE_V1（2026-10-20 用户实测「虽然把模版从卡片上删除了，但制作时它还是加上了」）：
+     **前端删了选择器 ≠ 风格不再生效**。病灶有两层：
+       ① 老草稿里还存着 `vd.style`（之前选过 'deepblue' 之类）；
+       ② 这里**仍然把它写进 plan 根级 `style`** ⇒ 渲染层 apply_style 照样按它出片
+          ⇒ 确认卡抬头也照样显示「风格 深蓝墨」。
+     现口径：**`_style` 恒为空** ⇒ 下面 `...(_style ? {style:_style} : {})` 自然不写这个键
+       ⇒ plan 不带 style ⇒ 走老链路（theme + deck_style），与"从没选过风格"完全一致。
+     ⚠️ 影响面：`buildVideoPlan` 只被 **图片成片 / 图视混剪 / PPT+图视** 用；
+        **HTML 成片走 film-spec.ts、日报走自己的渲染器** ⇒ 两条线不受影响。
+     ↩️ 想恢复：把 `_style` 改回 `normalizeStyle(vd?.style)` 即可（`style` 字段与 UI 都还在 git 历史里）。 */
+  const _style = ''
   // ★VF_PPTIMG_V1（2026-10-07）：新线「PPT+图视」—— plan 根级带 `pptpage{master,palette,mix}`，
   //   交给 make.py 透传给 ppt-pages.mjs（皮肤 = 新引擎 10 母版 × 4 配色；mix=true 开页型编排）。
   //   ⚠️ **只有本线写这个键**：老线（图片成片/图视混剪/素材+AI/AI 制片）不写 ⇒ 行为与今天逐字一致（零回归）。

@@ -4968,7 +4968,13 @@ PUBLISH_DRAFT.delete(uidW)
                   // ★VF_STYLES_WIRE_V1（2026-10-01 用户定案「我本次选的是新闻资讯，因为我没看到新模版」）：
                   //   设置卡「🎨 画面风格」（5 套成品风格）—— 走 normalizeStyle 白名单归一
                   //   （非法 / 未选 → '' = 不指定）；出片时由 buildVideoPlan 决定是否写 plan 根级 `style`。
-                  if (f.style !== undefined) vd.style = normalizeStyle(f.style)
+                  // ★VF_NOSTYLE_V1（2026-10-20 用户定案「按你说的来」）：**`style` 停用** ——
+                  //   设置卡上的「🎨 画面风格」整块已删（`page.tsx` ★VF_ONEFORM_V1），后端这里也一并停：
+                  //   **无论前端/老草稿送什么，都强制清空** ⇒ 出片不带 plan 根级 `style`
+                  //   （否则老草稿里的 'deepblue' 会让确认卡继续显示「风格 深蓝墨」—— 用户实测过）。
+                  //   ⚠️ 只影响 图片成片 / 图视混剪 / PPT+图视（它们共用 buildVideoPlan）；
+                  //      HTML 成片（film-spec.ts）与日报（自己的渲染器）不受影响。
+                  if (f.style !== undefined) vd.style = ''
                   // ★VF_PPTIMG_V1（2026-10-07）：新线「PPT+图视」的新引擎皮肤（master + palette）——
                   //   白名单来自 anti-ai.ts 的 `VF_PPTIMG_SKINS`（真源是 masters/*/master.json）。
                   //   非法 skin → 回落 'tech'；palette 不在该母版的配色里 → 用该母版的**第一个配色**
@@ -5760,7 +5766,8 @@ PUBLISH_DRAFT.delete(uidW)
               }
               if (_f2.voice) vd.voice = String(_f2.voice)
               if (_f2.theme) vd.theme = ['dark', 'tech', 'light'].includes(String(_f2.theme)) ? String(_f2.theme) : vd.theme
-              if (_f2.style !== undefined) vd.style = normalizeStyle(_f2.style)
+              // ★VF_NOSTYLE_V1：同上 —— 第二次改设置也强制清空（`style` 已停用）
+              if (_f2.style !== undefined) vd.style = ''
               if (_f2.deckStyle !== undefined) vd.deckStyle = normalizeDeckStyle(_f2.deckStyle)
               if (_f2.big !== undefined) vd.big = (String(_f2.big) === 'off') ? 'off' : 'on'
               if (_f2.fx !== undefined) vd.fx = (String(_f2.fx) === 'off') ? 'off' : 'on'
