@@ -6051,7 +6051,43 @@ function AgentPageInner() {
 
                 {/* 附件按钮 */}
                 {messages.map(msg => (
-              <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2`}>
+              <div key={msg.id}
+                onContextMenu={(e) => {
+                  // ① 有选区 ⇒ 走原生复制（不打断用户精细选择）
+                  const sel = typeof window !== 'undefined' ? String(window.getSelection()?.toString() || '').trim() : ''
+                  if (sel) return
+                  e.preventDefault()
+                  const raw = String(msg.content || '')
+                  // ② 协议串（机器用）不复制
+                  if (/^(VF_|MAKE_VIDEO|VIDEO_TASK|IMAGE_PENDING|DH_TASK)/.test(raw.trim())) {
+                    try { console.info('[右键复制] 这条是卡片协议，已跳过') } catch { /* ignore */ }
+                    return
+                  }
+                  if (!raw.trim()) return
+                  const done = () => { try { console.info('[右键复制] 已复制 ' + raw.length + ' 字') } catch { /* ignore */ } }
+                  const fallback = () => {
+                    try {
+                      const ta = document.createElement('textarea')
+                      ta.value = raw
+                      ta.style.position = 'fixed'
+                      ta.style.opacity = '0'
+                      document.body.appendChild(ta)
+                      ta.select()
+                      document.execCommand('copy')
+                      document.body.removeChild(ta)
+                      done()
+                    } catch { /* ignore */ }
+                  }
+                  try {
+                    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(raw).then(done).catch(fallback)
+                    else fallback()
+                  } catch { fallback() }
+                }}
+                className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-2`}>
+                {/* ★VF_RIGHTCLICKCOPY_V1（2026-10-21 用户定案「给 AGENT 页会话框加一个右键复制功能」）：
+                   上面那个 onContextMenu = **右键任意一条消息 ⇒ 复制这条的内容**。两条刻意规矩：
+                     ① 已经选中文字 ⇒ 不拦（交给原生"复制选中"，更精确）；
+                     ② 协议串（VF_JSON / VF_FORM…）不复制 —— 粘出去没有意义。 */}
                 <div className={`flex items-start gap-2 max-w-[88%] sm:max-w-[75%] ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
                   <div className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 overflow-hidden ${msg.role === 'user' ? 'bg-blue-500/20 border border-blue-500/30 rounded-full' : 'bg-gradient-to-br from-emerald-400 to-cyan-500'}`}>
                     {msg.role === 'user'
