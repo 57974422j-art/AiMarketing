@@ -1890,3 +1890,58 @@ export function applyDailyEdit(plan: any, raw: string, picks: PlanPick[] = []): 
   }
   return { matched: true, ok: false, msg: '这条改法没看懂' }
 }
+
+/* ★VF_PLAN_FROM_AIHTML_V1（2026-10-21 用户实测「图片比文字快一段 / 配音稿卡上『画面：』全空」）：
+   病灶：AI 自由档出片时把 `d.plan` 覆盖成 `Array.from({length: secN}, () => ({layout:'free', title:['','']}))`
+        ⇒ **方案卡的文案被丢光** ⇒ 口播稿/字幕拿到的是一堆**空标题**
+        ⇒ 它只能按"素材顺序"自己编一套 ⇒ **与 AI 页面的段落顺序对不上** ⇒ 字幕错位一格。
+   现口径：**出片前，从 AI 写好的 HTML 里把每段的「起止时间 + 大字 + 用图」读出来**，
+        回填成 plan ⇒ 口播稿/字幕/画面**同源** ⇒ 错位消失。
+   · 只做**最小提取**（不做完整反向解析）：段落边界靠 `<section class="sec">`；
+   · 文案取「该段内最长的 1~2 段文字」（通常是主标题/副标题，装饰性小字自然被排后）；
+   · 用图取 `<img src>` / `url(...)` 里的编号；取不到就给 `[1]` 兜底（不阻断流程）。
+   ⚠️ 纯函数、不依赖 IO ⇒ 可单测。 */
+export function planFromAiHtml(html: string): { meta: any; segments: any[] } {
+  const segments: any[] = []
+  const secRe = /<section\b[^>]*\bclass="[^"]*\bsec\b[^>]*>([\s\S]*?)<\/section>/gi
+  let m: RegExpExecArray | null
+  while ((m = secRe.exec(String(html || '')))) {
+    const whole = m[0]
+    const openTag = whole.slice(0, whole.indexOf('>') + 1)
+    const start = Number((/data-start="([\d.]+)"/.exec(openTag) || [])[1] || 0)
+    const dur = Number((/data-duration="([\d.]+)"/.exec(openTag) || [])[1] || 0)
+    const inner = m[1] || ''
+    // 用图
+    const imgs: number[] = []
+    const imgRe = /<img[^>]+src=["']([^"']+)["']|url\(\s*["']?([^"')]+)/gi
+    let im: RegExpExecArray | null
+    while ((im = imgRe.exec(inner))) {
+      const src = im[1] || im[2] || ''
+      const n = Number((/(\d+)\.(?:jpe?g|png|webp)/i.exec(src) || [])[1] || 0)
+      if (n > 0 && imgs.indexOf(n) < 0) imgs.push(n)
+    }
+    // 文案：剥标签 → 按分隔符切句 → 取最长的 1~2 段
+    const plain = inner
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<br\s*\/?>/gi, '|')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;|&amp;/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    /* 按**出现顺序**取前两段（不再按字数排序）——
+       排序会把"树影和人影都浮着"（说明句）排到"踩着石墩过河"（标题）前面，导致主副颠倒。
+       过滤掉纯数字（页码）与单字符（装饰），保留正常中文/英文短句。 */
+    const parts = plain.split(/[|｜/／·、,，。;；!！?？\s]+/).map((s) => s.trim())
+      .filter((s) => s.length >= 2 && !/^\d+([.:]\d+)?$/.test(s))
+    segments.push({
+      layout: 'free',
+      title: [(parts[0] || '').slice(0, 14), (parts[1] || '').slice(0, 14)],
+      points: [],
+      imgs: imgs.length ? imgs : [1],
+      start,
+      dur,
+    })
+  }
+  return { meta: { theme: '' }, segments }
+}

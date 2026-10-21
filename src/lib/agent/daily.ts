@@ -41,7 +41,7 @@ import { vfRootDir } from './video-material'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 import { dashscopeFunctionCall } from '@/lib/ai-providers'
 // ★纯函数层（零依赖、可单测：temp/_exp/daily/test-plan.mjs）
-import { DAILY_STYLE, aiPrompt, extractJsonEx, normSegs, normMotion, normTheme, normFont, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, assignTextMotion, pickFont, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer, checkDiversity, fixDiversity, voicePrompt, voicePromptStrict, normVoiceLines, buildVoiceCardPayload, estimateSec, parseVoiceLines, VOICE_MAX_CHARS, voiceKeyOf, aiDesignPrompt } from './daily-plan'
+import { DAILY_STYLE, aiPrompt, extractJsonEx, normSegs, normMotion, normTheme, normFont, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, assignTextMotion, pickFont, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer, checkDiversity, fixDiversity, voicePrompt, voicePromptStrict, normVoiceLines, buildVoiceCardPayload, estimateSec, parseVoiceLines, VOICE_MAX_CHARS, voiceKeyOf, aiDesignPrompt, planFromAiHtml } from './daily-plan'
 import type { PlanBy } from './daily-plan'
 
 export { DAILY_STYLE }
@@ -1546,7 +1546,20 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
         : (/<\/body>/i.test(html) ? html.replace(/<\/body>/i, guard + '\n</body>') : html + guard)
     }
     const secN = Math.max(1, (html.match(/<section[^>]*\bclass="[^"]*\bsec\b/g) || []).length)
-    d.plan = { meta: { theme: '' }, segments: Array.from({ length: secN }, () => ({ layout: 'free', title: ['', ''] })) } as any
+    /* ★VF_PLAN_FROM_AIHTML_V1（2026-10-21 用户实测「图片比文字快一段 / 配音稿『画面：』全空」）：
+       原来这里把 plan 覆盖成 **N 段空标题** ⇒ 方案卡的文案被丢光 ⇒ 口播稿/字幕拿到空壳
+       ⇒ 只能按"素材顺序"自己编 ⇒ 与 AI 页面的段落顺序对不上 ⇒ **字幕错位一格**。
+       现口径：**从 AI 写好的 HTML 里把每段「起止时间 + 大字 + 用图」读回来**填进 plan
+       ⇒ 口播稿 / 字幕 / 画面 **三者同源**。取不到文案时仍退回空标题（不阻断流程）。 */
+    const fromHtml = planFromAiHtml(String(html))
+    d.plan = (fromHtml.segments.length
+      ? (fromHtml as any)
+      : { meta: { theme: '' }, segments: Array.from({ length: secN }, () => ({ layout: 'free', title: ['', ''] })) }) as any
+    try {
+      const _s = (d.plan as any)?.segments || []
+      ctx.log?.(uid, '[日报落地页] 从 AI 页面回填 plan：' + _s.length + ' 段 ｜ 段1='
+        + JSON.stringify(_s[0]?.title) + ' ｜ 段N=' + JSON.stringify(_s[_s.length - 1]?.title))
+    } catch { /* ignore */ }
     d.planBy = 'ai'
     try { ctx.log?.(uid, '[日报落地页] AI 自由设计：第' + attempt + '轮过闸门 · ' + secN + ' 段') } catch { /* ignore */ }
     return await finishDaily(ctx, d, picks, { html })
