@@ -726,11 +726,21 @@ async function checkDesignPage(html: string, picks: DailyPick[], tag: string): P
        若直接 `softLines = 非致命行`，可能**一堆正常行 + 引擎崩了** ⇒ 被判"仅审美" ⇒ 误放行。
        现口径：soft 必须**命中具体审美判据**（content_overlap / 对比度），否则**一律按失败拦下**。 */
     const SOFT_RE = /content_overlap|contrast|need\s*4\.5:1|对比度/i
-    const fatalLines = lines.filter((l) => FATAL_RE.test(l))
-    const softLines = lines.filter((l) => SOFT_RE.test(l) && !FATAL_RE.test(l))
-    if (!fatalLines.length && softLines.length) {
-      return { ok: true, note: '（放行·仅审美告警）' + softLines.join(' ｜ ').slice(0, 600) }
+    /* ★VF_AIDESIGN_SOFTGATE_V1d（2026-10-21 子代理审计发现的安全漏洞）：
+       旧逻辑是"**排除**致命名单 ⇒ 放行" ⇒ 只要有一条 content_overlap，**别的没列入名单的错误也会被放过**
+       （典型：`stage=media ✗ 图没内嵌` 不在 FATAL_RE 里 ⇒ 渲染失败的黑片照样交付）。
+       现口径：**反过来**——先取出**所有错误行**，只有"**每一条都属于审美白名单**"才放行；
+       任何一条不在白名单 ⇒ 一律拦下（宁可拦，也不交付黑片）。 */
+    const errLines = lines.filter((l) => /\b✗\b/.test(l) || /^stage=\w+\s*✗/i.test(l))
+    const onlySoft = errLines.length > 0 && errLines.every((l) => SOFT_RE.test(l) && !FATAL_RE.test(l))
+    if (onlySoft) {
+      return { ok: true, note: '（放行·仅审美告警）' + errLines.join(' ｜ ').slice(0, 600) }
     }
+    if (errLines.length && !errLines.some((l) => FATAL_RE.test(l)) && !onlySoft) {
+      // 有错、但不属于审美白名单、也不在致命名单里 ⇒ 未知错误，同样拦下（防止再出现"没听过就放行"）
+      return { ok: false, note: '存在未分类错误（已拦下，请人工确认）：' + errLines.join(' ｜ ').slice(0, 800) }
+    }
+    const fatalLines = lines.filter((l) => FATAL_RE.test(l))
     /* ★VF_DAIDESIGN_V19b：原来这里只说"没给出可用报错"，**把 stderr/stdout 整个丢掉了**
        ⇒ 线上出现过 `exit=1` 且零输出的情况（OOM 被 SIGKILL），完全无法定位。
        现口径：**没抓到报错行时，把输出尾部 600 字也打出来**；真的一无所有则明说"疑似 OOM 被杀"。 */
