@@ -41,7 +41,7 @@ import { vfRootDir } from './video-material'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 import { dashscopeFunctionCall } from '@/lib/ai-providers'
 // ★纯函数层（零依赖、可单测：temp/_exp/daily/test-plan.mjs）
-import { DAILY_STYLE, aiPrompt, extractJsonEx, normSegs, normMotion, normTheme, normFont, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, assignTextMotion, pickFont, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer, checkDiversity, fixDiversity, voicePrompt, voicePromptStrict, normVoiceLines, buildVoiceCardPayload, estimateSec, parseVoiceLines, VOICE_MAX_CHARS, voiceKeyOf, aiDesignPrompt, planFromAiHtml } from './daily-plan'
+import { DAILY_STYLE, aiPrompt, extractJsonEx, normSegs, normMotion, normTheme, normFont, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, assignTextMotion, pickFont, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer, checkDiversity, fixDiversity, voicePrompt, voicePromptStrict, normVoiceLines, buildVoiceCardPayload, estimateSec, parseVoiceLines, VOICE_MAX_CHARS, voiceKeyOf, aiDesignPrompt, aiStoryboardPrompt, planFromAiHtml } from './daily-plan'
 import type { PlanBy } from './daily-plan'
 
 export { DAILY_STYLE }
@@ -533,8 +533,45 @@ export async function aiDesignPage(
     if (!imgParts.length) vlErr = '取图失败（OSS 与本地都没有可读文件）'
   } catch (e: any) { vlErr = String(e?.message || e).slice(0, 100) }
 
+  /* ★VF_AIDESIGN_TWOSTEP_STORY_V1（第 1 步）—— **只让它写分镜表**（纯文案任务，不带排版压力）。
+     实测依据：同一批「猫」素材，一次调用里"又写文案又排版"会退化成元叙述（十三帧/底片/不摆拍）；
+              而素材差异大的「风景」却能写出"白墙压黑瓦/油纸伞粉橙白/老树一道裂口" ⇒
+              **是任务耦合，不是主题问题**。
+     ⚠️ 这份分镜表**是 AI 自己写的**（不抄用户的方案卡）⇒ 仍满足"自主规划文案 + 自主排版"。
+     失败不判死：拿不到分镜表 ⇒ 退回"一步到位"的老路径（不影响出片）。 */
+  let storySegs: any[] = []
+  if (imgParts.length) {
+    try {
+      const _dsKey = process.env.DEEPSEEK_API_KEY
+        || (() => { try { const c = fs.readFileSync(path.join(process.cwd(), '.env.local'), 'utf-8'); const m = c.match(/^DEEPSEEK_API_KEY=(.+)$/m); return m ? m[1].trim().replace(/^["']|["']$/g, '') : '' } catch { return '' } })()
+      if (_dsKey) {
+        const sbText = aiStoryboardPrompt(n, topic)
+          + '\n\n【下面按顺序给出 ' + imgParts.length + ' 张图，第 i 张就是 i.jpg】'
+        const r1 = await fetch('https://api.deepseek.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + _dsKey },
+          body: JSON.stringify({
+            model: 'deepseek-flash',
+            messages: [{ role: 'user', content: [{ type: 'text', text: sbText }, ...imgParts] }],
+            temperature: 0.8,
+          }),
+          signal: AbortSignal.timeout(150000),
+        })
+        const j1: any = await r1.json().catch(() => null)
+        const c1 = String(j1?.choices?.[0]?.message?.content || '')
+        const m1 = /\{[\s\S]*\}/.exec(c1)
+        if (m1) {
+          try {
+            const o = JSON.parse(m1[0])
+            if (Array.isArray(o?.segments) && o.segments.length) storySegs = o.segments
+          } catch { /* ignore */ }
+        }
+      }
+    } catch { /* 分镜表失败 ⇒ 走一步到位老路径 */ }
+  }
+
   // ② 让 AI 出整页 HTML（关思考 + 大额度 + 长超时，与方案档同口径）
-  const prompt = aiDesignPrompt(n, topic, { failNote: opts?.failNote })
+  const prompt = aiDesignPrompt(n, topic, { failNote: opts?.failNote, segs: storySegs })
     + (summary ? '\n\n【素材实拍内容（视觉模型逐张读出，写文案必须据此，不许编造）】\n' + summary : '')
   let txt = ''
   let diag = ''
@@ -582,7 +619,9 @@ export async function aiDesignPage(
       const ch = j?.choices?.[0]
       txt = String(ch?.message?.content || '')
       used = 'deepseek-flash'
+      // ★VF_AIDESIGN_TWOSTEP_STORY_V1：把"分镜表有没有拿到"打进 diag —— 一眼能看出两步制有没有生效
       diag = '模型 deepseek-flash · finish ' + String(ch?.finish_reason || '?')
+        + ' · 分镜 ' + storySegs.length + ' 段'
         + ' · 输出 ' + txt.length + ' 字 · prompt ' + prompt.length + ' 字'
     } catch (eDs: any) {
       // 回落百炼（原路径，逐字不变）

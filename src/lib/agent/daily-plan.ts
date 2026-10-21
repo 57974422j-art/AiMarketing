@@ -450,10 +450,68 @@ export function aiPrompt(n: number, topic: string, opts?: { lastTheme?: string; 
  * @param topic 主题（可为空）
  * @param opts.failNote 上一版没过闸门时的报错（重写循环用；只让它改相关处）
  */
-export function aiDesignPrompt(n: number, topic: string, opts?: { failNote?: string }): string {
+/* ★VF_AIDESIGN_TWOSTEP_STORY_V1（2026-10-21 用户实测对比，**这是真因**）：
+   同一批「猫」素材、同一个 AI 自由档：
+     · **019（风景 17 张）** 文案很好（白墙压黑瓦 / 油纸伞粉橙白 / 老树一道裂口）
+     · **082（猫 16 张）** 文案空（十三帧 / 底片 / 不摆拍）
+   差别不在"主题"，而在**一次调用里同时干了两件事**：写文案 + 写排版。
+     · 素材差异大（风景）⇒ 顺手就写出内容；
+     · 素材相似（都是一只猫）⇒ "想不出话"，注意力被排版吃掉 ⇒ 退化成元叙述。
+   现口径：**拆成两步，但两步都是 AI 自己做的**（**不抄方案卡**，用户明确要求自主）：
+     ① 先让它**只做一件事** —— 看完全部素材，出一份「分镜表」（每段：文案 + 用哪张图）；
+     ② 再让它照着**自己刚写的**分镜表排版、做动效、画图形。
+   为什么这样能解决：单独一次"只写文案"的调用，等于把它从"排版压力"里解放出来；
+   且分镜表是**它自己写的** ⇒ 完全符合"AI 自己规划文案自己排版"。 */
+export function aiStoryboardPrompt(n: number, topic: string): string {
+  const lo = Math.max(6, Math.round(n * 0.6))
+  const hi = n + 4
+  return [
+    '你是短视频分镜师。下面有 ' + n + ' 张实拍照片（与 HTML 同目录，1.jpg ~ ' + n + '.jpg）。',
+    (topic ? '这条短片的主题/背景：' + topic : '主题请你根据照片内容自己判断。'),
+    '',
+    '**这一步只做一件事：写分镜表。不要写 HTML、不要考虑排版。**',
+    '',
+    '要求：',
+    '1) **每段只讲一件事**；段数由内容决定（一般 ' + lo + '~' + hi + ' 段）；',
+    '2) 每段三个字段：',
+    '   · title：两行文案，每行 ≤8 字 —— 写**画面里具体有什么**；',
+    '   · points：0~2 条信息点，每条 ≤10 字（可留空）；',
+    '   · imgs：这一段用哪几张图（1-based 编号，可多张）；',
+    '3) **' + n + ' 张图必须全部用到**（一张都不能漏，可多图同段）；',
+    '4) ⚠️**禁止元叙述**：不许写"第几帧 / 实拍 / 底片 / 快门 / 不摆拍 / 一帧一个此刻 / 构图 / 留白 / 光影"',
+    '   这类**谈照片本身**的话；**必须**写画面里的**具体主体 + 它在做什么 + 什么质感/颜色/光**；',
+    '   例：✅「猫把下巴搁在门槛上，尾巴慢慢扫过地砖」 ❌「第十三帧，光影很好，不加修饰」；',
+    '5) 自检：**不看照片，只读这段文案，也该知道画面里有什么**（谁、在做什么、什么样子）。',
+    '',
+    '只输出 JSON，不要解释、不要 markdown 围栏：',
+    '{"segments":[{"title":["第一行","第二行"],"points":[],"imgs":[1]}]}',
+  ].join('\n')
+}
+
+export function aiDesignPrompt(
+  n: number, topic: string,
+  opts?: { failNote?: string; segs?: any[] },
+): string {
   const fail = String(opts?.failNote || '').trim()
+  /* ★VF_AIDESIGN_TWOSTEP_STORY_V1：`segs` 是**AI 自己上一步写的分镜表**（不是用户的方案卡）⇒ 照它排版。 */
+  const segs = Array.isArray(opts?.segs) ? opts!.segs! : []
   return [
     '你是顶级视觉设计师兼前端工程师。请交付**一条竖屏 9:16 视频的页面**（720×1280），它会被**逐帧渲染成 mp4**（不是给人滚动浏览的网页）。',
+    ...(segs.length ? [
+      '',
+      '【你刚写的分镜表 · 就按这个排】（共 ' + segs.length + ' 段）',
+      ...segs.map((s: any, i: number) => {
+        const t = Array.isArray(s?.title) ? s.title.filter(Boolean).join(' / ') : ''
+        const pts = Array.isArray(s?.points) && s.points.length
+          ? ' ｜ 信息点：' + s.points.map((p: any) => (Array.isArray(p) ? p.join('·') : String(p))).join('·')
+          : ''
+        const im = Array.isArray(s?.imgs) && s.imgs.length ? ' ｜ 用图 ' + s.imgs.join(',') : ''
+        return '  段' + (i + 1) + '：' + (t || '（这条只有图）') + pts + im
+      }),
+      '',
+      '⚠️ 文案就照上面这份（**你自己刚写的**），排版/动效/图形/贴纸/字号/留白**全部自由**；',
+      '   **段数保持 ' + segs.length + ' 段**（不要合并或拆分，否则文案会错位）。',
+    ] : []),
 
     '素材是用户提供的 ' + n + ' 张实拍照片，文件名 1.jpg ~ ' + n + '.jpg（与 HTML 同目录）。主题：「' + (topic || '（未给，按素材自己判断）') + '」。',
     '**风格、版式、布局、动效创意完全由你决定**；只遵守下面「出片契约」。',
