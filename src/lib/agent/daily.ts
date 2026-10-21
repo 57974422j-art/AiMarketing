@@ -1469,6 +1469,11 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
 
     // 字体适配（必须在 check 前：服务器无 CJK ⇒ 不换字体会误报对比度/溢出）
     let html = String(design.html)
+    /* ★VF_AIDESIGN_IMGPATH_V1（2026-10-21 线上实测 `stage=media ✗ 页面引用了 images/ 里的图，但源目录里没有 images/`）：
+       病灶：AI 有时把图写成 `images/1.jpg`，而内嵌时只替换了**文件名** ⇒ 残留 `images/data:image/…`
+             ⇒ 闸门判定"引用了 images/ 目录却不存在" ⇒ **整轮白跑**（页面本身是好的）。
+       现口径：**拿到 HTML 就先归一化路径**（`images/N.jpg` → `N.jpg`），check 与出片共用这份归一化后的 html。 */
+    html = html.replace(/(["'(]\s*)images\/(\d+\.(?:jpe?g|png|webp))/gi, '$1$2')
     html = html.replace(/["']?TXT-Serif["']?/g, '"NotoSerifSC"').replace(/["']?TXT-Sans["']?/g, '"NotoSansSC"')
       .replace(/"Noto Serif SC"/g, '"NotoSerifSC"').replace(/"Noto Sans SC"/g, '"NotoSansSC"')
     if (!/@font-face/.test(html)) {
