@@ -648,17 +648,40 @@ async function checkDesignPage(html: string, picks: DailyPick[], tag: string): P
          现口径：**内嵌前先缩到 512px / q70**（单张约 30KB ⇒ 17 张约 500KB）
              ⇒ 闸门内存占用降到 1/10，同时更快；闸门只看排版与对比度，不需要原图分辨率。
          （与 `aiDesignPage` 里传给模型看的图同一口径，保持一致。） */
+      /* ★VF_AIDESIGN_SHRINK_V2（2026-10-21 线上实测 `stage=media ✗ 引用了 images/ 但源目录没有`）：
+         真相：`fail-*.html` 存的是 **AI 原始输出（未内嵌）**，所以里面 `data:image = 0` 是正常的。
+         真问题在**内嵌这一步**：`embedImages` 有 **48MB 上限**，而猫素材原图 **4.2MB/张**
+         ⇒ 12 张就 50MB+ ⇒ **后面的图被跳过** ⇒ 残留 `N.jpg` ⇒ 引擎找不到 ⇒ 报 `stage=media`。
+         为什么原图没被缩：`sharp` 读不了某些微信导出的图（HEIC/特殊 JPEG）⇒ `catch` 里**退回原图 4.2MB**。
+         现口径：**sharp 失败就用 ffmpeg 兜底缩图**（服务器必装 ffmpeg）；两条都失败才用原图，且**打日志明说**。 */
       let bSmall = b
       try {
         const sharpMod: any = (await import('sharp')).default
         bSmall = await sharpMod(b).resize(512, 512, { fit: 'inside' }).jpeg({ quality: 70 }).toBuffer()
-      } catch { /* 没有 sharp 或缩失败 ⇒ 用原图（老行为） */ }
+      } catch { /* sharp 读不了 ⇒ 走下面的 ffmpeg 兜底 */ }
+      if (bSmall.length > 1.2 * 1024 * 1024) {
+        // 兜底：ffmpeg 缩（对 HEIC/渐进式 JPEG/CMYK 都能读）
+        try {
+          const os = await import('node:os')
+          const { execFileSync } = await import('node:child_process')
+          const tmpIn = path.join(os.tmpdir(), 'shr-in-' + Date.now() + '-' + i + '.bin')
+          const tmpOut = path.join(os.tmpdir(), 'shr-out-' + Date.now() + '-' + i + '.jpg')
+          fs.writeFileSync(tmpIn, b)
+          execFileSync('ffmpeg', ['-y', '-v', 'error', '-i', tmpIn, '-vf', 'scale=512:-2', '-q:v', '6', tmpOut], { timeout: 20000 })
+          const ff = fs.readFileSync(tmpOut)
+          if (ff.length > 512) bSmall = ff
+          try { fs.unlinkSync(tmpIn) } catch { /* ignore */ }
+          try { fs.unlinkSync(tmpOut) } catch { /* ignore */ }
+        } catch (e: any) {
+          try { console.error('[日报闸门] 第 ' + (i + 1) + ' 张缩图失败（sharp 与 ffmpeg 都不行），将用原图 ' + Math.round(b.length / 1024) + 'KB：' + String(e?.message || e).slice(0, 120)) } catch { /* ignore */ }
+        }
+      }
       const mime = 'image/jpeg'
       imgs.push({ n: i + 1, mime, b64: bSmall.toString('base64'), bytes: bSmall.length, ref: String(i + 1) + '.jpg' })
     } catch { /* 单张失败就跳过 */ }
   }
   if (!imgs.length) return { ok: false, note: '素材读不出来（一张都没读到），无法跑闸门' }
-  const emb = embedImages(html, imgs, 48 * 1024 * 1024)
+  const emb = embedImages(html, imgs, 96 * 1024 * 1024)
   // ② 写临时目录 + 跑 check-only
   let tmp = ''
   try {
