@@ -89,8 +89,14 @@ if (!/<section[^>]*\bclass="[^"]*\bsec\b/.test(html)) { console.log('stage=html 
    一个 HTML 里塞几十兆 base64 ⇒ **加载时就炸**，跟内存大小、跟正则都无关。
    ⇒ 现在**接受配图版**（图作为旁边的小文件）；打包阶段会把 `images/` 一起搬过去。
    ⚠️ 若这份页面**两种引用都没有**（既没内嵌也没外部图）⇒ 仍然报出来（不静默）。 */
-const extRefs = html.match(/src="(?!data:)([^"]+\.(?:jpg|jpeg|png|webp))"/gi) || []
-const hasInline = html.indexOf('src="data:image/') >= 0
+/* ★VF_DAILY_MEDIA_CSS_V1（2026-10-21 线上实测 `stage=media ✗ 既没有内嵌图、也没有外部图引用`）：
+   病灶：这里**只扫 `src="..."`**（`<img src>`），完全不认 **CSS 背景图** `background-image:url("1.jpg")`。
+        AI 有时就是不用 `<img>`、全用背景图（这次 14 处 `url("N.jpg")`、0 个 `<img>`）
+        ⇒ 扫不到 ⇒ 判"页面没有图" ⇒ 直接 exit（页面本身是好的）。
+   现口径：**两种写法都认** —— `src="..."` / `src='...'` / `url(...)` / `url("...")` / `url('...')`。
+   内嵌判定同理（`data:image` 出现在 src 或 url 里都算）。 */
+const extRefs = html.match(/(?:src\s*=\s*["']|url\(\s*["']?)(?!data:)([^"')\s]+\.(?:jpg|jpeg|png|webp))/gi) || []
+const hasInline = /(?:src\s*=\s*["']|url\(\s*["']?)data:image\//i.test(html)
 if (extRefs.length) {
   console.log('[输入] 配图版：引用外部图 ' + extRefs.length + ' 处')
   if (!hasInline) console.log('[输入] 这份页面没有任何内嵌图 —— 走"页面 + 图文件"模式')
