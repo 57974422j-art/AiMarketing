@@ -1524,12 +1524,14 @@ function VfMatsPicker({ mats, usableN, excludedN, onSend }: {
           </span>
           <span className={`block truncate ${colorOf(st)}`}>{label[st] || '可用'}</span>
         </span>
-        {/* 🎞 = 这一镜生成 AI 动图（配合设置卡「只动我勾选的」） */}
-        <button type="button" onClick={() => pick(nm, !!m?.i2v)}
-          title="打勾 = 这张图生成 AI 动图（只有设置卡选「🎞 只动我勾选的」时才按勾选算钱）"
-          className={`shrink-0 px-1.5 py-0.5 rounded border transition ${m?.i2v ? 'bg-fuchsia-500/30 border-fuchsia-400/50 text-white' : 'bg-white/[0.05] border-white/[0.08] text-gray-400 hover:bg-white/[0.12]'}`}>
-          🎞
-        </button>
+        {/* ★VF_NOUSELESSBTN_V1（2026-10-20 用户定案「后面这个图片没用的该删就删」）：
+           **素材清单里的 🎞 勾选按钮已删除**。
+           它原本是给「🎞 只动我勾选的」那一档配套的（打勾 = 这张图生成 AI 动图），
+           而设置卡上的四档已整块隐藏（★VF_NOI2V_V1）⇒ 这个勾**点了也没有任何作用**
+           ⇒ 留着只会让人以为"勾了就能加动效"（误导）。
+           ⚠️ **后台不动**：`VF_MAT_SET:{...,action:'pick'}` 协议、服务端勾选名单、
+              `i2v-plan` 的 `picked` 分支全部保留（将来恢复动效直接放回按钮即可）。
+           ⚠️ 旁边的「换一张」与「✅当素材用/🚫别用」**都还在**，素材清单的用法不受影响。 */}
         {isUsable(st) && (
           <button type="button" onClick={() => swap(nm)}
             title="换成同类型的下一张（被换掉的这张会记成「别用」，换上的记成「当素材用」）"
@@ -5112,7 +5114,11 @@ function AgentPageInner() {
                   {Number(vj.i2vImages) > 0
                     ? `🎞 本次让 ${vj.i2vImages} 张图动起来（约 ${Number(vj.i2vPts) || 0} 点 · ${vj.i2vModeLabel || ''}）`
                     : `🎞 本次不动用 AI（0 点动图 · ${vj.i2vModeLabel || '保持静态'}）`}
-                  <span className="text-gray-500"> —— 想加动效就在设置卡选「🎞 只动我勾选的」或「🎞 全部动起来」</span>
+                  {/* ★VF_NOUSELESSBTN_V1（2026-10-20 用户定案「这条没用了该删」）：
+                     **删掉这句引导** —— 设置卡上的「🎞 让图动起来」四档已整块隐藏
+                     （见上方 ★VF_NOI2V_V1），还留着"去设置卡选…"等于**指向一个不存在的地方**。
+                     ⚠️ 上面那行「本次不动用 AI（0 点动图 · 保持静态）」**保留** ——
+                        它是如实回执（告诉用户"这一版没花动图的钱"），不是引导。 */}
                 </div>
               ) : null}
               {/* ★VF_I2VDFLT_V1（2026-09-30 用户定案）：智能筛跳过的图**明列出来** ——
