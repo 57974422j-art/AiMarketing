@@ -13,6 +13,20 @@ cd /root/AiMarketing
 echo "[1/7] 备份数据库…"
 mkdir -p /root/db-backup
 sqlite3 prisma/dev.db ".backup '/root/db-backup/dev-$(date +%Y%m%d-%H%M).db'" || cp prisma/dev.db /root/db-backup/dev-$(date +%Y%m%d-%H%M).db
+# ★VF_DBBACKUP_ROTATE_V1（2026-10-21 线上实测「渲染被拦：0.8 GB free at /tmp，磁盘 98%」）：
+#   病灶：这里**每次部署都备份一份**（文件名精确到分钟），从不清理 ⇒ 备份越积越多，
+#        再加上渲染中间产物（`html-deck/out/film_*` 每次 1~2GB），把 40G 盘吃到只剩 800MB。
+#   现口径：**只保留最近 5 个备份**（同一天内多个备份回滚价值低；5 个足够覆盖"今天改坏了"的场景）。
+ls -t /root/db-backup/dev-*.db 2>/dev/null | tail -n +6 | xargs -r rm -f
+echo "  备份完成（保留最近 5 个）：$(ls /root/db-backup/dev-*.db 2>/dev/null | wc -l) 个 · $(du -sh /root/db-backup 2>/dev/null | cut -f1)"
+# ★VF_DBBACKUP_ROTATE_V1：**渲染中间产物也一并清**（每次出片 `out/film_*` 留 1~2GB，片子做完就没用）。
+#   部署时不会有渲染在跑（马上要重启），所以直接清是安全的。
+BEFORE_KB=$(df -k / | tail -1 | awk '{print $4}')
+rm -rf /root/AiMarketing/scripts/video-factory/html-deck/out/film_* 2>/dev/null
+rm -rf /tmp/aidchk-* /tmp/shr-in-* /tmp/shr-out-* 2>/dev/null
+AFTER_KB=$(df -k / | tail -1 | awk '{print $4}')
+echo "  清理临时产物：释放 $(( (AFTER_KB - BEFORE_KB) / 1024 )) MB · 剩余 $(( AFTER_KB / 1024 / 1024 )) GB"
+if [ "$AFTER_KB" -lt 3145728 ]; then echo "  ⚠️ 磁盘剩余不足 3GB —— 出片可能被拦，请检查（du -sh /* | sort -rh | head）"; fi
 echo "[2/7] 拉取代码…"
 git fetch origin && git reset --hard origin/master
 echo "[3/7] 判断是否需要 npm install（lock 变才是依赖真变——版本号改动不触发）…"
