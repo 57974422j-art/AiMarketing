@@ -1491,6 +1491,8 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
     }
     // ★VF_DAIDESIGN_V4：单轮时长要**给闸门留 80s**（打包/用字/引擎校验约 30~60s）——
     //   原来只留 20s ⇒ 生成吃满后闸门没时间、整轮白跑，最后整体超时被网关掐断。
+    /* ★VF_AIDESIGN_STORYBOARD_V1 **已撤销**（2026-10-21 用户明确：AI 自由档必须**自己规划文案、自己排版**，
+       不许抄方案卡）⇒ 文案质量靠提示词里的「禁元叙述 + 自检标准」保证，不靠注入分镜表。 */
     const design = await aiDesignPage(picks, topic, { failNote, timeoutMs: Math.min(DESIGN_TIMEOUT_MS, left - 80000) })
     try {
       // ★VF_DAIDESIGN_V20：加**耗时**（用户反复问"到底多久"，没这个数字只能猜）

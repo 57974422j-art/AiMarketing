@@ -454,6 +454,7 @@ export function aiDesignPrompt(n: number, topic: string, opts?: { failNote?: str
   const fail = String(opts?.failNote || '').trim()
   return [
     '你是顶级视觉设计师兼前端工程师。请交付**一条竖屏 9:16 视频的页面**（720×1280），它会被**逐帧渲染成 mp4**（不是给人滚动浏览的网页）。',
+
     '素材是用户提供的 ' + n + ' 张实拍照片，文件名 1.jpg ~ ' + n + '.jpg（与 HTML 同目录）。主题：「' + (topic || '（未给，按素材自己判断）') + '」。',
     '**风格、版式、布局、动效创意完全由你决定**；只遵守下面「出片契约」。',
     '',
