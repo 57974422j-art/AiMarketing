@@ -6053,33 +6053,51 @@ function AgentPageInner() {
                 {messages.map(msg => (
               <div key={msg.id}
                 onContextMenu={(e) => {
-                  // ① 有选区 ⇒ 走原生复制（不打断用户精细选择）
-                  const sel = typeof window !== 'undefined' ? String(window.getSelection()?.toString() || '').trim() : ''
-                  if (sel) return
+                  /* ★VF_RIGHTCLICKCOPY_V1b（2026-10-22 用户实测「好像不能复制会话」）：
+                     上一版的毛病：**一有选中就 `return`**（交给浏览器原生右键），
+                     但 **Electron 里原生右键菜单可能是禁用的** ⇒ 点了等于什么都没发生。
+                     现口径：**一律自己复制，永远不 return** ——
+                       · 有选中 ⇒ 复制**选中的那一段**（用户精细选择的意图要尊重）；
+                       · 没选中 ⇒ 复制**这一条的全部文字**；
+                       · 协议串（VF_JSON…）⇒ 仍然跳过（粘出去没意义），但**给提示**说清原因；
+                       · 复制完**弹一个 1.5 秒的小提示**（原来只打 console，用户以为"没反应"）。 */
                   e.preventDefault()
+                  e.stopPropagation()
+                  const sel = typeof window !== 'undefined' ? String(window.getSelection()?.toString() || '').trim() : ''
                   const raw = String(msg.content || '')
-                  // ② 协议串（机器用）不复制
-                  if (/^(VF_|MAKE_VIDEO|VIDEO_TASK|IMAGE_PENDING|DH_TASK)/.test(raw.trim())) {
-                    try { console.info('[右键复制] 这条是卡片协议，已跳过') } catch { /* ignore */ }
+                  const isProto = /^(VF_|MAKE_VIDEO|VIDEO_TASK|IMAGE_PENDING|DH_TASK)/.test(raw.trim())
+                  const target = sel || (isProto ? '' : raw.trim())
+                  // 一个不依赖组件的临时提示（1.5s 自动消失，Electron 与浏览器都能用）
+                  const toast = (text: string, ok: boolean) => {
+                    try {
+                      const d = document.createElement('div')
+                      d.textContent = text
+                      d.style.cssText = 'position:fixed;left:50%;bottom:80px;transform:translateX(-50%);z-index:99999;'
+                        + 'padding:8px 16px;border-radius:10px;font-size:13px;font-family:inherit;pointer-events:none;'
+                        + (ok ? 'background:rgba(16,185,129,.92);color:#fff;' : 'background:rgba(239,68,68,.92);color:#fff;')
+                      document.body.appendChild(d)
+                      setTimeout(() => { try { document.body.removeChild(d) } catch { /* ignore */ } }, 1500)
+                    } catch { /* ignore */ }
+                  }
+                  if (!target) {
+                    toast(isProto ? '这条是卡片（机器协议），不用复制' : '这条没有可复制的文字', false)
                     return
                   }
-                  if (!raw.trim()) return
-                  const done = () => { try { console.info('[右键复制] 已复制 ' + raw.length + ' 字') } catch { /* ignore */ } }
+                  const done = () => toast('已复制' + (sel ? '选中的文字' : '这一条') + ' ✓', true)
                   const fallback = () => {
                     try {
                       const ta = document.createElement('textarea')
-                      ta.value = raw
-                      ta.style.position = 'fixed'
-                      ta.style.opacity = '0'
+                      ta.value = target
+                      ta.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0'
                       document.body.appendChild(ta)
                       ta.select()
-                      document.execCommand('copy')
+                      const ok = document.execCommand('copy')
                       document.body.removeChild(ta)
-                      done()
-                    } catch { /* ignore */ }
+                      if (ok) done(); else toast('复制失败（浏览器不允许），请手动选中后按 Ctrl+C', false)
+                    } catch { toast('复制失败，请手动选中后按 Ctrl+C', false) }
                   }
                   try {
-                    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(raw).then(done).catch(fallback)
+                    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(target).then(done).catch(fallback)
                     else fallback()
                   } catch { fallback() }
                 }}
