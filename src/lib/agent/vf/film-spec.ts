@@ -16,6 +16,8 @@
  * 为什么单列成模块：开关语义与白名单必须能**脱离模型单测**
  * （`temp/_spec/test.mjs`：默认关 / 开启后只放行白名单键 / 垃圾输入不崩）。
  */
+// ★VF_VOICE_PICK_V1：口播气质的枚举（AI 只挑气质，音色由服务端映射 —— 纯数据模块，无循环依赖）
+import { VOICE_TONES } from './tts-voices'
 
 /** 开关：**每次调用都读 env**（测试可切、运维可热改；默认关） */
 export function aiSpecEnabled(): boolean {
@@ -274,9 +276,29 @@ export function pitchPrompt(input: {
     + '三条都必须：口语化能直接念（不要书面语、不要排比句堆砌）· 第 1 行就能立住（不要"大家好""今天给大家介绍"）'
     + '· 结尾给一个落点（到店/留言/收藏，三选一，不要每条都"评论区见"）· **零 emoji**'
     + '· **不许编造数据、不许编不存在的优惠、不许自创品牌名**\n'
+    // ★VF_VOICE_PICK_V1（2026-10-22 用户定案「加个字段给 AI 知道做什么配音合适」）：
+    //   AI **只判"气质"**（枚举）+ 一个曲风短语；`tone → 具体音色` 由服务端映射（不让模型编 48 个 id）。
+    //   同一次调用顺带产出 ⇒ 不额外烧点。
+    + '另外顺带判两件事（不要解释，各回一个值）：\n'
+    + '· `tone`：这条片最适合的**口播气质**，只能从这六个里挑一个（原样回英文 key）：\n'
+    + '    lively=活泼开场 / promo=热情叫卖 / warm=温柔叙述 / gang=江湖烟火 / doc=纪实旁白 / brand=品牌质感\n'
+    + '· `music`：最适合的**配乐曲风**，2~4 个汉字（例：轻快市井 / 温柔民谣 / 国潮鼓点 / 安静纪实）\n'
     + '只输出严格 JSON（`lines` 是**逐段口播的数组，长度必须 = ' + segs + '**）：\n'
     + '{"candidates":[{"angle":"钩子型","lines":["第1段","第2段",…]},'
-    + '{"angle":"优惠型","lines":[…]},{"angle":"口碑型","lines":[…]}]}'
+    + '{"angle":"优惠型","lines":[…]},{"angle":"口碑型","lines":[…]}]'
+    + ',"tone":"lively","music":"轻快市井"}'
+}
+
+/** ★VF_VOICE_PICK_V1：从出稿那次回答里取**附带的语气/曲风建议**（白名单式，编的值一律不认）。
+ *  · `tone` 只认 `tts-voices.ts` 的 6 个枚举（其余 ⇒ ''，由调用方退回"不预设"）；
+ *  · `music` 只认 2~12 个汉字（模型爱写"轻快、欢快、富有活力的一首"这种长句 ⇒ 截断更好用）。 */
+export function pickPitchExtras(j: any): { tone: string; music: string } {
+  const o = (j && typeof j === 'object' && !Array.isArray(j)) ? j : {}
+  const toneRaw = String((o as any).tone || '').trim().toLowerCase()
+  const tone = (VOICE_TONES as readonly string[]).includes(toneRaw) ? toneRaw : ''
+  const musicRaw = String((o as any).music || '').replace(/[\s"'「」【】]/g, '').trim()
+  const music = /^[\u4E00-\u9FFF]{2,12}$/.test(musicRaw) ? musicRaw : ''
+  return { tone, music }
 }
 
 /** 稿子的读数（**唯一口径**：字数是"去掉空白后的字符数"，行数是"非空行数"） */

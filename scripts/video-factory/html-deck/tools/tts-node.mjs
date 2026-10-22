@@ -49,10 +49,27 @@ const readEnv = (k) => {
 const KEY = readEnv('DASHSCOPE_API_KEY')
 if (!KEY) { console.error('✗ 没有 DASHSCOPE_API_KEY（环境变量与 .env.local 都没有）'); process.exit(3) }
 
-/** 音色映射（与 ai-providers.ts 的 qwenTtsVoice 同表） */
-const VOICE_MAP = { longxiaochun: 'Cherry', longxiaoxia: 'Serena', cherry: 'Chelsie', longshu: 'Ethan', longchen: 'Ethan', longjing: 'Ethan', longxiaohui: 'Ethan' }
-const voiceIn = String(arg('voice-key', arg('voice', 'Cherry')))
-const VOICE = ['Cherry', 'Serena', 'Ethan', 'Chelsie'].includes(voiceIn) ? voiceIn : (VOICE_MAP[voiceIn] || 'Cherry')
+/** ★VF_VOICE_PICK_V1（2026-10-22 用户定案「配音不能选」）：
+ *  老实现白名单**硬编码 4 个**（Cherry/Serena/Ethan/Chelsie），而阿里现有 **48 个** ⇒ "选音色"等于没选。
+ *  现口径：白名单与 legacy 映射都读 **`tools/tts-voices.json`**（真源 = `src/lib/agent/vf/tts-voices.ts`，
+ *  脚本不能 import TS ⇒ 镜像；两份由 `temp/_daily/_voice_probe.ts` 断言逐字一致）。
+ *  ⚠️ 读不到 json 时**退回老的 4 个**（绝不因配置文件缺失就把配音搞挂）。 */
+const VOICE_JSON = path.join(HERE, 'tools', 'tts-voices.json')
+const loadVoices = () => {
+  const fallback = { voices: ['Cherry', 'Serena', 'Ethan', 'Chelsie'], legacy: { longxiaochun: 'Cherry', longxiaoxia: 'Serena', cherry: 'Chelsie', longshu: 'Ethan', longchen: 'Ethan', longjing: 'Ethan', longxiaohui: 'Ethan' } }
+  try {
+    const j = JSON.parse(fs.readFileSync(VOICE_JSON, 'utf8'))
+    const ids = (Array.isArray(j.voices) ? j.voices : []).map((v) => String(v && v.id || '')).filter(Boolean)
+    if (!ids.length) return fallback
+    return { voices: ids, legacy: (j.legacy && typeof j.legacy === 'object') ? j.legacy : {} }
+  } catch (e) {
+    console.error('⚠ 音色表读不到（' + String(e && e.message || e).slice(0, 80) + '）⇒ 退回内置 4 个')
+    return fallback
+  }
+}
+const V = loadVoices()
+const voiceIn = String(arg('voice-key', arg('voice', 'Cherry'))).trim()
+const VOICE = (V.voices.includes(voiceIn) ? voiceIn : (V.legacy[voiceIn.toLowerCase()] && V.voices.includes(V.legacy[voiceIn.toLowerCase()]) ? V.legacy[voiceIn.toLowerCase()] : 'Cherry'))
 
 /** 文本预处理：与 prepareTextForTTS 同规矩 —— 全大写 ≥3 字母的缩写拆成逐字母读（避免"API 读成日语腔"） */
 const prep = (s) => String(s).replace(/[A-Z]{3,}/g, (m) => m.split('').join(' ')).replace(/\s+/g, ' ').trim()

@@ -36,7 +36,10 @@ import { alignCopy, mergeSlots, batchRanges } from './film-copy-align'
 // ★VF_LAY_V1：`pickLayId/describeLay/laySpec/mergeLay` = "图呈现（满幅压字）"的唯一口径（纯函数、可单测）
 import { aiSpecEnabled, pickSpec, describeSpec, specPrompt, packPickPrompt, pickPackId, pickLayId, describeLay, laySpec, mergeLay } from './film-spec'
 // ★VF_FILM_PITCH_V1/V2（2026-10-22）：口播营销稿的题面、解析、配额与**确定性切段**（白名单式，纯函数可单测）
-import { pitchPrompt, pickPitchCandidates, pitchStats, pitchQuotas, pitchNeedChars, splitPitchToSegments } from './film-spec'
+import { pitchPrompt, pickPitchCandidates, pickPitchExtras, pitchStats, pitchQuotas, pitchNeedChars, splitPitchToSegments } from './film-spec'
+// ★VF_VOICE_PICK_V1（2026-10-22 用户定案「配音不能选」+「加个字段给 AI 知道做什么配音合适」）：
+//   **音色白名单/气质→音色映射的唯一真源**（48 个 + legacy 映射；AI 只判气质，音色由这里定）
+import { TONE_LABEL, TONE_VOICES, pickTtsVoice, pickVoiceTone, ttsVoiceName, voiceForTone, voiceOptions } from './tts-voices'
 
 const HTMLFILM_TAG = 'vf_draft_htmlfilm'
 const HTMLFILM_PREFIX = 'HTML成片草稿:'
@@ -125,6 +128,13 @@ export type HtmlFilmDraft = {
   pitchPick?: number
   /** **最终口播稿**（选中的那条 + 用户手工修改）—— 逐段 voice 只能由它切出来 */
   pitchText?: string
+  // ══ ★VF_VOICE_PICK_V1（2026-10-22 用户定案「配音不能选」+「加个字段给 AI 知道做什么配音合适」）══
+  /** AI 判的**口播气质**（lively/promo/warm/gang/doc/brand）—— 出稿那一次调用顺带产出；
+   *  确认卡据此给**默认音色**（人可改）。AI 不直接给音色 id：它会把 48 个 id 编错。 */
+  voiceTone?: string
+  /** AI 判的**配乐曲风**（2~4 个汉字，如「轻快市井」）—— 这轮只显示 + 留档
+   *  （乐库还空、MiniMax 音乐生成你说后面再看；将来挑曲/生成直接拿它当提示词）。 */
+  musicMood?: string
 }
 
 /** 进程内缓存（与 vf-ppt.ts 同形制：DB 是主，Map 是"这一回合的加速"） */
@@ -244,6 +254,9 @@ export async function loadHtmlFilmDraft(db: any, uid: number | string): Promise<
         ? j.pitchCandidates.map((x: any) => String(x)).filter((x: string) => x.trim()).slice(0, 3) : [],
       pitchPick: Number.isFinite(Number(j.pitchPick)) ? Math.max(0, Math.round(Number(j.pitchPick))) : undefined,
       pitchText: typeof j.pitchText === 'string' ? j.pitchText.slice(0, 1500) : '',
+      // ★VF_VOICE_PICK_V1：AI 的语气/曲风建议也要取回（漏了 ⇒ 确认卡上的"AI 建议"消失、默认音色退回 Cherry）
+      voiceTone: pickVoiceTone(j.voiceTone) || '',
+      musicMood: typeof j.musicMood === 'string' ? j.musicMood.slice(0, 20) : '',
     }
   } catch { return null }
 }
@@ -601,9 +614,13 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; warn?: stri
   vd.pitchCandidates = pitch.candidates
   vd.pitchPick = 0
   vd.pitchText = pitch.candidates[0]
+  // ★VF_VOICE_PICK_V1：AI 判的"气质 / 曲风"落进草稿（确认卡据此给默认音色；曲风将来挑曲用）
+  vd.voiceTone = pickVoiceTone(pitch.tone) || ''
+  vd.musicMood = String(pitch.music || '').slice(0, 20)
   vfLog(uid, '[HTML成片] 口播营销稿：AI 出了 ' + pitch.candidates.length + ' 条候选（'
     + pitch.candidates.map((x) => pitchStats(x).chars + ' 字/' + pitchStats(x).lines + ' 行').join(' / ')
-    + '）· 这条片需要约 ' + pitch.needChars + ' 字')
+    + '）· 这条片需要约 ' + pitch.needChars + ' 字'
+    + (vd.voiceTone ? ' · 气质=' + (TONE_LABEL[vd.voiceTone] || vd.voiceTone) : ''))
   return { ok: true, summary, plan: planOut0, pitchCandidates: pitch.candidates, warn: pitch.warn, spec, specNote }
 }
 
@@ -620,7 +637,9 @@ function planTextOf(scenes: Array<{ structure: string; media: string[] }>): stri
  *  ⇒ 出稿后**硬校验字数**；明显不够就带着"上一次只有 N 字"**重写一次**；仍不够**如实告警**（不假装合格）。 */
 async function genPitchCandidates(ctx: HtmlFilmCtx, uid: number | string,
   summary: string, topic: string, planTxt: string, quotas: number[]):
-Promise<{ candidates: string[]; warn?: string; err?: string; needChars: number }> {
+Promise<{ candidates: string[]; warn?: string; err?: string; needChars: number
+  /** ★VF_VOICE_PICK_V1：AI 顺带判的"口播气质 / 配乐曲风"（白名单式，非法值 ⇒ ''） */
+  tone?: string; music?: string }> {
   const need = pitchNeedChars(quotas)
   const perSegMin = 13
   const perSegMax = 18
@@ -646,7 +665,10 @@ Promise<{ candidates: string[]; warn?: string; err?: string; needChars: number }
       err = '模型调用失败：' + String(e?.message || e).slice(0, 90)
       break
     }
-    const cands = pickPitchCandidates(scanJson(String(txt).replace(/```(?:json)?/gi, '')))
+    const j = scanJson(String(txt).replace(/```(?:json)?/gi, ''))
+    const cands = pickPitchCandidates(j)
+    // ★VF_VOICE_PICK_V1：同一次回答里顺带取的"气质 / 曲风"（白名单式；拿不到就当没有，不影响流程）
+    const ex = pickPitchExtras(j)
     if (!cands.length) {
       err = 'AI 没给出可用的口播稿'
         + (txt.trim() ? '（原文片段：' + txt.replace(/\s+/g, ' ').trim().slice(0, 120) + '）' : '（返回是空的）')
@@ -661,11 +683,14 @@ Promise<{ candidates: string[]; warn?: string; err?: string; needChars: number }
       if (cands.length < 3) {
         vfLog(uid, '[HTML成片] 口播稿：AI 只给了 ' + cands.length + ' 条可用候选（要 3 条）—— 如实按 ' + cands.length + ' 条给用户')
       }
+      if (ex.tone || ex.music) {
+        vfLog(uid, '[HTML成片] AI 建议：气质=' + (ex.tone || '未给') + '（推荐音色 ' + voiceForTone(ex.tone) + '）· 曲风=' + (ex.music || '未给'))
+      }
       if (st.chars < Math.round(need * 0.85)) {
-        return { candidates: cands, needChars: need,
+        return { candidates: cands, needChars: need, tone: ex.tone, music: ex.music,
           warn: 'ℹ️ AI 写的稿偏短（' + st.chars + ' 字 / 这条片需要约 ' + need + ' 字）—— 可以在框里补两句，或点「← 换风格」重来一次。' }
       }
-      return { candidates: cands, needChars: need }
+      return { candidates: cands, needChars: need, tone: ex.tone, music: ex.music }
     }
     vfLog(uid, `[HTML成片] 口播稿第 ${attempt} 次不够长：最好一条 ${st.chars} 字 / ${st.lines} 行（需要 ≥${low} 字 / ${quotas.length} 行）`)
   }
@@ -1102,6 +1127,19 @@ function confirmCard(vd: HtmlFilmDraft): string {
     pitchPick: Number(vd.pitchPick) || 0,
     pitchN: Array.isArray(vd.pitchCandidates) ? vd.pitchCandidates.length : 0,
     // ★VF_FILM_PITCH_V2：**有口播的段数 / 总段数 / 应需字数**（从 copy 里数，与出片实际一致）
+    /** ★VF_VOICE_PICK_V1（2026-10-22 用户定案「配音不能选」）：**音色选择**下发到确认卡。
+     *  · `voice` = 默认值：AI 判的气质 → 推荐音色（拿不到气质 ⇒ Cherry，与历史默认一致）；
+     *  · `voices` = 全部 48 个（`hot` 12 个默认展示，其余折叠）+ 每个的中文名/性别/语种/描述；
+     *  · `voiceAi`/`toneLabel` = "AI 建议"那一行的人话（用户可忽略）。
+     *  ⚠️ 前端提交的 voice **必须**经 `pickTtsVoice` 白名单后才进 makeFilmFromMaterials（见 VF_FILM_GO）。 */
+    voice: voiceForTone(vd.voiceTone),
+    voiceName: ttsVoiceName(voiceForTone(vd.voiceTone)),
+    voiceTone: String(vd.voiceTone || ''),
+    toneLabel: TONE_LABEL[String(vd.voiceTone || '')] || '',
+    toneVoices: TONE_VOICES[String(vd.voiceTone || '')] || [],
+    voices: voiceOptions(),
+    // ★VF_VOICE_PICK_V1：AI 判的配乐曲风（这轮只显示；乐库/音乐生成接通后直接当"挑哪首/生成什么"的依据）
+    musicMood: String(vd.musicMood || ''),
     voiceN: copy.filter((c: any) => String((c && c.slots && c.slots.voice) || '').trim()).length,
     needChars: (() => {
       const q = pitchQuotas(plan.map((s: any) => s.dur))
@@ -1337,7 +1375,11 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
     // （★VF_FILMSRC_V1 的"骨架/文案一致性校验"已在上面、下载素材**之前**做过）
 
     const workDir = path.join(vfStorageRoot(), String(uid), 'video-factory', 'film_' + Date.now())
-    vfLog(uid, `[HTML成片] 开始：${files.length} 张素材 → 出片（骨架 ${planScenes.length || '现排'} 段 · 风格包=${vd.pack || '自动'}${wantVoice ? ' · 配音+字幕' : ' · 无声'}）`)
+    // ★VF_VOICE_PICK_V1（2026-10-22 用户定案「配音不能选」）：**音色只认白名单** ——
+    //   用户手选 > AI 建议（气质映射）> Cherry；非法 id **绝不往下游发**（阿里会 400，且 tts-node 会静默折回）。
+    const wantV = pickTtsVoice(goF.voice) || voiceForTone(vd.voiceTone)
+    vfLog(uid, `[HTML成片] 开始：${files.length} 张素材 → 出片（骨架 ${planScenes.length || '现排'} 段 · 风格包=${vd.pack || '自动'}`
+      + `${wantVoice ? ' · 配音+字幕（音色 ' + ttsVoiceName(wantV) + ' / ' + wantV + '）' : ' · 无声'}）`)
     const r = await makeFilmFromMaterials({
       materials: files,
       text: String(vd.topic || ''),
@@ -1345,7 +1387,7 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
       workDir,
       // ★VF_FILMVOICE_V1：默认配音 + 字幕（走 film-voice：TTS 实测时长 → 重排镜头 → 字幕 → 混音烧字幕）
       voiced: wantVoice,
-      voice: goF.voice ? String(goF.voice) : undefined,
+      voice: wantV,
       // ★VF_FILMCOPY_V1：把确认卡上那份 AI 文案**按序号**并进骨架（用户看过的那一版，出片必须与之一致）
       copy: Array.isArray(vd.copy) && vd.copy.length ? vd.copy : undefined,
       // ★VF_FILMSRC_V1：**用定稿的那份骨架**（不再让出片重排一次）

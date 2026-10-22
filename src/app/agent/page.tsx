@@ -2469,6 +2469,35 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
   const pitchLines = (s: string) => String(s || '').split('\n').map((x) => x.trim()).filter(Boolean).length
   // 稿明显短于需求（<85%）⇒ 只**提示**（不禁止提交：切段是按行来的，短稿只会让后面镜头静音，不会乱念）
   const pitchShort = pitchNeed > 0 && pitchChars(pitchText) < Math.round(pitchNeed * 0.85)
+  // ★VF_VOICE_PICK_V1（2026-10-22 用户定案「配音不能选」）：确认卡上的**音色选择 + 试听**。
+  //   ⚠️ 不能叫 `voice` —— 那个名字已被"配音开关（bool）"占用（下面 `voice` state）。
+  //   默认值由服务端给（AI 判的气质 → 推荐音色；拿不到就是 Cherry）。
+  const voiceHot: any[] = Array.isArray(vj?.voices?.hot) ? vj.voices.hot : []
+  const voiceRest: any[] = Array.isArray(vj?.voices?.rest) ? vj.voices.rest : []
+  const [ttsVoice, setTtsVoice] = useState<string>(String(vj?.voice || 'Cherry'))
+  const [pvBusy, setPvBusy] = useState(false)
+  const [pvUrl, setPvUrl] = useState('')
+  const [pvMsg, setPvMsg] = useState('')
+  /** 试听：拿**口播稿第一行**去合成（≤60 字，服务端再夹一次）——不入库、不占配额 */
+  const doPreview = async () => {
+    const line = String(pitchText || vj?.pitchText || '').split('\n').map((s: string) => s.trim()).filter(Boolean)[0] || ''
+    if (!line) { setPvMsg('还没有口播稿可试听 —— 先回上一步选/写一条'); return }
+    setPvBusy(true); setPvMsg(''); setPvUrl('')
+    try {
+      const r = await fetch('/api/agent/tts-preview', {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: line.slice(0, 60), voice: ttsVoice }),
+      }).then((x) => x.json())
+      if (r?.success && r.dataUrl) {
+        setPvUrl(String(r.dataUrl))
+        setPvMsg('试听：' + String(r.voiceName || ttsVoice) + ' · ' + String(r.kb || 0) + 'KB · 「' + line.slice(0, 24) + '」')
+      } else setPvMsg(String(r?.message || '试听失败'))
+    } catch (e: any) {
+      setPvMsg('试听失败：' + String(e?.message || e).slice(0, 60))
+    }
+    setPvBusy(false)
+  }
   // ★VF_FILMVOICE_V1（2026-10-09 用户定案「先校准流程」）：**本线默认配音 + 字幕**
   //   （用户原话：「本次制作还是没有字幕 TTS 只有图片」⇒ 默认就该有声；想省时间可在这里关掉）
   const [voice, setVoice] = useState(true)
@@ -2863,10 +2892,64 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
               <input type="checkbox" checked={voice} onChange={(e) => setVoice(e.target.checked)} />
               <span className="text-xs text-emerald-200">配音 + 字幕（按语音<b>实测时长</b>排镜头；约多 20~40 秒）</span>
             </label>
+            {/* ══ ★VF_VOICE_PICK_V1（2026-10-22 用户定案「配音不能选」）══
+                音色 48 个（阿里 qwen3-tts 全家），默认只列 15 个营销常用的、其余折叠；
+                默认值 = AI 判的气质推荐（`vj.voice`），人可随时改；「▶ 试听」用口播稿第一行合成。 */}
+            {voice && (voiceHot.length || voiceRest.length) ? (
+              <div className="mt-2 p-2 rounded-lg bg-black/20 border border-white/10">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] text-gray-300">配音音色</span>
+                  <span className="text-[10px] text-emerald-300">
+                    {String((ttsVoice === String(vj?.voice || '') && vj?.toneLabel) ? ('AI 建议 · ' + String(vj.toneLabel)) : '手选')}
+                  </span>
+                </div>
+                <div className="flex gap-1.5">
+                  <select value={ttsVoice} onChange={(e) => { setTtsVoice(e.target.value); setPvUrl(''); setPvMsg('') }}
+                    className="flex-1 min-w-0 text-[11px] bg-black/40 border border-white/15 rounded px-2 py-1.5 text-gray-100">
+                    <optgroup label="常用（营销）">
+                      {voiceHot.map((v: any) => (
+                        <option key={String(v.id)} value={String(v.id)}>
+                          {String(v.name)} · {String(v.gender)}声 · {String(v.desc)}
+                        </option>
+                      ))}
+                    </optgroup>
+                    {voiceRest.length ? (
+                      <optgroup label={'更多音色（' + voiceRest.length + '）'}>
+                        {voiceRest.map((v: any) => (
+                          <option key={String(v.id)} value={String(v.id)}>
+                            {String(v.name)} · {String(v.lang)} · {String(v.desc)}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null}
+                  </select>
+                  <button onClick={doPreview} disabled={pvBusy}
+                    className="shrink-0 px-2.5 py-1.5 rounded border border-emerald-400/40 bg-emerald-500/20 text-[11px] text-emerald-100 disabled:opacity-50">
+                    {pvBusy ? '合成中…' : '▶ 试听'}
+                  </button>
+                </div>
+                {vj?.voiceTone && vj?.voiceName && ttsVoice !== String(vj?.voice || '') ? (
+                  <button onClick={() => { setTtsVoice(String(vj?.voice || 'Cherry')); setPvUrl(''); setPvMsg('') }}
+                    className="mt-1 text-[10px] text-emerald-300/90 underline">
+                    ↩ 用 AI 建议：{String(vj.voiceName)}（{String(vj.toneLabel || '')}）
+                  </button>
+                ) : null}
+                {pvUrl ? <audio src={pvUrl} controls autoPlay className="w-full mt-1.5 h-8" /> : null}
+                {pvMsg ? <div className="text-[10px] text-gray-400 mt-1">{pvMsg}</div> : null}
+                {/* ★VF_VOICE_PICK_V1：AI 判的**配乐曲风**先显示出来（乐库空 / 音乐生成后面再接，先让人看见 AI 的判断） */}
+                {vj?.musicMood ? (
+                  <div className="text-[10px] text-gray-500 mt-1">🎵 AI 判的配乐气质：{String(vj.musicMood)}（配乐功能下一步接）</div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
           <div className="flex gap-2">
             <button onClick={() => next('back_style')} className={btn + ' border-white/15 text-gray-300 hover:bg-white/[0.08]'}>← 换风格</button>
-            <button onClick={() => onSend('VF_FILM_GO:' + JSON.stringify({ pack: String(vj?.pack || ''), voiced: voice }))}
+            <button onClick={() => onSend('VF_FILM_GO:' + JSON.stringify({
+              pack: String(vj?.pack || ''), voiced: voice,
+              // ★VF_VOICE_PICK_V1：把选中的音色带给服务端（服务端再做白名单校验）
+              voice: voice ? ttsVoice : '',
+            }))}
               className="flex-1 px-4 py-2 rounded-lg bg-emerald-500/30 hover:bg-emerald-500/50 border border-emerald-400/50 text-emerald-50 text-sm font-medium">
               🎬 出片（约 {voice ? '60~120' : '40~60'} 秒）
             </button>

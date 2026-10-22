@@ -25,6 +25,8 @@ import { promisify } from 'util'
 import { VL_FALLBACKS, pickVlModelFromList, vlEnvOverride, isVlModelMissing, isModelMissing, pickTextModelFromList } from './vl-model'
 // ★VF_MSGCLAMP_V1：发出前清洗历史消息（空的 tool_calls ⇒ 两家都 400）
 import { clampMessages } from './ai-messages'
+// ★VF_VOICE_PICK_V1：音色白名单/老 id 映射的**唯一实现**（纯数据 + 纯函数，不会拉出循环依赖）
+import { normTtsVoice } from './agent/vf/tts-voices'
 
 const execFileAsync = promisify(execFile)
 
@@ -2130,14 +2132,11 @@ async function dashscopeGenerateImage(prompt: string, size = '1280*1280', _model
 //   老：services/tts/generation + cosyvoice-v1（异步）→ 400 "task can not be null"（**该端点已下线**）
 //   新：services/aigc/multimodal-generation/generation + qwen3-tts-flash（**同步**）
 //   ★同步接口**绝不能**带 X-DashScope-Async，否则 403 "current user api does not support asynchronous calls"
-const QWEN3_TTS_VOICE_MAP: Record<string, string> = {
-  longxiaochun: 'Cherry', longxiaoxia: 'Serena', cherry: 'Chelsie',
-  longshu: 'Ethan', longchen: 'Ethan', longjing: 'Ethan', longxiaohui: 'Ethan',
-}
+// ★VF_VOICE_PICK_V1（2026-10-22 用户定案「配音不能选」）：音色白名单收口到 `vf/tts-voices`（48 个 + legacy 映射）。
+//   老实现这里硬编码 4 个 ⇒ 卡片上选了别的也会被折回 Cherry（"选了个寂寞"）。
+//   ⚠️ 那个模块是**纯数据 + 纯函数**（不 import 业务模块）⇒ 在这里 import 不会拉出循环依赖。
 function qwenTtsVoice(voice: string): string {
-  const v = (voice || '').trim()
-  if (['Cherry', 'Serena', 'Ethan', 'Chelsie'].includes(v)) return v
-  return QWEN3_TTS_VOICE_MAP[v] || 'Cherry'
+  return normTtsVoice(voice)
 }
 /** 在返回 JSON 里挖音频 url（兼容“同步直出”与各种嵌套结构） */
 function digAudioUrl(obj: any, depth = 0): string {
@@ -2166,6 +2165,15 @@ function ttsLangOf(s: string): 'Chinese' | 'Japanese' | 'English' {
   if (/[\u3041-\u3096\u30a1-\u30FA\u30FC]/.test(t)) return 'Japanese'
   if (/[\u4E00-\u9FFF]/.test(t)) return 'Chinese'
   return 'English'
+}
+
+/** ★VF_VOICE_PICK_V1（2026-10-22 用户定案「配音不能选」）：**试听**用的最短路径 ——
+ *  卡片上的「▶ 试听」只需要"这句话用这个音色念一遍"，不要走 `textToSpeech` 那一堆多级降级与文本清洗。
+ *  音色走白名单归一化（非法值 ⇒ Cherry，**绝不把非法 id 发给阿里**）；返回 null = 没 key / 合成失败。 */
+export async function ttsPreviewBuffer(text: string, voice?: string): Promise<ArrayBuffer | null> {
+  const t = String(text || '').trim().slice(0, 120)
+  if (!t) return null
+  return await dashscopeTTS(t, normTtsVoice(voice))
 }
 
 async function dashscopeTTS(text: string, voice = 'longxiaochun'): Promise<ArrayBuffer | null> {
