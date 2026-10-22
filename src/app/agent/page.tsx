@@ -1898,8 +1898,9 @@ function VfDeckConfirm({ vj, onSend }: { vj: any; onSend: (m: string) => void })
 /** ★VF_HTMLSTD_V1（2026-10-08 用户定案「要」）：【HTML成片】状态机三张卡（素材 / 风格 / 确认）。
  *  用户原话：「要不要我照其他线的规矩改成状态机？大致三张卡：素材卡（用仓库最近 N 张／你去勾选或上传）；
  *  风格卡（库里 11 套风格包 + 镜头组，可预览）；确认卡（时长/报价）→ 出片 → 完成卡」→「**要**」。
- *  服务端（src/lib/agent/vf/vf-htmlfilm.ts）按 step 下发三张卡：
- *    film_mat（选素材）→ film_style（选风格包）→ film_confirm（确认出片）；
+ *  服务端（src/lib/agent/vf/vf-htmlfilm.ts）按 step 下发**四张卡**：
+ *    film_mat（选素材）→ film_style（选风格包）→ film_pitch（口播营销稿 3 选 1 + 可编辑，★VF_FILM_PITCH_V1）
+ *    → film_confirm（确认出片）；
  *  本组件**只做展示与发协议串**（VF_FILM_FORM: / VF_FILM_GO:），业务判断全在服务端。
  *  ⚠️ 上传走与 VideoFormCard 同一套（POST /api/storage/files + electronAPI.storageMirror 镜像）——
  *     不新造上传通道（本项目教训：同一件事两处实现必然分叉）。 */
@@ -2452,6 +2453,14 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
     vj?.aiSpec !== undefined ? !!vj.aiSpec : !!vj?.aiSpecForced)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
+  // ★VF_FILM_PITCH_V1（2026-10-22 用户原话「**不是改画面上的，改的是口播**。AI 出 3 条可以选、可以修改」）：
+  //   第 2.5 步的**口播营销稿**：3 条候选单选（不同角度）+ 一个可编辑文本框。
+  //   ⚠️ 提交的是**文本框里的内容**（不是选中的原文）—— 用户改过就必须按改后的走。
+  const pitchCands: string[] = Array.isArray(vj?.candidates) ? vj.candidates.map((x: any) => String(x)) : []
+  const pitchAngles: string[] = Array.isArray(vj?.angles) ? vj.angles.map((x: any) => String(x)) : []
+  const [pitchPick, setPitchPick] = useState<number>(
+    Number.isFinite(Number(vj?.pick)) ? Math.max(0, Math.round(Number(vj.pick))) : 0)
+  const [pitchText, setPitchText] = useState<string>(String(vj?.text || ''))
   // ★VF_FILMVOICE_V1（2026-10-09 用户定案「先校准流程」）：**本线默认配音 + 字幕**
   //   （用户原话：「本次制作还是没有字幕 TTS 只有图片」⇒ 默认就该有声；想省时间可在这里关掉）
   const [voice, setVoice] = useState(true)
@@ -2507,7 +2516,8 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
   // ★VF_DAILY_V5：协议串前缀由卡里 `proto` 决定（成片线不传 ⇒ 仍是 VF_FILM_FORM，行为不变；
   //   日报线传 'VF_DAILY_FORM' ⇒ **两条线各发各的串**，谁也不会抢谁的消息）
   const protoWord = String(vj?.proto || 'VF_FILM_FORM')
-  const next = (at: 'mat' | 'style' | 'back_mat' | 'back_style', extra?: any) => onSend(protoWord + ':' + JSON.stringify({ at, ...(extra || {}) }))
+  // ★VF_FILM_PITCH_V1：`'pitch'` 是第 2.5 步（口播营销稿定稿）—— 只多发/多收一个 at，协议串本身不变
+  const next = (at: 'mat' | 'style' | 'pitch' | 'back_mat' | 'back_style', extra?: any) => onSend(protoWord + ':' + JSON.stringify({ at, ...(extra || {}) }))
 
   return (
     <div className={box}>
@@ -2698,6 +2708,62 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
         </>
       ) : null}
 
+      {/* ── 第 2.5 步：口播营销稿（★VF_FILM_PITCH_V1：3 选 1 + 可编辑）──
+          用户原话：「**不是改画面上的，改的是口播**。AI 出 3 条可以选、可以修改。」
+          · 三条是**不同角度**（钩子型 / 优惠型 / 口碑型），选中一条自动带进下面的框；
+          · 框里可以随便改 —— 提交的是**框里的内容**，改完这条就是逐段口播的唯一来源；
+          · ⚠️ 本卡只属于 HTML 成片线（日报线不发 step:'film_pitch'），不会串线。 */}
+      {step === 'film_pitch' ? (
+        <>
+          <div className="text-[10px] text-gray-400 mb-2 leading-relaxed">
+            这是<b className="text-gray-200">配音要念的口播稿</b>（不是画面上的大字）。下面
+            {pitchCands.length ? ` ${pitchCands.length} 条是不同角度` : '这次没拿到候选'}，选一条后<b className="text-gray-200">可以直接在框里改</b>；
+            改完点「用这条写口播」，系统再按段落把它切开配到每个镜头。
+          </div>
+          <div className="flex flex-col gap-1.5 mb-2 max-h-64 overflow-y-auto">
+            {pitchCands.map((t, i) => {
+              const on = pitchPick === i
+              return (
+                <button key={i} onClick={() => { setPitchPick(i); setPitchText(t); setMsg('') }}
+                  className={'text-left px-2.5 py-2 rounded-lg border ' +
+                    (on ? 'border-emerald-400/70 bg-emerald-500/[0.12]' : 'border-white/10 bg-black/20 hover:bg-white/[0.05]')}>
+                  <div className="text-[10px] text-emerald-300 mb-0.5">
+                    {pitchAngles[i] || ('候选 ' + (i + 1))} · {t.length} 字 · 约 {Math.round(t.length / 4.5)} 秒
+                  </div>
+                  <div className="text-[11px] text-gray-200 leading-relaxed">{t}</div>
+                </button>
+              )
+            })}
+          </div>
+          {!pitchCands.length ? (
+            <div className="text-[10px] text-amber-300 mb-2">
+              这次没拿到候选稿 —— 可以直接在下面自己写几句（不写就点不了下一步）。
+            </div>
+          ) : null}
+          <textarea value={pitchText} onChange={(e) => setPitchText(e.target.value)} rows={7}
+            placeholder="口播稿（120~180 字最好；可以自己写）"
+            className="w-full text-[11px] leading-relaxed bg-black/30 border border-white/10 rounded-lg px-2.5 py-2 text-gray-100 mb-1.5" />
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[10px] text-gray-500">
+              当前 {pitchText.trim().length} 字（口播约 {Math.round(pitchText.trim().length / 4.5)} 秒）
+            </span>
+            <button onClick={() => { setPitchText(String(pitchCands[pitchPick] || '')); setMsg('') }}
+              className="text-[10px] text-gray-400 hover:text-gray-200 underline">↺ 还原这条</button>
+          </div>
+          {msg ? <div className="text-[10px] text-amber-300 mb-2">{msg}</div> : null}
+          <div className="flex gap-2">
+            <button onClick={() => next('back_style')} className={btn + ' border-white/15 text-gray-300 hover:bg-white/[0.08]'}>← 改风格/素材</button>
+            <button onClick={() => {
+              if (!pitchText.trim()) { setMsg('口播稿是空的 —— 先选一条，或在框里写几句'); return }
+              next('pitch', { pick: pitchPick, text: pitchText })
+            }}
+              className="flex-1 px-4 py-2 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100 text-sm font-medium">
+              用这条写口播 → 确认出片
+            </button>
+          </div>
+        </>
+      ) : null}
+
       {/* ── 第 3 步：确认卡 ── */}
       {step === 'film_confirm' ? (
         <>
@@ -2729,6 +2795,17 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
                 {String(vj.warn)}
               </div>
             ) : null}
+            {/* ★VF_FILM_PITCH_V1：**最终口播稿**（用户选的那条 + 他改过的字）—— 出片配音念的就是这条，
+                用户必须能在这里看见它（不然"改了没生效"根本无从判断）。 */}
+            {vj?.pitchText ? (
+              <div className="mt-2 p-2 rounded-lg bg-black/20 text-[11px] text-gray-200 whitespace-pre-wrap">
+                <div className="text-emerald-300 mb-1">
+                  🎙️ 口播稿（配音念的就是这条 · {String(vj.pitchText).length} 字
+                  {Number(vj?.pitchN) > 1 ? ` · 从 ${Number(vj.pitchN)} 条候选里选的` : ''}）
+                </div>
+                {String(vj.pitchText)}
+              </div>
+            ) : null}
             {vj?.summary ? (
               <div className="mt-2 p-2 rounded-lg bg-black/20 text-[11px] text-gray-200 whitespace-pre-wrap">
                 <div className="text-emerald-300 mb-1">
@@ -2739,12 +2816,18 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
             ) : null}
             {Array.isArray(vj?.copy) && vj.copy.length ? (
               <div className="mt-2 max-h-40 overflow-y-auto text-[11px] leading-relaxed">
+                {/* ★VF_FILM_PITCH_V1：每段多带一个 🎙口播 —— 让用户直接看到"整稿被切成了什么"（覆盖度肉眼可查） */}
                 {vj.copy.map((c: any, i: number) => {
                   const s = (c && c.slots) || {}
                   const line = [s.eyebrow, s.title1, s.title2, s.title, s.sub, s.tail].filter(Boolean).join(' · ')
                     + (Array.isArray(s.chips) && s.chips.length ? '  [' + s.chips.join('/') + ']' : '')
                     + (Array.isArray(s.rows) && s.rows.length ? '  ｜' + s.rows.join('；') : '')
-                  return <div key={i} className="text-gray-300">{i + 1}. {line || '（无文案）'}</div>
+                  return (
+                    <div key={i} className="text-gray-300 mb-1">
+                      {i + 1}. {line || '（无文案）'}
+                      {s.voice ? <span className="block text-emerald-300/80">🎙 {String(s.voice)}</span> : null}
+                    </div>
+                  )
                 })}
               </div>
             ) : null}
@@ -4830,8 +4913,10 @@ function AgentPageInner() {
         if (_vj && _vj.step === 'lead_setup') return <LeadSetupCard vj={_vj} onStart={sendMessage} buAccounts={buAccounts} />
         if (_vj && _vj.step === 'lead_preview') return <LeadPreviewCard vj={_vj} onStart={sendMessage} />
         if (_vj && _vj.step === 'form') return <VideoFormCard vj={_vj} onStart={sendMessage} userId={user?.id} />
-        {/* ★VF_HTMLSTD_V1（2026-10-08 用户定案「要」）：【HTML成片】状态机三张卡（素材 / 风格 / 确认） */}
-        if (_vj && (_vj.step === 'film_mat' || _vj.step === 'film_style' || _vj.step === 'film_confirm'))
+        {/* ★VF_HTMLSTD_V1（2026-10-08 用户定案「要」）：【HTML成片】状态机四张卡（素材 / 风格 / 口播稿 / 确认）
+            ★VF_FILM_PITCH_V1（2026-10-22）：多了 `film_pitch`（口播营销稿 3 选 1 + 可编辑） */}
+        if (_vj && (_vj.step === 'film_mat' || _vj.step === 'film_style' || _vj.step === 'film_pitch'
+          || _vj.step === 'film_confirm'))
           return <VfFilmCard vj={_vj} onSend={sendMessage} userId={user?.id} />
         {/* ★VF_DAILY_V6（2026-10-12 用户定案「第二步怎么回的是文字…没有前台卡片了？」）：日报落地页第 2 步也出卡 */}
         if (_vj && _vj.step === 'daily_plan') return <VfDailyPlanCard vj={_vj} onSend={sendMessage} />

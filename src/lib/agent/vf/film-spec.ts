@@ -201,3 +201,59 @@ export function mergeLay(spec: any, lay: string): any {
   }
   return out
 }
+
+/* ═════════ ★VF_FILM_PITCH_V1（2026-10-22 用户原话「**不是改画面上的，改的是口播**。AI 出 3 条可以选、可以修改」）═════════
+   背景：老流程是"AI 按骨架各写一句 ≤18 字的口播句"⇒ 拼起来是一串**碎句**（各写各的，语意不接），
+   而且提示词里完全没有"钩子 / 开场抓人 / 优惠"的要求（全仓 grep 0 命中）。
+   现口径：先出 **3 条完整口播营销稿**（不同角度）⇒ 用户选 1 条、可手工改 ⇒ 定稿那条再按段切开。
+
+   为什么放在本文件：`film-spec.ts` **只有 HTML 成片线引用**（已全仓核对），题面与解析放这里天然隔离，
+   而且都是纯函数 ⇒ 能脱离模型单测（见 temp/_spec/test.mjs）。 */
+
+/** 口播营销稿的题面（3 条不同角度：钩子型 / 优惠型 / 口碑型）
+ *  ⚠️ 硬线①：**没有优惠就不许编优惠**（模型最爱自己发明"立减 20"）；
+ *  ⚠️ 硬线②：零 emoji、不许自创品牌名、不许编数据。 */
+export function pitchPrompt(summary: string, topic: string, planTxt: string): string {
+  return '你是短视频口播稿写手。素材是一组餐饮/美食实拍。\n'
+    + '【素材总结（视觉模型读图所得）】\n'
+    + (summary ? String(summary).slice(0, 1200) : '（这次没有读图结果 ⇒ 只写能确定的内容，拿不准的细节一律不写）') + '\n'
+    + '【用户给的主题/卖点】'
+    + (topic ? topic : '（用户没给 ⇒ 只依据素材，不许自创品牌、不许编数据）') + '\n'
+    + '【这条片的段落骨架】\n' + String(planTxt || '').slice(0, 600) + '\n\n'
+    + '请写 **3 条不同角度的口播营销稿**，每条 120~180 字（口播 30~45 秒）：\n'
+    + '① 钩子型：第 1 句必须是钩子（≤15 字，用具体细节抓人，不许"超值""必吃""一口上瘾"这类空话）\n'
+    + '② 优惠型：把活动说清楚（**只在素材或主题里真的出现打折/活动时才写；没有就换一个角度，绝不许编优惠**）\n'
+    + '③ 口碑型：用真实可见的细节立信（现切、卖完就收、几点开门这类）\n'
+    + '三条都必须：\n'
+    + '· 口语化，能直接念（不要书面语、不要排比句堆砌）\n'
+    + '· 第 1 句就能立住（不要"大家好""今天给大家介绍"）\n'
+    + '· 结尾给一个落点（到店/留言/收藏，三选一，不要每条都"评论区见"）\n'
+    + '· **零 emoji、零表情符号**\n'
+    + '· **不许编造数据、不许编不存在的优惠、不许自创品牌名**\n'
+    + '只输出严格 JSON：\n'
+    + '{"candidates":[{"angle":"钩子型","text":"…"},{"angle":"优惠型","text":"…"},{"angle":"口碑型","text":"…"}]}'
+}
+
+/** 从模型回答里取口播稿候选（**白名单式**：只认 text/script/content 三种键；不编、不去重不漏）
+ *  · 条数不足**不补**（有几条给几条，调用方如实告知）；超过 3 条只取前 3；
+ *  · 顺手清掉 emoji 与换行（口播要能直接念）；过短的丢掉（多半是角度标签而不是稿子）。 */
+export function pickPitchCandidates(j: any): string[] {
+  const raw = Array.isArray(j) ? j
+    : (j && typeof j === 'object' && Array.isArray((j as any).candidates)) ? (j as any).candidates
+    : (j && typeof j === 'object' && Array.isArray((j as any).pitches)) ? (j as any).pitches
+    : []
+  const out: string[] = []
+  for (const x of raw) {
+    const src = (typeof x === 'string') ? x
+      : String((x && (x.text || x.script || x.content)) || '')
+    const t = src
+      .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{2190}-\u{21FF}]/gu, '')   // 零 emoji / 零箭头符号
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (t.length < 10) continue          // 太短 = 角度标签，不是稿子
+    if (out.includes(t)) continue        // 三条必须各不相同（用户"选"的前提）
+    out.push(t.slice(0, 400))
+    if (out.length >= 3) break
+  }
+  return out
+}

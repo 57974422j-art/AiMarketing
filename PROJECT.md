@@ -1,7 +1,7 @@
 # AiMarketing 项目文档
 
 > 本文档为**唯一权威项目文档**（替代已删除的 PROJECT_REPORT.md 与 docs/ 全部散落文档）。
-> 最后更新：2026-10-16 ｜ 配套文档：[AGENT-HANDOFF.md](./AGENT-HANDOFF.md)（**AGENT 页接手文档——换工具/换机器先读它**）、[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
+> 最后更新：2026-10-22 ｜ 配套文档：[AGENT-HANDOFF.md](./AGENT-HANDOFF.md)（**AGENT 页接手文档——换工具/换机器先读它**）、[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
 > 维护规则：**每次执行操作后**，必须同步更新本文档「当前进度/待办」章节 + EXECUTION_LOG.md + ISSUES.md。
 
 
@@ -222,6 +222,26 @@ dashboard(+insights/sop)、workspace、ai-tools、ai-copy、image-generator、au
 i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
+
+### 2026-10-22：HTML成片「先出口播营销稿 3 选 1 + 可编辑」（`VF_FILM_PITCH_V1`，✅ 代码完成 + 探针全绿，待部署后走一单）
+
+- **用户原话**：「**不是改画面上的，改的是口播**。AI 出 3 条可以选、可以修改。」⇒ 改的是**配音念的稿**，不是画面大字/字幕。
+- **病灶**：老流程 `aiPrepareCopy` 一口气干完 ①取素材 ②看图 ③排骨架 ④按段**各写一句 ≤18 字** `voice`
+  ⇒ 拼起来是**一串碎句**（各写各的、语意不接）；提示词里**完全没有**钩子/优惠/口碑的要求（全仓 grep 0 命中）。
+- ✅ **现流程（4 张卡）**：`mat`（素材）→ `style`（风格）→ **`pitch`（口播营销稿 3 选 1 + 可编辑）** → `confirm`（确认出片）。
+  · 服务端拆成两段：`aiPreparePitch`（看图 + 排骨架 + **出 3 条稿**，就此收手）→ 用户选/改 → `aiWriteCopyByPitch`
+    （**只认第 2 步的定稿** `filmJson`/`plan`/`summary`，**不重排、不重取素材**，把整稿**按段切成 N 段**写进 `voice`）；
+  · `film-spec.ts` 新增纯函数 `pitchPrompt()`（钩子型/优惠型/口碑型 + 「没优惠就不许编」+ 零 emoji）与 `pickPitchCandidates()`（白名单式解析）。
+  · 兜底：出稿失败 ⇒ 用**读图总结**拼一条候选（卡片写明"这版是拼的"）；切段失败 ⇒ 明确"没有出片"，绝不硬合并。
+  · 自检：确认卡显示**最终口播稿** + 每段 `🎙 voice`；`voice` 合计 / 整稿 <75% 或 >130% 时**如实提醒**（只报告、不改写）。
+- ⚠️ `FILM_LINE_VERSION` 升到 `film-2026-10-22-pitch` ⇒ **在飞草案一次性作废**（用户重开一单，属预期）。
+- **影响面**：`film-spec.ts` 只本线引用；`makeFilmFromMaterials` 的另一处调用（`route.ts:1480`）**参数未变**；
+  前端**只加 `film_pitch` 分支 + 确认卡两处显示**，`film_mat` 分支与 `defRecent` **未动**（日报线复用那张卡，不串线）。
+- **顺带修的真缺陷**：`sanitizeSlots` 原来把 **`voice` 也压回引擎字表**（表外字删掉），但口播是 TTS + **系统字体**烧字幕，
+  不经过引擎内嵌字体闸门 ⇒ 压它等于**悄悄改用户定稿的稿子**（"优惠信息一字不许变"当场被打破）。现压字表时**排除 `voice`**（emoji 仍清掉）。
+- **验证读数**：`tsc --noEmit` **90 = 基线**；真分派探针（`temp/_daily/_pitch_probe.ts`、`_pitch_flow.ts`）**20 + 16 = 36 条断言全过**
+  （改后的稿必须生效 / prompt 要求"切成 3 段"且老"≤18 字"消失 / 空稿不调模型且仍回 `film_pitch` / 覆盖度提醒 / 旧草案拒出片 / voice 不被压字表）。
+- ⏳ **待部署复验**：第 2 步成功路径要真看图 + 真排骨架（本机无 OSS 凭据与素材），部署后走一单看三条候选是否真的不同角度、成片配音是否念这条稿。
 
 ### 2026-10-16：日报出片「渲染崩溃」真因定案并修好（`VF_DAILY_V40`，✅ 代码完成 + 端到端出片，待部署后重生成）
 
