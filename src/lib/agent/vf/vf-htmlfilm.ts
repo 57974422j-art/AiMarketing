@@ -641,9 +641,20 @@ Promise<{ candidates: string[]; warn?: string; err?: string; needChars: number
   /** ★VF_VOICE_PICK_V1：AI 顺带判的"口播气质 / 配乐曲风"（白名单式，非法值 ⇒ ''） */
   tone?: string; music?: string }> {
   const need = pitchNeedChars(quotas)
-  const perSegMin = 13
-  const perSegMax = 18
-  const low = Math.round(need * 0.6)   // 低于这个数 = 成片会大段静音 ⇒ 必须重写一次
+  const NS = Math.max(1, quotas.length)
+  // ★VF_PITCH_LEN_V3（2026-10-22 用户实测「第三步基本每条都提示偏短」）：
+  //   病灶（题面自相矛盾，是我的错）：`perSegMin/Max` **写死 13~18 字**，而"合格线"按 `need×0.85` 算、
+  //   `need` 又按每段 4 字/秒算 ⇒ 15 段片 need≈256、合格线 218，但题面同时允许"每段只要 13 字"（15×13=195）
+  //   ⇒ **AI 老老实实按题面下限写，必然低于合格线** ⇒ "基本每条都被判偏短"（其实完全能用）。
+  //   现口径：① 每段字数区间由 `need/N` **派生**（下限×N ≈ 合格线，题面不再打架）；
+  //          ② 判据从"字数比例"换成**能覆盖几段**（`splitPitchToSegments` 真切一遍 —— 与成片结果同源，
+  //             这才是"会不会有大段静音"的唯一可信读数）。
+  const per = Math.max(8, Math.round(need / NS))
+  const perSegMin = Math.max(6, Math.round(per * 0.9))
+  const perSegMax = Math.round(per * 1.15)
+  const lowChars = Math.round(need * 0.6)   // 只剩 6 成 ⇒ 会有 4 成段静音 ⇒ 必须重写一次
+  /** 这条稿切完能覆盖几段（**与出片时用的是同一个函数**） */
+  const coverOf = (t: string) => splitPitchToSegments(String(t || ''), quotas).filter(Boolean).length
   const gen = ctx.generateText
   if (!gen) return { candidates: [], err: '服务端没接上文案模型（generateText 未注入）', needChars: need }
   const ask = (retryNote: string) => pitchPrompt({
@@ -653,11 +664,13 @@ Promise<{ candidates: string[]; warn?: string; err?: string; needChars: number
   let best: string[] = []
   let bestChars = 0
   let bestLines = 0
+  let bestCov = 0
   for (let attempt = 1; attempt <= 2; attempt++) {
     let txt = ''
     const retryNote = attempt === 1 ? ''
-      : '上一次每条只写了 ' + bestChars + ' 字 / ' + bestLines + ' 行，远少于要求。这次必须写到 '
-        + Math.round(need * 0.85) + '~' + Math.round(need * 1.25) + ' 字、**正好 ' + quotas.length + ' 行**'
+      : '上一次最好的那条只覆盖了 ' + bestCov + '/' + NS + ' 段（' + bestChars + ' 字 / ' + bestLines + ' 行），'
+        + '会有 ' + Math.max(0, NS - bestCov) + ' 段没配音。这次必须写到 '
+        + Math.round(need * 0.85) + '~' + Math.round(need * 1.25) + ' 字、**正好 ' + NS + ' 行**'
         + '（每行 ' + perSegMin + '~' + perSegMax + ' 字），不够就是不合格。'
     try {
       txt = String(await gen(ask(retryNote)) || '')
@@ -674,34 +687,41 @@ Promise<{ candidates: string[]; warn?: string; err?: string; needChars: number
         + (txt.trim() ? '（原文片段：' + txt.replace(/\s+/g, ' ').trim().slice(0, 120) + '）' : '（返回是空的）')
       continue
     }
-    // 三条候选角度不同，取**最长的那条**当"够不够长"的判据（其余原样给用户选）
+    // ★VF_PITCH_LEN_V3：判据 = **覆盖面**（用 splitPitchToSegments 真切一遍，与出片同源），不再比字数比例。
+    //   三条候选里取"覆盖段数最多"的那条当判据（其余原样给用户选）。
     let top = cands[0]
-    for (const c of cands) if (pitchStats(c).chars > pitchStats(top).chars) top = c
+    let topCov = coverOf(top)
+    for (const c of cands) {
+      const cv = coverOf(c)
+      if (cv > topCov || (cv === topCov && pitchStats(c).chars > pitchStats(top).chars)) { top = c; topCov = cv }
+    }
     const st = pitchStats(top)
-    if (st.chars > bestChars) { best = cands; bestChars = st.chars; bestLines = st.lines }
-    if (st.chars >= low) {
+    if (topCov > bestCov || (topCov === bestCov && st.chars > bestChars)) {
+      best = cands; bestChars = st.chars; bestLines = st.lines; bestCov = topCov
+    }
+    if (st.chars >= lowChars) {
       if (cands.length < 3) {
         vfLog(uid, '[HTML成片] 口播稿：AI 只给了 ' + cands.length + ' 条可用候选（要 3 条）—— 如实按 ' + cands.length + ' 条给用户')
       }
       if (ex.tone || ex.music) {
         vfLog(uid, '[HTML成片] AI 建议：气质=' + (ex.tone || '未给') + '（推荐音色 ' + voiceForTone(ex.tone) + '）· 曲风=' + (ex.music || '未给'))
       }
-      if (st.chars < Math.round(need * 0.85)) {
+      vfLog(uid, `[HTML成片] 口播稿：${st.chars} 字 / ${st.lines} 行 · 可覆盖 ${topCov}/${NS} 段（需要约 ${need} 字）`)
+      // 覆盖不满才提示，**语气中性**（不是"偏短/不合格"）：说清后果 + 怎么补一句就够
+      if (topCov < NS) {
         return { candidates: cands, needChars: need, tone: ex.tone, music: ex.music,
-          warn: 'ℹ️ AI 写的稿偏短（' + st.chars + ' 字 / 这条片需要约 ' + need + ' 字）—— 可以在框里补两句，或点「← 换风格」重来一次。' }
+          warn: 'ℹ️ 这条稿能覆盖 ' + topCov + '/' + NS + ' 段（后面 ' + (NS - topCov) + ' 段会静音）'
+            + '—— 想全覆盖就补到约 ' + need + ' 字，或直接选一条往下走（不影响出片）。' }
       }
       return { candidates: cands, needChars: need, tone: ex.tone, music: ex.music }
     }
-    vfLog(uid, `[HTML成片] 口播稿第 ${attempt} 次不够长：最好一条 ${st.chars} 字 / ${st.lines} 行（需要 ≥${low} 字 / ${quotas.length} 行）`)
+    vfLog(uid, `[HTML成片] 口播稿第 ${attempt} 次覆盖面不足：最好一条 ${st.chars} 字 / ${st.lines} 行 / 覆盖 ${topCov}-${NS} 段（下限 ${lowChars} 字）`)
   }
   // 两次都没到"能用的下限" ⇒ 有稿就给（**如实告警**，让用户自己补），没稿才降级
   if (best.length) {
-    const perSeg = Math.max(1, Math.round(need / Math.max(1, quotas.length)))
     vfLog(uid, '[HTML成片] ⚠️ 口播稿两次都偏短，按现有 ' + bestChars + ' 字交给用户（可在框里补写）')
-    return { candidates: best, needChars: need,
-      warn: '⚠️ AI 写的稿太短（' + bestChars + ' 字 / 这条片需要约 ' + need + ' 字，共 ' + quotas.length + ' 段）'
-        + '—— 直接出片的话大概只有前 ' + Math.max(1, Math.round(bestChars / perSeg)) + ' 段有配音，其余段静音。'
-        + '请在下面的框里补充到约 ' + need + ' 字（一行一段），或点「← 换风格」重写一次。' }
+    return { candidates: best, needChars: need, warn: '⚠️ AI 写的稿偏短（' + bestChars + ' 字，最好是约 ' + need + ' 字 / ' + NS + ' 段）'
+      + '—— 直接出片也能用，只是后面若干段会静音。要全覆盖就在框里补到约 ' + need + ' 字（一行一段），或点「← 换风格」重写。' }
   }
   // 降级：用**读图总结**拼一条（取材于素材本身 ⇒ 不编造；没有读图结果就如实失败）
   const fb = String(summary || '').replace(/\s+/g, ' ').trim()
@@ -958,9 +978,9 @@ Promise<{ ok: boolean; err?: string; copy?: any[]; plan?: any[]; warn?: string
   if (!voiceN) {
     warnParts.push('⚠️ 这条稿切不出任何一段口播 —— 配音会退回念画面大字。请回上一步把稿写好。')
   } else if (voiceN < N) {
-    warnParts.push('ℹ️ 口播稿 ' + pitchLen + ' 字 / 本片 ' + N + ' 段（这段片子约需 ' + needChars + ' 字）'
-      + '⇒ **只有前 ' + voiceN + ' 段有口播，其余 ' + (N - voiceN) + ' 段静音**。'
-      + '想全程有配音：回上一步把稿补到约 ' + needChars + ' 字（一行一段）。')
+    warnParts.push('ℹ️ 口播稿 ' + pitchLen + ' 字 / 本片 ' + N + ' 段（约需 ' + needChars + ' 字）'
+      + '⇒ **只有前 ' + voiceN + ' 段有口播，其余 ' + (N - voiceN) + ' 段静音**（不影响出片）。'
+      + '想全程有配音：点「← 改口播稿」把稿补到约 ' + needChars + ' 字（一行一段），再回来点出片。')
     vfLog(uid, `[HTML成片] 口播未覆盖全片：${voiceN}/${N} 段（稿 ${pitchLen} 字 / 需要约 ${needChars} 字）`)
   } else {
     vfLog(uid, `[HTML成片] 口播已覆盖全片：${voiceN}/${N} 段（稿 ${pitchLen} 字 / 需要约 ${needChars} 字）`)
@@ -1040,8 +1060,14 @@ function pitchCard(vd: HtmlFilmDraft): string {
   // ★VF_FILM_PITCH_V2：把"这条片需要多少字 / 多少段"下发到卡片 ——
   //   用户改稿时能**当场看到够不够**（老版本只显示"当前 N 字"，没有参照物 ⇒ 29 字看上去也"正常"）
   const quotas = pitchQuotas(plan.map((s: any) => s.dur))
+  // ★VF_PITCH_LEN_V3：每条候选**能覆盖几段**（用与出片同一个切段函数算）——
+  //   这比"字数够不够"有意义得多：用户真正关心的是"会不会有镜头没配音"。
+  const covers = cands.map((t) => splitPitchToSegments(String(t || ''), quotas).filter(Boolean).length)
   const body = {
     step: 'film_pitch',
+    covers,
+    coverNow: splitPitchToSegments(String(vd.pitchText || cands[pickedIdx] || ''), quotas).filter(Boolean).length,
+    warn: String((vd as any).warn || ''),
     hint: '第 3 步 / 共 4 步 · 口播营销稿（AI 写了 ' + cands.length + ' 条不同角度，选一条；也可以直接改）',
     // ⚠️ 这里是**配音要念的稿**，不是画面大字 —— 卡片标题与说明都要点明，否则用户会以为是字幕
     candidates: cands,
@@ -1054,8 +1080,10 @@ function pitchCard(vd: HtmlFilmDraft): string {
     // ★VF_FILM_PITCH_V2：篇幅读数（**推荐字数 = 各段配额之和**；一行 = 一个镜头）
     segs: quotas.length,
     needChars: pitchNeedChars(quotas),
-    perSegMin: 13,
-    perSegMax: 18,
+    // ★VF_PITCH_LEN_V3：每段字数区间由 need/段数**派生**（与写入题面的那两个值为同一算法，
+    //   ⚠️ 别再在这里写死 13/18 —— 否则卡片显示"13~18 字"，而出稿却按另一套判，用户看到的与实际打架）
+    perSegMin: Math.max(6, Math.round(Math.max(8, Math.round(pitchNeedChars(quotas) / Math.max(1, quotas.length))) * 0.9)),
+    perSegMax: Math.round(Math.max(8, Math.round(pitchNeedChars(quotas) / Math.max(1, quotas.length))) * 1.15),
     estSec: Math.round(plan.reduce((a: number, s: any) => a + (Number(s.dur) || 0), 0)) || 0,
     topic: String(vd.topic || ''),
     pack: vd.pack,
@@ -1104,7 +1132,7 @@ async function confirmCard(uid: number | string, vd: HtmlFilmDraft): Promise<str
   const body = {
     step: 'film_confirm',
     // ★VF_FILMCOPY_V1：数字（段数/时长）改成**按真实骨架算**，不再写死 30 秒/6 段
-    hint: '第 4 步 / 共 4 步 · 确认出片（文案已按你的口播稿切好，先看一眼；不满意可「← 换风格」重写）',
+    hint: '第 4 步 / 共 4 步 · 确认出片（文案已按你的口播稿切好；改稿点「← 改口播稿」，换风格/素材点「← 换风格」）',
     names: vd.names,
     // ★VF_RATIO_V1：把这一单用的比例回显到确认卡（用户能看见"这条片按几比几排的"）
     plateRatio: vd.plateRatio === undefined ? 60 : Number(vd.plateRatio),
@@ -1303,6 +1331,15 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
       await saveHtmlFilmDraft(prisma, uid, vd)
       vfLog(uid, `[HTML成片] 已按口播稿切成 ${(wr.copy || []).length} 段（有口播 ${wr.voiceN || 0} 段 / 需要约 ${wr.needChars || 0} 字）→ 出确认卡（等用户点出片）`)
       return await confirmCard(uid, vd)
+    }
+    // ★VF_PITCH_BACK_V1（2026-10-22 用户实测「第四步提示字太少让我改，可第四步没有框」）：
+    //   回第 3 步**只改稿** —— 候选/已选序号/你改过的文字**全保留**，不重写稿、不重排骨架。
+    //   （老口径只有 `back_style`：那会回到第 2 步，再点"下一步"就**重新让 AI 写 3 条新稿**，改的全丢。）
+    if (at === 'back_pitch') {
+      vd.step = 'pitch'
+      await saveHtmlFilmDraft(prisma, uid, vd)
+      vfLog(uid, '[HTML成片] 回第 3 步（口播稿）—— 候选与已成稿都保留，不重写')
+      return pitchCard(vd)
     }
     if (at === 'back_style') { vd.step = 'style'; await saveHtmlFilmDraft(prisma, uid, vd); return styleCard(vd) }
     if (at === 'back_mat') { vd.step = 'mat'; await saveHtmlFilmDraft(prisma, uid, vd); return await matCard(uid, vd) }

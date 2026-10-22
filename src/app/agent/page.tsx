@@ -2468,7 +2468,13 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
   const pitchChars = (s: string) => String(s || '').replace(/\s+/g, '').length
   const pitchLines = (s: string) => String(s || '').split('\n').map((x) => x.trim()).filter(Boolean).length
   // 稿明显短于需求（<85%）⇒ 只**提示**（不禁止提交：切段是按行来的，短稿只会让后面镜头静音，不会乱念）
-  const pitchShort = pitchNeed > 0 && pitchChars(pitchText) < Math.round(pitchNeed * 0.85)
+  // ★VF_PITCH_LEN_V3（2026-10-22 用户实测「第三步基本每条都提示偏短」）：
+  //   老口径拿"字数 < 需要×0.85"当"偏短"，而题面允许的每段下限乘起来**本来就低于这条线** ⇒ 几乎每条都被标"偏短"。
+  //   现口径：只说**能覆盖几段**（服务端用与出片同一个切段函数算好 `covers`；输入实时估算用 `coverEst`）。
+  const pitchCovers: number[] = Array.isArray(vj?.covers) ? vj.covers.map((x: any) => Number(x) || 0) : []
+  const perSegNeed = pitchSegs ? Math.max(1, Math.round((pitchNeed || 0) / pitchSegs)) : 16
+  const coverEst = (s: string) => Math.min(pitchSegs || 99, Math.round(pitchChars(s) / perSegNeed))
+  const pitchShort = !!(pitchSegs && coverEst(pitchText) < pitchSegs)
   // ★VF_VOICE_PICK_V1（2026-10-22 用户定案「配音不能选」）：确认卡上的**音色选择 + 试听**。
   //   ⚠️ 不能叫 `voice` —— 那个名字已被"配音开关（bool）"占用（下面 `voice` state）。
   //   默认值由服务端给（AI 判的气质 → 推荐音色；拿不到就是 Cherry）。
@@ -2586,7 +2592,8 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
   //   日报线传 'VF_DAILY_FORM' ⇒ **两条线各发各的串**，谁也不会抢谁的消息）
   const protoWord = String(vj?.proto || 'VF_FILM_FORM')
   // ★VF_FILM_PITCH_V1：`'pitch'` 是第 2.5 步（口播营销稿定稿）—— 只多发/多收一个 at，协议串本身不变
-  const next = (at: 'mat' | 'style' | 'pitch' | 'back_mat' | 'back_style', extra?: any) => onSend(protoWord + ':' + JSON.stringify({ at, ...(extra || {}) }))
+  // ★VF_PITCH_BACK_V1：多了 `'back_pitch'`（从确认卡回"只改口播稿"那一步，不重写稿）
+  const next = (at: 'mat' | 'style' | 'pitch' | 'back_mat' | 'back_style' | 'back_pitch', extra?: any) => onSend(protoWord + ':' + JSON.stringify({ at, ...(extra || {}) }))
 
   return (
     <div className={box}>
@@ -2795,6 +2802,12 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
             ⇒ 建议口播 <b className="text-emerald-300">约 {pitchNeed || '—'} 字</b>
             （每段 {Number(vj?.perSegMin) || 13}~{Number(vj?.perSegMax) || 18} 字，{pitchSegs ? `正好 ${pitchSegs} 行` : '一行一段'}）
           </div>
+          {/* ★VF_PITCH_LEN_V3：服务端的**中性**读数（只在覆盖不满时出现；不再用"偏短/不合格"的口气） */}
+          {vj?.warn ? (
+            <div className="mb-2 p-2 rounded-lg bg-amber-500/10 border border-amber-400/25 text-[10px] text-amber-200 whitespace-pre-wrap">
+              {String(vj.warn)}
+            </div>
+          ) : null}
           <div className="flex flex-col gap-1.5 mb-2 max-h-64 overflow-y-auto">
             {pitchCands.map((t, i) => {
               const on = pitchPick === i
@@ -2804,8 +2817,12 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
                     (on ? 'border-emerald-400/70 bg-emerald-500/[0.12]' : 'border-white/10 bg-black/20 hover:bg-white/[0.05]')}>
                   <div className="text-[10px] text-emerald-300 mb-0.5">
                     {pitchAngles[i] || ('候选 ' + (i + 1))} · {pitchChars(t)} 字 · {pitchLines(t)} 行（约 {Math.round(pitchChars(t) / 4.5)} 秒）
-                    {pitchNeed && pitchChars(t) < Math.round(pitchNeed * 0.85)
-                      ? <span className="text-amber-300"> · 偏短</span> : null}
+                    {/* ★VF_PITCH_LEN_V3：只说"能覆盖几段"（服务端用与出片同一个切段函数算的），不再打"偏短"标签 */}
+                    {pitchSegs && pitchCovers.length > i ? (
+                      <span className={pitchCovers[i] >= pitchSegs ? 'text-emerald-300/80' : 'text-gray-400'}>
+                        {' · 覆盖 ' + pitchCovers[i] + '/' + pitchSegs + ' 段'}
+                      </span>
+                    ) : null}
                   </div>
                   <div className="text-[11px] text-gray-200 leading-relaxed whitespace-pre-line">{t}</div>
                 </button>
@@ -2821,18 +2838,18 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
             placeholder={'口播稿（一行一段，共 ' + (pitchSegs || 0) + ' 行、约 ' + (pitchNeed || 0) + ' 字；也可以自己重写）'}
             className="w-full text-[11px] leading-relaxed bg-black/30 border border-white/10 rounded-lg px-2.5 py-2 text-gray-100 mb-1.5" />
           <div className="flex items-center justify-between mb-1.5">
-            <span className={'text-[10px] ' + (pitchShort ? 'text-amber-300' : 'text-gray-500')}>
+            <span className="text-[10px] text-gray-500">
               当前 {pitchChars(pitchText)} 字 · {pitchLines(pitchText)} 行
-              {pitchSegs ? ` / ${pitchSegs} 段` : ''}（口播约 {Math.round(pitchChars(pitchText) / 4.5)} 秒）
-              {pitchShort ? ` —— 太短了，大约只有前 ${Math.max(1, Math.round(pitchChars(pitchText) / Math.max(1, Math.round((pitchNeed || 16) / Math.max(1, pitchSegs)))))} 段有配音` : ''}
+              {pitchSegs ? ` · 约覆盖 ${coverEst(pitchText)}/${pitchSegs} 段` : ''}
+              （口播约 {Math.round(pitchChars(pitchText) / 4.5)} 秒）
             </span>
             <button onClick={() => { setPitchText(String(pitchCands[pitchPick] || '')); setMsg('') }}
               className="text-[10px] text-gray-400 hover:text-gray-200 underline shrink-0 ml-2">↺ 还原这条</button>
           </div>
           {pitchShort ? (
-            <div className="text-[10px] text-amber-300/90 mb-2">
-              ℹ️ 稿短不影响提交：切段是**按行**来的，短稿只会让后面的镜头没配音（不会乱念）。
-              要全程有配音就补到约 {pitchNeed} 字 / {pitchSegs} 行。
+            <div className="text-[10px] text-gray-500 mb-2">
+              ℹ️ 按现在长度：约 {coverEst(pitchText)} 段有配音、{pitchSegs - coverEst(pitchText)} 段会静音；
+              想全覆盖就补到约 {pitchNeed} 字（一行一段）。<b className="text-gray-400">不影响提交与出片。</b>
             </div>
           ) : null}
           {msg ? <div className="text-[10px] text-amber-300 mb-2">{msg}</div> : null}
@@ -3024,7 +3041,13 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
             ) : null}
           </div>
           <div className="flex gap-2">
-            <button onClick={() => next('back_style')} className={btn + ' border-white/15 text-gray-300 hover:bg-white/[0.08]'}>← 换风格</button>
+            {/* ★VF_PITCH_BACK_V1（2026-10-22 用户实测「第四步提示字太少让我改，可第四步没有框」）：
+                **改稿回第 3 步**（候选与改过的字全保留、不重写）；「换风格」才会重写稿 + 重排骨架 —— 两个按钮说清区别。 */}
+            <button onClick={() => next('back_pitch')}
+              className={btn + ' border-emerald-400/40 text-emerald-200 hover:bg-emerald-500/[0.12]'}
+              title="回第 3 步改口播稿：保留 3 条候选和你改过的字，不会重写">← 改口播稿</button>
+            <button onClick={() => next('back_style')} className={btn + ' border-white/15 text-gray-300 hover:bg-white/[0.08]'}
+              title="回第 2 步换风格/素材：会重新写 3 条口播稿并重排骨架">← 换风格</button>
             <button onClick={() => onSend('VF_FILM_GO:' + JSON.stringify({
               pack: String(vj?.pack || ''), voiced: voice,
               // ★VF_VOICE_PICK_V1：把选中的音色带给服务端（服务端再做白名单校验）
