@@ -24,6 +24,8 @@ echo "  备份完成（保留最近 5 个）：$(ls /root/db-backup/dev-*.db 2>/
 BEFORE_KB=$(df -k / | tail -1 | awk '{print $4}')
 rm -rf /root/AiMarketing/scripts/video-factory/html-deck/out/film_* 2>/dev/null
 rm -rf /tmp/aidchk-* /tmp/shr-in-* /tmp/shr-out-* 2>/dev/null
+# 帧确定性自检的产物（每次 10~50MB；新版已默认写到 /tmp，这里清旧版遗留 + 旧临时）
+rm -rf /tmp/determinism-* /root/AiMarketing/temp/determinism-* 2>/dev/null
 AFTER_KB=$(df -k / | tail -1 | awk '{print $4}')
 echo "  清理临时产物：释放 $(( (AFTER_KB - BEFORE_KB) / 1024 )) MB · 剩余 $(( AFTER_KB / 1024 / 1024 )) GB"
 if [ "$AFTER_KB" -lt 3145728 ]; then echo "  ⚠️ 磁盘剩余不足 3GB —— 出片可能被拦，请检查（du -sh /* | sort -rh | head）"; fi

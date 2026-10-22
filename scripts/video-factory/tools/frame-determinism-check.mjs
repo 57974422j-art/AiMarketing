@@ -28,6 +28,7 @@
  */
 
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { createRequire } from 'node:module'
@@ -51,7 +52,11 @@ if (!fs.existsSync(absTarget)) {
   process.exit(2)
 }
 
-const OUT_DIR = path.resolve(arg('out', path.join('temp', 'determinism-' + Date.now())))
+/* 默认输出到**系统临时目录**（Linux: /tmp，Windows: %TEMP%），不落在项目盘上。
+   为什么：这个工具每次产出 10~50MB（打包项目 + 帧图），落在项目 temp/ 里会一直堆、
+   而且部署脚本不会清它（服务器实测磁盘只剩 800MB 就是这类东西堆出来的）。
+   /tmp 由系统定期清理，不占业务盘。需要保留时用 --out 指定路径。 */
+const OUT_DIR = path.resolve(arg('out', path.join(os.tmpdir(), 'determinism-' + Date.now())))
 const TOLERANCE = Number(arg('tolerance', '0.01'))
 const KEEP = flag('keep')
 const JSON_ONLY = flag('json')
