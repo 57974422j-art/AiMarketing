@@ -54,7 +54,9 @@ const HTMLFILM_PREFIX = 'HTML成片草稿:'
 // ★VF_FILM_PITCH_V1（2026-10-22）：第 2 步之后多了「口播营销稿 3 选 1 + 可编辑」（step='pitch'），
 //   逐镜文案的第 4 步从"AI 各写一句 ≤18 字碎句"改成"**整稿切段**"⇒ 草案结构变了（pitch* 三字段）
 //   且第 2 步不再直接出确认卡 ⇒ 旧草案（step:'confirm'、没有 pitchText）与新流程必然错配 ⇒ 版本戳必须升。
-export const FILM_LINE_VERSION = 'film-2026-10-22-pitch'
+// ★VF_FILM_PITCH_V2（2026-10-22）：口播从"模型切段"改成"服务端确定性切段"，且稿长与段数绑死
+//   ⇒ **在飞草案（V1 那单：确认卡上 voice 全空、稿只有二三十字）必须作废**，否则用户点出片还是老的坏结果。
+export const FILM_LINE_VERSION = 'film-2026-10-22-pitch2'
 
 export type HtmlFilmStep = 'mat' | 'style' | 'pitch' | 'confirm'
 
