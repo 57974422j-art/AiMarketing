@@ -18,7 +18,10 @@
  *   --frames 0,15,30,60     要检查的帧号（秒）。默认按总时长自动取 6 个采样点
  *   --out <dir>             报告与帧图输出目录（默认 temp/determinism-<时间戳>）
  *   --chrome <path>         Chromium 路径（默认按环境变量 CHROME / 常见路径探测）
- *   --tolerance 0           允许的像素差异比例（0 = 必须逐字节一致；0.001 = 0.1%）
+ *   --tolerance 0.01        允许的像素差异比例（默认 1%）。
+ *                           为什么不是 0：Chromium 在 transform:scale()/filter 下**光栅化有亚像素差异**
+ *                           （实测同一帧两遍差 68% 字节，但两张图肉眼完全相同）。
+ *                           >5% 才有可能是真的不确定源（随机数/时钟/异步时序）。
  *   --keep                  保留两遍的帧图（默认只留不一致的）
  *   --json                  只输出 JSON（给机器读）
  *
@@ -50,7 +53,8 @@ if (!fs.existsSync(abs)) {
 }
 
 const OUT_DIR = arg('out', path.join('temp', 'determinism-' + Date.now()))
-const TOLERANCE = Number(arg('tolerance', '0'))
+// 默认 1%：Chromium 光栅化本身有亚像素差异（详见 docs/hyperframes-SPEC.md §3）
+const TOLERANCE = Number(arg('tolerance', '0.01'))
 const KEEP = flag('keep')
 const JSON_ONLY = flag('json')
 
@@ -96,13 +100,56 @@ function loadPuppeteer() {
   throw new Error('找不到 puppeteer-core（可 npm i -D puppeteer-core，或复用 html-deck 的 node_modules）')
 }
 
-// ── 纯函数：像素差异比例（PNG 字节级不等于像素级，这里做"同尺寸逐字节比较"的保守估计）──
-function diffRatio(bufA, bufB) {
-  if (bufA.equals(bufB)) return 0
-  const n = Math.min(bufA.length, bufB.length)
-  let diff = Math.abs(bufA.length - bufB.length)
-  for (let i = 0; i < n; i++) if (bufA[i] !== bufB[i]) diff++
-  return diff / Math.max(bufA.length, bufB.length)
+/* ★ 像素差异比例（**必须解码后逐像素比**）。
+   为什么不能比 PNG 字节：PNG 是**压缩格式**，像素微差会让压缩输出完全不同
+   ⇒ 实测同一帧两遍"字节差异 98%"，但两张图**肉眼完全一样**（只有纹理取样的亚像素差）。
+   ⇒ 早先用字节比会把"正常的光栅化差异"报成 98%，**结论全错**。
+   实现：优先用 sharp 解成 raw RGBA 逐像素比；没有 sharp 时退回字节比并**明确标注**。 */
+let sharpMod = null
+async function loadSharp() {
+  if (sharpMod !== null) return sharpMod
+  for (const base of ['scripts/video-factory/html-deck/node_modules', 'node_modules']) {
+    try {
+      const req = createRequire(path.resolve(base, 'x.cjs'))
+      sharpMod = req('sharp')
+      return sharpMod
+    } catch { /* next */ }
+  }
+  try { sharpMod = (await import('sharp')).default } catch { sharpMod = false }
+  return sharpMod
+}
+
+async function diffRatio(bufA, bufB) {
+  if (bufA.equals(bufB)) return { ratio: 0, mode: 'identical' }
+  const sharp = await loadSharp()
+  if (!sharp) {
+    // 退回字节比（不准确，必须在报告里说清）
+    const n = Math.min(bufA.length, bufB.length)
+    let diff = Math.abs(bufA.length - bufB.length)
+    for (let i = 0; i < n; i++) if (bufA[i] !== bufB[i]) diff++
+    return { ratio: diff / Math.max(bufA.length, bufB.length), mode: 'png-bytes' }
+  }
+  try {
+    const [ra, rb] = await Promise.all([
+      sharp(bufA).ensureAlpha().raw().toBuffer({ resolveWithObject: true }),
+      sharp(bufB).ensureAlpha().raw().toBuffer({ resolveWithObject: true }),
+    ])
+    if (ra.info.width !== rb.info.width || ra.info.height !== rb.info.height) {
+      return { ratio: 1, mode: 'size-mismatch' }
+    }
+    const px = ra.info.width * ra.info.height
+    let diff = 0
+    for (let i = 0; i < px; i++) {
+      const o = i * 4
+      // 任一通道差 >2 才算"肉眼可见的差"（容忍抗锯齿取样）
+      if (Math.abs(ra.data[o] - rb.data[o]) > 2
+        || Math.abs(ra.data[o + 1] - rb.data[o + 1]) > 2
+        || Math.abs(ra.data[o + 2] - rb.data[o + 2]) > 2) diff++
+    }
+    return { ratio: diff / px, mode: 'pixels' }
+  } catch {
+    return { ratio: 1, mode: 'decode-failed' }
+  }
 }
 const sha = (b) => crypto.createHash('sha256').update(b).digest('hex').slice(0, 16)
 
@@ -326,9 +373,13 @@ const results = []
 for (const t of frames) {
   const a = shotsA.get(t) || Buffer.alloc(0)
   const b = shotsB.get(t) || Buffer.alloc(0)
-  const ratio = diffRatio(a, b)
+  const dr = await diffRatio(a, b)
+  const ratio = dr.ratio
   const same = ratio <= TOLERANCE
-  results.push({ t, same, ratio: +ratio.toFixed(6), shaA: sha(a), shaB: sha(b), bytesA: a.length, bytesB: b.length })
+  results.push({
+    t, same, ratio: +ratio.toFixed(6), diffMode: dr.mode,
+    shaA: sha(a), shaB: sha(b), bytesA: a.length, bytesB: b.length,
+  })
   if (!same) {
     // 只保留不一致的帧图，便于人看
     fs.writeFileSync(path.join(OUT_DIR, `DIFF-${t}-A.png`), a)
@@ -391,9 +442,10 @@ if (JSON_ONLY) {
     report.pageErrors.forEach((e) => console.log('    ✗ ' + e))
   }
   console.log('')
+  const _dm = results[0]?.diffMode || '?'
   console.log(report.ok
-    ? '  ✅ 全部一致（同一帧渲两遍逐字节相同）'
-    : '  ❌ ' + bad.length + '/' + results.length + ' 帧不一致 ⇒ 页面存在不确定源（看上面差异帧）')
+    ? '  ✅ 全部一致（像素差异 ≤ ' + (TOLERANCE * 100).toFixed(1) + '% · 比对方式 ' + _dm + '）'
+    : '  ❌ ' + bad.length + '/' + results.length + ' 帧不一致（像素差异 > ' + (TOLERANCE * 100).toFixed(1) + '%）⇒ 页面存在不确定源（看 DIFF-*.png）')
   console.log('  报告：' + path.join(OUT_DIR, 'report.json'))
   console.log('')
 }
