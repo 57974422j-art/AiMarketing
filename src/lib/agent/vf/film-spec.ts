@@ -207,36 +207,89 @@ export function mergeLay(spec: any, lay: string): any {
    而且提示词里完全没有"钩子 / 开场抓人 / 优惠"的要求（全仓 grep 0 命中）。
    现口径：先出 **3 条完整口播营销稿**（不同角度）⇒ 用户选 1 条、可手工改 ⇒ 定稿那条再按段切开。
 
+   ★VF_FILM_PITCH_V2（2026-10-22 用户实测第一条：3 条候选只有 **23/31/29 字**，而片子是 **15 段 / 54 秒**）：
+   两个真因（都不是模型的锅，是题面与设计没对上）：
+     ① 题面写"每条 120~180 字"—— 这是个**与段数无关的固定值**，而且没有"必须分 N 行"的可数约束 ⇒
+        便宜的 writer 模型写完一句就收（实测 29 字 ≈ 6 秒，而片子 54 秒）；
+     ② 让模型"把整稿切成 15 段"= **让它做算术**：29 字切 15 段每段 1.9 字，物理上不可能 ⇒ 它干脆不给 `voice`
+        ⇒ 配音退回念画面大字（用户实测"口播稿没出现在视频里"）。
+   现口径（本文件的四个纯函数）：
+     · `pitchQuotas()` —— 按**每段真实时长**算该段该念多少字（配额）；
+     · `pitchPrompt()` —— **篇幅是硬要求**：共 N 段 ⇒ 必写 N 行、每行 13~18 字、全稿约 needChars 字（给区间）；
+     · `pickPitchCandidates()` —— 解析（支持 `lines[]` 与多行 `text`），**保留换行**（一行一段）；
+     · `splitPitchToSegments()` —— **切段交给服务端**（确定性装箱，只按标点边界、**绝不删字/改字**）⇒
+       不再让模型做算术，覆盖率可机器核对。
+
    为什么放在本文件：`film-spec.ts` **只有 HTML 成片线引用**（已全仓核对），题面与解析放这里天然隔离，
    而且都是纯函数 ⇒ 能脱离模型单测（见 temp/_spec/test.mjs）。 */
 
-/** 口播营销稿的题面（3 条不同角度：钩子型 / 优惠型 / 口碑型）
- *  ⚠️ 硬线①：**没有优惠就不许编优惠**（模型最爱自己发明"立减 20"）；
- *  ⚠️ 硬线②：零 emoji、不许自创品牌名、不许编数据。 */
-export function pitchPrompt(summary: string, topic: string, planTxt: string): string {
-  return '你是短视频口播稿写手。素材是一组餐饮/美食实拍。\n'
-    + '【素材总结（视觉模型读图所得）】\n'
-    + (summary ? String(summary).slice(0, 1200) : '（这次没有读图结果 ⇒ 只写能确定的内容，拿不准的细节一律不写）') + '\n'
-    + '【用户给的主题/卖点】'
-    + (topic ? topic : '（用户没给 ⇒ 只依据素材，不许自创品牌、不许编数据）') + '\n'
-    + '【这条片的段落骨架】\n' + String(planTxt || '').slice(0, 600) + '\n\n'
-    + '请写 **3 条不同角度的口播营销稿**，每条 120~180 字（口播 30~45 秒）：\n'
-    + '① 钩子型：第 1 句必须是钩子（≤15 字，用具体细节抓人，不许"超值""必吃""一口上瘾"这类空话）\n'
-    + '② 优惠型：把活动说清楚（**只在素材或主题里真的出现打折/活动时才写；没有就换一个角度，绝不许编优惠**）\n'
-    + '③ 口碑型：用真实可见的细节立信（现切、卖完就收、几点开门这类）\n'
-    + '三条都必须：\n'
-    + '· 口语化，能直接念（不要书面语、不要排比句堆砌）\n'
-    + '· 第 1 句就能立住（不要"大家好""今天给大家介绍"）\n'
-    + '· 结尾给一个落点（到店/留言/收藏，三选一，不要每条都"评论区见"）\n'
-    + '· **零 emoji、零表情符号**\n'
-    + '· **不许编造数据、不许编不存在的优惠、不许自创品牌名**\n'
-    + '只输出严格 JSON：\n'
-    + '{"candidates":[{"angle":"钩子型","text":"…"},{"angle":"优惠型","text":"…"},{"angle":"口碑型","text":"…"}]}'
+/** 每段口播的字数配额用多少语速：**念稿语速 4 字/秒**（字幕/口播口径，比"整片时长估算"的 3.2 字/秒略快，
+ *  因为后者含每段尾巴与停顿）。3.6 秒的段 ⇒ 约 14 字。 */
+export const PITCH_CPS = 4
+
+/** 每段该念多少字（按骨架每段的**真实时长**算；dur 缺失按 3.6 秒，夹在 8~26 字之间） */
+export function pitchQuotas(durs: Array<number | undefined>): number[] {
+  return (Array.isArray(durs) ? durs : []).map((d) => {
+    const dur = Number(d) || 3.6
+    return Math.max(8, Math.min(26, Math.round(dur * PITCH_CPS)))
+  })
 }
 
-/** 从模型回答里取口播稿候选（**白名单式**：只认 text/script/content 三种键；不编、不去重不漏）
+/** 全稿该有多少字 = 各段配额之和（卡片上给用户看"你要写多少字"的**唯一口径**） */
+export function pitchNeedChars(quotas: number[]): number {
+  return (Array.isArray(quotas) ? quotas : []).reduce((a, b) => a + (Number(b) || 0), 0)
+}
+
+/** 口播稿的题面（3 条不同角度：钩子型 / 优惠型 / 口碑型）
+ *  ⚠️ 硬线①：**没有优惠就不许编优惠**（模型最爱自己发明"立减 20"）；
+ *  ⚠️ 硬线②：零 emoji、不许自创品牌名、不许编数据；
+ *  ⚠️ 硬线③（V2 新增）：**篇幅与行数是硬要求** —— 共 N 段就写 N 行，每行一句该段的口播。 */
+export function pitchPrompt(input: {
+  summary: string; topic: string; planTxt: string
+  segs: number; needChars: number; perSegMin: number; perSegMax: number
+}): string {
+  const segs = Math.max(1, Number(input.segs) || 1)
+  const need = Math.max(20, Number(input.needChars) || segs * 14)
+  const pmin = Math.max(4, Number(input.perSegMin) || 13)
+  const pmax = Math.max(pmin + 1, Number(input.perSegMax) || 18)
+  const low = Math.round(need * 0.85)
+  const high = Math.round(need * 1.25)
+  return '你是短视频口播稿写手。素材是一组餐饮/美食实拍。\n'
+    + '【素材总结（视觉模型读图所得）】\n'
+    + (input.summary ? String(input.summary).slice(0, 1200) : '（这次没有读图结果 ⇒ 只写能确定的内容，拿不准的细节一律不写）') + '\n'
+    + '【用户给的主题/卖点】'
+    + (input.topic ? input.topic : '（用户没给 ⇒ 只依据素材，不许自创品牌、不许编数据）') + '\n'
+    + '【这条片的段落骨架】\n' + String(input.planTxt || '').slice(0, 700) + '\n\n'
+    // ★VF_FILM_PITCH_V2：篇幅必须**与段数绑定**（老题面的"120~180 字"和 15 段片子完全对不上）
+    + '【篇幅 · 硬要求（写不够会直接退回重写）】\n'
+    + '· 这条片一共 **' + segs + ' 段**，每段约 ' + pmin + '~' + pmax + ' 字；\n'
+    + '· **全稿必须有 ' + low + '~' + high + ' 字**（目标 ' + need + ' 字）—— 少于 ' + low + ' 字算不合格；\n'
+    + '· **一行 = 一个镜头**：必须**正好写 ' + segs + ' 行**，第 k 行就是第 k 段要念的那句话；\n'
+    + '· 行与行之间**语意要接**（是一条连贯的稿，不是 ' + segs + ' 条互不相干的标语）；\n'
+    + '· 宁可多写具体细节（菜名 / 做法 / 火候 / 场景 / 吃法），**不许**用"超值""必吃""一口上瘾""值得一试"这类空话凑字数。\n\n'
+    + '请写 **3 条不同角度**的口播营销稿：\n'
+    + '① 钩子型：第 1 行必须是钩子（≤15 字，用具体细节抓人）\n'
+    + '② 优惠型：把活动说清楚（**只在素材或主题里真的出现打折/活动时才写；没有就换一个角度，绝不许编优惠**）\n'
+    + '③ 口碑型：用真实可见的细节立信（现切、卖完就收、几点开门这类）\n'
+    + '三条都必须：口语化能直接念（不要书面语、不要排比句堆砌）· 第 1 行就能立住（不要"大家好""今天给大家介绍"）'
+    + '· 结尾给一个落点（到店/留言/收藏，三选一，不要每条都"评论区见"）· **零 emoji**'
+    + '· **不许编造数据、不许编不存在的优惠、不许自创品牌名**\n'
+    + '只输出严格 JSON（`lines` 是**逐段口播的数组，长度必须 = ' + segs + '**）：\n'
+    + '{"candidates":[{"angle":"钩子型","lines":["第1段","第2段",…]},'
+    + '{"angle":"优惠型","lines":[…]},{"angle":"口碑型","lines":[…]}]}'
+}
+
+/** 稿子的读数（**唯一口径**：字数是"去掉空白后的字符数"，行数是"非空行数"） */
+export function pitchStats(text: string): { chars: number; lines: number } {
+  const t = String(text || '')
+  const lines = t.split('\n').map((s) => s.trim()).filter(Boolean).length
+  return { chars: t.replace(/\s+/g, '').length, lines }
+}
+
+/** 从模型回答里取口播稿候选（**白名单式**：`lines[]` / `text` / `script` / `content` 四种键）
+ *  · **保留换行**（一行 = 一段，这是切段的抓手）；行内多空格压成一个、空行丢掉；
  *  · 条数不足**不补**（有几条给几条，调用方如实告知）；超过 3 条只取前 3；
- *  · 顺手清掉 emoji 与换行（口播要能直接念）；过短的丢掉（多半是角度标签而不是稿子）。 */
+ *  · 顺手清掉 emoji / 箭头符号；过短的丢掉（多半是角度标签而不是稿子）。 */
 export function pickPitchCandidates(j: any): string[] {
   const raw = Array.isArray(j) ? j
     : (j && typeof j === 'object' && Array.isArray((j as any).candidates)) ? (j as any).candidates
@@ -244,16 +297,56 @@ export function pickPitchCandidates(j: any): string[] {
     : []
   const out: string[] = []
   for (const x of raw) {
-    const src = (typeof x === 'string') ? x
+    const raw0 = (typeof x === 'string') ? x
+      : (x && Array.isArray(x.lines)) ? x.lines.map((l: any) => String(l || '')).join('\n')
       : String((x && (x.text || x.script || x.content)) || '')
-    const t = src
+    const t = raw0
       .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{2190}-\u{21FF}]/gu, '')   // 零 emoji / 零箭头符号
-      .replace(/\s+/g, ' ')
+      .split('\n')
+      .map((s) => s.replace(/[ \t\u3000]+/g, ' ').replace(/^\s*[-·•*\d.、)）]+\s*/, '').trim())
+      .filter(Boolean)
+      .join('\n')
       .trim()
-    if (t.length < 10) continue          // 太短 = 角度标签，不是稿子
-    if (out.includes(t)) continue        // 三条必须各不相同（用户"选"的前提）
-    out.push(t.slice(0, 400))
+    if (t.replace(/\s+/g, '').length < 10) continue   // 太短 = 角度标签，不是稿子
+    if (out.includes(t)) continue                     // 三条必须各不相同（用户"选"的前提）
+    out.push(t.slice(0, 1200))
     if (out.length >= 3) break
   }
   return out
+}
+
+/** ★VF_FILM_PITCH_V2：把**定稿的口播稿切成 N 段**（**确定性**，不调模型、不删字、不改字）
+ *  · ① 用户/模型已经写了正好 N 行 ⇒ **一行一段**（最符合预期，用户改哪行就改哪段）；
+ *  · ② 否则按句末标点切句 → 按每段配额**装箱**（当前段装不下就进下一段，空段直接装）；
+ *  · ③ 句子比段数还少 ⇒ 后面的段留空（**绝不复制凑数**，宁可那段静音）；
+ *  · ④ 剩下的全部并入最后一段 ⇒ **各段拼起来 == 原稿**（这条是可断言的强性质）。
+ *  返回长度恒等于 `quotas.length`。 */
+export function splitPitchToSegments(text: string, quotas: number[]): string[] {
+  const q = (Array.isArray(quotas) ? quotas : []).map((x) => Math.max(6, Math.round(Number(x) || 14)))
+  const N = q.length
+  if (!N) return []
+  const raw = String(text || '').replace(/\r/g, '').trim()
+  if (!raw) return Array.from({ length: N }, () => '')
+  // ① 行数正好 = 段数 ⇒ 一行一段（保留用户的意图，不做任何再切）
+  const lines = raw.split('\n')
+    .map((s) => s.replace(/^\s*[-·•*\d.、)）]+\s*/, '').trim())
+    .filter(Boolean)
+  if (lines.length === N) return lines
+  // ② 按句切（句末标点后断开；超长句再按逗号断，避免一段被一句撑爆）
+  const flat = raw.replace(/\n+/g, '')
+  const sents = flat.split(/(?<=[。！？!?；;])/).map((s) => s.trim()).filter(Boolean)
+  const parts: string[] = []
+  for (const s of sents) {
+    if (s.length <= 30) { parts.push(s); continue }
+    for (const c of s.split(/(?<=[，,])/)) { const t = c.trim(); if (t) parts.push(t) }
+  }
+  // ③ 装箱（**只做拼接，一个字都不删**）
+  const out: string[] = Array.from({ length: N }, () => '')
+  let k = 0
+  for (const p of parts) {
+    if (k >= N - 1) { out[N - 1] += p; continue }
+    if (out[k] && (out[k].length + p.length) > q[k]) k++
+    out[k] += p
+  }
+  return out.map((s) => s.trim())
 }

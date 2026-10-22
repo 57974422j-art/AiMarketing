@@ -2461,6 +2461,14 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
   const [pitchPick, setPitchPick] = useState<number>(
     Number.isFinite(Number(vj?.pick)) ? Math.max(0, Math.round(Number(vj.pick))) : 0)
   const [pitchText, setPitchText] = useState<string>(String(vj?.text || ''))
+  // ★VF_FILM_PITCH_V2：**篇幅参照物**全部由服务端下发（段数/应需字数），前端只做读数与提示。
+  //   口径与 `film-spec.ts::pitchStats` 一致：字数是去空白字符数、行数是非空行数（一行 = 一个镜头）。
+  const pitchSegs = Number(vj?.segs) || Number(vj?.estShots) || 0
+  const pitchNeed = Number(vj?.needChars) || 0
+  const pitchChars = (s: string) => String(s || '').replace(/\s+/g, '').length
+  const pitchLines = (s: string) => String(s || '').split('\n').map((x) => x.trim()).filter(Boolean).length
+  // 稿明显短于需求（<85%）⇒ 只**提示**（不禁止提交：切段是按行来的，短稿只会让后面镜头静音，不会乱念）
+  const pitchShort = pitchNeed > 0 && pitchChars(pitchText) < Math.round(pitchNeed * 0.85)
   // ★VF_FILMVOICE_V1（2026-10-09 用户定案「先校准流程」）：**本线默认配音 + 字幕**
   //   （用户原话：「本次制作还是没有字幕 TTS 只有图片」⇒ 默认就该有声；想省时间可在这里关掉）
   const [voice, setVoice] = useState(true)
@@ -2718,7 +2726,13 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
           <div className="text-[10px] text-gray-400 mb-2 leading-relaxed">
             这是<b className="text-gray-200">配音要念的口播稿</b>（不是画面上的大字）。下面
             {pitchCands.length ? ` ${pitchCands.length} 条是不同角度` : '这次没拿到候选'}，选一条后<b className="text-gray-200">可以直接在框里改</b>；
-            改完点「用这条写口播」，系统再按段落把它切开配到每个镜头。
+            改完点「用这条写口播」，系统再按镜头把它切开——所以 <b className="text-gray-200">一行 = 一个镜头</b>。
+          </div>
+          {/* ★VF_FILM_PITCH_V2：篇幅参照物 —— 老卡片只显示"当前 29 字"，没有对标 ⇒ 29 字看上去也像"正常" */}
+          <div className="text-[10px] text-gray-500 mb-2">
+            这条片 <b className="text-gray-200">{pitchSegs || '—'} 段</b>（约 {Number(vj?.estSec) || 0} 秒）
+            ⇒ 建议口播 <b className="text-emerald-300">约 {pitchNeed || '—'} 字</b>
+            （每段 {Number(vj?.perSegMin) || 13}~{Number(vj?.perSegMax) || 18} 字，{pitchSegs ? `正好 ${pitchSegs} 行` : '一行一段'}）
           </div>
           <div className="flex flex-col gap-1.5 mb-2 max-h-64 overflow-y-auto">
             {pitchCands.map((t, i) => {
@@ -2728,9 +2742,11 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
                   className={'text-left px-2.5 py-2 rounded-lg border ' +
                     (on ? 'border-emerald-400/70 bg-emerald-500/[0.12]' : 'border-white/10 bg-black/20 hover:bg-white/[0.05]')}>
                   <div className="text-[10px] text-emerald-300 mb-0.5">
-                    {pitchAngles[i] || ('候选 ' + (i + 1))} · {t.length} 字 · 约 {Math.round(t.length / 4.5)} 秒
+                    {pitchAngles[i] || ('候选 ' + (i + 1))} · {pitchChars(t)} 字 · {pitchLines(t)} 行（约 {Math.round(pitchChars(t) / 4.5)} 秒）
+                    {pitchNeed && pitchChars(t) < Math.round(pitchNeed * 0.85)
+                      ? <span className="text-amber-300"> · 偏短</span> : null}
                   </div>
-                  <div className="text-[11px] text-gray-200 leading-relaxed">{t}</div>
+                  <div className="text-[11px] text-gray-200 leading-relaxed whitespace-pre-line">{t}</div>
                 </button>
               )
             })}
@@ -2740,16 +2756,24 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
               这次没拿到候选稿 —— 可以直接在下面自己写几句（不写就点不了下一步）。
             </div>
           ) : null}
-          <textarea value={pitchText} onChange={(e) => setPitchText(e.target.value)} rows={7}
-            placeholder="口播稿（120~180 字最好；可以自己写）"
+          <textarea value={pitchText} onChange={(e) => setPitchText(e.target.value)} rows={10}
+            placeholder={'口播稿（一行一段，共 ' + (pitchSegs || 0) + ' 行、约 ' + (pitchNeed || 0) + ' 字；也可以自己重写）'}
             className="w-full text-[11px] leading-relaxed bg-black/30 border border-white/10 rounded-lg px-2.5 py-2 text-gray-100 mb-1.5" />
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[10px] text-gray-500">
-              当前 {pitchText.trim().length} 字（口播约 {Math.round(pitchText.trim().length / 4.5)} 秒）
+          <div className="flex items-center justify-between mb-1.5">
+            <span className={'text-[10px] ' + (pitchShort ? 'text-amber-300' : 'text-gray-500')}>
+              当前 {pitchChars(pitchText)} 字 · {pitchLines(pitchText)} 行
+              {pitchSegs ? ` / ${pitchSegs} 段` : ''}（口播约 {Math.round(pitchChars(pitchText) / 4.5)} 秒）
+              {pitchShort ? ` —— 太短了，大约只有前 ${Math.max(1, Math.round(pitchChars(pitchText) / Math.max(1, Math.round((pitchNeed || 16) / Math.max(1, pitchSegs)))))} 段有配音` : ''}
             </span>
             <button onClick={() => { setPitchText(String(pitchCands[pitchPick] || '')); setMsg('') }}
-              className="text-[10px] text-gray-400 hover:text-gray-200 underline">↺ 还原这条</button>
+              className="text-[10px] text-gray-400 hover:text-gray-200 underline shrink-0 ml-2">↺ 还原这条</button>
           </div>
+          {pitchShort ? (
+            <div className="text-[10px] text-amber-300/90 mb-2">
+              ℹ️ 稿短不影响提交：切段是**按行**来的，短稿只会让后面的镜头没配音（不会乱念）。
+              要全程有配音就补到约 {pitchNeed} 字 / {pitchSegs} 行。
+            </div>
+          ) : null}
           {msg ? <div className="text-[10px] text-amber-300 mb-2">{msg}</div> : null}
           <div className="flex gap-2">
             <button onClick={() => next('back_style')} className={btn + ' border-white/15 text-gray-300 hover:bg-white/[0.08]'}>← 改风格/素材</button>
@@ -2799,9 +2823,12 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
                 用户必须能在这里看见它（不然"改了没生效"根本无从判断）。 */}
             {vj?.pitchText ? (
               <div className="mt-2 p-2 rounded-lg bg-black/20 text-[11px] text-gray-200 whitespace-pre-wrap">
+                {/* ★VF_FILM_PITCH_V2：把"多少段真的有口播"写在最显眼处 ——
+                    稿短的时候这里会显示 2/15，用户一眼就知道成片后半段会静音（而不是出完片才发现）。 */}
                 <div className="text-emerald-300 mb-1">
-                  🎙️ 口播稿（配音念的就是这条 · {String(vj.pitchText).length} 字
-                  {Number(vj?.pitchN) > 1 ? ` · 从 ${Number(vj.pitchN)} 条候选里选的` : ''}）
+                  🎙️ 口播稿（配音念的就是这条 · {String(vj.pitchText).replace(/\s+/g, '').length} 字
+                  {Number(vj?.pitchN) > 1 ? ` · 从 ${Number(vj.pitchN)} 条候选里选的` : ''}
+                  {Number(vj?.estShots) ? ` · 有配音的镜头 ${Number(vj?.voiceN) || 0}/${Number(vj.estShots)}` : ''}）
                 </div>
                 {String(vj.pitchText)}
               </div>

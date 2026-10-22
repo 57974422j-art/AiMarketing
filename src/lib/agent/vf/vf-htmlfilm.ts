@@ -35,8 +35,8 @@ import { alignCopy, mergeSlots, batchRanges } from './film-copy-align'
 // ★VF_THEME_V1：`theme` 由 AI 定（完全自主模式）；★VF_PACKAI_V1：挑风格包也交给 AI（读图那一步）
 // ★VF_LAY_V1：`pickLayId/describeLay/laySpec/mergeLay` = "图呈现（满幅压字）"的唯一口径（纯函数、可单测）
 import { aiSpecEnabled, pickSpec, describeSpec, specPrompt, packPickPrompt, pickPackId, pickLayId, describeLay, laySpec, mergeLay } from './film-spec'
-// ★VF_FILM_PITCH_V1（2026-10-22）：口播营销稿的题面与解析（白名单式，纯函数可单测）
-import { pitchPrompt, pickPitchCandidates } from './film-spec'
+// ★VF_FILM_PITCH_V1/V2（2026-10-22）：口播营销稿的题面、解析、配额与**确定性切段**（白名单式，纯函数可单测）
+import { pitchPrompt, pickPitchCandidates, pitchStats, pitchQuotas, pitchNeedChars, splitPitchToSegments } from './film-spec'
 
 const HTMLFILM_TAG = 'vf_draft_htmlfilm'
 const HTMLFILM_PREFIX = 'HTML成片草稿:'
@@ -356,9 +356,14 @@ function scanJson(text: string): any | null {
  *       （用户截图就是"烤鸭肉 · 涮羊肉片 毛肚…"重复 5 次）；现在按镜号**轮着用**词，并优先取短词（菜名）。 */
 export function deriveCopyFromSummary(summary: string, scenes: Array<{ structure: string; media: string[] }>): any[] {
   const set = loadCharset(path.join(filmToolsDir(), 'fonts', 'chars-cmn.txt'))
+  // ★VF_FILM_PITCH_V2（2026-10-22 用户实测 13/14/15 段被补成「第四张 · 第五张」）：
+  //   读图总结里天然带「第一张：…」「图8：…」这类**序号行** —— 那是"第几张照片"，**不是文案**。
+  //   兜底时把它们当短词用，成片里就会念一堆"第四张 第五张"（用户看到的正是这个）。
+  //   口径：**以序号开头的整条一律剔除**（宁可这一镜少个词，也不产出这种废话）。
+  const PAGE = /^第?\s*[一二三四五六七八九十百零两0-9]+\s*[张幅图]/
   const raw = String(summary || '')
     .split(/[\n；;，。,.、:：]+/).map((s) => s.replace(/^\s*[\d.、)）]+\s*/, '').trim())
-  const all0 = raw.filter((s) => s.length >= 2)
+  const all0 = raw.filter((s) => s.length >= 2 && !PAGE.test(s))
   // ★VF_FILMCOPY_V4（2026-10-10 · P2）：**降级时不写"做法"** —— 视觉模型最爱把做法猜错
   //   （用户现场实例：把一盘生毛肚读成「**烤制**牛肚」）。降级拼句本就是从读图词里取词，
   //   一旦把猜错的做法词当标题写进画面，就是"拿错的东西当事实"。
@@ -583,7 +588,9 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; warn?: stri
   vd.ver = FILM_LINE_VERSION   // ★VF_FILMSRC_V2：文案与骨架是"这一版代码"排的
   // ══ ★VF_FILM_PITCH_V1：**第一段到此为止** —— 先出 3 条口播营销稿；逐镜文案等用户挑完稿再写 ══
   const planOut0 = pl.scenes.map((s) => ({ structure: s.structure, media: s.media, dur: s.dur }))
-  const pitch = await genPitchCandidates(ctx, uid, summary, String(vd.topic || ''), planTextOf(pl.scenes))
+  // ★VF_FILM_PITCH_V2：配额按骨架每段真实时长算（唯一口径：`film-spec.ts::pitchQuotas`）
+  const quotas0 = pitchQuotas(pl.scenes.map((s) => s.dur))
+  const pitch = await genPitchCandidates(ctx, uid, summary, String(vd.topic || ''), planTextOf(pl.scenes), quotas0)
   if (!pitch.candidates.length) {
     return { ok: false, err: '没能让 AI 写出可用的口播营销稿'
       + (pitch.err ? '（' + String(pitch.err).slice(0, 90) + '）' : '')
@@ -593,7 +600,8 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; warn?: stri
   vd.pitchPick = 0
   vd.pitchText = pitch.candidates[0]
   vfLog(uid, '[HTML成片] 口播营销稿：AI 出了 ' + pitch.candidates.length + ' 条候选（'
-    + pitch.candidates.map((x) => x.length + ' 字').join(' / ') + '）')
+    + pitch.candidates.map((x) => pitchStats(x).chars + ' 字/' + pitchStats(x).lines + ' 行').join(' / ')
+    + '）· 这条片需要约 ' + pitch.needChars + ' 字')
   return { ok: true, summary, plan: planOut0, pitchCandidates: pitch.candidates, warn: pitch.warn, spec, specNote }
 }
 
@@ -604,37 +612,77 @@ function planTextOf(scenes: Array<{ structure: string; media: string[] }>): stri
 }
 
 /** ★VF_FILM_PITCH_V1：出 3 条口播营销稿（钩子型 / 优惠型 / 口碑型）。
- *  · 题面与硬规矩在 `film-spec.ts::pitchPrompt`（**只本线引用**，天然隔离）；
- *  · 条数不足**不编**：有几条给几条（如实打日志）；**一条都没有**才降级成"读图拼一条"，
- *    绝不因为这一步把用户卡死（但也绝不悄悄用空稿往下走）。
- *  · 降级稿**取材于素材读图总结** ⇒ 不算编造；同时把原因带给卡片（用户看得见）。 */
+ *  ★VF_FILM_PITCH_V2（2026-10-22 用户实测「稿太短」）：**篇幅与段数必须绑死** ——
+ *  老题面只写"每条 120~180 字"（与段数无关的固定值），15 段 / 54 秒的片子照样只拿到 29 字。
+ *  现口径：先按骨架每段**真实时长**算配额（`pitchQuotas`）⇒ 把"N 段 / 每段 X~Y 字 / 全稿 Z 字 / 正好 N 行"写进题面
+ *  ⇒ 出稿后**硬校验字数**；明显不够就带着"上一次只有 N 字"**重写一次**；仍不够**如实告警**（不假装合格）。 */
 async function genPitchCandidates(ctx: HtmlFilmCtx, uid: number | string,
-  summary: string, topic: string, planTxt: string):
-Promise<{ candidates: string[]; warn?: string; err?: string }> {
+  summary: string, topic: string, planTxt: string, quotas: number[]):
+Promise<{ candidates: string[]; warn?: string; err?: string; needChars: number }> {
+  const need = pitchNeedChars(quotas)
+  const perSegMin = 13
+  const perSegMax = 18
+  const low = Math.round(need * 0.6)   // 低于这个数 = 成片会大段静音 ⇒ 必须重写一次
   const gen = ctx.generateText
-  if (!gen) return { candidates: [], err: '服务端没接上文案模型（generateText 未注入）' }
+  if (!gen) return { candidates: [], err: '服务端没接上文案模型（generateText 未注入）', needChars: need }
+  const ask = (retryNote: string) => pitchPrompt({
+    summary, topic, planTxt, segs: quotas.length, needChars: need, perSegMin, perSegMax,
+  }) + (retryNote ? '\n\n【重写要求】' + retryNote : '')
   let err = ''
-  let txt = ''
-  try {
-    txt = String(await gen(pitchPrompt(summary, topic, planTxt)) || '')
+  let best: string[] = []
+  let bestChars = 0
+  let bestLines = 0
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    let txt = ''
+    const retryNote = attempt === 1 ? ''
+      : '上一次每条只写了 ' + bestChars + ' 字 / ' + bestLines + ' 行，远少于要求。这次必须写到 '
+        + Math.round(need * 0.85) + '~' + Math.round(need * 1.25) + ' 字、**正好 ' + quotas.length + ' 行**'
+        + '（每行 ' + perSegMin + '~' + perSegMax + ' 字），不够就是不合格。'
+    try {
+      txt = String(await gen(ask(retryNote)) || '')
+    } catch (e: any) {
+      err = '模型调用失败：' + String(e?.message || e).slice(0, 90)
+      break
+    }
     const cands = pickPitchCandidates(scanJson(String(txt).replace(/```(?:json)?/gi, '')))
-    if (cands.length) {
+    if (!cands.length) {
+      err = 'AI 没给出可用的口播稿'
+        + (txt.trim() ? '（原文片段：' + txt.replace(/\s+/g, ' ').trim().slice(0, 120) + '）' : '（返回是空的）')
+      continue
+    }
+    // 三条候选角度不同，取**最长的那条**当"够不够长"的判据（其余原样给用户选）
+    let top = cands[0]
+    for (const c of cands) if (pitchStats(c).chars > pitchStats(top).chars) top = c
+    const st = pitchStats(top)
+    if (st.chars > bestChars) { best = cands; bestChars = st.chars; bestLines = st.lines }
+    if (st.chars >= low) {
       if (cands.length < 3) {
         vfLog(uid, '[HTML成片] 口播稿：AI 只给了 ' + cands.length + ' 条可用候选（要 3 条）—— 如实按 ' + cands.length + ' 条给用户')
       }
-      return { candidates: cands }
+      if (st.chars < Math.round(need * 0.85)) {
+        return { candidates: cands, needChars: need,
+          warn: 'ℹ️ AI 写的稿偏短（' + st.chars + ' 字 / 这条片需要约 ' + need + ' 字）—— 可以在框里补两句，或点「← 换风格」重来一次。' }
+      }
+      return { candidates: cands, needChars: need }
     }
-    err = 'AI 没给出可用的口播稿'
-      + (txt.trim() ? '（原文片段：' + txt.replace(/\s+/g, ' ').trim().slice(0, 120) + '）' : '（返回是空的）')
-  } catch (e: any) {
-    err = '模型调用失败：' + String(e?.message || e).slice(0, 90)
+    vfLog(uid, `[HTML成片] 口播稿第 ${attempt} 次不够长：最好一条 ${st.chars} 字 / ${st.lines} 行（需要 ≥${low} 字 / ${quotas.length} 行）`)
+  }
+  // 两次都没到"能用的下限" ⇒ 有稿就给（**如实告警**，让用户自己补），没稿才降级
+  if (best.length) {
+    const perSeg = Math.max(1, Math.round(need / Math.max(1, quotas.length)))
+    vfLog(uid, '[HTML成片] ⚠️ 口播稿两次都偏短，按现有 ' + bestChars + ' 字交给用户（可在框里补写）')
+    return { candidates: best, needChars: need,
+      warn: '⚠️ AI 写的稿太短（' + bestChars + ' 字 / 这条片需要约 ' + need + ' 字，共 ' + quotas.length + ' 段）'
+        + '—— 直接出片的话大概只有前 ' + Math.max(1, Math.round(bestChars / perSeg)) + ' 段有配音，其余段静音。'
+        + '请在下面的框里补充到约 ' + need + ' 字（一行一段），或点「← 换风格」重写一次。' }
   }
   // 降级：用**读图总结**拼一条（取材于素材本身 ⇒ 不编造；没有读图结果就如实失败）
   const fb = String(summary || '').replace(/\s+/g, ' ').trim()
-  if (!fb) return { candidates: [], err }
+  if (!fb) return { candidates: [], err, needChars: need }
   vfLog(uid, '[HTML成片] 口播稿降级为"读图拼句"：' + err)
   return {
     candidates: [(topic ? topic + '。' : '') + fb.slice(0, 110)],
+    needChars: need,
     warn: '⚠️ 这次没能让 AI 写出 3 条口播营销稿（' + err + '），已按**读图结果**拼了一条兜底稿；'
       + '建议点「← 换风格」重试，或在下面的框里自己改。',
   }
@@ -647,7 +695,9 @@ Promise<{ candidates: string[]; warn?: string; err?: string }> {
  *     —— 重排必然让"用户看过的那份稿"与成片段数错配（本线历史上的老坑）。
  *  校验/降级沿用 ★VF_FILMCOPY_V2/V5：按段号归位、分批请求、只补缺口、失败如实告知。 */
 async function aiWriteCopyByPitch(ctx: HtmlFilmCtx, uid: number | string, vd: HtmlFilmDraft, pitchText: string):
-Promise<{ ok: boolean; err?: string; copy?: any[]; plan?: any[]; warn?: string }> {
+Promise<{ ok: boolean; err?: string; copy?: any[]; plan?: any[]; warn?: string
+  /** ★VF_FILM_PITCH_V2：有几段切到了口播 / 这条片需要多少字（卡片与日志的**同一份读数**） */
+  voiceN?: number; needChars?: number }> {
   if (!ctx.generateText) return { ok: false, err: '服务端没接上文案模型（generateText 未注入）' }
   const scenes: any[] = Array.isArray(vd.filmJson?.scenes) ? vd.filmJson.scenes
     : (Array.isArray(vd.plan) ? vd.plan : [])
@@ -685,17 +735,13 @@ Promise<{ ok: boolean; err?: string; copy?: any[]; plan?: any[]; warn?: string }
     + '5. 只回一个 JSON 对象：{"scenes":[{"i":0,"slots":{…}},{"i":1,"slots":{…}},…]}；'
     + '**每段一个、`i` 从 0 连续到 ' + (scenes.length - 1) + '（绝不能漏段；宁可每段写短，也不要少一段）**；'
     + '不要 markdown 围栏、不要解释。\n'
-    // ★VF_FILM_PITCH_V1（2026-10-22 用户定案「**不是改画面上的，改的是口播**。AI 出 3 条可以选、可以修改」）：
-    //   老口径是"每段各写一句 ≤18 字口播句" ⇒ 拼起来是一串**碎句**（各写各的，语意不接）。
-    //   现口径：**口播稿已经由用户选/改定稿**，模型只做一件事 —— 把它**按段切开**、忠实写进每段 voice。
-    //   连贯性由整稿保证；切段是确定性的（按时长估字数、边界尽量落在标点处）。
-    + '6. **口播（最重要，别自由发挥）**：下面已经给定**一整条口播稿**（共 ' + pitch.length + ' 字），'
-    + '请把它**按段落切成 ' + scenes.length + ' 段**，每段口播写进该段的 `voice` 字段：\n'
-    + '   · 按该段时长估算字数（约 4.5 字/秒）；相邻段之间要**语意连贯**（不是各写各的）；\n'
-    + '   · 全部段的 voice 拼起来必须**完整覆盖这条口播稿**（不许多、不许少、不许改意思）；\n'
-    + '   · 可以微调用词以适配段长，但**不许改变承诺的内容**（尤其优惠信息一字不许变）；\n'
-    + '   · 画面文案（title/sub/chips…）照旧写"这一镜看到的东西"，**不要照抄 voice**（一个是看的、一个是听的）。\n'
-    + '【口播稿（定稿，切段用）】\n' + pitch + '\n'
+    // ★VF_FILM_PITCH_V2（2026-10-22 用户实测「口播稿没出现在视频里」）：
+    //   老口径让**模型**把整稿切成 N 段 ⇒ 那是让它做算术（29 字切 15 段每段 1.9 字，它只能放弃写 voice）。
+    //   现口径：**切段由服务端确定性完成**（`splitPitchToSegments`，按标点装箱、一字不删），
+    //   模型**只写画面文案**、明确禁止写 voice（写了也会被服务端覆盖）。
+    + '6. **不要写 `voice` 字段**（口播由系统按用户定稿的稿子切好后注入；你写了会打架、也浪费额度）。\n'
+    + '   画面文案照旧写"这一镜看到的东西"（是什么菜/什么做法/看到什么），**不要照抄口播**。\n'
+    + '【这条片的定稿口播（供你参考语气，不要改写、不要复述进画面文案）】\n' + pitch.slice(0, 1200) + '\n'
     // ★VF_PLATE_V1（2026-10-10 用户定案「每 10 张图必须出现 3~4 张**完整大图**」）：
     //   完整大图=实拍**整张不裁**、占满画幅 93% 宽（plate-top / plate-bottom 两种构图交替）。
     //   为什么写进提示词：用户实测"前片一律、每帧 3 个图去填充"就是**排得太平**害的；
@@ -766,6 +812,27 @@ Promise<{ ok: boolean; err?: string; copy?: any[]; plan?: any[]; warn?: string }
     }
     if (miss.length) why = why || ('第 ' + miss.slice(0, 6).map((k) => k + 1).join('、') + ' 段没写')
   }
+  // ★VF_FILM_PITCH_V2（2026-10-22 用户实测第 13/14/15 段被读图词补成「第四张 · 第五张」）：
+  //   整批失败时**对这些段单独再问一次**（最多 4 段）—— 单段请求输出最短、最不容易被截断，
+  //   比"拿读图总结凑一句废话"强得多。补不上才落到读图词兜底（并如实告知）。
+  const stillMiss = slotsArr
+    ? slotsArr.map((v, i) => (v ? -1 : i)).filter((i) => i >= 0)
+    : Array.from({ length: N }, (_, i) => i)
+  if (stillMiss.length) {
+    for (const k of stillMiss.slice(0, 4)) {
+      try {
+        const txt = String(await ctx.generateText(askFor([k], true)) || '')
+        const got = parseArr(txt)
+        const sl = got && got[0] && got[0].slots ? got[0].slots : null
+        if (!sl) continue
+        const one: any[] = new Array(N).fill(null)
+        one[k] = sl
+        slotsArr = mergeSlots(slotsArr, one)
+      } catch { /* 单段补写失败就算了（后面还有读图词兜底 + 如实告警） */ }
+    }
+    const left = (slotsArr || []).filter((v) => !v).length
+    vfLog(uid, `[HTML成片] 漏段单段补写：原缺 ${stillMiss.length} 段 ⇒ 补完还缺 ${left} 段`)
+  }
   // 校验（用字表 / 字数 / emoji）+ 剥数字卡字段
   let charset = ''
   try { charset = fs.readFileSync(path.join(filmToolsDir(), 'fonts', 'chars-cmn.txt'), 'utf8') } catch { charset = '' }
@@ -780,6 +847,26 @@ Promise<{ ok: boolean; err?: string; copy?: any[]; plan?: any[]; warn?: string }
   // ★VF_FILMCOPY_V5：**兜底按段做**（老实现只在"整批为空"时才兜底 ⇒ 少一段就整单失败，用户实测翻车）
   const filled: number[] = []
   const derived = summary ? deriveCopyFromSummary(summary, scenes) : null
+  // ══ ★VF_FILM_PITCH_V2（2026-10-22 用户实测「口播稿没出现在视频里」的根治）══
+  //   口播**不再由模型切**：模型只写画面文案；这条定稿稿由**服务端确定性切段**后注入每段 `voice`。
+  //   好处：① 覆盖率可机器核对（切出来 == 原稿，只做装箱不删字）；
+  //        ② 模型再怎么写飞都不会丢口播/改优惠；③ 稿短时**如实显示只有前几段有口播**。
+  const quotas = pitchQuotas(scenes.map((s: any) => s.dur))
+  const needChars = pitchNeedChars(quotas)
+  const segs = splitPitchToSegments(pitch, quotas)
+  const injectVoice = (arr: any[]): number => {
+    let n = 0
+    if (!Array.isArray(arr)) return 0
+    for (let i = 0; i < arr.length; i++) {
+      const v = String(segs[i] || '').replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, '').trim()
+      if (!v) continue
+      if (!arr[i] || typeof arr[i] !== 'object') continue
+      if (!arr[i].slots || typeof arr[i].slots !== 'object') arr[i].slots = {}
+      arr[i].slots.voice = v
+      n++
+    }
+    return n
+  }
   let hardErr = ''
   if (slotsArr) {
     for (let i = 0; i < N; i++) {
@@ -787,16 +874,11 @@ Promise<{ ok: boolean; err?: string; copy?: any[]; plan?: any[]; warn?: string }
       let slots: any = Object.assign({}, mine || (derived && derived[i] ? derived[i].slots : {}) || {})
       if (!mine || !Object.keys(mine).length) filled.push(i)
       if (set.size) {
-        // ★VF_FILM_PITCH_V1（顺手修的真缺陷）：`voice` 是**口播**（TTS 念出来 + 烧字幕走**系统字体**），
-        //   完全不经过引擎那套内嵌字体子集闸门 ⇒ 压它的字表**没有任何收益**，
-        //   而且等于**悄悄改用户定稿的稿子**（"优惠信息一字不许变"会被这条打破）。
-        //   ⇒ 只压画面字段；voice 原样保留（emoji 仍照旧清掉，字幕里不该出现）。
-        const voiceKeep = String(slots.voice || '').replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, '')
-        const noVoice: any = Object.assign({}, slots)
-        delete noVoice.voice
-        const r = sanitizeSlots(noVoice, set)
+        // ★VF_FILM_PITCH_V2：模型这一步**只写画面文案**（prompt 已明确禁止写 voice），
+        //   口播在下面由 `splitPitchToSegments` **确定性注入** ⇒ 这里一律按画面字段压字表即可。
+        //   （老实现会连 `voice` 一起压 —— 那等于改用户定稿的稿子；现在 voice 根本不从这里过）
+        const r = sanitizeSlots(slots, set)
         slots = r.slots
-        if (voiceKeep) slots.voice = voiceKeep
         for (const d of r.drops) fixed.push('第 ' + i + ' 段 ' + d.k + '「' + d.from + '」→「' + d.to + '」')
       }
       const all = JSON.stringify(slots)
@@ -816,10 +898,12 @@ Promise<{ ok: boolean; err?: string; copy?: any[]; plan?: any[]; warn?: string }
       + '；读图：' + (summary ? '有总结可用' : '没有成功读图（第 2 步没读到图，原因见那里）')
     if (!summary) return { ok: false, err: reason + ' —— **没有出片**。可稍后重试（读图/模型偶发失败），或回上一步换一批素材。' }
     vfLog(uid, '[HTML成片] AI 文案降级为"读图拼句"：' + (hardErr || why))
-    // ⚠️ 降级这版**没有按口播稿切段**（没有任何 voice）⇒ 出片时配音会退回念画面大字，卡片上要说清
-    return { ok: true, plan: planOut, copy: derived || deriveCopyFromSummary(summary, scenes),
-      warn: '⚠️ 这版文案没能由 AI 写好（' + (hardErr || why) + '），已按**读图结果**自动拼了一版'
-        + '（这版没有按你的口播稿切段，配音会念画面大字）；建议点「← 换风格」重试一次。' }
+    // ★VF_FILM_PITCH_V2：画面文案是拼的，但**口播仍然按用户定稿注入**（切段是确定性的，不依赖模型）
+    const dcopy: any[] = derived || deriveCopyFromSummary(summary, scenes)
+    const dVoiceN = injectVoice(dcopy)
+    return { ok: true, plan: planOut, copy: dcopy, voiceN: dVoiceN, needChars,
+      warn: '⚠️ 画面文案没能由 AI 写好（' + (hardErr || why) + '），已按**读图结果**自动拼了一版'
+        + '；口播仍按你选的那条稿切好了（' + dVoiceN + '/' + N + ' 段有口播）。建议点「← 换风格」重试一次。' }
   }
   // 兜底补完仍是空的段 ⇒ 明确失败（空文案页会被下游 no-copy 闸门拦，不如这里说清）
   const emptyIdx: number[] = []
@@ -828,6 +912,8 @@ Promise<{ ok: boolean; err?: string; copy?: any[]; plan?: any[]; warn?: string }
     return { ok: false, err: '第 ' + emptyIdx.slice(0, 6).map((k) => k + 1).join('、') + ' 段没有任何文案（模型漏写、读图词也不够补）'
       + '（' + (why || '') + '）—— **没有出片**。可稍后重试，或回上一步换一批素材 / 换风格。' }
   }
+  // ★VF_FILM_PITCH_V2：口播注入（**必须在 emptyIdx 判定之后**：voice 是我们加的，不参与"这段是不是空"的判定）
+  const voiceN = injectVoice(copy)
   // 如实告知：① 哪几段是兜底补的（这版是拼的）② 哪几处用字被压回字表
   const warnParts: string[] = []
   if (filled.length) {
@@ -839,24 +925,22 @@ Promise<{ ok: boolean; err?: string; copy?: any[]; plan?: any[]; warn?: string }
     warnParts.push('ℹ️ 有 ' + fixed.length + ' 处用字不在引擎字表内，已自动压回（表外字删掉，只做减法不换词）：'
       + fixed.slice(0, 4).join('；') + (fixed.length > 4 ? ' …' : ''))
   }
-  // ★VF_FILM_PITCH_V1：**口播覆盖度自检**（验收第 5 条「各段 voice 拼起来 ≈ 整稿」）——
-  //   只**如实报告**、不自动改写（改了就改意思了）；偏离过大时用户能在确认卡上看见。
-  const voiceAll = copy.map((c: any) => String((c && c.slots && c.slots.voice) || '')).join('')
+  // ★VF_FILM_PITCH_V2：**口播覆盖率如实报**（切段是我们做的，所以这里的数字是"确定的事实"、不是估计）——
+  //   稿短就会明确写出"只有前 k 段有口播"，不藏、也不自动复制凑段（复制 = 同一句话念多遍，更难听）。
   const pitchLen = pitch.replace(/\s+/g, '').length
-  if (pitchLen && voiceAll) {
-    const vLen = voiceAll.replace(/\s+/g, '').length
-    const ratio = vLen / pitchLen
-    if (ratio < 0.75 || ratio > 1.3) {
-      warnParts.push('ℹ️ 逐段口播合计 ' + vLen + ' 字，你的口播稿 ' + pitchLen + ' 字（覆盖度 '
-        + Math.round(ratio * 100) + '%）—— 建议回上一步把稿改短些，或直接点出片（以配音实测为准）。')
-      vfLog(uid, `[HTML成片] 口播覆盖度偏低：逐段 ${vLen} 字 vs 整稿 ${pitchLen} 字（${Math.round(ratio * 100)}%）`)
-    }
-  } else if (pitchLen && !voiceAll) {
-    warnParts.push('⚠️ 模型没按口播稿给出 `voice`（配音会退回念画面大字）—— 可以点「← 换风格」重试一次。')
+  if (!voiceN) {
+    warnParts.push('⚠️ 这条稿切不出任何一段口播 —— 配音会退回念画面大字。请回上一步把稿写好。')
+  } else if (voiceN < N) {
+    warnParts.push('ℹ️ 口播稿 ' + pitchLen + ' 字 / 本片 ' + N + ' 段（这段片子约需 ' + needChars + ' 字）'
+      + '⇒ **只有前 ' + voiceN + ' 段有口播，其余 ' + (N - voiceN) + ' 段静音**。'
+      + '想全程有配音：回上一步把稿补到约 ' + needChars + ' 字（一行一段）。')
+    vfLog(uid, `[HTML成片] 口播未覆盖全片：${voiceN}/${N} 段（稿 ${pitchLen} 字 / 需要约 ${needChars} 字）`)
+  } else {
+    vfLog(uid, `[HTML成片] 口播已覆盖全片：${voiceN}/${N} 段（稿 ${pitchLen} 字 / 需要约 ${needChars} 字）`)
   }
   // ⚠️ `warn` 只装"**降级/补齐**"这类**异常**信息（日志用 `prep.warn ? '（降级）'` 判断）；
   //   `specNote`（AI 规划了什么）单独返回 —— 早先把它并进 warn 导致日志把"AI 规划成功"误标成"（降级）"。
-  return { ok: true, plan: planOut, copy, warn: warnParts.join('\n') }
+  return { ok: true, plan: planOut, copy, warn: warnParts.join('\n'), voiceN, needChars }
 }
 
 /* ───────────── 四张卡（都走 VF_JSON，客户端按 step 选组件）：素材 / 风格 / 口播稿 / 确认 ───────────── */
@@ -925,6 +1009,10 @@ function pitchCard(vd: HtmlFilmDraft): string {
   const cands = Array.isArray(vd.pitchCandidates) ? vd.pitchCandidates : []
   const pickedIdx = Number.isFinite(Number(vd.pitchPick))
     ? Math.min(Math.max(0, Math.round(Number(vd.pitchPick))), Math.max(0, cands.length - 1)) : 0
+  const plan = Array.isArray(vd.plan) ? vd.plan : []
+  // ★VF_FILM_PITCH_V2：把"这条片需要多少字 / 多少段"下发到卡片 ——
+  //   用户改稿时能**当场看到够不够**（老版本只显示"当前 N 字"，没有参照物 ⇒ 29 字看上去也"正常"）
+  const quotas = pitchQuotas(plan.map((s: any) => s.dur))
   const body = {
     step: 'film_pitch',
     hint: '第 3 步 / 共 4 步 · 口播营销稿（AI 写了 ' + cands.length + ' 条不同角度，选一条；也可以直接改）',
@@ -935,7 +1023,13 @@ function pitchCard(vd: HtmlFilmDraft): string {
     text: String(vd.pitchText || cands[pickedIdx] || ''),
     angles: ['钩子型', '优惠型', '口碑型'],
     n: (Array.isArray(vd.picked) ? vd.picked.length : 0) || vd.names.length,
-    estShots: Array.isArray(vd.plan) ? vd.plan.length : 0,
+    estShots: plan.length,
+    // ★VF_FILM_PITCH_V2：篇幅读数（**推荐字数 = 各段配额之和**；一行 = 一个镜头）
+    segs: quotas.length,
+    needChars: pitchNeedChars(quotas),
+    perSegMin: 13,
+    perSegMax: 18,
+    estSec: Math.round(plan.reduce((a: number, s: any) => a + (Number(s.dur) || 0), 0)) || 0,
     topic: String(vd.topic || ''),
     pack: vd.pack,
   }
@@ -1005,6 +1099,12 @@ function confirmCard(vd: HtmlFilmDraft): string {
     pitchText: String(vd.pitchText || ''),
     pitchPick: Number(vd.pitchPick) || 0,
     pitchN: Array.isArray(vd.pitchCandidates) ? vd.pitchCandidates.length : 0,
+    // ★VF_FILM_PITCH_V2：**有口播的段数 / 总段数 / 应需字数**（从 copy 里数，与出片实际一致）
+    voiceN: copy.filter((c: any) => String((c && c.slots && c.slots.voice) || '').trim()).length,
+    needChars: (() => {
+      const q = pitchQuotas(plan.map((s: any) => s.dur))
+      return pitchNeedChars(q)
+    })(),
     // ★VF_FILMCOPY_V2：降级时把原因带给前端（卡片上要如实显示，不能让用户以为 AI 正常写了）
     warn: String((vd as any).warn || ''),
   }
@@ -1130,7 +1230,8 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
       vd.pitchPick = pickIdx
       vd.pitchText = text.slice(0, 1500)
       const edited = String(f.text !== undefined && String(f.text).trim() !== String(cands[pickIdx] || '').trim())
-      vfLog(uid, '[HTML成片] 口播稿已定稿：第 ' + (pickIdx + 1) + ' 条 · ' + vd.pitchText.length + ' 字（'
+      const st0 = pitchStats(vd.pitchText)
+      vfLog(uid, '[HTML成片] 口播稿已定稿：第 ' + (pickIdx + 1) + ' 条 · ' + st0.chars + ' 字 / ' + st0.lines + ' 行（'
         + (edited ? '用户手工改过' : '未改动') + '）')
       const wr = await aiWriteCopyByPitch(ctx, uid, vd, vd.pitchText)
       if (!wr.ok) {
@@ -1146,7 +1247,7 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
       const prevWarn = String((vd as any).warn || '')
       if (wr.warn && !prevWarn.includes(wr.warn)) (vd as any).warn = [prevWarn, wr.warn].filter(Boolean).join('\n')
       await saveHtmlFilmDraft(prisma, uid, vd)
-      vfLog(uid, `[HTML成片] 已按口播稿切成 ${(wr.copy || []).length} 段 → 出确认卡（等用户点出片）`)
+      vfLog(uid, `[HTML成片] 已按口播稿切成 ${(wr.copy || []).length} 段（有口播 ${wr.voiceN || 0} 段 / 需要约 ${wr.needChars || 0} 字）→ 出确认卡（等用户点出片）`)
       return confirmCard(vd)
     }
     if (at === 'back_style') { vd.step = 'style'; await saveHtmlFilmDraft(prisma, uid, vd); return styleCard(vd) }
