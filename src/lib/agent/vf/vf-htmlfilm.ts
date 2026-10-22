@@ -59,7 +59,9 @@ const HTMLFILM_PREFIX = 'HTML成片草稿:'
 //   且第 2 步不再直接出确认卡 ⇒ 旧草案（step:'confirm'、没有 pitchText）与新流程必然错配 ⇒ 版本戳必须升。
 // ★VF_FILM_PITCH_V2（2026-10-22）：口播从"模型切段"改成"服务端确定性切段"，且稿长与段数绑死
 //   ⇒ **在飞草案（V1 那单：确认卡上 voice 全空、稿只有二三十字）必须作废**，否则用户点出片还是老的坏结果。
-export const FILM_LINE_VERSION = 'film-2026-10-22-pitch2'
+// ★VF_MEDIADESC_V1（2026-10-22）：读图从"整批拼一段"改成"逐张描述 + 按段喂"（图文对齐）⇒ 草案结构变了
+//   （新增 `mediaDesc`）⇒ 在飞草案必须作废（旧草案没有逐张描述，继续用就是"文案继续瞎猜"）。
+export const FILM_LINE_VERSION = 'film-2026-10-22-imgdesc'
 
 export type HtmlFilmStep = 'mat' | 'style' | 'pitch' | 'confirm'
 
@@ -135,6 +137,11 @@ export type HtmlFilmDraft = {
   /** AI 判的**配乐曲风**（2~4 个汉字，如「轻快市井」）—— 这轮只显示 + 留档
    *  （乐库还空、MiniMax 音乐生成你说后面再看；将来挑曲/生成直接拿它当提示词）。 */
   musicMood?: string
+  /** ★VF_MEDIADESC_V1（2026-10-22 用户实测「文字和图片完全对不上」）：
+   *  **逐张读图结果**（文件名 → 一句话描述）。写画面文案时按 `scene.media` 逐段喂给模型，
+   *  这是"文案必须描述这张图里真有的东西"的**唯一依据** —— 没有它，模型只能瞎猜。
+   *  ⚠️ 必须进 load 白名单（漏了 ⇒ 换风格回来就丢，文案又对不上）。 */
+  mediaDesc?: Record<string, string>
 }
 
 /** 进程内缓存（与 vf-ppt.ts 同形制：DB 是主，Map 是"这一回合的加速"） */
@@ -154,8 +161,10 @@ export const FILM_MAT_MAX = Math.max(20, Number(process.env.VF_FILM_MAT_MAX || 6
 export const FILM_POOL_MAX = Math.max(FILM_MAT_MAX, 200)
 /** 用户没勾选时的默认：最近 N 张（卡片上写着这句话，前端同口径） */
 export const FILM_DEFAULT_RECENT = 12
-/** AI 一次读图最多送几张（超过就**分批**，不再"只看前 8 张就写全片文案"） */
+/** AI 一次读图最多送几张（**逐张问**之后的并发数：太高会被限流，4 路实测稳） */
 const VL_BATCH = 8
+/** ★VF_MEDIADESC_V1：逐张读图的并发数（单张一次调用；4 路 × 17 张 ≈ 10~20 秒） */
+const VL_CONC = Math.max(1, Math.min(8, Number(process.env.VF_VL_CONC || 4) || 4))
 
 // ★VF_SPEC_V2（"让 AI 自己规划风格语法"，**开关默认关**）的实现全部在 `./film-spec`：
 //   开关 `aiSpecEnabled()` / 白名单 `pickSpec()` / 人话说明 `describeSpec()` / 一页纸 `specPrompt()`。
@@ -257,6 +266,11 @@ export async function loadHtmlFilmDraft(db: any, uid: number | string): Promise<
       // ★VF_VOICE_PICK_V1：AI 的语气/曲风建议也要取回（漏了 ⇒ 确认卡上的"AI 建议"消失、默认音色退回 Cherry）
       voiceTone: pickVoiceTone(j.voiceTone) || '',
       musicMood: typeof j.musicMood === 'string' ? j.musicMood.slice(0, 20) : '',
+      // ★VF_MEDIADESC_V1：逐张读图结果也要一起取回（漏了 ⇒ 换风格回来文案又变成瞎猜）
+      mediaDesc: (j.mediaDesc && typeof j.mediaDesc === 'object' && !Array.isArray(j.mediaDesc))
+        ? Object.fromEntries(Object.entries(j.mediaDesc)
+          .slice(0, 200)
+          .map(([k, v]) => [String(k), String(v || '').slice(0, 80)])) : {},
     }
   } catch { return null }
 }
@@ -369,7 +383,13 @@ function scanJson(text: string): any | null {
  *       （本例：「涮羊肉片」的「涮」）⇒ 降级反而制造下一次失败（引擎 fonts 闸门拦死出片）。
  *    ② **修"每条都一样"** —— 老实现 `lines[min(len-1, i)]` ⇒ 词用完后后面几镜全重复同一句
  *       （用户截图就是"烤鸭肉 · 涮羊肉片 毛肚…"重复 5 次）；现在按镜号**轮着用**词，并优先取短词（菜名）。 */
-export function deriveCopyFromSummary(summary: string, scenes: Array<{ structure: string; media: string[] }>): any[] {
+export function deriveCopyFromSummary(
+  summary: string,
+  scenes: Array<{ structure: string; media: string[] }>,
+  /** ★VF_MEDIADESC_V1：**逐张描述**（文件名 → 一句话）。有它 ⇒ 按"这一段配的图"取词（对得上）；
+   *  没有才退回老的"按镜号轮词"（那个必然图文错配，只是不至于整片空着）。 */
+  descMap?: Record<string, string>,
+): any[] {
   const set = loadCharset(path.join(filmToolsDir(), 'fonts', 'chars-cmn.txt'))
   // ★VF_FILM_PITCH_V2（2026-10-22 用户实测 13/14/15 段被补成「第四张 · 第五张」）：
   //   读图总结里天然带「第一张：…」「图8：…」这类**序号行** —— 那是"第几张照片"，**不是文案**。
@@ -397,9 +417,28 @@ export function deriveCopyFromSummary(summary: string, scenes: Array<{ structure
   const words = (shortWords.length >= 2 ? shortWords : all)
     .map((w) => sanitizeText(w, set)[0]).filter((w) => w.length >= 2)  // ★压回字表内（删字不换词）
   const pick = (i: number) => (words.length ? words[((i % words.length) + words.length) % words.length] : '')
+  // ★VF_MEDIADESC_V1：**这一段的配图**能给出什么词（优先用它 —— 降级也要求"图文对得上"）
+  const ownWords = (sc: any): string[] => {
+    if (!descMap) return []
+    const ms = Array.isArray(sc?.media) ? sc.media.map((x: any) => String(x)) : []
+    const out: string[] = []
+    for (const n of ms) {
+      const d = String(descMap[n] || '')
+      if (!d || /未识别/.test(d)) continue
+      for (const w of d.split(/[\s，。、；;,.：:（）()「」【】]+/)) {
+        const t = w.replace(/^\s*[\d.、)）]+\s*/, '').trim()
+        if (t.length < 2 || t.length > 10) continue
+        if (PAGE.test(t) || COOK.test(t)) continue          // 序号行 / 做法词 一律不要（同上两条理由）
+        const clean = sanitizeText(t, set)[0]
+        if (clean.length >= 2) out.push(clean)
+      }
+    }
+    return out
+  }
   return scenes.map((sc, i) => {
-    const a = pick(i)
-    const b = words.length > 1 ? pick(i + 1) : ''
+    const own = ownWords(sc)
+    const a = own[0] || pick(i)
+    const b = own[1] || (words.length > 1 ? pick(i + 1) : '')
     const short = String(a || '').slice(0, 8)
     const sub = (b && b !== a ? String(b) : '').slice(0, 16)
     const slots: any = {}
@@ -449,47 +488,52 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; warn?: stri
   let readN = 0
   // ★VF_FILMCOPY_V5：读图失败的真因（老实现被 catch 吞掉 ⇒ 用户只看到"没有读图总结可兜底"）
   let vlErr = ''
+  // ★VF_MEDIADESC_V1（2026-10-22 用户实测「文字和图片完全对不上」）：
+  //   病灶（旧实现）：**分批**问"这批素材是什么 + 逐张一行"，再 `parts.join('\n')` 拼成**一段大文本**
+  //     ⇒ "哪张图说了什么"的映射**被丢掉了**；而写画面文案那一步只拿到"第 k 段（素材 n 张）"，
+  //     模型**根本不知道第 k 段配的是哪张图** ⇒ 文案只能瞎猜（实测就是完全对不上）。
+  //   现口径：**一张图一条描述**，按**文件名**存进 `descMap` ⇒ 写文案时按 `scene.media` 逐段喂进去。
+  //   ⚠️ 这不是"又看一遍图"：看图的**总张数没变**，只是从"3 批各写一大段"变成"每张一句话"（更便宜也更准）。
+  const descMap: Record<string, string> = {}
   try {
     const { signedUrl } = await import('@/lib/oss')
     const { describeImagesWithVL, vlReady, vlModel } = await import('@/lib/ai-providers')
-    const batches = Math.max(1, Math.ceil(picked.length / VL_BATCH))
-    const parts: string[] = []
-    // ★VF_VLPROBE_V1（2026-10-10 用户日志实测「读图：0/17 张（分 3 批）」）：
-    //   `describeImagesWithVL` **没配 key 时是 `return null`（静默）** —— 我们只看到"返回空"，
-    //   最容易被误读成"模型故障/限流"，白花几轮（这次真因很可能就是服务端缺 DASHSCOPE_API_KEY）。
-    //   现口径：**先探针**，缺 key 就明说、并且**不再空打 3 批模型**（省时间也省日志噪声）。
+    // ★VF_VLPROBE_V1（2026-10-10 用户日志实测「读图：0/17 张」）：缺 key 时明说 + **不再空打模型**
     if (!vlReady()) {
       vlErr = '服务端未配置视觉模型 key（缺 DASHSCOPE_API_KEY）⇒ 读图未启用'
       vfLog(uid, '[HTML成片] ⚠️ ' + vlErr)
     }
-    for (let bi = 0; vlReady() && bi < batches; bi++) {
-      const batch = picked.slice(bi * VL_BATCH, (bi + 1) * VL_BATCH)
-      const urls: string[] = []
-      for (const m of batch) {
-        try { urls.push(await signedUrl('storage/' + uid + '/' + m.name, 3600)) } catch { /* 单张失败跳过 */ }
-      }
-      if (!urls.length) { if (!vlErr) vlErr = '素材签名 URL 拿不到（OSS 签名失败？）'; continue }
-      const ask = '这是一组【餐饮/美食实拍】照片（第 ' + (bi + 1) + ' 批，共 ' + batches + ' 批）。'
-        + '只回两段：第一段一句话总结这批素材是什么（≤30 字）；第二段逐张一行说清每张拍的是什么（菜名/场景），不要编号、不要多余解释。'
-      // ★VF_FILMCOPY_V5：读图失败**重试一次** —— 它不再只是"补充信息"，而是文案兜底的**唯一依据**；
-      //   而且失败原因必须**记下来**（老实现只 catch 掉 ⇒ 用户只看到"没有读图总结可兜底"，查不到真因）。
-      let okBatch = false
-      for (let tries = 1; tries <= 2 && !okBatch; tries++) {
-        try {
-          const r = await describeImagesWithVL(urls, ask, 700)
-          if (String(r || '').trim()) { parts.push(String(r).trim()); okBatch = true }
-          // ★VF_VLMODEL_V1：把"用的哪个模型"写进原因 —— 用户实测真因就是 `qwen-vl-max` 不存在（404）
-          else if (!vlErr) vlErr = '视觉模型未返回内容（当前模型 ' + vlModel() + '）'
-            + '—— 若服务端日志里出现 model_not_found，请用环境变量 VF_VL_MODEL 指定可用模型名'
-        } catch (e: any) {
-          if (!vlErr) vlErr = '视觉模型调用失败：' + String(e?.message || e).slice(0, 90)
-        }
-      }
-      if (okBatch) readN += urls.length
+    const ASK = '只回答这张图里**真的看得到**的东西：是什么菜 / 什么场景 / 有什么显眼物件（招牌、餐具、人物）。'
+      + '一句话、不超过 20 字；不要评价、不要编号、不要"这张图"这种废话。'
+    const chunk = <T,>(arr: T[], n: number): T[][] => {
+      const out: T[][] = []
+      for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n))
+      return out
     }
-    summary = parts.join('\n')
-    vfLog(uid, `[HTML成片] 读图：${readN}/${picked.length} 张（分 ${batches} 批）· 素材 ${picked.length} 张（仓库候选 ${pick.pool.length}${pick.capped ? ' · 超上限砍 ' + pick.capped : ''}）`)
-    // ★VF_FILMCOPY_V5b：**读图 0 张必须留一条显眼的日志**（否则只能靠卡片上那句话猜）
+    for (const batch of (vlReady() ? chunk(picked, VL_CONC) : [] as any[][])) {
+      // 并发 VL_CONC 张 —— **单张失败只影响那一张**（不出整批作废，也不再"读图 0 张"就全瞎）
+      await Promise.all((batch as any[]).map(async (m: any) => {
+        let url = ''
+        try { url = await signedUrl('storage/' + uid + '/' + m.name, 3600) } catch {
+          if (!vlErr) vlErr = '素材签名 URL 拿不到（OSS 签名失败？）'
+          return
+        }
+        for (let tries = 1; tries <= 2; tries++) {
+          try {
+            const d = String(await describeImagesWithVL([url], ASK, 120) || '').replace(/\s+/g, ' ').trim()
+            if (d) { descMap[String(m.name)] = d.slice(0, 60); readN++; return }
+            // ★VF_VLMODEL_V1：把"用的哪个模型"写进原因（真因常常是模型名 404）
+            if (!vlErr) vlErr = '视觉模型未返回内容（当前模型 ' + vlModel() + '）—— 若日志里出现 model_not_found，用环境变量 VF_VL_MODEL 指定'
+          } catch (e: any) {
+            if (!vlErr) vlErr = '视觉模型调用失败：' + String(e?.message || e).slice(0, 90)
+          }
+        }
+      }))
+    }
+    // `summary` 仍保留（口播稿 / 降级 / 卡片给用户看）：**编号清单** = 与 picked 顺序一致、**不带文件名**
+    //   （降级取词会把整行当文案，带 `xxx.jpg` 会混出数字/扩展名 —— 老坑）
+    summary = picked.map((m: any, i: number) => (i + 1) + '. ' + (descMap[String(m.name)] || '（未识别）')).join('\n')
+    vfLog(uid, `[HTML成片] 读图：${readN}/${picked.length} 张（逐张 · 并发 ${VL_CONC}）· 素材 ${picked.length} 张（仓库候选 ${pick.pool.length}${pick.capped ? ' · 超上限砍 ' + pick.capped : ''}）`)
     if (!readN) vfLog(uid, '[HTML成片] ⚠️ 读图 0 张：' + (vlErr || '原因未记录') + ' ⇒ 文案没有素材依据（只能按骨架写，贴合度会明显变差）')
   } catch { /* ignore */ }
   // ③ 骨架（只出骨架、不渲染）——需要**本地文件**，先下载（与出片同一步）
@@ -598,6 +642,8 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; warn?: stri
   //   出片（VF_FILM_GO）只认这四个字段：素材名单 / 读图数 / 整份骨架 / 赛道。
   vd.picked = picked.map((m: any) => String(m.name))
   vd.readN = readN
+  // ★VF_MEDIADESC_V1：**逐张描述落草稿**（写文案那一步靠它逐段对齐；换风格回来也不能丢）
+  vd.mediaDesc = descMap
   vd.filmJson = filmJson
   vd.vertical = vertical
   vd.ver = FILM_LINE_VERSION   // ★VF_FILMSRC_V2：文案与骨架是"这一版代码"排的
@@ -752,6 +798,8 @@ Promise<{ ok: boolean; err?: string; copy?: any[]; plan?: any[]; warn?: string
   const summary = String(vd.summary || '')
   const pitch = String(pitchText || '').trim()
   const planTxt = planTextOf(scenes)
+  // ★VF_MEDIADESC_V1：**逐张描述**（文件名 → 一句话）——写文案时**按段**喂，这是"图文对得上"的关键
+  const descMap: Record<string, string> = (vd.mediaDesc && typeof vd.mediaDesc === 'object') ? vd.mediaDesc : {}
   // ④ 让模型按骨架填文案（口播 = **整稿切段**，不是各写各的）
   const guide = [
     'opening-hero  开场封面：slots{eyebrow,title1,title2,sub,foot}        media=1 张',
@@ -796,7 +844,15 @@ Promise<{ ok: boolean; err?: string; copy?: any[]; plan?: any[]; warn?: string
     + '7. **排版纪律（用户点名的硬要求）**：骨架里的 `plate-top` / `plate-bottom` 是"**完整大图**"页'
     + '（每 10 张素材 3~4 张，已经排好）——**不要改结构、不要挪素材、不要合并段落**。'
     + '这两页的文案只写"这一张里真有的东西"（是什么菜、什么做法、看到什么），'
-    + '不许写"满汉全席 / 超值套餐 / 一口上瘾"这类空话套话。'
+    + '不许写"满汉全席 / 超值套餐 / 一口上瘾"这类空话套话。\n'
+    // ★VF_MEDIADESC_V1（2026-10-22 用户实测「文字和图片完全对不上」）：这条是**硬线**，
+    //   每段下面都给了「配图：文件 = 这张图里是什么」，模型没有猜的余地，也不许自由发挥。
+    + '8. **文案必须描述"这段配图里真有的东西"（硬线，违反即返工）**：\n'
+    + '   · 每段下面都标了「配图：xxx ＝ 这张图里是什么」——**只写那里提到的东西**；'
+    + '配图里没有的菜名/食材/场景**一律不许写**（宁可比画面更概括，也不能写错）。\n'
+    + '   · 多图页（配图 3~4 张）：大字写它们**共同**的东西，不要只写其中一张；chips / rows 可以**逐张对应**。\n'
+    + '   · 配图写着「（未识别）」的：不许写具体菜名，只写"这一桌 / 这一锅 / 这一盘 / 这一口"这类不会错的词。\n'
+    + '   · 配图写着「无」的结尾卡：**不许再出现任何菜名**，只做落点（到店/收藏/留言）。'
   // ★VF_FILMCOPY_V2（2026-10-09 用户实测「为什么老是出错」）：**最多两次尝试 + 三次降级，绝不卡死**。
   //   ① 宽容解析（scanJson 配对扫描：数组 / {scenes:[…]} / 带解释的尾巴 都能取到）；
   //   ② 解析不过 ⇒ 带"上次哪里错"**重试一次**；
@@ -821,8 +877,17 @@ Promise<{ ok: boolean; err?: string; copy?: any[]; plan?: any[]; warn?: string
   let why = ''
   let snip = ''
   const snippet = (t: string) => String(t || '').replace(/\s+/g, ' ').trim().slice(0, 160)
-  const segLine = (k: number) => '  ' + k + '. ' + String((planOut[k] || {}).structure || '')
-    + '（素材 ' + (((planOut[k] || {}).media) || []).length + ' 张）'
+  // ★VF_MEDIADESC_V1（2026-10-22 用户实测「文字和图片完全对不上」的根治点）：
+  //   老 segLine 只写「第 k 段 · 结构（素材 n 张）」—— 模型**不知道这段配的是哪张图、图里有什么**，
+  //   只能拿整份 summary 瞎猜 ⇒ 文案与画面完全错位。
+  //   现在把**该段真实配图 + 每张图的描述**直接写在段落行里（多图页逐张列），模型没有猜的余地。
+  const mediaOf = (k: number): string[] => (((planOut[k] || {}).media) || []).map((x: any) => String(x))
+  const segLine = (k: number) => {
+    const ms = mediaOf(k)
+    const head = '  ' + k + '. ' + String((planOut[k] || {}).structure || '') + '（素材 ' + ms.length + ' 张）'
+    if (!ms.length) return head + '\n     配图：无（**结尾卡，只做落点/收尾，不许再介绍菜品或菜名**）'
+    return head + '\n     配图：' + ms.map((n) => n + ' ＝ ' + (descMap[n] || '（未识别，这段只写画面里能确定的东西）')).join('；')
+  }
   const askFor = (idxs: number[], retry: boolean) => prompt + '\n\n【这次只要写这些段】\n'
     + idxs.map(segLine).join('\n')
     + '\n只回 {"scenes":[{"i":<段号>,"slots":{…}}]} —— **`i` 必须就是上面这些段号**；'
@@ -893,7 +958,7 @@ Promise<{ ok: boolean; err?: string; copy?: any[]; plan?: any[]; warn?: string
   const fixed: string[] = []
   // ★VF_FILMCOPY_V5：**兜底按段做**（老实现只在"整批为空"时才兜底 ⇒ 少一段就整单失败，用户实测翻车）
   const filled: number[] = []
-  const derived = summary ? deriveCopyFromSummary(summary, scenes) : null
+  const derived = summary ? deriveCopyFromSummary(summary, scenes, descMap) : null
   // ══ ★VF_FILM_PITCH_V2（2026-10-22 用户实测「口播稿没出现在视频里」的根治）══
   //   口播**不再由模型切**：模型只写画面文案；这条定稿稿由**服务端确定性切段**后注入每段 `voice`。
   //   好处：① 覆盖率可机器核对（切出来 == 原稿，只做装箱不删字）；
@@ -946,7 +1011,7 @@ Promise<{ ok: boolean; err?: string; copy?: any[]; plan?: any[]; warn?: string
     if (!summary) return { ok: false, err: reason + ' —— **没有出片**。可稍后重试（读图/模型偶发失败），或回上一步换一批素材。' }
     vfLog(uid, '[HTML成片] AI 文案降级为"读图拼句"：' + (hardErr || why))
     // ★VF_FILM_PITCH_V2：画面文案是拼的，但**口播仍然按用户定稿注入**（切段是确定性的，不依赖模型）
-    const dcopy: any[] = derived || deriveCopyFromSummary(summary, scenes)
+    const dcopy: any[] = derived || deriveCopyFromSummary(summary, scenes, descMap)
     const dVoiceN = injectVoice(dcopy)
     return { ok: true, plan: planOut, copy: dcopy, voiceN: dVoiceN, needChars,
       warn: '⚠️ 画面文案没能由 AI 写好（' + (hardErr || why) + '），已按**读图结果**自动拼了一版'
@@ -1158,7 +1223,13 @@ async function confirmCard(uid: number | string, vd: HtmlFilmDraft): Promise<str
     // ★VF_FILMCOPY_V1：把「AI 素材总结 + 逐镜文案」一起下发 —— 用户**看过再点出片**（不再"乱出片"）
     summary: String(vd.summary || ''),
     plan,
-    copy,
+    // ★VF_MEDIADESC_V1：**逐段把"这段配哪张图 / 图里是什么"一起下发** —— 出片前就能肉眼核对图文，
+    //   不用等成片再看（用户原话「和 html 要能对上」）。
+    copy: copy.map((c: any, i: number) => {
+      const ms = ((plan[i] as any)?.media || []).map((x: any) => String(x))
+      const dm: Record<string, string> = (vd.mediaDesc && typeof vd.mediaDesc === 'object') ? vd.mediaDesc : {}
+      return { ...(c || {}), media: ms, mediaDesc: ms.map((n: string) => String(dm[n] || '')) }
+    }),
     // ★VF_FILM_PITCH_V1：把**最终口播稿**（用户选/改过的那条）下发 —— 确认卡要让用户看见"成片到底念什么"
     pitchText: String(vd.pitchText || ''),
     pitchPick: Number(vd.pitchPick) || 0,

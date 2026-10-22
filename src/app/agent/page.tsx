@@ -2930,6 +2930,14 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
                   return (
                     <div key={i} className="text-gray-300 mb-1">
                       {i + 1}. {line || '（无文案）'}
+                      {/* ★VF_MEDIADESC_V1：出片前就能核对「这段配的是哪张图、图里是什么」——
+                          图文对不对得上，这里一眼可见（不用等成片才发现） */}
+                      {Array.isArray(c?.media) && c.media.length ? (
+                        <span className="block text-[10px] text-gray-500">
+                          🖼 {c.media.map((n: any, k: number) => String(n)
+                            + (Array.isArray(c.mediaDesc) && c.mediaDesc[k] ? '＝' + String(c.mediaDesc[k]) : '')).join('；')}
+                        </span>
+                      ) : null}
                       {s.voice ? <span className="block text-emerald-300/80">🎙 {String(s.voice)}</span> : null}
                     </div>
                   )
