@@ -24,7 +24,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { vfLog, vfStorageRoot, materialDir, listRepoMaterials, downloadMaterials } from '../video-material'
+import { vfLog, vfStorageRoot, materialDir, listRepoMaterials, listRepoAudio, downloadMaterials } from '../video-material'
 import { filmToolsDir, planFilm, makeFilmFromMaterials, filmDoneProtocol } from './vf-film'
 // ★VF_CHARSET_V1（2026-10-09 用户实测「降级之后照样被 fonts 闸门拦」）：
 //   把文案压回字体子集内的**唯一实现**（涮→烫、其余表外字删掉；只做减法不编造）
@@ -1083,7 +1083,7 @@ function estimateVoiceSec(copy: any[]): number {
   return Math.round(total) || 0
 }
 
-function confirmCard(vd: HtmlFilmDraft): string {
+async function confirmCard(uid: number | string, vd: HtmlFilmDraft): Promise<string> {
   const packs = htmlFilmPacks()
   const pk = packs.find((p) => p.id === vd.pack)
   const plan = Array.isArray(vd.plan) ? vd.plan : []
@@ -1092,6 +1092,15 @@ function confirmCard(vd: HtmlFilmDraft): string {
   // ★VF_FILMEST_V2：先按"文案字数"估（贴近实测），估不出来才退回"骨架声明时长相加"
   const estSec = estimateVoiceSec(copy)
     || Math.round(plan.reduce((a: number, s: any) => a + (Number(s.dur) || 0), 0)) || 30
+  // ★VF_BGM_PICK_V1：配乐候选 = 个人仓库里的**音频**（≤20 条；乐库空也没关系，用户自己传的就在这儿）
+  let bgmList: Array<{ name: string; mb: number }> = []
+  try {
+    const items = await listRepoAudio(uid, 20)
+    bgmList = items.map((m) => ({
+      name: String(m.name || ''),
+      mb: Math.round((Number(m.size) || 0) / 1048576 * 10) / 10,
+    })).filter((x) => x.name)
+  } catch { bgmList = [] }
   const body = {
     step: 'film_confirm',
     // ★VF_FILMCOPY_V1：数字（段数/时长）改成**按真实骨架算**，不再写死 30 秒/6 段
@@ -1140,6 +1149,11 @@ function confirmCard(vd: HtmlFilmDraft): string {
     voices: voiceOptions(),
     // ★VF_VOICE_PICK_V1：AI 判的配乐曲风（这轮只显示；乐库/音乐生成接通后直接当"挑哪首/生成什么"的依据）
     musicMood: String(vd.musicMood || ''),
+    // ★VF_BGM_PICK_V1（2026-10-22 用户定案「没有音乐」+ 乐库为空 ⇒ 走"用户自己传"）：
+    //   `bgmList` = 个人仓库里的**音频**（≤20 条，名字 + 兆数）。库里没有 ⇒ 空数组，卡片提示"先上传一首"。
+    //   只发名字（不发 key/URL）：出片时服务端**按名字在自己的仓库里再找一次**（防伪造路径）。
+    bgmList,
+    bgmVolDefault: -18,
     voiceN: copy.filter((c: any) => String((c && c.slots && c.slots.voice) || '').trim()).length,
     needChars: (() => {
       const q = pitchQuotas(plan.map((s: any) => s.dur))
@@ -1288,7 +1302,7 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
       if (wr.warn && !prevWarn.includes(wr.warn)) (vd as any).warn = [prevWarn, wr.warn].filter(Boolean).join('\n')
       await saveHtmlFilmDraft(prisma, uid, vd)
       vfLog(uid, `[HTML成片] 已按口播稿切成 ${(wr.copy || []).length} 段（有口播 ${wr.voiceN || 0} 段 / 需要约 ${wr.needChars || 0} 字）→ 出确认卡（等用户点出片）`)
-      return confirmCard(vd)
+      return await confirmCard(uid, vd)
     }
     if (at === 'back_style') { vd.step = 'style'; await saveHtmlFilmDraft(prisma, uid, vd); return styleCard(vd) }
     if (at === 'back_mat') { vd.step = 'mat'; await saveHtmlFilmDraft(prisma, uid, vd); return await matCard(uid, vd) }
@@ -1374,6 +1388,29 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
 
     // （★VF_FILMSRC_V1 的"骨架/文案一致性校验"已在上面、下载素材**之前**做过）
 
+    // ══ ★VF_BGM_PICK_V1（2026-10-22 用户定案「没有音乐」+「乐库目前是空的」）══
+    //   卡片送来的是**文件名**；服务端在**自己的仓库**里按名字找一次（防伪造路径/串到别人素材）⇒
+    //   下载到本地 ⇒ 交给 film-voice 混音。**配乐失败绝不判死**：不带配乐继续出片（有片 > 没片）。
+    let bgmLocal = ''
+    let bgmVol = -18
+    if (wantVoice && goF.bgm) {
+      const want = String(goF.bgm)
+      try {
+        const audios = await listRepoAudio(uid, 40)
+        const hit = audios.find((a) => String(a.name) === want)
+        if (!hit) vfLog(uid, '[HTML成片] 配乐「' + want + '」不在你的音频里 ⇒ 本次不配乐（可能刚被删/改名）')
+        else {
+          const dl = await downloadMaterials(uid, [hit])
+          bgmLocal = String((dl && dl[0] && (dl[0] as any).localPath) || '')
+          const vRaw = Number(goF.bgmVol)
+          bgmVol = Number.isFinite(vRaw) ? Math.min(-6, Math.max(-30, Math.round(vRaw))) : -18
+          if (!bgmLocal) vfLog(uid, '[HTML成片] 配乐下载失败（' + want + '）⇒ 本次不配乐')
+          else vfLog(uid, '[HTML成片] 配乐：「' + want + '」· ' + bgmVol + 'dB（人声优先自动闪避）')
+        }
+      } catch (e: any) {
+        vfLog(uid, '[HTML成片] 配乐处理异常 ⇒ 本次不配乐：' + String(e?.message || e).slice(0, 90))
+      }
+    }
     const workDir = path.join(vfStorageRoot(), String(uid), 'video-factory', 'film_' + Date.now())
     // ★VF_VOICE_PICK_V1（2026-10-22 用户定案「配音不能选」）：**音色只认白名单** ——
     //   用户手选 > AI 建议（气质映射）> Cherry；非法 id **绝不往下游发**（阿里会 400，且 tts-node 会静默折回）。
@@ -1388,6 +1425,9 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
       // ★VF_FILMVOICE_V1：默认配音 + 字幕（走 film-voice：TTS 实测时长 → 重排镜头 → 字幕 → 混音烧字幕）
       voiced: wantVoice,
       voice: wantV,
+      // ★VF_BGM_PICK_V1：配乐（本地路径 + 音量）；没选/取不到就是 undefined ⇒ 与今天完全一致
+      bgm: bgmLocal || undefined,
+      bgmVol,
       // ★VF_FILMCOPY_V1：把确认卡上那份 AI 文案**按序号**并进骨架（用户看过的那一版，出片必须与之一致）
       copy: Array.isArray(vd.copy) && vd.copy.length ? vd.copy : undefined,
       // ★VF_FILMSRC_V1：**用定稿的那份骨架**（不再让出片重排一次）

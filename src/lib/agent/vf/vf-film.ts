@@ -206,9 +206,15 @@ export async function render(filmJson: string, outDir: string): Promise<{ ok: bo
  *  ⚠️ 产物落位（与工具约定）：`<outDir>/<film.id>-voiced.mp4` + `<outDir>/render/sheet.jpg` */
 async function voiceFilm(
   filmJsonRel: string, outDir: string, voice?: string,
+  /** ★VF_BGM_PICK_V1：配乐（**本地绝对路径**）+ 音量（dB，默认 -18）—— 混音全在 film-voice.mjs 里做 */
+  bgm?: string, bgmVol?: number,
 ): Promise<{ ok: boolean; mp4?: string; sheet?: string; stage?: string; err?: string }> {
   const args = [path.join('tools', 'film-voice.mjs'), filmJsonRel, '--outdir', outDir]
   if (voice) args.push('--voice', voice)
+  if (bgm) {
+    args.push('--bgm', bgm)
+    if (Number.isFinite(Number(bgmVol))) args.push('--bgm-vol', String(Number(bgmVol)))
+  }
   const r = await runNode(args, 30 * 60 * 1000)
   const dirAbs = path.isAbsolute(outDir) ? outDir : path.join(filmToolsDir(), outDir)
   // ★VF_FILMVOICE_V1d（2026-10-09 用户实测「明明渲染成功了却报配音失败」）：
@@ -305,6 +311,10 @@ export async function makeFilmFromMaterials(opts: {
   workDir: string
   voiced?: boolean
   voice?: string
+  /** ★VF_BGM_PICK_V1（2026-10-22 用户定案「没有音乐」）：配乐**本地绝对路径** + 音量（dB，默认 -18）。
+   *  ⚠️ 只有 `voiced:true` 才会用到（配乐是"人声 + 字幕"那条链路的产物）。 */
+  bgm?: string
+  bgmVol?: number
   /** ★VF_RATIO_V1：大图:填图 比例（0~1）——只在"没有定稿骨架、需要现场编排"时才用到 */
   plateRatio?: number
   /** ★VF_ASPECT_V1：画幅 '9:16' | '16:9'（同上，只在现场编排时用到） */
@@ -429,7 +439,7 @@ export async function makeFilmFromMaterials(opts: {
   }
   const outDirRel = path.join('out', 'film', path.basename(opts.workDir))
   if (opts.voiced) {
-    const v = await voiceFilm(rel, outDirRel, opts.voice)
+    const v = await voiceFilm(rel, outDirRel, opts.voice, opts.bgm, opts.bgmVol)
     if (v.ok) return { ...v, voiced: true, vertical: o.vertical, pack: o.pack }
     const s = await render(rel, outDirRel)
     return { ...s, vertical: o.vertical, pack: o.pack, voiceErr: String(v.err || v.stage || '配音失败').slice(0, 200) }

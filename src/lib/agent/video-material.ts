@@ -390,6 +390,31 @@ export async function listRepoMaterials(
   }
 }
 
+/** ★VF_BGM_PICK_V1（2026-10-22 用户定案「没有音乐」+「乐库目前是空的」）：
+ *  列出个人仓库里的**音频**（配乐候选）。
+ *  为什么单独一个函数：`listRepoMaterials` 是"**画面素材**"口径（只回图片 + 视频，音频在最后一步被丢掉），
+ *  而配乐是另一件事（不参与分镜、不参与看图）—— 混进去会让"素材张数"口径再乱一次（本线老毛病）。
+ *  口径：只要**原始上传**（`gen_` 产物排除）、按最近上传倒序、最多 `limit` 条。 */
+export async function listRepoAudio(userId: string | number, limit = 20): Promise<RepoMaterial[]> {
+  const uid = String(userId)
+  try {
+    const objs = await listAllObjects(`storage/${uid}/`)
+    return objs
+      .filter((o) => !o.name.includes('/.thumbs/') && !o.name.endsWith('/')
+        && !isGeneratedName(o.name.split('/').pop() || ''))
+      .map((o) => {
+        const name = o.name.split('/').pop() || o.name
+        return {
+          name, key: o.name, kind: kindOf(name), size: o.size,
+          updatedAt: o.lastModified ? new Date(o.lastModified).getTime() : 0,
+        } as RepoMaterial
+      })
+      .filter((m) => m.kind === 'audio')
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, Math.max(1, limit))
+  } catch { return [] }
+}
+
 /** 下载指定素材到服务器本地（单个失败跳过，不阻断） */
 export async function downloadMaterials(userId: string | number, items: RepoMaterial[]): Promise<RepoMaterial[]> {
   const dir = materialDir(userId)

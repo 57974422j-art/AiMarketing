@@ -2478,6 +2478,38 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
   const [pvBusy, setPvBusy] = useState(false)
   const [pvUrl, setPvUrl] = useState('')
   const [pvMsg, setPvMsg] = useState('')
+  // ★VF_BGM_PICK_V1（2026-10-22 用户定案「没有音乐」+ 乐库为空 ⇒ 走"用户自己传"）：
+  //   候选 = 个人仓库里的**音频**（服务端下发 `bgmList`）；也能在这里直接上传（传完就地补进候选并自动选中）。
+  const bgmList: any[] = Array.isArray(vj?.bgmList) ? vj.bgmList : []
+  const [bgm, setBgm] = useState<string>('')
+  const [bgmVol, setBgmVol] = useState<number>(Number(vj?.bgmVolDefault) || -18)
+  const [bgmExtra, setBgmExtra] = useState<any[]>([])
+  const [bgmBusy, setBgmBusy] = useState(false)
+  const [bgmMsg, setBgmMsg] = useState('')
+  const bgmRef = useRef<HTMLInputElement | null>(null)
+  const bgmAll = bgmExtra.concat(bgmList).filter((x: any, i: number, a: any[]) =>
+    x && x.name && a.findIndex((y: any) => String(y?.name) === String(x.name)) === i)
+  const doBgmUpload = async (fs: FileList | null) => {
+    if (!fs || !fs.length) return
+    setBgmBusy(true); setBgmMsg('')
+    let ok = 0
+    for (const f of Array.from(fs)) {
+      try {
+        const fd = new FormData()
+        fd.append('file', f)
+        if (userId !== undefined) fd.append('userId', String(userId))
+        const r = await fetch('/api/storage/files', { method: 'POST', body: fd, credentials: 'include' }).then((x) => x.json())
+        const nm = String(r?.data?.name || '')
+        if (r && (r.success || r.ok) && nm) {
+          ok++
+          setBgmExtra((prev) => prev.concat([{ name: nm, mb: Math.round(f.size / 1048576 * 10) / 10 }]))
+          setBgm(nm)
+        }
+      } catch { /* 单首失败不打断 */ }
+    }
+    setBgmBusy(false)
+    setBgmMsg(ok ? '已上传 ' + ok + ' 首，已自动选中' : '上传失败（只支持 mp3 / m4a / wav / aac）')
+  }
   /** 试听：拿**口播稿第一行**去合成（≤60 字，服务端再夹一次）——不入库、不占配额 */
   const doPreview = async () => {
     const line = String(pitchText || vj?.pitchText || '').split('\n').map((s: string) => s.trim()).filter(Boolean)[0] || ''
@@ -2936,10 +2968,58 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
                 ) : null}
                 {pvUrl ? <audio src={pvUrl} controls autoPlay className="w-full mt-1.5 h-8" /> : null}
                 {pvMsg ? <div className="text-[10px] text-gray-400 mt-1">{pvMsg}</div> : null}
-                {/* ★VF_VOICE_PICK_V1：AI 判的**配乐曲风**先显示出来（乐库空 / 音乐生成后面再接，先让人看见 AI 的判断） */}
-                {vj?.musicMood ? (
-                  <div className="text-[10px] text-gray-500 mt-1">🎵 AI 判的配乐气质：{String(vj.musicMood)}（配乐功能下一步接）</div>
+              </div>
+            ) : null}
+            {/* ══ ★VF_BGM_PICK_V1（2026-10-22 用户定案「没有音乐」）══
+                库里没有曲子也能用：**把你自己的音乐传上来**（存进个人仓库的音频区），选一首铺在底下。
+                混音在服务端做：自动循环到片长 · 人声优先自动闪避 · 结尾淡出；配乐失败会保留无配乐版，不会把片搞没。 */}
+            {voice ? (
+              <div className="mt-2 p-2 rounded-lg bg-black/20 border border-white/10">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] text-gray-300">背景音乐</span>
+                  <span className="text-[10px] text-gray-500">
+                    {bgm ? ('音量 ' + bgmVol + 'dB') : '不加音乐'}
+                  </span>
+                </div>
+                <div className="flex gap-1.5">
+                  <select value={bgm} onChange={(e) => { setBgm(e.target.value); setBgmMsg('') }}
+                    className="flex-1 min-w-0 text-[11px] bg-black/40 border border-white/15 rounded px-2 py-1.5 text-gray-100">
+                    <option value="">不加音乐</option>
+                    {bgmAll.map((b: any) => (
+                      <option key={String(b.name)} value={String(b.name)}>
+                        {String(b.name)}{b.mb ? ' · ' + String(b.mb) + 'MB' : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <button onClick={() => bgmRef.current?.click()} disabled={bgmBusy}
+                    className="shrink-0 px-2.5 py-1.5 rounded border border-white/15 text-[11px] text-gray-200 hover:bg-white/[0.08] disabled:opacity-50">
+                    {bgmBusy ? '上传中…' : '⬆️ 上传音乐'}
+                  </button>
+                  <input ref={bgmRef} type="file" accept="audio/*" multiple hidden
+                    onChange={(e) => doBgmUpload(e.target.files)} />
+                </div>
+                {bgmAll.length === 0 ? (
+                  <div className="text-[10px] text-gray-500 mt-1">
+                    你的仓库里还没有音乐 —— 点「⬆️ 上传音乐」（mp3 / m4a / wav / aac），传完自动选中。
+                  </div>
                 ) : null}
+                {bgm ? (
+                  <div className="flex gap-1.5 mt-1.5">
+                    {[['小声', -24], ['标准', -18], ['稍大', -12]].map(([t, v]: any) => (
+                      <button key={String(v)} onClick={() => setBgmVol(Number(v))}
+                        className={'flex-1 px-2 py-1 rounded border text-[10px] ' +
+                          (bgmVol === Number(v)
+                            ? 'border-emerald-400/70 bg-emerald-500/[0.14] text-emerald-100'
+                            : 'border-white/10 bg-black/20 text-gray-300 hover:bg-white/[0.06]')}>
+                        {String(t)}（{String(v)}dB）
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+                {vj?.musicMood ? (
+                  <div className="text-[10px] text-gray-500 mt-1">🎵 AI 判的配乐气质：{String(vj.musicMood)}（照这个感觉挑一首）</div>
+                ) : null}
+                {bgmMsg ? <div className="text-[10px] text-amber-300 mt-1">{bgmMsg}</div> : null}
               </div>
             ) : null}
           </div>
@@ -2949,6 +3029,9 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
               pack: String(vj?.pack || ''), voiced: voice,
               // ★VF_VOICE_PICK_V1：把选中的音色带给服务端（服务端再做白名单校验）
               voice: voice ? ttsVoice : '',
+              // ★VF_BGM_PICK_V1：配乐只传**文件名**（服务端按名字在自己仓库里再找一次，防伪造路径）
+              bgm: voice && bgm ? bgm : '',
+              bgmVol: voice && bgm ? bgmVol : undefined,
             }))}
               className="flex-1 px-4 py-2 rounded-lg bg-emerald-500/30 hover:bg-emerald-500/50 border border-emerald-400/50 text-emerald-50 text-sm font-medium">
               🎬 出片（约 {voice ? '60~120' : '40~60'} 秒）

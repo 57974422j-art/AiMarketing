@@ -21,6 +21,9 @@
  *
  * 用法：
  *   node tools/film-voice.mjs films/xxx.json [--outdir <目录>] [--gap 0.5] [--voice-json <旁白.json>] [--no-sub]
+ *   配乐（★VF_BGM_PICK_V1）：
+ *     --bgm <音乐.mp3>      铺背景乐（自动循环到片长；人声优先自动闪避；结尾淡出）
+ *     --bgm-vol -18         配乐音量（dB，默认 -18；吵就把绝对值调大，如 -22）
  *   字幕风格（★VF_SUBCUE_V1，用户实测定过"字幕太大压住画面文字"）：
  *     --sub-size 10        字号（libass 以 PlayResY=288 换算 ⇒ 10 约等于画面高 3.4%）
  *     --sub-margin 6       距底边（同单位 ⇒ 6 约 27px，落在画面文字下方的"安全条"里）
@@ -384,10 +387,73 @@ if (!used) {
   console.error('  ffmpeg 环境：' + capsLine())
   process.exit(1)
 }
+/* ---------------- ⑥ 配乐混音（★VF_BGM_PICK_V1，2026-10-22 用户定案「没有音乐」）----------------
+   为什么单独一步（不再塞进上面的 filter_complex）：上面的混音/烧字幕是**已验证过**的降级重试链，
+   往里塞 `-filter_complex` 要重写 `-map`/`-vf` 的组合，风险远大于收益。
+   现口径：**两段式** —— 先按原样出"人声 + 字幕"版 → 再用一条 **只重编码音频（`-c:v copy`）** 的
+   ffmpeg 把配乐铺进去。视频不二次编码 ⇒ 不掉画质、耗时只多 1~2 秒。
+   配乐规则：
+     · `-stream_loop -1` 循环铺满，`-shortest` 到片长；
+     · **人声优先**：默认 `sidechaincompress`（有口播时自动把配乐压下去），失败就退**固定音量**；
+     · 结尾 0.8s 淡出（`afade`）；
+     · 配乐失败**不判死**：保留"无配乐版"并把原因打出来（有配音的成片 > 没成片）。 */
+const BGM = String(arg('bgm', '') || '')
+const BGM_VOL = Number(arg('bgm-vol', '-18')) || -18
+let bgmUsed = ''
+if (BGM) {
+  if (!fs.existsSync(BGM) || !okFile(BGM, 1024)) {
+    console.log('    ⚠ 配乐文件不存在或过小（' + BGM + '）⇒ 本次不配乐')
+  } else {
+    const dur = ffDur(finalMp4) || Number(film.total) || 0
+    const fade = Math.max(0.3, Math.min(1.2, dur > 3 ? 0.8 : dur / 4))
+    const tmp = finalMp4.replace(/\.mp4$/i, '.vo.mp4')
+    const out = finalMp4.replace(/\.mp4$/i, '.bgm.mp4')
+    try { rmQuiet(tmp); fs.renameSync(finalMp4, tmp) } catch { /* rename 失败就跳过配乐 */ }
+    if (fs.existsSync(tmp)) {
+      const enc = ['-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', out]
+      // A：自动闪避（sidechaincompress）—— 口播一响，配乐自动让位
+      const duck = '[0:a]volume=1,asplit=2[vo][sc];[1:a]volume=' + BGM_VOL + 'dB,afade=t=out:st='
+        + Math.max(0, +(dur - fade).toFixed(2)) + ':d=' + fade.toFixed(2) + '[bi];'
+        // 实测（temp/_daily/_bgm_probe.mjs）：0.02/12 能把配乐那路压 ~3dB，0.06/6 只有 ~1.9dB
+        // ⇒ 取中间值 0.03/10；再猛就会"一顿一顿"（release 太短）。
+        + '[bi][sc]sidechaincompress=threshold=0.03:ratio=10:attack=15:release=350[bg];'
+        + '[vo][bg]amix=inputs=2:duration=first:normalize=0[aout]'
+      // B：固定音量（sidechain 不可用时的降级）
+      const flat = '[0:a]volume=1[vo];[1:a]volume=' + BGM_VOL + 'dB,afade=t=out:st='
+        + Math.max(0, +(dur - fade).toFixed(2)) + ':d=' + fade.toFixed(2) + '[bg];'
+        + '[vo][bg]amix=inputs=2:duration=first:normalize=0[aout]'
+      let done = false
+      for (const [tag, fc] of [['sidechain 闪避', duck], ['固定音量', flat]]) {
+        rmQuiet(out)
+        const b = run('ffmpeg', ['-y', '-v', 'error', '-i', tmp, '-stream_loop', '-1', '-i', BGM,
+          '-filter_complex', fc, '-map', '0:v', '-map', '[aout]'].concat(enc), { cwd: renderDir })
+        if (b.status === 0 && sizeOf(out) >= 20 * 1024 && ffDur(out) > 0.5) {
+          try { rmQuiet(finalMp4); fs.renameSync(out, finalMp4) } catch { /* ignore */ }
+          done = true
+          bgmUsed = tag + ' · 配乐 ' + BGM_VOL + 'dB'
+          console.log('  ✓ 已加配乐（' + tag + ' · ' + BGM_VOL + 'dB · 结尾 ' + fade.toFixed(1) + 's 淡出）')
+          break
+        }
+        console.log('    ⚠ 配乐混音（' + tag + '）失败：'
+          + String(b.stderr || b.stdout || '').replace(/\s+/g, ' ').slice(-160))
+      }
+      if (!done) {
+        // 保留无配乐版（**绝不因为配乐把成片搞没**），并如实说明
+        try { rmQuiet(finalMp4); fs.renameSync(tmp, finalMp4) } catch { /* ignore */ }
+        rmQuiet(out)
+        console.log('    ⚠ 配乐没混上（两种方式都失败）⇒ 已保留**无配乐版**成片')
+      } else {
+        rmQuiet(tmp)
+      }
+    }
+  }
+}
+
 const sz = Math.round(sizeOf(finalMp4) / 1024)
-console.log('  ✓ 成片（含配音' + (used.vf ? ' + 烧字幕' : '，字幕为旁挂 SRT') + '）：'
+console.log('  ✓ 成片（含配音' + (used.vf ? ' + 烧字幕' : '，字幕为旁挂 SRT') + (bgmUsed ? ' + 配乐' : '') + '）：'
   + path.relative(PROJECT, finalMp4).replace(/\\/g, '/') + '  ' + sz + ' KB  ' + film.total + 's'
-  + (used.vf ? '' : '（因环境能力不足降级：' + used.tag + '）'))
+  + (used.vf ? '' : '（因环境能力不足降级：' + used.tag + '）')
+  + (bgmUsed ? '（' + bgmUsed + '）' : ''))
 // ★VF_FILMVOICE_V1d：给调用方（vf-film.ts）一行**机器可读**的成片路径，别再靠猜文件名
 console.log('FINAL_MP4:' + finalMp4)
 if (!used.vf) {

@@ -138,7 +138,10 @@ export async function POST(request: NextRequest) {
   // ★VF_UPLOADGUARD_V1（2026-10-10 用户服务器实测：仓库里躺着 `20261009_021.mp4` = **0 字节**，
   //   而且它没有缩略图 ⇒ 这是**上传中途断**留下的半成品：列表里看得见、点开是坏的）。
   //   病灶：这里对扩展名与内容长度**没有任何校验** ⇒ 空内容、怪扩展名也照进仓库（"逻辑混乱"的来源之一）。
-  const ALLOWED_EXT = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'jpg', 'jpeg', 'png', 'gif', 'webp']
+  // ★VF_BGM_PICK_V1（2026-10-22 用户定案「没有音乐」+ 乐库为空 ⇒ 走"用户自己传"）：
+  //   放行**音频**（配乐用）。只放常见格式：mp3/m4a/wav/aac（ogg/flac 阿里能读但 ffmpeg 混音链没验过，先不放）。
+  const ALLOWED_EXT = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'jpg', 'jpeg', 'png', 'gif', 'webp',
+    'mp3', 'm4a', 'wav', 'aac']
   const ext = String(file.name.split('.').pop() || '').toLowerCase()
   if (!ALLOWED_EXT.includes(ext)) {
     return NextResponse.json({ success: false, message: '不支持的文件类型：' + (ext || '(无扩展名)') }, { status: 400 })
@@ -152,7 +155,12 @@ export async function POST(request: NextRequest) {
   }
 
   // 根据扩展名设置 MIME 类型
-  const mimeMap: Record<string, string> = { mp4: 'video/mp4', mov: 'video/quicktime', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp' }
+  const mimeMap: Record<string, string> = {
+    mp4: 'video/mp4', mov: 'video/quicktime', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+    gif: 'image/gif', webp: 'image/webp',
+    // ★VF_BGM_PICK_V1：音频（配乐）—— mime 必须给对，否则浏览器试听 / ffmpeg 探测都会犯迷糊
+    mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav', aac: 'audio/aac',
+  }
   const mime = mimeMap[ext.toLowerCase()] || 'application/octet-stream'
 
   try {
