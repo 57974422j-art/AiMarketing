@@ -192,7 +192,31 @@ async function openPage(url) {
   return p
 }
 
-const url = 'file:///' + abs.replace(/\\/g, '/')
+/* ★--as-film（默认开）：把页面的 `data-mode` 强制改成 `film` 再测。
+   为什么必须：我们生成的页面默认 `data-mode="preview"`，里面带着 `ai-preview-guard`
+   （用 rAF + performance.now 持续改 `--p`，是给"人滚动预览"用的）。
+   而 `daily-film.mjs:164` 在**出片前**会把 `data-mode="preview"` 换成 `"film"`，
+   此时 guard 的脚本第一行就 `return`、预览 CSS 全部失效 ⇒ **真实渲染里它是死的**。
+   所以：**不切成 film 就测，测的是"预览版"，会出现大量假阳性**（本地实测 t=16 差 68%）。
+   做法：**在同目录写一个临时副本**（这样相对路径图片还能引用），测完删掉。
+   `--keep-preview` 可关闭（想看预览版自己的确定性时用）。 */
+const AS_FILM = !flag('keep-preview')
+let testAbs = abs
+let filmTmp = ''
+if (AS_FILM) {
+  let h = fs.readFileSync(abs, 'utf8')
+  const before = h
+  h = /data-mode\s*=/.test(h)
+    ? h.replace(/data-mode\s*=\s*["'][^"']*["']/, 'data-mode="film"')
+    : h.replace(/<html\b/i, '<html data-mode="film"')
+  if (h !== before) {
+    filmTmp = path.join(path.dirname(abs), '_filmtest-' + Date.now() + '.html')
+    fs.writeFileSync(filmTmp, h, 'utf8')
+    testAbs = filmTmp
+  }
+}
+
+const url = 'file:///' + testAbs.replace(/\\/g, '/')
 
 /* ★ 先静态看一眼这份 HTML 里有没有"自带时钟"的东西。
    为什么：`ai-preview-guard`（本地预览兜底）会用 rAF + performance.now() **持续改写 --p**，
@@ -316,6 +340,8 @@ const bad = results.filter((r) => !r.same)
 const report = {
   ok: bad.length === 0,
   html: abs,
+  asFilm: AS_FILM,
+  testedAs: testAbs,
   chrome: CHROME,
   outDir: OUT_DIR,
   elapsedSec: +((Date.now() - t0) / 1000).toFixed(1),
@@ -341,6 +367,7 @@ if (JSON_ONLY) {
 } else {
   console.log('')
   console.log('帧确定性自检 · ' + path.basename(abs))
+  console.log('  模式：' + (AS_FILM ? '已切成 data-mode=film（模拟真实渲染）' : '保持原样（预览版，--keep-preview）'))
   console.log('  页面：' + probe.segs + ' 段 · 总时长 ' + probe.total + 's · 耗时 ' + report.elapsedSec + 's')
   console.log('  采样帧：第一遍 [' + frames.join(', ') + ']')
   console.log('          第二遍 [' + orderB.join(', ') + ']（乱序）')
@@ -371,4 +398,5 @@ if (JSON_ONLY) {
   console.log('')
 }
 
+try { if (filmTmp) fs.unlinkSync(filmTmp) } catch { /* ignore */ }
 process.exit(report.ok ? 0 : 1)
