@@ -838,6 +838,12 @@ export function buildVoiceCardPayload(o: {
    *  **草稿里上次提交过的口播** —— 卡片初始化时优先用它回填（其次才是本机暂存、最后是 AI 原稿）。
    *  为什么不能只靠前端暂存：换设备 / 换浏览器 / 清缓存就没了；草稿是跨设备的那一份。 */
   saved?: string[]
+  /** ★VF_DAILY_TTSVOICE_V1（2026-10-23 用户「把 HTML 成片线的配音选项抄过来」）：
+   *  可选音色列表（`voiceOptions()` 的 `all`）——**由 daily.ts 注入**，
+   *  因为本文件不允许 import（见文件头约束）。前端拿它渲染音色胶囊。 */
+  voiceList?: any[]
+  /** 当前选中的音色（没选过就空，前端回落到第一个 hot） */
+  voicePick?: string
 }): any {
   const segs = Array.isArray(o.segs) ? o.segs : []
   const lines = Array.isArray(o.lines) ? o.lines : []
@@ -867,6 +873,9 @@ export function buildVoiceCardPayload(o: {
     voiceKey: voiceKeyOf(segs),
     // ★VF_DAILYVOICE_V4：上次提交过的口播（跨设备恢复用；长度与段数不符时前端会忽略它）
     saved: Array.isArray(o.saved) && o.saved.length === rows.length ? o.saved.map((x) => String(x == null ? '' : x)) : [],
+    // ★VF_DAILY_TTSVOICE_V1：音色列表 + 当前选中（抄自 HTML 成片线的 VF_VOICE_PICK_V1）
+    voiceList: Array.isArray(o.voiceList) ? o.voiceList : [],
+    voicePick: String(o.voicePick || ''),
     theme: themeName(o.theme),
     by: byLabel(o.by),
   }

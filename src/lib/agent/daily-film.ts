@@ -239,7 +239,9 @@ function runProc(cmd: string, args: string[], timeout: number): Promise<{ code: 
 export async function startDailyFilm(
   /* ★VF_SUBPOS_V1：`subPos` 决定字幕位置（bottom / lower / mid），
      不传就按 `lower`（距底 320px，避开抖音 UI）。 */
-  uid: number | string, htmlName: string, opts?: { voice?: string[]; subPos?: string },
+  /* ★VF_SUBPOS_V1：`subPos` 决定字幕位置（bottom / lower / mid），不传就 `lower`（距底 320px）。
+     ★VF_DAILY_TTSVOICE_V1：`ttsVoice` = 配音音色 id（空则用引擎默认）。 */
+  uid: number | string, htmlName: string, opts?: { voice?: string[]; subPos?: string; ttsVoice?: string },
 ): Promise<DailyFilmTask> {
   const voiced = Array.isArray(opts?.voice) && opts!.voice!.length > 0
   const id = 'df' + Date.now()
@@ -324,6 +326,9 @@ export async function startDailyFilm(
         /* ★VF_SUBPOS_V1：字幕位置默认 `lower`（距底 320px）——
            竖屏贴底会在抖音/快手被「@用户名 / 文案 / 音乐 / 进度条」整块挡住。 */
         args = [tool, htmlPath, '--voices', vp, '--outdir', outDir, '--sub-pos', String((opts as any)?.subPos || 'lower')]
+        // ★VF_DAILY_TTSVOICE_V1：选了音色就传（daily-voice.mjs 会转发给 tts-node.mjs 的 --voice）
+        const _tv = String((opts as any)?.ttsVoice || '').trim()
+        if (_tv) args.push('--voice', _tv)
       } else {
         args = [tool, htmlPath, '--outdir', outDir]
       }

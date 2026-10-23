@@ -2105,6 +2105,13 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
   const [subPos, setSubPos] = useState<string>(() => {
     try { return localStorage.getItem(lsKey + ':subPos') || 'lower' } catch { return 'lower' }
   })
+  /* ★VF_DAILY_TTSVOICE_V1（2026-10-23 用户「把 HTML 成片线的配音选项抄过来」）：
+     音色候选由服务端下发（`vj.voiceList`），默认用 `vj.voicePick`，其次第一个热门。
+     ⚠️ 不叫 `voice` —— 这个名字在本组件里已被"口播数组"占用。 */
+  const voiceList: any[] = Array.isArray(vj?.voiceList) ? vj.voiceList : []
+  const [ttsVoice, setTtsVoice] = useState<string>(() => {
+    try { return localStorage.getItem(lsKey + ':ttsVoice') || String(vj?.voicePick || '') } catch { return String(vj?.voicePick || '') }
+  })
   // 每次改动都往本机暂存写一份（刷新不丢；容量只有几十字节 × 段数，无压力）
   useEffect(() => {
     try { localStorage.setItem(lsKey, JSON.stringify(lines)) } catch { /* ignore */ }
@@ -2172,7 +2179,13 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
     if (busy) return
     setBusy(true)
     // ★VF_SUBPOS_UI_V1：把字幕位置一起提交（后端存草稿，出片时传给 daily-voice.mjs）
-    onSend('VF_DAILY_FORM:' + JSON.stringify({ at: 'synth', voice: lines.map((t) => String(t).trim()), subPos }))
+    // ★VF_DAILY_TTSVOICE_V1：音色一起提交（空 = 用引擎默认）
+    onSend('VF_DAILY_FORM:' + JSON.stringify({
+      at: 'synth',
+      voice: lines.map((t) => String(t).trim()),
+      subPos,
+      ttsVoice,
+    }))
   }
   useEffect(() => {
     if (!busy) return
@@ -2304,6 +2317,37 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
               <button onClick={() => setRev(null)} className="px-2 py-1.5 text-xs text-gray-400 hover:text-gray-200">取消</button>
             </div>
           </div>
+        </div>
+      ) : null}
+
+      {/* ★VF_DAILY_TTSVOICE_V1：配音音色（抄自 HTML 成片线的 VF_VOICE_PICK_V1，暂不带试听） */}
+      {voiceList.length ? (
+        <div className="mt-3 pt-3 border-t border-white/10">
+          <div className="text-[10px] text-gray-400 mb-1.5">
+            配音音色{ttsVoice ? '' : '（默认）'}
+          </div>
+          <div className="flex flex-wrap gap-1.5 max-h-[92px] overflow-y-auto pr-1">
+            {voiceList.slice(0, 24).map((v: any) => {
+              const id = String(v?.id || '')
+              const on = ttsVoice === id
+              return (
+                <button key={id} type="button"
+                  title={String(v?.desc || v?.tone || '')}
+                  onClick={() => {
+                    setTtsVoice(id)
+                    try { localStorage.setItem(lsKey + ':ttsVoice', id) } catch { /* ignore */ }
+                  }}
+                  className={'px-2 py-1 rounded-lg text-[11px] border transition ' + (on
+                    ? 'border-violet-400/70 bg-violet-500/20 text-violet-50'
+                    : 'border-white/10 text-gray-400 hover:border-white/25 hover:text-gray-200')}>
+                  {on ? '● ' : ''}{String(v?.name || id)}
+                </button>
+              )
+            })}
+          </div>
+          {voiceList.length > 24 ? (
+            <div className="text-[10px] text-gray-600 mt-1">只显示前 24 个；先凑合选，要全部可选我再加"更多"</div>
+          ) : null}
         </div>
       ) : null}
 

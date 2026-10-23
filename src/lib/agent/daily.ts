@@ -2030,10 +2030,20 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
         ? '口播是 AI **看过每张素材**后写的'
         : ('**没看到图**（' + (v.vlErr || '未知') + '）—— 口播只按画面文字推的，务必逐条核对')
       try { ctx.log?.(uid, '[日报落地页] 配音稿已出：' + lines.filter(Boolean).length + '/' + lines.length + ' 段有口播') } catch { /* ignore */ }
+      /* ★VF_DAILY_TTSVOICE_V1（2026-10-23 用户「把 HTML 成片线的配音选项抄过来」）：
+         音色列表由**这里注入**（daily-plan.ts 不允许 import）。
+         `voiceOptions()` 返回 { hot, rest, all }，卡片只要 `all`（前端自己分组显示）。 */
+      let _voiceList: any[] = []
+      try {
+        const { voiceOptions } = await import('./vf/tts-voices')
+        _voiceList = voiceOptions().all
+      } catch { /* 拿不到就空，前端回落默认 */ }
       return 'VF_JSON:' + JSON.stringify(buildVoiceCardPayload({
         segs: d.plan.segments, lines, fixes: v.fixes, theme: d.plan?.meta?.theme,
         by: d.planBy, name: d.singleName, note, sawImages: v.sawImages, topic: d.topic,
         saved: prevVoice,   // ★VF_DAILYVOICE_V4：上次改完提交过的那一版（刷新/换设备后能恢复）
+        voiceList: _voiceList,
+        voicePick: String((d as any).ttsVoice || ''),
       }))
     }
     if (at === 'film') {
@@ -2079,10 +2089,16 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
          默认 lower（距底 320px）：竖屏贴底会被抖音/快手 UI 挡住。 */
       const subPos = ['bottom', 'lower', 'mid'].includes(String((f as any)?.subPos))
         ? String((f as any).subPos) : 'lower'
+      /* ★VF_DAILY_TTSVOICE_V1：配音音色（抄自 HTML 成片线）。空 = 用 TTS 默认音色。
+         ⚠️ 只做**白名单形状校验**（字母/数字/下划线/连字符），具体 id 由引擎侧 tts-node 判断，
+            传错了它自己会回落默认，不会把整片搞坏。 */
+      const ttsVoice = /^[A-Za-z0-9_-]{1,40}$/.test(String((f as any)?.ttsVoice || ''))
+        ? String((f as any).ttsVoice) : ''
       ;(d as any).subPos = subPos
+      ;(d as any).ttsVoice = ttsVoice
       d.voice = arr
       await saveDailyDraft(ctx.prisma, uid, d)
-      const t = await startDailyFilm(uid, d.singleName, { voice: arr, subPos })
+      const t = await startDailyFilm(uid, d.singleName, { voice: arr, subPos, ttsVoice })
       d.filmTaskId = t.id
       await saveDailyDraft(ctx.prisma, uid, d)
       try { ctx.log?.(uid, '[日报落地页] 配音合成任务已起：' + t.id + '（' + arr.filter(Boolean).length + '/' + arr.length + ' 段口播）') } catch { /* ignore */ }
