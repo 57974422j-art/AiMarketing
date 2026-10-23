@@ -2808,11 +2808,22 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
           ) : (
             /* ★VF_MATONLY_V1：只说"原始素材"（成片不算素材）—— 与仓库页的「原始素材 / 生成素材」两个切换键同口径。
                两处坑都踩过：① 三元表达式位置不能放 JSX 注释（要放普通块注释）；② JSX 里加粗用 b 标签，别写 markdown 星号。 */
-            <div className="text-[11px] text-gray-400 mb-2">还没有<b className="text-gray-200">原始素材</b> —— 点「⬆️ 上传图片」传几张（或直接点下一步，用最近素材）。成片不算素材。</div>
+            /* ★VF_MATPICK_REQUIRED_V1：原来这句写"或直接点下一步，用最近素材"——
+               现在没勾就点不动了，提示要改，否则用户会以为按钮坏了。 */
+            <div className="text-[11px] text-gray-400 mb-2">还没有<b className="text-gray-200">原始素材</b> —— 先点「⬆️ 上传图片」传几张，再在下方勾选。成片不算素材。</div>
           )}
-          <button onClick={() => next('mat', { names: sel })}
-            className="w-full px-4 py-2 rounded-lg bg-emerald-500/25 hover:bg-emerald-500/40 border border-emerald-400/40 text-emerald-100 text-sm font-medium">
-            {vj?.nextLabel || '下一步 → 选风格'}（已选 {sel.length || '最近'} 张）
+          {/* ★VF_MATPICK_REQUIRED_V1（2026-10-23 用户实测「什么都没勾，火锅文案就出来了」）：
+              真相：没勾时这里仍然可点 ⇒ 传 `names: []` ⇒ 服务端沿用**旧草稿里的 17 张**（正好是火锅那批）
+                   ⇒ 用户以为"我没选素材它自己出片了"。
+              现口径：**一张都没勾 ⇒ 按钮灰掉、点了没反应**，并明确提示"请先勾选素材"。
+              ⚠️ 注意 `defRecent` 由服务端下发：日报线传 0 ⇒ 一进卡片不会自动勾（所以这个禁用是有效的）。 */}
+          <button onClick={() => { if (!sel.length) return; next('mat', { names: sel }) }}
+            disabled={!sel.length}
+            title={sel.length ? '' : '请先在上方勾选至少一张素材'}
+            className={'w-full px-4 py-2 rounded-lg border text-sm transition ' + (sel.length
+              ? 'bg-emerald-500/25 hover:bg-emerald-500/40 border-emerald-400/40 text-emerald-100'
+              : 'bg-white/[0.04] border-white/10 text-gray-500 cursor-not-allowed')}>
+            {vj?.nextLabel || '下一步 → 选风格'}{sel.length ? '（已选 ' + sel.length + ' 张）' : '（请先勾选素材）'}
           </button>
         </>
       ) : null}
