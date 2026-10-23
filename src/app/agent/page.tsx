@@ -2123,6 +2123,51 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
   //   而合成**失败**时（后台任务只推一张失败提示）用户就彻底点不动了，**只能重开一单**。
   //   现口径：`busy` 只当**防连点**用（服务端另有 `findRunningDailyFilm` 防重复），
   //   所以给一个**短定时自动放行**；按钮文案也改成"已提交"，不再谎称"合成中"。
+  /* ★VF_VOICE_REVISE_UI_V1（2026-10-23 用户定案：弹窗里要「有这一帧的画面 + 让 AI 改文案」）
+     一个弹窗三件事：看画面（点一下抽一张，8~12 秒）→ AI 改这句（3 秒）→ 保存回输入框。
+     ⚠️ 抽帧只读，不改任何文件；AI 只改文案，不动画面。 */
+  const [rev, setRev] = useState<{ i: number; title: string; draft: string; style: string; img: string; imgBusy: boolean; aiBusy: boolean; msg: string } | null>(null)
+  const openRevise = (i: number, title: string) => {
+    setRev({ i, title, draft: lines[i] || '', style: 'oral', img: '', imgBusy: false, aiBusy: false, msg: '' })
+    // 打开就顺手去抽帧（用户可能只是想看画面）
+    loadFrame(i, title)
+  }
+  const loadFrame = async (i: number, _title: string) => {
+    setRev((p) => (p ? { ...p, imgBusy: true, msg: '' } : p))
+    try {
+      const r = await fetch('/api/agent/daily-frame', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: String(vj?.name || ''), seg: i + 1 }),
+      })
+      const j = await r.json().catch(() => null)
+      if (j?.success && j?.data?.image) setRev((p) => (p ? { ...p, img: String(j.data.image), imgBusy: false } : p))
+      else setRev((p) => (p ? { ...p, imgBusy: false, msg: '画面没出来：' + String(j?.message || '未知').slice(0, 80) } : p))
+    } catch (e: any) {
+      setRev((p) => (p ? { ...p, imgBusy: false, msg: '画面没出来：' + String(e?.message || e).slice(0, 80) } : p))
+    }
+  }
+  const doRevise = async () => {
+    if (!rev) return
+    const src = String(rev.draft || '').trim()
+    if (!src) { setRev((p) => (p ? { ...p, msg: '这段现在是空的，先写一句' } : p)); return }
+    setRev((p) => (p ? { ...p, aiBusy: true, msg: '' } : p))
+    try {
+      const r = await fetch('/api/agent/daily-revise', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: src, style: rev.style, segTitle: rev.title, topic: String(vj?.topic || '') }),
+      })
+      const j = await r.json().catch(() => null)
+      if (j?.success && j?.data?.text) {
+        setRev((p) => (p ? { ...p, draft: String(j.data.text), aiBusy: false, msg: '已改成「' + String(j.data.styleName || '') + '」风格，满意就点保存' } : p))
+      } else {
+        setRev((p) => (p ? { ...p, aiBusy: false, msg: '改写失败：' + String(j?.message || '未知').slice(0, 90) } : p))
+      }
+    } catch (e: any) {
+      setRev((p) => (p ? { ...p, aiBusy: false, msg: '改写失败：' + String(e?.message || e).slice(0, 90) } : p))
+    }
+  }
   const send = () => {
     if (busy) return
     setBusy(true)
@@ -2158,8 +2203,16 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
                   段{r?.i}{r?.layout ? ' · ' + String(r.layout) : ''}
                   <span className="text-gray-600">　画面：{String(r?.title || '').slice(0, 24)}</span>
                 </span>
-                <span className={'text-[10px] shrink-0 ' + (over ? 'text-amber-400' : 'text-gray-500')}>
-                  {n}/{maxChars} 字 · ~{est(t)}s
+                <span className="flex items-center gap-1.5 shrink-0">
+                  <span className={'text-[10px] ' + (over ? 'text-amber-400' : 'text-gray-500')}>
+                    {n}/{maxChars} 字 · ~{est(t)}s
+                  </span>
+                  {/* ★VF_VOICE_REVISE_UI_V1：看画面 + 让 AI 改这句 */}
+                  <button type="button" title="看这一段的画面 / 让 AI 改这句"
+                    onClick={() => openRevise(i, String(r?.title || ''))}
+                    className="text-[10px] px-1.5 py-0.5 rounded border border-violet-400/40 text-violet-200 hover:bg-violet-500/20">
+                    ✨
+                  </button>
                 </span>
               </div>
               <textarea
@@ -2178,6 +2231,82 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
           有 {overN} 段超过 {maxChars} 字 —— 一句话的长短决定这一段有多长，建议压短些。
         </div>
       ) : null}
+      {/* ★VF_VOICE_REVISE_UI_V1：弹窗 —— 上半看画面、中间改字、下面让 AI 重写 */}
+      {rev ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-3"
+          onClick={() => setRev(null)}>
+          <div className="w-full max-w-[400px] max-h-[92vh] overflow-y-auto rounded-xl border border-violet-400/30 bg-[#14121a] p-3"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs text-violet-200">第 {rev.i + 1} 段 · 看画面 / 改这句</div>
+              <button onClick={() => setRev(null)} className="text-gray-400 hover:text-gray-200 text-sm leading-none">✕</button>
+            </div>
+
+            <div className="text-[10px] text-gray-500 mb-1 truncate">画面文字：{rev.title || '（这段没有标题）'}</div>
+
+            <div className="rounded-lg overflow-hidden border border-white/10 bg-black/40 mb-2 flex items-center justify-center"
+              style={{ minHeight: 160 }}>
+              {rev.img ? (
+                <img src={rev.img} alt="这一帧" className="w-full block" />
+              ) : (
+                <div className="text-[11px] text-gray-500 py-10 text-center px-3">
+                  {rev.imgBusy ? '正在渲染这一帧…（约 8~12 秒）' : '画面还没出来'}
+                  {!rev.imgBusy ? (
+                    <button onClick={() => loadFrame(rev.i, rev.title)}
+                      className="ml-2 text-violet-300 underline">重试</button>
+                  ) : null}
+                </div>
+              )}
+            </div>
+
+            <div className="text-[10px] text-gray-400 mb-1">现在的文案（可直接手改）</div>
+            <textarea value={rev.draft} rows={3}
+              onChange={(e) => setRev((p) => (p ? { ...p, draft: e.target.value } : p))}
+              className="w-full bg-black/40 border border-white/10 rounded px-2 py-1.5 text-[12px] text-gray-100 leading-relaxed resize-y mb-2"
+            />
+
+            <div className="text-[10px] text-gray-400 mb-1">让 AI 怎么改</div>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {([
+                ['hook', '钩子'], ['promo', '促销'], ['oral', '口语'], ['punch', '更狠'],
+              ] as Array<[string, string]>).map(([id, label]) => {
+                const on = rev.style === id
+                return (
+                  <button key={id} type="button"
+                    onClick={() => setRev((p) => (p ? { ...p, style: id } : p))}
+                    className={'px-2.5 py-1 rounded-lg text-[11px] border ' + (on
+                      ? 'border-violet-400/70 bg-violet-500/20 text-violet-50'
+                      : 'border-white/10 text-gray-400 hover:border-white/25')}>
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
+
+            {rev.msg ? <div className="text-[10px] text-amber-400 mb-2">{rev.msg}</div> : null}
+
+            <div className="flex items-center gap-2">
+              <button onClick={doRevise} disabled={rev.aiBusy}
+                className={'px-3 py-1.5 rounded-lg text-xs border ' + (rev.aiBusy
+                  ? 'border-white/10 text-gray-500 cursor-wait'
+                  : 'border-violet-400/50 text-violet-100 hover:bg-violet-500/15')}>
+                {rev.aiBusy ? '改写中…' : '🤖 让 AI 重写'}
+              </button>
+              <button onClick={() => {
+                const i = rev.i
+                const nx = String(rev.draft || '').trim()
+                setLines((prev) => { const a = prev.slice(); a[i] = nx; return a })
+                setRev(null)
+              }}
+                className="px-3 py-1.5 rounded-lg text-xs border border-emerald-400/50 text-emerald-100 hover:bg-emerald-500/15">
+                保存到这段
+              </button>
+              <button onClick={() => setRev(null)} className="px-2 py-1.5 text-xs text-gray-400 hover:text-gray-200">取消</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {/* ★VF_SUBPOS_UI_V1（2026-10-23 用户「字幕不是上下都有，我需要一个选项卡」）：
           竖屏字幕贴底会被抖音/快手 UI（@用户名 / 文案 / 音乐 / 进度条）整块挡住 ⇒ 给三档可选。
           默认 `lower`（距底 320px，正好在平台 UI 上方）。选择存 localStorage，合成时带给后端。 */}
