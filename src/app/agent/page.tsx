@@ -3849,6 +3849,15 @@ function AgentPageInner() {
   //   后台跑 ⇒ 前端每 6s 问一次进度，done 推成片卡、failed 推错误（带 tail）。
   const handledDailyFilms = useRef(new Set<string>())
   useEffect(() => {
+    /* ★VF_HISTORY_GATE_V1（2026-10-23 用户实测「刷新后正在输入别的命令，忽然弹出上一条视频或旧任务失败信息」）：
+       病灶：历史是**异步一次性覆盖**（`setMessages(msgs)`）⇒ 加载回来那一刻 messages 变化
+            ⇒ 本 effect 重跑 ⇒ 从历史里捞出旧的 `VF_DAILY_FILM_TASK` ⇒ **插卡片打断用户**。
+       现口径：**历史没加载完就不跑**（`historyLoaded` 由历史加载那段置 true）。
+            ⚠️ 故意**不把 `historyLoaded` 放进依赖**：它只在"加载完成"时由 false 变 true，
+               而那一刻 messages 本来就会变化 ⇒ effect 自然会重跑一次，不需要额外依赖。
+       （另一道保险在前端输入框：加载期间发送键是灰的。） */
+    if (!historyLoaded) return
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     const lastDf = [...messages].reverse().find(m => m.role === 'assistant' && m.content && m.content.includes('VF_DAILY_FILM_TASK:'))
     if (!lastDf) return
     const mDf = (lastDf.content || '').match(/VF_DAILY_FILM_TASK:(\{[^\n]*\})/)
@@ -7200,14 +7209,21 @@ function AgentPageInner() {
                 <button onClick={clearTodayTasks} title="清会话（清空聊天记录）"
                   className="shrink-0 w-6 h-6 rounded-md bg-white/5 hover:bg-red-500/20 text-gray-500 hover:text-red-400 flex items-center justify-center mr-0.5">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                </button>                <textarea ref={inputRef} value={input}
+                </button>                {/* ★VF_HISTORY_GATE_V1（2026-10-23 用户定案「**没加载完输入框那个发出键不亮**」）：
+                    背景：刷新后历史是**异步一次性覆盖**（`setMessages(msgs)`），加载回来那一刻
+                        `messages` 变化 ⇒ 轮询 effect 重跑 ⇒ 把历史里的旧出片任务拉起来
+                        ⇒ **用户正在做别的事时，屏幕忽然冒出一条旧失败/旧成片** ⇒ 很懵。
+                    现口径：**历史没加载完 ⇒ 输入框和发送键都灰、提示"正在载入历史…"**，
+                        同时轮询 effect 在 `historyLoaded` 为 false 时**直接 return**（双保险）。
+                    ⚠️ 只控"加载期间"，加载完就恢复，不影响正常使用。 */}
+                <textarea ref={inputRef} value={input}
                   onChange={e => setInput(e.target.value)} onKeyDown={handleKeyDown}
-                  placeholder="输入需求，或输入 / 唤起命令..."
+                  placeholder={historyLoaded ? '输入需求，或输入 / 唤起命令...' : '正在载入历史…'}
                   rows={1}
                   className="flex-1 bg-transparent text-xs sm:text-sm text-gray-200 placeholder-gray-600 resize-none outline-none py-1 max-h-32"
-                  disabled={loading} />
-                <button onClick={() => sendMessage()} disabled={(!input.trim() && !attachments.length) || loading}
-                  className={`shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition ${(input.trim() || attachments.length) && !loading
+                  disabled={loading || !historyLoaded} />
+                <button onClick={() => sendMessage()} disabled={(!input.trim() && !attachments.length) || loading || !historyLoaded}
+                  className={`shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition ${(input.trim() || attachments.length) && !loading && historyLoaded
                     ? 'bg-gradient-to-br from-emerald-400 to-cyan-500 text-white hover:opacity-90' : 'bg-white/5 text-gray-700 cursor-not-allowed'}`}>
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeWidth="2" d="M5 12h14M12 5l7 7-7 7"/></svg>
                 </button>
