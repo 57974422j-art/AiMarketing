@@ -52,8 +52,22 @@ export async function POST(request: NextRequest) {
   const uid = String((auth as any)?.userId || (auth as any)?.uid || '')
   const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dailyframe-'))
   try {
-    // ① 取 HTML（个人仓库）
+    // ① 先查**预抽帧缓存**（出片成功后 `prefetchSegmentFrames` 已经把每段中点存好了 ⇒ 这里秒回）
     const { getObject } = await import('@/lib/oss')
+    if (Number.isFinite(seg) && seg >= 1) {
+      const base = name.replace(/\.html?$/i, '')
+      const cacheKey = 'storage/' + uid + '/frames/' + base + '/seg-' + Math.floor(seg) + '.png'
+      try {
+        const cb = await getObject(cacheKey)
+        if (cb && cb.length > 512) {
+          return NextResponse.json({
+            success: true,
+            // 命中缓存时 t 还没算（要下载 HTML 才知道段起点）⇒ 返回 0，前端也不用它
+            data: { image: 'data:image/png;base64,' + cb.toString('base64'), t: Number.isFinite(t) ? t : 0, bytes: cb.length, cached: true },
+          })
+        }
+      } catch { /* 没缓存 ⇒ 走下面现场抽 */ }
+    }
     let html = ''
     try {
       const buf = await getObject('storage/' + uid + '/' + name)

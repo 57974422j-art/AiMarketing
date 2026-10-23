@@ -19,6 +19,7 @@ import path from 'node:path'
 import { spawn } from 'node:child_process'
 // ★VF_ROOT_V1 口径：`vfRootDir()` = 项目根（standalone 下 cwd 是 .next/standalone，拼 cwd 会指到残缺的 scripts/）
 import { vfRootDir, vfStorageRoot } from './video-material'
+import os from 'node:os'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 
 export interface DailyFilmTask {
@@ -138,6 +139,96 @@ export async function markStaleDailyFilms(): Promise<number> {
     }
     return n
   } catch { return 0 }
+}
+
+/**
+ * 出片后**预抽每一段的画面**（供第四步弹窗"看这一帧"用，命中就零等待）
+ *
+ * ★VF_FRAME_PREFETCH_V1（2026-10-23）
+ * 流程：OSS 取 html → 临时目录打包 → 解析每段中点 → 一次 snapshot 抽完 → 逐张存 OSS。
+ * 全函数 **不抛错**（出片已经成功了，抽帧失败不能让用户以为出片失败）。
+ * 存储：`storage/{uid}/frames/<html名去扩展>/seg-<N>.png`（N 从 1 开始）。
+ */
+async function prefetchSegmentFrames(uid: string, htmlName: string): Promise<void> {
+  const tmp = path.join(os.tmpdir(), 'prefetch-' + Date.now())
+  try {
+    const { getObject, putObject } = await import('@/lib/oss')
+    const buf = await getObject('storage/' + uid + '/' + htmlName)
+    const html = String(buf.toString('utf8') || '')
+    if (!/<\/html>/i.test(html)) return
+
+    fs.mkdirSync(tmp, { recursive: true })
+    const srcHtml = path.join(tmp, htmlName)
+    fs.writeFileSync(srcHtml, html, 'utf8')
+
+    const deckRoot = path.join(vfRootDir() || process.cwd(), 'scripts', 'video-factory', 'html-deck')
+    const filmTool = path.join(deckRoot, 'tools', 'daily-film.mjs')
+    const hfEntry = path.join(deckRoot, 'node_modules', 'hyperframes', 'bin', 'hyperframes.mjs')
+    if (!fs.existsSync(filmTool) || !fs.existsSync(hfEntry)) return
+
+    const packDir = path.join(tmp, 'packed')
+    await runProc(process.execPath, [filmTool, srcHtml, '--outdir', packDir, '--check-only'], 180000)
+    if (!fs.existsSync(path.join(packDir, 'hyperframes.json'))) return
+
+    // 解析每段的起点 + 时长 ⇒ 取中点作为"这一帧该看到的画面"
+    const tags = [...html.matchAll(/<section\b[^>]*\bclass="[^"]*\bsec\b[^>]*>/gi)].map((m) => m[0])
+    if (!tags.length) return
+    const times: number[] = []
+    for (const tag of tags.slice(0, 24)) {
+      const st = Number((/data-start="([\d.]+)"/.exec(tag) || [])[1] || 0)
+      const du = Number((/data-duration="([\d.]+)"/.exec(tag) || [])[1] || 3)
+      times.push(+(st + Math.max(0.2, du * 0.55)).toFixed(2))
+    }
+    if (!times.length) return
+
+    const shotDir = path.join(tmp, 'shot')
+    fs.mkdirSync(shotDir, { recursive: true })
+    await runProc(process.execPath, [
+      hfEntry, 'snapshot', packDir,
+      '--at', times.join(','), '--no-end',
+      '-o', shotDir, '--timeout', '20000', '--no-browser-gpu',
+    ], 240000)
+
+    const files = fs.existsSync(shotDir)
+      ? fs.readdirSync(shotDir).filter((f) => /^frame-\d+-at-[\d.]+s\.png$/i.test(f))
+      : []
+    if (!files.length) return
+
+    const base = htmlName.replace(/\.html?$/i, '')
+    let ok = 0
+    for (const f of files) {
+      const m = /^frame-\d+-at-([\d.]+)s\.png$/i.exec(f)
+      if (!m) continue
+      const at = Number(m[1])
+      // 找最近的段号（时间是浮点，用最近邻）
+      let idx = 0
+      let best = Infinity
+      times.forEach((v, i) => { const d = Math.abs(v - at); if (d < best) { best = d; idx = i } })
+      try {
+        await putObject('storage/' + uid + '/frames/' + base + '/seg-' + (idx + 1) + '.png',
+          fs.readFileSync(path.join(shotDir, f)), 'image/png')
+        ok++
+      } catch { /* 单张失败跳过 */ }
+    }
+    console.log('[预抽帧] ' + htmlName + ' → ' + ok + '/' + files.length + ' 张已存（弹窗可直接秒开）')
+  } catch (e: any) {
+    console.log('[预抽帧] 跳过（不影响出片）：' + String(e?.message || e).slice(0, 120))
+  } finally {
+    try { fs.rmSync(tmp, { recursive: true, force: true }) } catch { /* ignore */ }
+  }
+}
+
+/** 跑一个子进程，返回输出（不抛错） */
+function runProc(cmd: string, args: string[], timeout: number): Promise<{ code: number; out: string }> {
+  return new Promise((resolve) => {
+    const p = spawn(cmd, args, { cwd: process.cwd(), env: process.env })
+    let out = ''
+    const timer = setTimeout(() => { try { p.kill('SIGKILL') } catch { /* ignore */ } }, timeout)
+    p.stdout?.on('data', (d) => { out += String(d) })
+    p.stderr?.on('data', (d) => { out += String(d) })
+    p.on('close', (code) => { clearTimeout(timer); resolve({ code: code ?? 1, out }) })
+    p.on('error', () => { clearTimeout(timer); resolve({ code: 1, out }) })
+  })
 }
 
 export async function startDailyFilm(
@@ -271,6 +362,12 @@ export async function startDailyFilm(
       t.url = url
       push('[完成] ' + t.repoName)
       writeTask(uid, t)
+      /* ★VF_FRAME_PREFETCH_V1（2026-10-23 用户「弹窗里要有这一帧的画面，编辑要看着画面改文案」）：
+         出片**成功后**，后台把每一段中点各抽一帧存起来 ⇒ 用户点开弹窗时**零等待**。
+         · **不阻塞**：`void` + 内部全 catch（抽帧失败不影响出片结果）；
+         · 代价：多一次浏览器渲染（约 10~20 秒，在后台跑，用户看不到）；
+         · 存 `storage/{uid}/frames/<html名>/seg-N.png` ⇒ `daily-frame` 接口先查这里，命中就秒回。 */
+      void prefetchSegmentFrames(String(uid), String(htmlName)).catch(() => { /* ignore */ })
     } catch (e: any) {
       t.status = 'failed'
       t.finishedAt = new Date().toISOString()
