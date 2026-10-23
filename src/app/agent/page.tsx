@@ -2101,6 +2101,10 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
     return base
   })
   const [busy, setBusy] = useState(false)
+  // ★VF_SUBPOS_UI_V1：字幕位置（bottom 底部 / lower 中下 / mid 居中），默认中下
+  const [subPos, setSubPos] = useState<string>(() => {
+    try { return localStorage.getItem(lsKey + ':subPos') || 'lower' } catch { return 'lower' }
+  })
   // 每次改动都往本机暂存写一份（刷新不丢；容量只有几十字节 × 段数，无压力）
   useEffect(() => {
     try { localStorage.setItem(lsKey, JSON.stringify(lines)) } catch { /* ignore */ }
@@ -2122,7 +2126,8 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
   const send = () => {
     if (busy) return
     setBusy(true)
-    onSend('VF_DAILY_FORM:' + JSON.stringify({ at: 'synth', voice: lines.map((t) => String(t).trim()) }))
+    // ★VF_SUBPOS_UI_V1：把字幕位置一起提交（后端存草稿，出片时传给 daily-voice.mjs）
+    onSend('VF_DAILY_FORM:' + JSON.stringify({ at: 'synth', voice: lines.map((t) => String(t).trim()), subPos }))
   }
   useEffect(() => {
     if (!busy) return
@@ -2173,6 +2178,33 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
           有 {overN} 段超过 {maxChars} 字 —— 一句话的长短决定这一段有多长，建议压短些。
         </div>
       ) : null}
+      {/* ★VF_SUBPOS_UI_V1（2026-10-23 用户「字幕不是上下都有，我需要一个选项卡」）：
+          竖屏字幕贴底会被抖音/快手 UI（@用户名 / 文案 / 音乐 / 进度条）整块挡住 ⇒ 给三档可选。
+          默认 `lower`（距底 320px，正好在平台 UI 上方）。选择存 localStorage，合成时带给后端。 */}
+      <div className="mt-3 pt-3 border-t border-white/10">
+        <div className="text-[10px] text-gray-400 mb-1.5">字幕位置</div>
+        <div className="flex flex-wrap gap-1.5">
+          {([
+            ['bottom', '底部', '距底 40px · 纯播放器/视频号'],
+            ['lower', '中下（推荐）', '距底 320px · 抖音/快手不被挡'],
+            ['mid', '居中', '距底 560px · 纯文字片'],
+          ] as Array<[string, string, string]>).map(([id, label, tip]) => {
+            const on = subPos === id
+            return (
+              <button key={id} type="button" title={tip}
+                onClick={() => { setSubPos(id); try { localStorage.setItem(lsKey + ':subPos', id) } catch { /* ignore */ } }}
+                className={'px-2.5 py-1 rounded-lg text-[11px] border transition ' + (on
+                  ? 'border-violet-400/70 bg-violet-500/20 text-violet-50'
+                  : 'border-white/10 text-gray-400 hover:border-white/25 hover:text-gray-200')}>
+                {on ? '● ' : '○ '}{label}
+              </button>
+            )
+          })}
+        </div>
+        <div className="text-[10px] text-gray-600 mt-1">
+          竖屏发抖音必须选「中下」—— 底部 300px 会被平台 UI 挡住
+        </div>
+      </div>
       <div className="flex flex-wrap items-center gap-2 mt-3">
         <button onClick={send} disabled={busy}
           className={'px-3 py-2 rounded-lg text-xs border ' + (busy

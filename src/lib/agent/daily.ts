@@ -2241,9 +2241,15 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
         return '⏳ 上一次出片**还在跑**（' + running.id + '）—— 完成后会自动发卡片，不用重复点。\n\n'
           + 'VF_DAILY_FILM_TASK:' + JSON.stringify({ id: running.id, name: running.htmlName, reuse: true })
       }
+      /* ★VF_SUBPOS_V1：字幕位置（bottom / lower / mid），前端卡片上选的。
+         存进草稿，出片时传给 daily-film.ts → daily-voice.mjs 的 --sub-pos。
+         默认 lower（距底 320px）：竖屏贴底会被抖音/快手 UI 挡住。 */
+      const subPos = ['bottom', 'lower', 'mid'].includes(String((f as any)?.subPos))
+        ? String((f as any).subPos) : 'lower'
+      ;(d as any).subPos = subPos
       d.voice = arr
       await saveDailyDraft(ctx.prisma, uid, d)
-      const t = await startDailyFilm(uid, d.singleName, { voice: arr })
+      const t = await startDailyFilm(uid, d.singleName, { voice: arr, subPos })
       d.filmTaskId = t.id
       await saveDailyDraft(ctx.prisma, uid, d)
       try { ctx.log?.(uid, '[日报落地页] 配音合成任务已起：' + t.id + '（' + arr.filter(Boolean).length + '/' + arr.length + ' 段口播）') } catch { /* ignore */ }
