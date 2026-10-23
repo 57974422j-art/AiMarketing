@@ -223,7 +223,9 @@ export async function startDailyFilm(
         const vp = path.join(work, 'voices.json')
         fs.writeFileSync(vp, JSON.stringify({ voice: opts!.voice }, null, 2), 'utf8')
         push('[配音] ' + opts!.voice!.filter((x) => String(x || '').trim()).length + '/' + opts!.voice!.length + ' 段有口播')
-        args = [tool, htmlPath, '--voices', vp, '--outdir', outDir]
+        /* ★VF_SUBPOS_V1：字幕位置默认 `lower`（距底 320px）——
+           竖屏贴底会在抖音/快手被「@用户名 / 文案 / 音乐 / 进度条」整块挡住。 */
+        args = [tool, htmlPath, '--voices', vp, '--outdir', outDir, '--sub-pos', String((opts as any)?.subPos || 'lower')]
       } else {
         args = [tool, htmlPath, '--outdir', outDir]
       }

@@ -80,7 +80,22 @@ const VOICE = String(arg('voice', ''))
 const MIN_DUR = 2.2                       // 段时长下限（与 film-voice 同口径）
 const SUB_FONT = String(arg('sub-font', 'Microsoft YaHei'))
 const SUB_SIZE = String(arg('sub-size', '10'))
-const SUB_MARGIN = String(arg('sub-margin', '6'))
+/* ★VF_SUBPOS_V1（2026-10-23 用户实测「竖屏字幕贴底会被抖音 UI 挡住，很多账号把字幕放在画面 1/4 处」）：
+   病灶：原来 `MarginV` 默认 **6**（libass 单位，相对 PlayResY=288）⇒ 换算成像素只有 ~27px ⇒ **几乎贴底**，
+        在抖音里会被「@用户名 / 文案 / 音乐名 / 进度条」整块盖住。
+   现口径：用**语义化参数** `--sub-pos` 指定"字幕距底部多少"，工具内部换算成 libass 单位：
+     · `bottom` = 40px   （纯播放器场景，如视频号导出）
+     · `lower`  = 320px  （**默认**，抖音/快手：正好落在平台 UI 上方）
+     · `mid`    = 560px  （纯文字片 / 无 UI 遮挡）
+   换算：libass 的 MarginV 单位 = 像素 / (视频高 1280 / PlayResY 288) = 像素 / 4.444
+   仍支持 `--sub-margin` 直接给原始 libass 单位（给了就以它为准，兼容老调用）。 */
+const SUB_POS = String(arg('sub-pos', 'lower'))
+const POS_PX = { bottom: 40, lower: 320, mid: 560 }[SUB_POS] ?? 320
+const SUB_MARGIN_RAW = arg('sub-margin', '')
+const SUB_MARGIN = SUB_MARGIN_RAW
+  ? String(SUB_MARGIN_RAW)
+  : String(Math.round(POS_PX / (1280 / 288)))
+/* 旧的 `--sub-margin` 默认值 6（≈27px，贴底）已被上面的 `--sub-pos` 取代，见 SUB_POS 注释 */
 const TTS_NODE = path.join(TOOLS, 'tts-node.mjs')
 
 // ── ① 读页面 + 口播，逐段 TTS 拿实测时长 ─────────────────────────────────────
