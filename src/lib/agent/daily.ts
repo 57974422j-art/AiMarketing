@@ -519,16 +519,38 @@ export async function aiDesignPage(
     const { getObject } = await import('@/lib/oss')
     let sharpMod: any = null
     try { sharpMod = (await import('sharp')).default } catch { /* 没有 sharp 就不缩，直接原图 base64 */ }
+    /* ★VF_SILENT_FIX_V1（2026-10-23 审计发现"静默失败太安静，出问题无从排查"）：
+       原来这两处都是**空 catch**：
+         · 某张图取不到 ⇒ `continue`，**不记录是哪张**（最后只剩一句笼统的"取图失败"）；
+         · sharp 缩图失败 ⇒ 静默用**原图**（手机图 4MB+ × 17 张 = 请求体巨大 ⇒ 可能超时），**日志里毫无痕迹**。
+       现口径：**两个都记**（张号 + 原因 + 大小），但**不阻断**（照旧降级继续）。 */
+    const missPick: string[] = []
+    let shrinkFail = 0
     for (const p of picks) {
       let b: Buffer | null = null
       if (p.local && p.abs) { try { b = fs.readFileSync(p.abs) } catch { /* 走 OSS */ } }
       if (!b) { try { b = await getObject(p.key) } catch { /* 单张失败跳过 */ } }
-      if (!b) continue
+      if (!b) { missPick.push(String((p as any).n || '?')); continue }
       let buf = b
       if (sharpMod) {
-        try { buf = await sharpMod(b).resize(512, 512, { fit: 'inside' }).jpeg({ quality: 70 }).toBuffer() } catch { buf = b }
+        try {
+          buf = await sharpMod(b).resize(512, 512, { fit: 'inside' }).jpeg({ quality: 70 }).toBuffer()
+        } catch (e: any) {
+          buf = b
+          shrinkFail++
+          try {
+            console.error('[AI设计] 第 ' + String((p as any).n || '?') + ' 张缩图失败，改用原图 '
+              + Math.round(b.length / 1024) + 'KB（请求体会变大）：' + String(e?.message || e).slice(0, 90))
+          } catch { /* ignore */ }
+        }
       }
       imgParts.push({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + buf.toString('base64') } })
+    }
+    if (missPick.length) {
+      try { console.error('[AI设计] 有 ' + missPick.length + ' 张图取不到（第 ' + missPick.join('、') + ' 张）—— 这些图不会出现在页面里') } catch { /* ignore */ }
+    }
+    if (shrinkFail) {
+      try { console.error('[AI设计] 共 ' + shrinkFail + ' 张缩图失败，请求体可能过大（有超时风险）') } catch { /* ignore */ }
     }
     if (!imgParts.length) vlErr = '取图失败（OSS 与本地都没有可读文件）'
   } catch (e: any) { vlErr = String(e?.message || e).slice(0, 100) }
@@ -1630,10 +1652,16 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
        ⇒ 只能按"素材顺序"自己编 ⇒ 与 AI 页面的段落顺序对不上 ⇒ **字幕错位一格**。
        现口径：**从 AI 写好的 HTML 里把每段「起止时间 + 大字 + 用图」读回来**填进 plan
        ⇒ 口播稿 / 字幕 / 画面 **三者同源**。取不到文案时仍退回空标题（不阻断流程）。 */
+    /* ★VF_PLAN_META_KEEP_V1（2026-10-23 审计发现"回填 plan 时把 meta 一起换掉了"）：
+       原来直接 `d.plan = fromHtml` ⇒ `planFromAiHtml` 返回的 `meta` 是空的
+       ⇒ **方案卡上选的皮肤（theme）/字体/动效（meta.font / meta.motion）全丢**
+       ⇒ 交付卡显示"皮肤 xxx"与方案卡不一致。
+       现口径：**只替换 `segments`，`meta` 原样保留**（皮肤等偏好是用户选的，不能被技术回填冲掉）。 */
     const fromHtml = planFromAiHtml(String(html))
+    const keepMeta = (d.plan as any)?.meta
     d.plan = (fromHtml.segments.length
-      ? (fromHtml as any)
-      : { meta: { theme: '' }, segments: Array.from({ length: secN }, () => ({ layout: 'free', title: ['', ''] })) }) as any
+      ? ({ meta: keepMeta || fromHtml.meta, segments: fromHtml.segments } as any)
+      : { meta: keepMeta || { theme: '' }, segments: Array.from({ length: secN }, () => ({ layout: 'free', title: ['', ''] })) }) as any
     try {
       const _s = (d.plan as any)?.segments || []
       ctx.log?.(uid, '[日报落地页] 从 AI 页面回填 plan：' + _s.length + ' 段 ｜ 段1='

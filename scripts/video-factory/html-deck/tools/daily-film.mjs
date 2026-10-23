@@ -161,7 +161,18 @@ html = html.replace('</head>', noopDef + '\n</head>')
 /* ★VF_DAIDESIGN_V1：**属性顺序任意**也能注入 clip（AI 常写 `<section id="s1" class="sec">`），且幂等 */
 html = html.replace(/(<section[^>]*\bclass=")([^"]*\bsec\b[^"]*)"/g,
   (m, head, cls) => /\bclip\b/.test(cls) ? m : head + cls + ' clip" data-track-index="1"')
-html = html.replace('data-mode="preview"', 'data-mode="film"')
+/* ★VF_FILM_DATAMODE_V1（2026-10-23 审计发现的边缘风险）：
+   原来只替换**字面量** `data-mode="preview"` ⇒ 如果 AI 自己写了 `data-mode="dark"`（或任何别的值）：
+     · `daily.ts` 那边看到"已有 data-mode"就不再补 preview；
+     · 这里又替换不到 ⇒ **出片时 data-mode 还是 dark** ⇒ `ai-preview-guard` 不会 `return`
+       （它的第一行是 `if (data-mode === "film") return`）⇒ 预览兜底脚本会在渲染里跑。
+   现口径：**任何值都强切成 film**（没有 data-mode 就补一个）。
+   ⚠️ 只改"哪份页面形态"，不改渲染本身。 */
+if (/data-mode\s*=/.test(html)) {
+  html = html.replace(/data-mode\s*=\s*["'][^"']*["']/, 'data-mode="film"')
+} else {
+  html = html.replace(/<html\b/i, '<html data-mode="film"')
+}
 
 const first = html.search(/<section[^>]*\bclass="[^"]*\bsec\b[^"]*\bclip\b/)
 const lastEnd = html.lastIndexOf('</section>') + '</section>'.length
