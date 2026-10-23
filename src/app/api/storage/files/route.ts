@@ -69,10 +69,19 @@ export async function GET(request: NextRequest) {
     // 过滤掉 .thumbs 子目录的文件，只返回用户上传的文件
     // ★VF_REPOSPLIT_V1：顺手排除历史/规划中的 `_gen/` 目录项（那类 key 读/删/镜像三处都进不去，
     //   列出来只会让人点了没反应）——现在生成物走**平铺前缀** `gen_日期_序号.ext`，见 lib/repo-naming。
+    /* ★VF_LIST_FLATONLY_V1（2026-10-23 用户截图实锤「素材库里冒出一堆 frames/gen_xxx/seg-N.png，
+       没有缩略图、还删不掉」）：
+       病灶：这里只排除了 `.thumbs/` 和 `_gen/` 两个**具体**子目录
+            ⇒ 任何**别的**子目录（我加的 `frames/`、以后的任何缓存目录）都会被当成用户素材列出来。
+       现口径：**只显示平铺文件**（相对路径里不含 `/`）—— 一切子目录都是内部数据，不进素材库。
+       这样即使以后再加新的缓存前缀，也**不可能再污染列表**（不用每次记得加排除）。 */
     const files = objects
-      .filter(o => !o.name.includes('/.thumbs/') && !o.name.includes('/_gen/'))
+      .filter((o) => {
+        const rel = o.name.slice(prefix.length)
+        return rel.length > 0 && !rel.includes('/')
+      })
       .map(o => {
-        const name = o.name.replace(prefix, '')
+        const name = o.name.slice(prefix.length)
         const isVideo = /\.(mp4|mov|avi|mkv|webm)$/i.test(name)
         // 缩略图路径（OSS 上 .thumbs/{name}.jpg）
         const thumbName = name.replace(/\.(mp4|mov|avi|mkv|webm)$/i, '.jpg')

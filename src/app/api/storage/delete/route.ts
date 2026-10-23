@@ -14,9 +14,18 @@ export async function DELETE(request: NextRequest) {
     let failed = 0
     let thumbs = 0
     for (const n of list) {
-      // ★VF_REPOSPLIT_V1：平铺素材名照旧；**额外**允许历史/规划中的 `_gen/xxx`（只此一层，禁 `..`）——
-      //   那类对象列表里已不显示，但**总得能删掉**（否则永远是看不见的孤儿，白占 OSS）。
-      if (!/^[a-zA-Z0-9._\-]+$/.test(n) && !/^_gen\/[a-zA-Z0-9._\-]+$/.test(n)) { failed++; continue }
+      /* ★VF_DELETE_SUBPATH_V1（2026-10-23 用户实测「存进素材仓库的图删除不掉」）：
+         病灶：旧校验 `^[a-zA-Z0-9._\-]+$`（只允许**平铺文件名**）+ `_gen/xxx` 这一个特例
+              ⇒ 带子目录的 key（`frames/gen_xxx/seg-1.png`，**两层**）**校验不过 ⇒ 直接 failed++**
+              ⇒ 用户在素材库点删除，界面无反应 / 提示失败，**文件却还在 OSS 里**。
+         现口径：**允许 storage/<uid>/ 下任意相对路径**（多级也可以），只挡三类危险值：
+           ① 含 `..`（防目录穿越）② 以 `/` 开头或结尾（防绝对路径/空段）③ 空串。
+         ⚠️ 边界不变：所有 key 仍然拼在 `storage/${auth.userId}/` 下 ⇒ **只能删自己的**。 */
+      const okName = typeof n === 'string' && n.length > 0 && n.length < 300
+        && !n.includes('..')
+        && !n.startsWith('/') && !n.endsWith('/')
+        && /^[a-zA-Z0-9._\-\/]+$/.test(n)
+      if (!okName) { failed++; continue }
       try { await deleteObject(`storage/${auth.userId}/${n}`) } catch { failed++ }
       // ★VF_THUMBDEL_V1（2026-10-10 用户服务器实测：**真删了 70 个素材、缩略图全留在 OSS**）：
       //   缩略图 key 是 storage/<uid>/.thumbs/<同名>.jpg（personal-storage.ts:103），
