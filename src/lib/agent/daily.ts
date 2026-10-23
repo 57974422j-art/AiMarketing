@@ -2038,12 +2038,25 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
         const { voiceOptions } = await import('./vf/tts-voices')
         _voiceList = voiceOptions().all
       } catch { /* 拿不到就空，前端回落默认 */ }
+      /* ★VF_DAILY_BGM_V1：配乐候选 = 个人仓库里的音频（和 HTML 成片线同一个取法） */
+      let _bgmList: Array<{ name: string; mb: number }> = []
+      try {
+        const { listRepoAudio } = await import('./video-material')
+        const items = await listRepoAudio(uid, 20)
+        _bgmList = items.map((m: any) => ({
+          name: String(m.name || ''),
+          mb: Math.round((Number(m.size) || 0) / 1048576 * 10) / 10,
+        })).filter((x) => x.name)
+      } catch { _bgmList = [] }
       return 'VF_JSON:' + JSON.stringify(buildVoiceCardPayload({
         segs: d.plan.segments, lines, fixes: v.fixes, theme: d.plan?.meta?.theme,
         by: d.planBy, name: d.singleName, note, sawImages: v.sawImages, topic: d.topic,
         saved: prevVoice,   // ★VF_DAILYVOICE_V4：上次改完提交过的那一版（刷新/换设备后能恢复）
         voiceList: _voiceList,
         voicePick: String((d as any).ttsVoice || ''),
+        bgmList: _bgmList,
+        bgmPick: String((d as any).bgm || ''),
+        bgmVol: Number.isFinite(Number((d as any).bgmVol)) ? Number((d as any).bgmVol) : -18,
       }))
     }
     if (at === 'film') {
@@ -2094,11 +2107,18 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
             传错了它自己会回落默认，不会把整片搞坏。 */
       const ttsVoice = /^[A-Za-z0-9_-]{1,40}$/.test(String((f as any)?.ttsVoice || ''))
         ? String((f as any).ttsVoice) : ''
+      /* ★VF_DAILY_BGM_V1：配乐（可选）。只做**文件名形状校验**（禁路径分隔符与 ..），
+         真正的存在性由 daily-film.ts 从 OSS 取时判断；取不到就跳过（不阻断出片）。 */
+      const bgmRaw = String((f as any)?.bgm || '')
+      const bgm = /^[A-Za-z0-9._\-]{1,120}\.(mp3|m4a|wav|aac)$/i.test(bgmRaw) ? bgmRaw : ''
+      const bgmVol = Math.max(-30, Math.min(0, Number((f as any)?.bgmVol) || -18))
       ;(d as any).subPos = subPos
       ;(d as any).ttsVoice = ttsVoice
+      ;(d as any).bgm = bgm
+      ;(d as any).bgmVol = bgmVol
       d.voice = arr
       await saveDailyDraft(ctx.prisma, uid, d)
-      const t = await startDailyFilm(uid, d.singleName, { voice: arr, subPos, ttsVoice })
+      const t = await startDailyFilm(uid, d.singleName, { voice: arr, subPos, ttsVoice, bgm, bgmVol })
       d.filmTaskId = t.id
       await saveDailyDraft(ctx.prisma, uid, d)
       try { ctx.log?.(uid, '[日报落地页] 配音合成任务已起：' + t.id + '（' + arr.filter(Boolean).length + '/' + arr.length + ' 段口播）') } catch { /* ignore */ }

@@ -844,6 +844,11 @@ export function buildVoiceCardPayload(o: {
   voiceList?: any[]
   /** 当前选中的音色（没选过就空，前端回落到第一个 hot） */
   voicePick?: string
+  /** ★VF_DAILY_BGM_V1（2026-10-23 用户「把 HTML 成片线的音乐抄过来」）：
+   *  配乐候选 = 个人仓库里的音频（由 daily.ts 用 `listRepoAudio` 取，本文件不 import）。 */
+  bgmList?: Array<{ name: string; mb: number }>
+  bgmPick?: string
+  bgmVol?: number
 }): any {
   const segs = Array.isArray(o.segs) ? o.segs : []
   const lines = Array.isArray(o.lines) ? o.lines : []
@@ -876,6 +881,10 @@ export function buildVoiceCardPayload(o: {
     // ★VF_DAILY_TTSVOICE_V1：音色列表 + 当前选中（抄自 HTML 成片线的 VF_VOICE_PICK_V1）
     voiceList: Array.isArray(o.voiceList) ? o.voiceList : [],
     voicePick: String(o.voicePick || ''),
+    // ★VF_DAILY_BGM_V1：配乐候选 + 当前选中 + 音量
+    bgmList: Array.isArray(o.bgmList) ? o.bgmList : [],
+    bgmPick: String(o.bgmPick || ''),
+    bgmVol: Number.isFinite(Number(o.bgmVol)) ? Number(o.bgmVol) : -18,
     theme: themeName(o.theme),
     by: byLabel(o.by),
   }

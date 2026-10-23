@@ -241,7 +241,11 @@ export async function startDailyFilm(
      不传就按 `lower`（距底 320px，避开抖音 UI）。 */
   /* ★VF_SUBPOS_V1：`subPos` 决定字幕位置（bottom / lower / mid），不传就 `lower`（距底 320px）。
      ★VF_DAILY_TTSVOICE_V1：`ttsVoice` = 配音音色 id（空则用引擎默认）。 */
-  uid: number | string, htmlName: string, opts?: { voice?: string[]; subPos?: string; ttsVoice?: string },
+  /* ★VF_SUBPOS_V1：`subPos` 决定字幕位置（bottom / lower / mid），不传就 `lower`（距底 320px）。
+     ★VF_DAILY_TTSVOICE_V1：`ttsVoice` = 配音音色 id（空则用引擎默认）。
+     ★VF_DAILY_BGM_V1：`bgm` = 个人仓库里的音频文件名（空则不配乐），`bgmVol` = dB（默认 -18）。 */
+  uid: number | string, htmlName: string,
+  opts?: { voice?: string[]; subPos?: string; ttsVoice?: string; bgm?: string; bgmVol?: number },
 ): Promise<DailyFilmTask> {
   const voiced = Array.isArray(opts?.voice) && opts!.voice!.length > 0
   const id = 'df' + Date.now()
@@ -329,6 +333,26 @@ export async function startDailyFilm(
         // ★VF_DAILY_TTSVOICE_V1：选了音色就传（daily-voice.mjs 会转发给 tts-node.mjs 的 --voice）
         const _tv = String((opts as any)?.ttsVoice || '').trim()
         if (_tv) args.push('--voice', _tv)
+        /* ★VF_DAILY_BGM_V1：把选的配乐从 OSS 取到 work 目录，再交给引擎（引擎只认本地路径）。
+           取不到 ⇒ 只打日志、**照常出片**（不能因为少一首音乐就把整片废掉）。 */
+        const _bgm = String((opts as any)?.bgm || '').trim()
+        if (_bgm) {
+          try {
+            const { getObject } = await import('@/lib/oss')
+            const bb = await getObject('storage/' + uid + '/' + _bgm)
+            if (bb && bb.length > 1024) {
+              const bpath = path.join(work, 'bgm' + path.extname(_bgm))
+              fs.writeFileSync(bpath, bb)
+              const vol = Number((opts as any)?.bgmVol)
+              args.push('--bgm', bpath, '--bgm-vol', String(Number.isFinite(vol) ? vol : -18))
+              push('[配乐] ' + _bgm + '（' + (bb.length / 1024 / 1024).toFixed(1) + ' MB）')
+            } else {
+              push('[配乐] 取的音频是空的，跳过')
+            }
+          } catch (e: any) {
+            push('[配乐] 取不到 ' + _bgm + '，跳过（不影响出片）：' + String(e?.message || e).slice(0, 80))
+          }
+        }
       } else {
         args = [tool, htmlPath, '--outdir', outDir]
       }

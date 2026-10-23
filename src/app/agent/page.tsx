@@ -2112,6 +2112,15 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
   const [ttsVoice, setTtsVoice] = useState<string>(() => {
     try { return localStorage.getItem(lsKey + ':ttsVoice') || String(vj?.voicePick || '') } catch { return String(vj?.voicePick || '') }
   })
+  /* ★VF_DAILY_BGM_V1：配乐（可选）。候选 = 个人仓库里的音频（服务端下发 `bgmList`）。
+     空 = 不配乐（和以前一样）。音量是 dB（-18 是"压低但不闷"的常见档）。 */
+  const bgmList: any[] = Array.isArray(vj?.bgmList) ? vj.bgmList : []
+  const [bgm, setBgm] = useState<string>(() => {
+    try { return localStorage.getItem(lsKey + ':bgm') || String(vj?.bgmPick || '') } catch { return String(vj?.bgmPick || '') }
+  })
+  const [bgmVol, setBgmVol] = useState<number>(() => {
+    try { const s = localStorage.getItem(lsKey + ':bgmVol'); return s === null ? Number(vj?.bgmVol ?? -18) : Number(s) } catch { return -18 }
+  })
   // 每次改动都往本机暂存写一份（刷新不丢；容量只有几十字节 × 段数，无压力）
   useEffect(() => {
     try { localStorage.setItem(lsKey, JSON.stringify(lines)) } catch { /* ignore */ }
@@ -2180,11 +2189,14 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
     setBusy(true)
     // ★VF_SUBPOS_UI_V1：把字幕位置一起提交（后端存草稿，出片时传给 daily-voice.mjs）
     // ★VF_DAILY_TTSVOICE_V1：音色一起提交（空 = 用引擎默认）
+    // ★VF_DAILY_BGM_V1：配乐 + 音量一起提交（空 = 不配乐）
     onSend('VF_DAILY_FORM:' + JSON.stringify({
       at: 'synth',
       voice: lines.map((t) => String(t).trim()),
       subPos,
       ttsVoice,
+      bgm,
+      bgmVol,
     }))
   }
   useEffect(() => {
@@ -2350,6 +2362,46 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
           ) : null}
         </div>
       ) : null}
+
+      {/* ★VF_DAILY_BGM_V1：配乐（可选，抄自 HTML 成片线的 VF_BGM_PICK_V1） */}
+      <div className="mt-3 pt-3 border-t border-white/10">
+        <div className="text-[10px] text-gray-400 mb-1.5">
+          背景音乐{bgm ? '' : '（不加）'}
+          {bgmList.length ? '' : '　·　仓库里还没有音频，去「个人仓库」传一首 mp3 就能选'}
+        </div>
+        <div className="flex items-center gap-2">
+          <select value={bgm}
+            onChange={(e) => {
+              const v = e.target.value
+              setBgm(v)
+              try { localStorage.setItem(lsKey + ':bgm', v) } catch { /* ignore */ }
+            }}
+            className="flex-1 min-w-0 bg-black/30 border border-white/10 rounded px-2 py-1 text-[12px] text-gray-100">
+            <option value="">不加音乐</option>
+            {bgmList.map((b: any) => (
+              <option key={String(b.name)} value={String(b.name)}>
+                {String(b.name)}{b.mb ? '（' + b.mb + ' MB）' : ''}
+              </option>
+            ))}
+          </select>
+          {bgm ? (
+            <>
+              <span className="text-[10px] text-gray-500 shrink-0">音量</span>
+              <input type="range" min={-30} max={0} step={1} value={bgmVol}
+                onChange={(e) => {
+                  const v = Number(e.target.value)
+                  setBgmVol(v)
+                  try { localStorage.setItem(lsKey + ':bgmVol', String(v)) } catch { /* ignore */ }
+                }}
+                className="w-[92px] shrink-0" />
+              <span className="text-[10px] text-gray-400 w-[38px] shrink-0 text-right">{bgmVol} dB</span>
+            </>
+          ) : null}
+        </div>
+        {bgm ? (
+          <div className="text-[10px] text-gray-600 mt-1">音乐会自动循环到片子结束；-18 dB 通常是"听得见但不压台词"的档</div>
+        ) : null}
+      </div>
 
       {/* ★VF_SUBPOS_UI_V1（2026-10-23 用户「字幕不是上下都有，我需要一个选项卡」）：
           竖屏字幕贴底会被抖音/快手 UI（@用户名 / 文案 / 音乐 / 进度条）整块挡住 ⇒ 给三档可选。
