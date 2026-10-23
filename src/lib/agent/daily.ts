@@ -37,7 +37,14 @@ import { listAllObjects } from '@/lib/oss'
 //   服务器跑的是 pm2 里的 `.next/standalone/server.js`，cwd 是 `.next/standalone`，
 //   而 standalone 的 `scripts/` 只含**少数被 file tracing 拷进去的文件**（残缺）
 //   ⇒ 拼 cwd 会指到那个残缺目录、报出看不出所以然的"模块找不到"。
-import { vfRootDir } from './video-material'
+/* ★VF_DAILY_TTSVOICE_V1b（2026-10-23 用户「没有配音卡」排查结果）：
+   病灶：我原来用 **`await import()` 动态导入** `./vf/tts-voices` 与 `listRepoAudio` 来取音色/音频列表，
+        并用 `catch {}` 兜底 ⇒ 在 standalone 产物里动态 import 解析失败 ⇒ **静默返回空数组**
+        ⇒ 前端 `voiceList.length ? … : null` 直接不渲染 ⇒ **音色块整块消失**（看起来像"卡片没更新"）。
+   现口径：**改成顶层静态 import**（打包期就解析，不会运行时失败），并让失败可见（不吞异常）。
+   ⚠️ 教训：这里当初就不该用"动态 import + 静默 catch"来图省事。 */
+import { vfRootDir, listRepoAudio } from './video-material'
+import { voiceOptions } from './vf/tts-voices'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 import { dashscopeFunctionCall } from '@/lib/ai-providers'
 // ★纯函数层（零依赖、可单测：temp/_exp/daily/test-plan.mjs）
@@ -2033,21 +2040,27 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
       /* ★VF_DAILY_TTSVOICE_V1（2026-10-23 用户「把 HTML 成片线的配音选项抄过来」）：
          音色列表由**这里注入**（daily-plan.ts 不允许 import）。
          `voiceOptions()` 返回 { hot, rest, all }，卡片只要 `all`（前端自己分组显示）。 */
+      /* ★VF_DAILY_TTSVOICE_V1b：改成静态 import 后直接调用；失败**打日志**（不再静默为空）。 */
       let _voiceList: any[] = []
       try {
-        const { voiceOptions } = await import('./vf/tts-voices')
         _voiceList = voiceOptions().all
-      } catch { /* 拿不到就空，前端回落默认 */ }
+      } catch (e: any) {
+        try { ctx.log?.(uid, '[日报落地页] 取音色列表失败：' + String(e?.message || e).slice(0, 120)) } catch { /* ignore */ }
+      }
       /* ★VF_DAILY_BGM_V1：配乐候选 = 个人仓库里的音频（和 HTML 成片线同一个取法） */
       let _bgmList: Array<{ name: string; mb: number }> = []
       try {
-        const { listRepoAudio } = await import('./video-material')
         const items = await listRepoAudio(uid, 20)
         _bgmList = items.map((m: any) => ({
           name: String(m.name || ''),
           mb: Math.round((Number(m.size) || 0) / 1048576 * 10) / 10,
         })).filter((x) => x.name)
-      } catch { _bgmList = [] }
+      } catch (e: any) {
+        try { ctx.log?.(uid, '[日报落地页] 取配乐列表失败：' + String(e?.message || e).slice(0, 120)) } catch { /* ignore */ }
+      }
+      try {
+        ctx.log?.(uid, '[日报落地页] 配音卡附件：音色 ' + _voiceList.length + ' 个 · 配乐 ' + _bgmList.length + ' 首')
+      } catch { /* ignore */ }
       return 'VF_JSON:' + JSON.stringify(buildVoiceCardPayload({
         segs: d.plan.segments, lines, fixes: v.fixes, theme: d.plan?.meta?.theme,
         by: d.planBy, name: d.singleName, note, sawImages: v.sawImages, topic: d.topic,
