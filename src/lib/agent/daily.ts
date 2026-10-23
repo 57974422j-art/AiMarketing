@@ -588,6 +588,16 @@ export async function aiDesignPage(
         })
         const j1: any = await r1.json().catch(() => null)
         const c1 = String(j1?.choices?.[0]?.message?.content || '')
+        /* ★VF_AIDESIGN_THINK_VISIBLE_V1：分镜表这步也是 deepseek（同样带思考）。
+           它决定"每段写什么文案" ⇒ **最该被看见的一步**（文案空/元叙述的根就在这里）。
+           日志打字数 + 开头 200 字，完整内容进那一步的落盘文件用不上（体积小，够用）。 */
+        const _t1 = String((j1?.choices?.[0]?.message as any)?.reasoning_content || '')
+        if (_t1.trim()) {
+          try {
+            console.log('[AI设计·分镜] 思考 ' + _t1.length + ' 字 · 输出 ' + c1.length + ' 字')
+            console.log('[AI设计·分镜] 思考开头：' + _t1.replace(/\s+/g, ' ').slice(0, 200))
+          } catch { /* ignore */ }
+        }
         const m1 = /\{[\s\S]*\}/.exec(c1)
         if (m1) {
           try {
@@ -647,10 +657,34 @@ export async function aiDesignPage(
       const j: any = await r.json()
       const ch = j?.choices?.[0]
       txt = String(ch?.message?.content || '')
+      /* ★VF_AIDESIGN_THINK_VISIBLE_V1（2026-10-24 用户「不知道它怎么想，我们改就是瞎猜，哪怕打印日志出来」）：
+         背景：`deepseek-flash` 是**带思考的型号**——它先写 5000~10000 字 `reasoning_content`，
+               再写 `content`（整页 HTML）。实测同一份 17 图 prompt：思考 7779 / 10197 字。
+         病灶：原来这里**只取 `content`，思考被直接丢弃** ⇒ 出问题时完全看不到它为什么这么写、
+               为什么写成"十三帧"、为什么字号只有 88px ⇒ 我们只能瞎猜着改提示词。
+         现口径：**思考全量落盘 + 日志打摘要**（只记录，不改任何行为）：
+           · 完整思考 + 最终输出 ⇒ `temp/aidesign-think/<时间戳>.txt`（可 cat / 下载 / 逐个对比）
+           · `pm2 logs` 里打**前 240 字**（够判断它在往哪个方向想）
+         后续可选：把这个文件路径回传给前端，做成"点开看思考"的面板。 */
+      const _think = String((ch?.message as any)?.reasoning_content || '')
+      if (_think.trim()) {
+        try {
+          const _dir = path.join(vfRootDir() || process.cwd(), 'temp', 'aidesign-think')
+          fs.mkdirSync(_dir, { recursive: true })
+          const _f = path.join(_dir, new Date().toISOString().replace(/[:.]/g, '-') + '.txt')
+          fs.writeFileSync(_f, '【思考过程 · ' + _think.length + ' 字】\n' + _think
+            + '\n\n\n【最终输出 · ' + txt.length + ' 字】\n' + txt, 'utf8')
+          console.log('[AI设计] 思考 ' + _think.length + ' 字 · 输出 ' + txt.length + ' 字 · 已存 ' + _f)
+          console.log('[AI设计] 思考开头：' + _think.replace(/\s+/g, ' ').slice(0, 240))
+        } catch (e: any) {
+          try { console.error('[AI设计] 思考落盘失败：' + String(e?.message || e).slice(0, 100)) } catch { /* ignore */ }
+        }
+      }
       used = 'deepseek-flash'
       // ★VF_AIDESIGN_TWOSTEP_STORY_V1：把"分镜表有没有拿到"打进 diag —— 一眼能看出两步制有没有生效
       diag = '模型 deepseek-flash · finish ' + String(ch?.finish_reason || '?')
         + ' · 分镜 ' + storySegs.length + ' 段'
+        + ' · 思考 ' + _think.length + ' 字'
         + ' · 输出 ' + txt.length + ' 字 · prompt ' + prompt.length + ' 字'
     } catch (eDs: any) {
       // 回落百炼（原路径，逐字不变）
