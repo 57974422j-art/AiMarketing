@@ -81,7 +81,11 @@ export async function POST(request: NextRequest) {
     const srcHtml = path.join(tmpRoot, name)
     fs.writeFileSync(srcHtml, html, 'utf8')
 
-    const deckRoot = path.join(process.cwd(), 'scripts', 'video-factory', 'html-deck')
+    /* ★ 必须走 `vfRootDir()`，**绝不能** `process.cwd()`（2026-10-14 已在 daily-film.ts 里踩过一次）：
+       standalone 模式下 `process.cwd()` 是 `.next/standalone` ⇒ 拼出来的引擎路径不存在
+       ⇒ 用户实测弹窗里报「引擎不完整（缺 daily-film.mjs 或 hyperframes）」。 */
+    const { vfRootDir } = await import('@/lib/agent/video-material')
+    const deckRoot = path.join(vfRootDir() || process.cwd(), 'scripts', 'video-factory', 'html-deck')
     const filmTool = path.join(deckRoot, 'tools', 'daily-film.mjs')
     const hfEntry = path.join(deckRoot, 'node_modules', 'hyperframes', 'bin', 'hyperframes.mjs')
     if (!fs.existsSync(filmTool) || !fs.existsSync(hfEntry)) {
