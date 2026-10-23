@@ -138,6 +138,16 @@ export async function POST(request: NextRequest) {
         model: 'deepseek-flash',
         messages: [{ role: 'user', content: prompt }],
         temperature: 0.85,
+        /* ★VF_REWRITE_NOTHINK_V1（2026-10-24 冒烟测试实锤，这才是"响应是空的"真因）：
+           `deepseek-flash` 是**带思考的型号**：先写 5000~10000 字 `reasoning_content`，再写答案。
+           同一份 16 段 prompt 实测 5 次：
+             · 不加 max_tokens ⇒ content 300~335 字 ✅ 成功，但要 **35~44 秒**（时间全花在思考上）
+             · 加 max_tokens=4000 ⇒ reasoning 到 5171 字被截断（finish=length）⇒ **content 永远 0 字**
+               ⇒ 这正是"重写失败：输出 0 字"的原因（我自己加的额度反而把它弄空了）
+           现口径：**关掉思考** `thinking:{type:'disabled'}`（与 route.ts 里视觉模型同款写法，
+                   `daily.ts` 注释也实测过"思考 0 字"）⇒ 既不再空，又快 5~10 倍。 */
+        thinking: { type: 'disabled' },
+        max_tokens: 4000,
       }),
       signal: AbortSignal.timeout(50000),
     })
@@ -156,12 +166,61 @@ export async function POST(request: NextRequest) {
           + (r.status === 429 ? '（限流，等几秒再点）' : r.status === 402 ? '（余额不足）' : ''),
       }, { status: 502 })
     }
-    const raw = String(j?.choices?.[0]?.message?.content || '')
-    const finish = String(j?.choices?.[0]?.finish_reason || '?')
-    const m = /\{[\s\S]*\}/.exec(raw)
+    /* ★VF_REWRITE_EMPTY_V1（2026-10-24 用户实测「重写失败：finish=?，输出 0 字；响应是空的」，而且"经常出现"）：
+       病灶：只读 `choices[0].message.content`。若模型把正文放进 `reasoning_content`（带思考的型号），
+            或返回 200 但 message 为空 ⇒ 这里拿到空串 ⇒ 只报"响应是空的"，**分不清是哪种**。
+       现口径：① `content` 空就读 `reasoning_content` 兜底；
+              ② 仍空时把**响应结构**打进日志（顶层字段 / message 字段 / 前 300 字）⇒ 下次一眼看出真因。 */
+    const _ch = j?.choices?.[0] || {}
+    const _msg = _ch?.message || {}
+    let raw = String(_msg?.content || '').trim()
+    if (!raw) raw = String(_msg?.reasoning_content || _msg?.reasoning || '').trim()
+    const finish = String(_ch?.finish_reason || '?')
+    if (!raw) {
+      try {
+        console.error('[改写整篇] 空响应 · 顶层字段=' + Object.keys(j || {}).join(',')
+          + ' · message 字段=' + Object.keys(_msg || {}).join(',')
+          + ' · finish=' + finish
+          + ' · 原文=' + JSON.stringify(j).slice(0, 300))
+      } catch { /* ignore */ }
+    }
+    let m = /\{[\s\S]*\}/.exec(raw)
+    /* ★VF_REWRITE_RETRY_V1（2026-10-24 用户实测「重写失败：响应是空的」，而且**经常出现**）：
+       空响应不是必现——**同一份 prompt 有时给、有时空**（模型侧不稳定）。
+       现口径：**空/无 JSON 时自动重试一次**：
+         · 温度降到 0.35（更听话、更愿意直接给结构化输出）；
+         · 末尾追加"上一版你什么都没输出，这次只回 JSON"（这句对模型很有效）；
+       重试成功就继续走正常解析，用户**完全无感**。 */
     if (!m) {
       try {
-        console.error('[改写整篇] 无 JSON · finish=' + finish + ' · 原文前 200 字：' + raw.slice(0, 200))
+        const r2 = await fetch('https://api.deepseek.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
+          body: JSON.stringify({
+            model: 'deepseek-flash',
+            messages: [{
+              role: 'user',
+              content: prompt + '\n\n⚠️ 上一版你什么都没输出。这次**只回 JSON**：第一个字符是 {，最后一个字符是 }，不要任何解释或代码围栏。',
+            }],
+            temperature: 0.35,
+            thinking: { type: 'disabled' },   // ★VF_REWRITE_NOTHINK_V1：重试也一样关思考
+            max_tokens: 4000,
+          }),
+          signal: AbortSignal.timeout(50000),
+        })
+        const j2: any = await r2.json().catch(() => null)
+        const _m2 = j2?.choices?.[0]?.message || {}
+        const raw2 = String(_m2?.content || _m2?.reasoning_content || '').trim()
+        if (raw2) {
+          raw = raw2
+          m = /\{[\s\S]*\}/.exec(raw)
+          try { console.error('[改写整篇] 第 1 次空响应，重试成功（' + raw2.length + ' 字）') } catch { /* ignore */ }
+        }
+      } catch { /* 重试也失败 ⇒ 走下面的报错 */ }
+    }
+    if (!m) {
+      try {
+        console.error('[改写整篇] 无 JSON（已重试） · finish=' + finish + ' · 原文前 200 字：' + raw.slice(0, 200))
       } catch { /* ignore */ }
       return NextResponse.json({
         success: false,

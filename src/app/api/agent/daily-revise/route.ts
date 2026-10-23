@@ -157,6 +157,12 @@ export async function POST(request: NextRequest) {
         model: 'deepseek-flash',
         messages: [{ role: 'user', content }],
         temperature: 0.9,
+        /* ★VF_REWRITE_NOTHINK_V1（2026-10-24 冒烟测试实锤）：
+           `deepseek-flash` 带思考，会先写 5000~10000 字 reasoning 再写答案；
+           实测关掉思考后 **思考 0 字、2.2 秒返回**（不关要 35~44 秒，且额度小时答案会被挤成 0 字）。
+           ⇒ 单段改写同样关掉。 */
+        thinking: { type: 'disabled' },
+        max_tokens: 2000,
       }),
       signal: AbortSignal.timeout(45000),
     })
