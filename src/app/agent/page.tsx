@@ -3718,6 +3718,27 @@ function AgentPageInner() {
     try { tid = String(JSON.parse(mDf[1])?.id || '') } catch { tid = '' }
     if (!tid) return
     if (handledDailyFilms.current.has(tid)) return
+    /* ★VF_FILMTASK_HANDLED_PERSIST_V1（2026-10-23 用户实测「刷新一直弹上次制作视频或任务错误的回执」）：
+       病灶：`handledDailyFilms` 是 **useRef ⇒ 刷新即清空**。
+            ⇒ 只要历史里还有一条 2 小时内的 `VF_DAILY_FILM_TASK`，刷新就会**重新轮询**
+            ⇒ 任务早已 failed ⇒ **再弹一次失败回执**（每刷新一次弹一次）。
+       现口径：**处理过的任务 id 落到 localStorage**，刷新后仍然认得 ⇒ 不再重复弹。
+            只保留最近 30 条（顺便清掉更早的，避免越攒越多）。 */
+    const LS_KEY = 'dfHandled'
+    const _readHandled = (): string[] => {
+      try { const j = JSON.parse(localStorage.getItem(LS_KEY) || '[]'); return Array.isArray(j) ? j.map(String) : [] } catch { return [] }
+    }
+    const _markHandled = (id: string) => {
+      try {
+        const arr = _readHandled().filter((x) => x !== id)
+        arr.push(id)
+        localStorage.setItem(LS_KEY, JSON.stringify(arr.slice(-30)))
+      } catch { /* ignore */ }
+    }
+    if (_readHandled().indexOf(tid) >= 0) {
+      handledDailyFilms.current.add(tid)
+      return
+    }
     /* ★VF_FILMTASK_STALE_V1（2026-10-19 用户实测「刚选完图片、出文案、一编辑就弹 2 个视频」）：
        病：这个 effect **每次 messages 变化都会重跑**（选图/出方案/编辑都算），而它找的是
            「**整个聊天历史里**最后一条 `VF_DAILY_FILM_TASK`」——**不判断新旧**。
@@ -3752,6 +3773,7 @@ function AgentPageInner() {
         if (t.status === 'done') {
           clearInterval(iv)
           handledDailyFilms.current.add(tid)
+          _markHandled(tid)   // ★VF_FILMTASK_HANDLED_PERSIST_V1：落盘，刷新后不再重复处理
           if (!stopped) {
             setMessages(prev => {
               /* ★VF_FILMDONE_DEDUP_V1（2026-10-19 用户实测「我编辑文字，你回 2 个视频给我」）：
@@ -3771,6 +3793,7 @@ function AgentPageInner() {
         } else if (t.status === 'failed') {
           clearInterval(iv)
           handledDailyFilms.current.add(tid)
+          _markHandled(tid)   // ★VF_FILMTASK_HANDLED_PERSIST_V1：失败也只弹一次（刷新不再重复）
           if (!stopped) {
             setMessages(prev => [...prev, { id: 'df-' + Date.now(), role: 'assistant',
               content: '❌ 日报出片失败（已跑 ' + (t.elapsedSec || 0) + 's）\n'
