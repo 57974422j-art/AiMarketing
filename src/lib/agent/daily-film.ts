@@ -141,7 +141,9 @@ export async function markStaleDailyFilms(): Promise<number> {
 }
 
 export async function startDailyFilm(
-  uid: number | string, htmlName: string, opts?: { voice?: string[] },
+  /* ★VF_SUBPOS_V1：`subPos` 决定字幕位置（bottom / lower / mid），
+     不传就按 `lower`（距底 320px，避开抖音 UI）。 */
+  uid: number | string, htmlName: string, opts?: { voice?: string[]; subPos?: string },
 ): Promise<DailyFilmTask> {
   const voiced = Array.isArray(opts?.voice) && opts!.voice!.length > 0
   const id = 'df' + Date.now()
