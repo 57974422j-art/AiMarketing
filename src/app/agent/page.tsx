@@ -2121,6 +2121,37 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
   const [bgmVol, setBgmVol] = useState<number>(() => {
     try { const s = localStorage.getItem(lsKey + ':bgmVol'); return s === null ? Number(vj?.bgmVol ?? -18) : Number(s) } catch { return -18 }
   })
+  /* ★VF_VOICE_REWRITE_ALL_V1（2026-10-23 用户定案：卡头加「✍ 换文案风格」，选一种就**整篇批量重写**，
+     并留一个"其它"让他写自己的要求）。
+     为什么要有它：单段重写（✨）看不到前后文 ⇒ 写不出"一条线"；
+     整篇一次给它 ⇒ 它能规划动线（进门→坐下→上手→收尾），句子才承接得上。 */
+  const [rw, setRw] = useState<{ open: boolean; style: string; extra: string; busy: boolean; msg: string; result: string[] | null }>(
+    { open: false, style: 'oral', extra: '', busy: false, msg: '', result: null },
+  )
+  const doRewriteAll = async () => {
+    setRw((p) => ({ ...p, busy: true, msg: '', result: null }))
+    try {
+      const r = await fetch('/api/agent/daily-rewrite-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lines: lines.map((t) => String(t).trim()),
+          segs: Array.isArray(vj?.rows) ? vj.rows : [],
+          style: rw.style,
+          extra: rw.extra,
+          topic: String(vj?.topic || ''),
+        }),
+      })
+      const j = await r.json().catch(() => null)
+      if (j?.success && Array.isArray(j?.data?.lines)) {
+        setRw((p) => ({ ...p, busy: false, result: j.data.lines.map((x: any) => String(x || '')), msg: '已重写成「' + String(j.data.styleName || '') + '」风格，看完满意再点"全部应用"' }))
+      } else {
+        setRw((p) => ({ ...p, busy: false, msg: '重写失败：' + String(j?.message || '未知').slice(0, 110) }))
+      }
+    } catch (e: any) {
+      setRw((p) => ({ ...p, busy: false, msg: '重写失败：' + String(e?.message || e).slice(0, 110) }))
+    }
+  }
   // 每次改动都往本机暂存写一份（刷新不丢；容量只有几十字节 × 段数，无压力）
   useEffect(() => {
     try { localStorage.setItem(lsKey, JSON.stringify(lines)) } catch { /* ignore */ }
@@ -2206,7 +2237,16 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
   }, [busy])
   return (
     <div className="mb-2 p-3 rounded-xl border border-violet-500/30 bg-violet-500/[0.06]">
-      <div className="text-xs text-violet-200 mb-1">{String(vj?.hint || '配音稿')}</div>
+      {/* ★VF_VOICE_REWRITE_ALL_V1：卡头右侧「✍ 换文案风格」—— 选一种就整篇重写 */}
+      <div className="flex items-start justify-between gap-2 mb-1">
+        <div className="text-xs text-violet-200">{String(vj?.hint || '配音稿')}</div>
+        <button type="button"
+          onClick={() => setRw({ open: true, style: 'oral', extra: '', busy: false, msg: '', result: null })}
+          title="选一种文案形式，整篇一次重写（改完再决定要不要应用）"
+          className="shrink-0 px-2 py-0.5 rounded-lg text-[11px] border border-amber-400/50 text-amber-100 hover:bg-amber-500/15">
+          ✍ 换文案风格
+        </button>
+      </div>
       <div className="text-[10px] text-gray-400 mb-2">
         {String(vj?.note || '')}　·　估算总长 {total}s
         {emptyN ? '（' + emptyN + ' 段静音）' : ''}　·　实际时长以配音为准
@@ -2402,6 +2442,87 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
           <div className="text-[10px] text-gray-600 mt-1">音乐会自动循环到片子结束；-18 dB 通常是"听得见但不压台词"的档</div>
         ) : null}
       </div>
+
+      {/* ★VF_VOICE_REWRITE_ALL_V1：整篇换风格弹窗（选形式 → 重写 → 预览 → 全部应用） */}
+      {rw.open ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-3"
+          onClick={() => { if (!rw.busy) setRw((p) => ({ ...p, open: false })) }}>
+          <div className="w-full max-w-[440px] max-h-[92vh] overflow-y-auto rounded-xl border border-amber-400/30 bg-[#14121a] p-3"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-xs text-amber-200">✍ 换文案风格（整篇 {lines.length} 段一起改）</div>
+              <button onClick={() => { if (!rw.busy) setRw((p) => ({ ...p, open: false })) }}
+                className="text-gray-400 hover:text-gray-200 text-sm leading-none">✕</button>
+            </div>
+
+            <div className="text-[10px] text-gray-400 mb-1.5">选一种文案形式</div>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {([
+                ['oral', '口语闲聊'], ['hook', '钩子开场'], ['seed', '种草安利'],
+                ['story', '探店纪实'], ['promo', '促销硬广'], ['calm', '文艺克制'],
+              ] as Array<[string, string]>).map(([id, label]) => {
+                const on = rw.style === id
+                return (
+                  <button key={id} type="button"
+                    onClick={() => setRw((p) => ({ ...p, style: id, result: null, msg: '' }))}
+                    className={'px-2.5 py-1 rounded-lg text-[11px] border transition ' + (on
+                      ? 'border-amber-400/70 bg-amber-500/20 text-amber-50'
+                      : 'border-white/10 text-gray-400 hover:border-white/25 hover:text-gray-200')}>
+                    {on ? '● ' : ''}{label}
+                  </button>
+                )
+              })}
+            </div>
+
+            <div className="text-[10px] text-gray-400 mb-1">其它要求（可留空）</div>
+            <textarea value={rw.extra} rows={2}
+              placeholder={'例如：开头一定要点出"不用等位"；结尾给一句到店的理由；别提价格'}
+              onChange={(e) => setRw((p) => ({ ...p, extra: e.target.value }))}
+              className="w-full bg-black/40 border border-white/10 rounded px-2 py-1.5 text-[12px] text-gray-100 leading-relaxed resize-y mb-2"
+            />
+
+            {rw.msg ? <div className="text-[10px] text-amber-400 mb-2">{rw.msg}</div> : null}
+
+            {rw.result ? (
+              <div className="rounded-lg border border-white/10 bg-black/30 p-2 mb-2 max-h-[38vh] overflow-y-auto">
+                <div className="text-[10px] text-gray-400 mb-1">新文案（共 {rw.result.length} 段）</div>
+                {rw.result.map((t, i) => (
+                  <div key={i} className="text-[11px] text-gray-200 leading-relaxed mb-1">
+                    <span className="text-gray-500">段{i + 1}·</span>
+                    {t || <span className="text-gray-600">（空，这一段不配音）</span>}
+                    <span className="text-gray-600 ml-1">({[...String(t)].length} 字)</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="flex items-center gap-2">
+              <button onClick={doRewriteAll} disabled={rw.busy}
+                className={'px-3 py-1.5 rounded-lg text-xs border ' + (rw.busy
+                  ? 'border-white/10 text-gray-500 cursor-wait'
+                  : 'border-amber-400/50 text-amber-100 hover:bg-amber-500/15')}>
+                {rw.busy ? '重写中…（约 5~10 秒）' : (rw.result ? '再换一版' : '✍ 开始重写')}
+              </button>
+              {rw.result ? (
+                <button onClick={() => {
+                  const nx = rw.result!.slice()
+                  setLines((prev) => prev.map((_, i) => (nx[i] !== undefined ? nx[i] : prev[i])))
+                  setRw((p) => ({ ...p, open: false, result: null }))
+                }}
+                  className="px-3 py-1.5 rounded-lg text-xs border border-emerald-400/50 text-emerald-100 hover:bg-emerald-500/15">
+                  全部应用（{rw.result.length} 段）
+                </button>
+              ) : null}
+              <button onClick={() => { if (!rw.busy) setRw((p) => ({ ...p, open: false })) }}
+                className="px-2 py-1.5 text-xs text-gray-400 hover:text-gray-200">取消</button>
+            </div>
+
+            <div className="text-[10px] text-gray-600 mt-2">
+              重写会**保留原段数**；留空的段仍然留空。应用后仍可逐段手改或点段尾的 ✨ 单段重写。
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* ★VF_SUBPOS_UI_V1（2026-10-23 用户「字幕不是上下都有，我需要一个选项卡」）：
           竖屏字幕贴底会被抖音/快手 UI（@用户名 / 文案 / 音乐 / 进度条）整块挡住 ⇒ 给三档可选。
