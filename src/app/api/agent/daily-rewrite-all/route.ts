@@ -134,10 +134,33 @@ export async function POST(request: NextRequest) {
       signal: AbortSignal.timeout(50000),
     })
     const j: any = await r.json().catch(() => null)
+    /* ★VF_REWRITE_ERR_VISIBLE_V1（2026-10-23 用户实测「重写失败：AI 没给出可解析的结果（finish=?）」）：
+       病灶：原来**不检查 `r.ok`**，直接把 `j.choices[0]` 取内容 ⇒ API 报错时（400/429/500）
+            响应体是 `{error:{...}}`，`choices` 根本不存在 ⇒ 只剩一句 `finish=?`，
+            **真实原因（余额/限流/参数/超长）全被吞掉** ⇒ 用户和我都猜不出为什么。
+       现口径：**先把 HTTP 状态和 API 的 error 原样报出来**，再谈"解析不出 JSON"。 */
+    if (!r.ok) {
+      const apiMsg = String(j?.error?.message || j?.message || '').slice(0, 200) || ('HTTP ' + r.status)
+      try { console.error('[改写整篇] DeepSeek ' + r.status + '：' + apiMsg) } catch { /* ignore */ }
+      return NextResponse.json({
+        success: false,
+        message: 'DeepSeek 返回 ' + r.status + '：' + apiMsg
+          + (r.status === 429 ? '（限流，等几秒再点）' : r.status === 402 ? '（余额不足）' : ''),
+      }, { status: 502 })
+    }
     const raw = String(j?.choices?.[0]?.message?.content || '')
+    const finish = String(j?.choices?.[0]?.finish_reason || '?')
     const m = /\{[\s\S]*\}/.exec(raw)
     if (!m) {
-      return NextResponse.json({ success: false, message: 'AI 没给出可解析的结果（finish=' + String(j?.choices?.[0]?.finish_reason || '?') + '）' }, { status: 502 })
+      try {
+        console.error('[改写整篇] 无 JSON · finish=' + finish + ' · 原文前 200 字：' + raw.slice(0, 200))
+      } catch { /* ignore */ }
+      return NextResponse.json({
+        success: false,
+        message: 'AI 没给出可解析的结果（finish=' + finish + '，输出 ' + raw.length + ' 字）'
+          + (finish === 'length' ? '——输出被截断，段数太多，先用单段重写' : '')
+          + (raw ? '；开头：' + raw.slice(0, 80) : '；响应是空的'),
+      }, { status: 502 })
     }
     let out: string[] = []
     try {
