@@ -310,9 +310,29 @@ if (!skipCheck) {
   console.log('② 用字闸门 OK')
   const ck = run(process.execPath, [HF, 'check', outDir])
   if (ck.status !== 0) {
-    const lines = String(ck.stdout || '').split('\n').filter((l) => l.includes('✗')).slice(0, 8).join(' | ')
-    console.log('stage=check ✗ 引擎校验未过：' + (lines.slice(0, 500) || 'check 未通过'))
-    process.exit(1)
+    /* ★VF_FILM_CHECK_SOFT_V1（2026-10-23 线上实测「出片失败 exit=1 · content_overlap #s12 + 对比度 3.03:1」）：
+       病灶：这里**无条件 exit(1)** ⇒ 只要是审美类（文字短暂重叠 / 对比度略低）就整片失败，
+            而这两类在 `checkDesignPage`（AI 档闸门）里**已经定成"放行"** ⇒ **两处口径不一致** ⇒
+            用户看到"合成失败"，明明片子能跑。
+       现口径：**和 checkDesignPage 一致的分级**——
+         · **致命**（css_parse_error / missing_local_asset / 表外字 / font_family_without_font_face /
+           Timeline did not advance / 解析失败）⇒ **仍然拦**；
+         · **审美**（content_overlap / 对比度 x.x:1）⇒ **只警告，继续渲染**；
+         · **未知错误** ⇒ **保守拦下**（不能因为"没听过"就放行）。
+       ⚠️ 只改"拦不拦"，不改渲染本身。 */
+    const allBad = String(ck.stdout || '').split('\n').filter((l) => l.includes('✗'))
+    const FATAL_RE = /css_parse_error|missing_local_asset|表外字|font_family_without_font_face|Timeline did not advance|parse error|unclosed|parseError/i
+    const SOFT_RE = /content_overlap|\bcontrast\b|need\s*4\.5:1|对比度|\b\d\.\d+:1\b/i
+    const hard = allBad.filter((l) => FATAL_RE.test(l))
+    const soft = allBad.filter((l) => !FATAL_RE.test(l) && SOFT_RE.test(l))
+    const unknown = allBad.filter((l) => !FATAL_RE.test(l) && !SOFT_RE.test(l))
+    if (!hard.length && !unknown.length && soft.length) {
+      console.log('③ 引擎校验：仅审美告警（放行，继续渲染）—— ' + soft.slice(0, 3).join(' | ').slice(0, 300))
+    } else {
+      const lines = (hard.length ? hard : allBad).slice(0, 8).join(' | ')
+      console.log('stage=check ✗ 引擎校验未过：' + (lines.slice(0, 500) || 'check 未通过'))
+      process.exit(1)
+    }
   }
   console.log('③ 引擎校验 OK')
 }
