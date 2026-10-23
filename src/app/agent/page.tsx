@@ -2203,11 +2203,29 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
       const r = await fetch('/api/agent/daily-revise', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: src, style: rev.style, segTitle: rev.title, topic: String(vj?.topic || '') }),
+        /* ★VF_VOICE_REVISE_CTX_V1（2026-10-23 用户要求）：改单句时**把全篇文案 + 这一段用的图一起给 AI**，
+           否则它只看一句、凭空补，容易跑远。 */
+        body: JSON.stringify({
+          text: src,
+          style: rev.style,
+          segTitle: rev.title,
+          topic: String(vj?.topic || ''),
+          lines: lines.map((t) => String(t || '')),
+          index: rev.i,
+          imgs: ((vj?.rows || [])[rev.i]?.imgs || []).map((x: any) => Number(x)).filter((x: number) => x > 0),
+        }),
       })
       const j = await r.json().catch(() => null)
       if (j?.success && j?.data?.text) {
-        setRev((p) => (p ? { ...p, draft: String(j.data.text), aiBusy: false, msg: '已改成「' + String(j.data.styleName || '') + '」风格，满意就点保存' } : p))
+        // ★VF_VOICE_REVISE_CTX_V1：告诉用户"这次参考了几张图"，让他知道 AI 不是凭空补的
+        setRev((p) => (p ? {
+          ...p,
+          draft: String(j.data.text),
+          aiBusy: false,
+          msg: '已改成「' + String(j.data.styleName || '') + '」风格'
+            + (j.data.sawImages ? '（参考了这一段的实拍图）' : '（这次没取到图，只按上下文改的）')
+            + '，满意就点保存',
+        } : p))
       } else {
         setRev((p) => (p ? { ...p, aiBusy: false, msg: '改写失败：' + String(j?.message || '未知').slice(0, 90) } : p))
       }
@@ -2333,7 +2351,7 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
             <div className="text-[10px] text-gray-400 mb-1">让 AI 怎么改</div>
             <div className="flex flex-wrap gap-1.5 mb-2">
               {([
-                ['hook', '钩子'], ['promo', '促销'], ['oral', '口语'], ['punch', '更狠'],
+                ['hook', '钩子'], ['promo', '促销'], ['oral', '口语'], ['punch', '更狠'], ['plain', '更直白'],
               ] as Array<[string, string]>).map(([id, label]) => {
                 const on = rev.style === id
                 return (

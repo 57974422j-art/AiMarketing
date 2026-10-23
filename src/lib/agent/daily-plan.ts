@@ -856,7 +856,11 @@ export function buildVoiceCardPayload(o: {
     const title = (Array.isArray(s?.title) ? s.title : [s?.title])
       .map((x: any) => String(x == null ? '' : x)).filter(Boolean).join(' / ')
     const text = String(lines[i] || '')
-    return { i: i + 1, layout: String(s?.layout || ''), title, text, est: estimateSec(text) }
+    /* ★VF_VOICE_REVISE_CTX_V1（2026-10-23 用户「改单条时别只给这一句，把图和整体文案一起给 AI」）：
+       `imgs` 是**这一段用哪几张图**（1-based 编号）—— 前端改单句时把它带给接口，
+       接口会去 OSS 取这些图、以多模态方式喂给模型 ⇒ 它写的是"这张图里的事"，不是凭空补一句。 */
+    const imgs = (Array.isArray(s?.imgs) ? s.imgs : []).map((x: any) => Number(x)).filter((x: number) => x > 0)
+    return { i: i + 1, layout: String(s?.layout || ''), title, text, est: estimateSec(text), imgs }
   })
   // 总时长估算 = 各段口播估时 + 每段 0.5s 尾巴（与 film-voice 的 gap 同口径）
   const totalEst = Math.round(rows.reduce((a, r) => a + (r.est || 0) + 0.5, 0) * 10) / 10
