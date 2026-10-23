@@ -2110,16 +2110,21 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
     let picked = (Array.isArray(f?.names) ? f.names : [])
       .map((x: any) => String(x)).filter((n: string) => all.indexOf(n) >= 0)
     picked = Array.from(new Set(picked)).slice(0, DAILY_MAX_PICK)
-    let note0 = ''
+    /* ★VF_MATPICK_REQUIRED_V1b（2026-10-23 用户实测「什么都没勾，火锅文案就出来了」）：
+       病灶：这里原本是**兜底自动选**——`if (!picked.length) picked = all.slice(0, 24)`
+            ⇒ 用户"什么都没勾"时，服务端**默默用了最近 24 张**（正好是他上次上传的火锅那批）
+            ⇒ 出片就是火锅，他的感受是"我没选素材它凭什么自己出"。
+       现口径：**不再兜底**。没勾就明确让他勾（前端按钮也已经灰掉，这里是服务端的第二道）。
+       仍然保留"仓库里真的没有素材"的提示（那是另一回事：让他先去上传）。 */
     if (!picked.length) {
-      picked = all.slice(0, DAILY_MAX_PICK)
-      note0 = '你**没勾选**，我按最近 ' + picked.length + ' 张走（下次可以先点图勾选）。'
+      if (!all.length) {
+        await saveDailyDraft(ctx.prisma, uid, d)
+        return '⚠️ 原始素材里没有图片（只有成片的仓库不算素材）。先去「个人仓库」上传几张，再点一次「日报落地页」。'
+      }
+      return '⚠️ 你还没**勾选素材** —— 在上面缩略图上点一下（可以多选），至少选 1 张才能继续。\n'
+        + '仓库里现在有 **' + all.length + ' 张**可勾。'
     }
-    if (!picked.length) {
-      await saveDailyDraft(ctx.prisma, uid, d)
-      return '⚠️ 原始素材里没有图片（只有成片的仓库不算素材）。先去「个人仓库」上传几张，再点一次「日报落地页」。'
-    }
-    return await runPlan(ctx, d, { kind: 'repo' }, picked, note0)
+    return await runPlan(ctx, d, { kind: 'repo' }, picked, '')
   }
 
   /* ── 第 1 步：选素材（手动；来源可切换；主题可选） ── */
