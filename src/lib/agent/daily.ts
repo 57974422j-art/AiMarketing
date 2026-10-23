@@ -878,7 +878,13 @@ export async function aiVoiceLines(
   //        `content` 就是空串（aiPlanSegments 一直用 **8000**，而它输出比我还长）⇒ **等于我帮倒忙**。
   //   现口径：**分批**（每批 ≤5 段，单批生成量小 ⇒ 不撞超时）+ **maxTokens 8000**（与 aiPlanSegments 对齐）
   //   + 每批 2 次尝试（长 prompt → 极简 prompt）+ **某批失败不整单失败**（凑够就交付，并如实报哪几段会静音）。
-  const BATCH = 5
+  /* ★VF_VOICE_WHOLE_V1（2026-10-23 用户定案：「第一次生成也要整篇，别分批」）：
+     病灶：原来 `BATCH = 5` ⇒ 15 段被切成 3 批 ⇒ **每批只看 5 段** ⇒ 三批各写各的
+          ⇒ 全片没有主线 ⇒ 出「四个凳子摆在中间」这种"图片说明"（理发店那次的真实反馈）。
+     现口径：**一次给全部段**（它能规划动线：进门→坐下→上手→收尾 ⇒ 句子才承接得上）。
+        · 段数 ≤24 ⇒ 全给（prompt 增量约 600~900 字，输出 300 字左右，多 2~3 秒）；
+        · 段数 >24 ⇒ 退回按 12 段一批（防 prompt/输出过长被截断）。 */
+  const BATCH = segs.length <= 24 ? Math.max(1, segs.length) : 12
   const out: string[] = new Array(segs.length).fill('')
   const allFixes: string[] = []
   const diags: string[] = []
