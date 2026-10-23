@@ -2112,6 +2112,41 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
   const [ttsVoice, setTtsVoice] = useState<string>(() => {
     try { return localStorage.getItem(lsKey + ':ttsVoice') || String(vj?.voicePick || '') } catch { return String(vj?.voicePick || '') }
   })
+  /* ★VF_DAILY_VOICE_AUDITION_V1（2026-10-23 用户实测「随便选了个音色，忽然发现是讲鬼故事的」）：
+     病灶：音色只有名字（`徐大爷`），**看不到描述、也听不到** ⇒ 只能瞎选。
+     现口径：**点一下音色 ⇒ 立刻合成一句短试听并播放**（同时保留选中）。
+     用现成的 `/api/agent/tts-preview`：只合成 ≤60 字、**不入库不落盘**（不占配额、不在素材库留垃圾）。
+     ⚠️ 每点一次都会真合成（约 1~2 秒）；同一音色重复点会重播，不再重复计费的地方也不需要做缓存。 */
+  const [voiceBusy, setVoiceBusy] = useState<string>('')
+  const voiceAudioRef = useRef<HTMLAudioElement | null>(null)
+  const auditionVoice = async (id: string) => {
+    if (voiceBusy) return
+    setVoiceBusy(id)
+    try {
+      const r = await fetch('/api/agent/tts-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: '这句话用来试听音色，听完再决定。', voice: id }),
+      })
+      const j = await r.json().catch(() => null)
+      // 接口返回的是 `dataUrl`（见 api/agent/tts-preview：{ success, voice, voiceName, kb, dataUrl }）
+      const src = String(j?.dataUrl || j?.data?.dataUrl || '')
+      if (!src) {
+        // 失败不打断选音色，只提示
+        alert('试听失败：' + String(j?.message || 'TTS 没返回音频').slice(0, 100))
+      } else {
+        const url = String(src).startsWith('data:') ? String(src) : 'data:audio/mpeg;base64,' + String(src)
+        try { voiceAudioRef.current?.pause() } catch { /* ignore */ }
+        const a = new Audio(url)
+        voiceAudioRef.current = a
+        void a.play().catch(() => { /* 浏览器拦截自动播放时静默 */ })
+      }
+    } catch (e: any) {
+      alert('试听失败：' + String(e?.message || e).slice(0, 100))
+    } finally {
+      setVoiceBusy('')
+    }
+  }
   /* ★VF_DAILY_BGM_V1：配乐（可选）。候选 = 个人仓库里的音频（服务端下发 `bgmList`）。
      空 = 不配乐（和以前一样）。音量是 dB（-18 是"压低但不闷"的常见档）。 */
   const bgmList: any[] = Array.isArray(vj?.bgmList) ? vj.bgmList : []
@@ -2400,21 +2435,37 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
             {voiceList.slice(0, 24).map((v: any) => {
               const id = String(v?.id || '')
               const on = ttsVoice === id
+              const busyThis = voiceBusy === id
               return (
                 <button key={id} type="button"
                   title={String(v?.desc || v?.tone || '')}
                   onClick={() => {
                     setTtsVoice(id)
                     try { localStorage.setItem(lsKey + ':ttsVoice', id) } catch { /* ignore */ }
+                    // ★VF_DAILY_VOICE_AUDITION_V1：选中即试听一句（再点会重播）
+                    void auditionVoice(id)
                   }}
                   className={'px-2 py-1 rounded-lg text-[11px] border transition ' + (on
                     ? 'border-violet-400/70 bg-violet-500/20 text-violet-50'
                     : 'border-white/10 text-gray-400 hover:border-white/25 hover:text-gray-200')}>
-                  {on ? '● ' : ''}{String(v?.name || id)}
+                  {busyThis ? '⏳ ' : (on ? '● ' : '')}{String(v?.name || id)}
                 </button>
               )
             })}
           </div>
+          {/* ★VF_DAILY_VOICE_AUDITION_V1：把选中音色的**描述**显出来（原来只在 title 里，手机上根本看不到） */}
+          {(() => {
+            const cur = voiceList.find((v: any) => String(v?.id || '') === ttsVoice)
+            if (!cur) return null
+            return (
+              <div className="text-[10px] text-gray-500 mt-1">
+                {String(cur.name || cur.id)}
+                {cur.tag ? '（' + String(cur.tag) + '）' : ''}
+                {cur.desc ? ' · ' + String(cur.desc) : ''}
+                <span className="text-gray-600">　点一下音色就能试听一句</span>
+              </div>
+            )
+          })()}
           {voiceList.length > 24 ? (
             <div className="text-[10px] text-gray-600 mt-1">只显示前 24 个；先凑合选，要全部可选我再加"更多"</div>
           ) : null}
