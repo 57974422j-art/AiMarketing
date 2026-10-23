@@ -56,7 +56,8 @@ export async function POST(request: NextRequest) {
     const { getObject } = await import('@/lib/oss')
     if (Number.isFinite(seg) && seg >= 1) {
       const base = name.replace(/\.html?$/i, '')
-      const cacheKey = 'storage/' + uid + '/frames/' + base + '/seg-' + Math.floor(seg) + '.png'
+      // ★VF_FRAME_PREFIX_FIX：缓存前缀必须和写入一致（`dfcache/`，不在 `storage/` 下 ⇒ 不进素材库）
+      const cacheKey = 'dfcache/' + uid + '/frames/' + base + '/seg-' + Math.floor(seg) + '.png'
       try {
         const cb = await getObject(cacheKey)
         if (cb && cb.length > 512) {

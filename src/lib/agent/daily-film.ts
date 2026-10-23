@@ -205,7 +205,12 @@ async function prefetchSegmentFrames(uid: string, htmlName: string): Promise<voi
       let best = Infinity
       times.forEach((v, i) => { const d = Math.abs(v - at); if (d < best) { best = d; idx = i } })
       try {
-        await putObject('storage/' + uid + '/frames/' + base + '/seg-' + (idx + 1) + '.png',
+        /* ★VF_FRAME_PREFIX_FIX（2026-10-23 用户截图实锤「个人仓库里冒出一堆 frames/gen_xxx/seg-N.png」）：
+           病灶：原来存 `storage/{uid}/frames/...` —— 而**个人仓库列表就是 `storage/{uid}/` 这个前缀**
+                ⇒ 抽帧被当成"生成素材"列出来（用户以为素材库坏了），还占配额、可能被误选进成片。
+           现口径：存到 **`dfcache/{uid}/frames/...`**（完全不在 `storage/` 下）⇒ 列表列不到。
+           ⚠️ 帧只是预览缓存，丢了随时能重抽。 */
+        await putObject('dfcache/' + uid + '/frames/' + base + '/seg-' + (idx + 1) + '.png',
           fs.readFileSync(path.join(shotDir, f)), 'image/png')
         ok++
       } catch { /* 单张失败跳过 */ }
