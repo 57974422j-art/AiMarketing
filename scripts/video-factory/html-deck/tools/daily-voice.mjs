@@ -77,6 +77,16 @@ const fps = String(arg('fps', '25'))
 const quality = String(arg('quality', 'looks'))
 const gap = Number(arg('gap', '0.5'))
 const VOICE = String(arg('voice', ''))
+/* ★VF_DAILY_BGM_V1（2026-10-23 用户「把 HTML 成片线的音乐抄过来」）：
+   背景音乐是**可选**的：`--bgm <本地音频路径>` + `--bgm-vol <-18>`（dB，负数是压低）。
+   不给 `--bgm` ⇒ **完全走原来的混音路径**（一行都不变）⇒ 零回归风险。
+   给了 BGM ⇒ 走 filter_complex 把「配音 + BGM」先混好，再（可选）叠字幕一起编码。
+   为什么用 `-stream_loop -1`：BGM 通常比片子短，不循环就会中途静音。 */
+const BGM_PATH = String(arg('bgm', '') || '').trim()
+const BGM_VOL = Number(arg('bgm-vol', '-18')) || -18
+const useBgm = !!BGM_PATH && fs.existsSync(BGM_PATH)
+if (BGM_PATH && !useBgm) console.log('  ⚠ BGM 文件不存在，已忽略：' + BGM_PATH)
+if (useBgm) console.log('  混入背景音乐：' + path.basename(BGM_PATH) + '（音量 ' + BGM_VOL + ' dB）')
 const MIN_DUR = 2.2                       // 段时长下限（与 film-voice 同口径）
 const SUB_FONT = String(arg('sub-font', 'Microsoft YaHei'))
 const SUB_SIZE = String(arg('sub-size', '10'))
@@ -317,6 +327,26 @@ if (badAudio.length) console.log('   ⚠ ' + badAudio.length + ' 段音轨异常
 fs.copyFileSync(path.join(build, 'subs.srt'), path.join(renderDir, 'subs.srt'))
 const finalMp4 = path.join(outDir, path.basename(srcHtml, path.extname(srcHtml)) + '-voiced.mp4')
 const base = ['-y', '-v', 'error', '-i', path.basename(mp4), '-i', voiceTrack]
+if (useBgm) base.push('-stream_loop', '-1', '-i', path.resolve(BGM_PATH))
+
+/* ★VF_DAILY_BGM_V1：给了 BGM 时，用 filter_complex **一次**完成「配音+BGM 混音 +（可选）烧字幕」。
+   为什么不分开做：`-vf` 与 `-filter_complex` 不能同时用，硬拆会多一次重编码（画质白降一档）。
+   ⚠️ 只在 useBgm 为真时走这里 ⇒ 不选 BGM 的路径**完全不经过这段**。 */
+function bgmFilter(vf) {
+  const gain = Math.pow(10, BGM_VOL / 20).toFixed(3)   // dB → 线性
+  const fc = []
+  fc.push('[1:a]volume=1.0[a1]')
+  fc.push('[2:a]volume=' + gain + '[a2]')
+  fc.push('[a1][a2]amix=inputs=2:duration=first:dropout_transition=0[aout]')
+  const maps = ['-map', '[aout]']
+  if (vf) {
+    fc.push('[0:v]' + vf + '[vout]')
+    maps.unshift('-map', '[vout]')
+  } else {
+    maps.unshift('-map', '0:v:0')
+  }
+  return { fc: fc.join(';'), maps }
+}
 // ★VF_DAILY_V33（2026-10-16 用户定案「剩下2条先做」→ 第 ⑪ 条「码率偏低」）：
 //   实测带配音的成片码率 **0.81 Mbps**（无配音那版 3.39）—— 差在"要烧字幕就必须重编码"，
 //   而 CRF 20 对"画面变化小 + 有大片纯色区域"的片子压得太狠。CRF **18 是视觉无损档**，
@@ -339,7 +369,15 @@ let used = null
 let lastErr = ''
 for (const t of tries) {
   rmQuiet(finalMp4)   // 关键：每次先把上一次的 0 字节残骸删掉（否则 existsSync 会骗人）
-  const fr = run('ffmpeg', base.concat(t.vf ? ['-vf', t.vf] : []).concat(t.enc, AMIX), { cwd: renderDir })
+  /* ★VF_DAILY_BGM_V1：有 BGM ⇒ 必须用 filter_complex（一次完成混音 + 字幕）；
+     没有 BGM ⇒ 走原来那条 `-vf` 路径（一字不改，零回归）。 */
+  const ffArgs = useBgm
+    ? base.concat(
+      (() => { const g = bgmFilter(t.vf); return ['-filter_complex', g.fc].concat(g.maps) })(),
+      t.enc, AMIX,
+    )
+    : base.concat(t.vf ? ['-vf', t.vf] : []).concat(t.enc, AMIX)
+  const fr = run('ffmpeg', ffArgs, { cwd: renderDir })
   const szNow = sizeOf(finalMp4)
   if (fr.status === 0 && szNow >= 20 * 1024 && ffDur(finalMp4) > 0.5) { used = t; break }
   lastErr = String(fr.stderr || fr.stdout || '').replace(/\s+/g, ' ').slice(-300)
