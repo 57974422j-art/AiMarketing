@@ -518,7 +518,12 @@ export function aiStoryboardPrompt(n: number, topic: string): string {
 
 export function aiDesignPrompt(
   n: number, topic: string,
-  opts?: { failNote?: string; segs?: any[] },
+  /* ★VF_PLATE_RATIO_V1（2026-10-24 用户「把 HTML 成片线那个全图比例加到第一步」）：
+     `plateRatio` 0~100，**默认 60 ⇒ 界面显示「6.0 : 4.0」**（与 HTML 成片线同一口径、同一个默认值）。
+       · 往 0 走 = 更多**多图页**（一屏塞 2~4 张，变化多）
+       · 往 100 走 = 更多**整张不裁的大图**（相纸感，能看到完整构图）
+     这里只把它翻译成"图片怎么摆"的一句设计约束（本文件不 import，纯数字约定）。 */
+  opts?: { failNote?: string; segs?: any[]; plateRatio?: number },
 ): string {
   const fail = String(opts?.failNote || '').trim()
   /* ★VF_AIDESIGN_TWOSTEP_STORY_V1：`segs` 是**AI 自己上一步写的分镜表**（不是用户的方案卡）⇒ 照它排版。 */
@@ -550,6 +555,13 @@ export function aiDesignPrompt(
 
     '素材是用户提供的 ' + n + ' 张实拍照片，文件名 1.jpg ~ ' + n + '.jpg（与 HTML 同目录）。主题：「' + (topic || '（未给，按素材自己判断）') + '」。',
     '**风格、版式、布局、动效创意完全由你决定**；只遵守下面「出片契约」。',
+    /* ★VF_PLATE_RATIO_V1：把 0~100 的比例翻译成"图片怎么摆"，分三档说人话（模型对连续数字不敏感）。 */
+    (() => {
+      const r = Number.isFinite(Number(opts?.plateRatio)) ? Number(opts?.plateRatio) : 60
+      if (r >= 70) return '· **图片呈现：偏"整张不裁"**（用户把它调到了 ' + Math.round(r) + '%）——多用**完整构图的大图**（相纸感、可留白），少做一屏塞好几张的拼版。'
+      if (r <= 30) return '· **图片呈现：偏"填满裁切"**（用户把它调到了 ' + Math.round(r) + '%）——多用**满幅裁切（object-fit: cover）**，一屏可以塞 2~4 张，版式变化多一点。'
+      return '· **图片呈现：整张不裁与填满裁切各一半**（用户把它留在 ' + Math.round(r) + '%）——两种都用，别一屏到底都是同一种。'
+    })(),
     '',
     '【出片契约 · 违反即返工】',
     '1) 页面按**时间播放**，不是滚动浏览：',

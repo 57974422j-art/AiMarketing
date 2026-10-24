@@ -277,6 +277,10 @@ async function dailyMatCard(uid: number | string, d: DailyDraft): Promise<string
       : '第 1 步 / 共 2 步 · 还没有原始素材 —— 先点「⬆️ 上传图片」传几张（成片不算素材）',
     nextLabel: '🎬 直接出片（AI 自己排）',
     proto: 'VF_DAILY_FORM',   // ★本线的协议串（前端 `next()` 用它，不跟成片线共用）
+    /* ★VF_PLATE_RATIO_V1：全图比例（抄 HTML 成片线的同名滑块）。
+       0~100，**默认 60 ⇒ 界面显示 6.0 : 4.0**；往左更多多图页、往右更多整张不裁的大图。 */
+    plateRatio: Number.isFinite(Number((d as any).plateRatio)) ? Number((d as any).plateRatio) : 60,
+    plateRatioHint: '大图 : 填图 —— 往左=更多多图页（素材多、变化多）；往右=更多整张不裁的大图',
     images,
     names: Array.isArray(d.names) ? d.names : [],
     max: DAILY_MAX_PICK,
@@ -508,7 +512,8 @@ export async function aiDesignPage(
      单轮默认 240s，**可由调用方按剩余预算收紧** —— 修错循环必须保证总耗时 < 600s，
      否则请求会在网关被掐断，前端只看到"网络连接失败"（用户遇到的就是这个）。
      **不传 = 240s（逐字保持现状）**。 */
-  opts?: { failNote?: string; timeoutMs?: number },
+  /* ★VF_PLATE_RATIO_V1：`plateRatio` 0~100（默认 60 ⇒ 界面 6.0:4.0），透传给 aiDesignPrompt。 */
+  opts?: { failNote?: string; timeoutMs?: number; plateRatio?: number },
   /* ★VF_STORY_TWOCOPY_V1：把分镜表（含每段的 `voice`）一起返回 ——
      调用方可以直接用它填口播，**不用再调一次 AI 重写**。 */
 ): Promise<{ ok: boolean; html?: string; error?: string; captions?: string; vlErr?: string; diag?: string; segs?: any[] }> {
@@ -616,7 +621,8 @@ export async function aiDesignPage(
   }
 
   // ② 让 AI 出整页 HTML（关思考 + 大额度 + 长超时，与方案档同口径）
-  const prompt = aiDesignPrompt(n, topic, { failNote: opts?.failNote, segs: storySegs })
+  // ★VF_PLATE_RATIO_V1：全图比例一起传（不传 = 60，与 HTML 成片线同默认）
+  const prompt = aiDesignPrompt(n, topic, { failNote: opts?.failNote, segs: storySegs, plateRatio: opts?.plateRatio })
     + (summary ? '\n\n【素材实拍内容（视觉模型逐张读出，写文案必须据此，不许编造）】\n' + summary : '')
   let txt = ''
   let diag = ''
@@ -1608,7 +1614,12 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
     //   原来只留 20s ⇒ 生成吃满后闸门没时间、整轮白跑，最后整体超时被网关掐断。
     /* ★VF_AIDESIGN_STORYBOARD_V1 **已撤销**（2026-10-21 用户明确：AI 自由档必须**自己规划文案、自己排版**，
        不许抄方案卡）⇒ 文案质量靠提示词里的「禁元叙述 + 自检标准」保证，不靠注入分镜表。 */
-    const design = await aiDesignPage(picks, topic, { failNote, timeoutMs: Math.min(DESIGN_TIMEOUT_MS, left - 80000) })
+    // ★VF_PLATE_RATIO_V1：全图比例（素材卡上选的，默认 60）
+    const design = await aiDesignPage(picks, topic, {
+      failNote,
+      timeoutMs: Math.min(DESIGN_TIMEOUT_MS, left - 80000),
+      plateRatio: Number.isFinite(Number((d as any).plateRatio)) ? Number((d as any).plateRatio) : 60,
+    })
     try {
       // ★VF_DAIDESIGN_V20：加**耗时**（用户反复问"到底多久"，没这个数字只能猜）
     ctx.log?.(uid, '[日报落地页] AI 自由设计 第' + attempt + '轮：' + (design.ok ? 'OK' : '失败')
@@ -2245,6 +2256,10 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
        为什么可以：AI 自由档本来就自己看图、自己定段数/版式/皮肤/文案，**不需要方案卡当输入**
                   （`runDesignRetry` 只用 picks + topic）。
        ⚠️ 失败不再回落模板档（模板档一并停用，见下面的回落分支）。 */
+    /* ★VF_PLATE_RATIO_V1：全图比例（0~100，默认 60 ⇒ 界面 6.0:4.0）。
+       和 HTML 成片线同一口径：往左更多多图页、往右更多整张不裁的大图。 */
+    const _pr = Number((f as any)?.plateRatio)
+    ;(d as any).plateRatio = Number.isFinite(_pr) ? Math.max(0, Math.min(100, _pr)) : 60
     d.names = picked
     d.source = { kind: 'repo' }
     d.step = 'review'

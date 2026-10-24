@@ -3131,7 +3131,30 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
                    ⇒ 用户以为"我没选素材它自己出片了"。
               现口径：**一张都没勾 ⇒ 按钮灰掉、点了没反应**，并明确提示"请先勾选素材"。
               ⚠️ 注意 `defRecent` 由服务端下发：日报线传 0 ⇒ 一进卡片不会自动勾（所以这个禁用是有效的）。 */}
-          <button onClick={() => { if (!sel.length) return; next('mat', { names: sel }) }}
+          {/* ★VF_PLATE_RATIO_STEP1_V1（2026-10-24 用户「第一步加全图比例，前段第一步没显示」）：
+              真相：这个滑块原来只长在**「风格卡」（第 2 步）**里，而日报线**没有第 2 步**（选完素材直接 AI 出片）
+                  ⇒ 所以日报线永远看不到它。现在**搬一份到素材卡里**（风格卡那份保留，成片线还要用）。
+              口径与成片线一致：0~100，默认 60 ⇒ 显示「6.0 : 4.0」。 */}
+          <div className="rounded-xl border border-emerald-500/25 bg-black/20 px-3 py-2 mb-2">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] text-gray-300">大图 : 填图</span>
+              <span className="text-[11px] text-emerald-300 font-medium">
+                {(plateRatio / 10).toFixed(1)} : {((100 - plateRatio) / 10).toFixed(1)}
+              </span>
+            </div>
+            <input type="range" min={0} max={100} step={10} value={plateRatio}
+              onChange={(e) => setPlateRatio(Number(e.target.value) || 0)}
+              className="w-full accent-emerald-400" />
+            <div className="flex justify-between text-[9px] text-gray-500 mt-0.5">
+              <span>← 更多多图页（素材多 · 变化多）</span>
+              <span>更多整张不裁大图 →</span>
+            </div>
+            {String(vj?.plateRatioHint || '') ? (
+              <div className="text-[9px] text-gray-500 mt-1">{String(vj.plateRatioHint)}</div>
+            ) : null}
+          </div>
+
+          <button onClick={() => { if (!sel.length) return; next('mat', { names: sel, plateRatio }) }}
             disabled={!sel.length}
             title={sel.length ? '' : '请先在上方勾选至少一张素材'}
             className={'w-full px-4 py-2 rounded-lg border text-sm transition ' + (sel.length
