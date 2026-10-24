@@ -3138,7 +3138,8 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
             className={'w-full px-4 py-2 rounded-lg border text-sm transition ' + (sel.length
               ? 'bg-emerald-500/25 hover:bg-emerald-500/40 border-emerald-400/40 text-emerald-100'
               : 'bg-white/[0.04] border-white/10 text-gray-500 cursor-not-allowed')}>
-            {vj?.nextLabel || '下一步 → 选风格'}{sel.length ? '（已选 ' + sel.length + ' 张）' : '（请先勾选素材）'}
+            {/* ★VF_DAILY_AIONLY_V1：方案卡已停用 ⇒ fallback 文案也改成"直接出片" */}
+            {vj?.nextLabel || '🎬 直接出片（AI 自己排）'}{sel.length ? '（已选 ' + sel.length + ' 张）' : '（请先勾选素材）'}
           </button>
         </>
       ) : null}

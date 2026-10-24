@@ -267,11 +267,15 @@ async function dailyMatCard(uid: number | string, d: DailyDraft): Promise<string
   const body = {
     step: 'film_mat',
     title: '📄 日报落地页',
+    /* ★VF_DAILY_AIONLY_V1（2026-10-24 用户定案「日报线彻底 AI 自由」）：
+       ① 步骤从「共 3 步」变「共 2 步」（选素材 → AI 出片 → 配音稿 → 出片）；
+       ② **必须勾选**（不再有"不勾就用最近 N 张"的兜底，那句已经在服务端删掉了，留着会骗人）；
+       ③ 按钮文案改成"直接出片"，不再提"看方案"（方案卡已停用）。 */
     hint: images.length
       // ⚠️ 卡片里的 hint 是**纯文本**（不渲染 markdown）⇒ 不能写 `**加粗**`（会原样露出星号）
-      ? '第 1 步 / 共 3 步 · 选原始素材（只列你上传的图，成片不算素材；最多勾 ' + DAILY_MAX_PICK + ' 张，不勾就用最近 ' + DAILY_MAX_PICK + ' 张）'
-      : '第 1 步 / 共 3 步 · 还没有原始素材 —— 先点「⬆️ 上传图片」传几张（成片不算素材）',
-    nextLabel: '下一步 → 看方案',
+      ? '第 1 步 / 共 2 步 · 勾选原始素材（只列你上传的图，成片不算素材；最多勾 ' + DAILY_MAX_PICK + ' 张，必须至少勾 1 张）'
+      : '第 1 步 / 共 2 步 · 还没有原始素材 —— 先点「⬆️ 上传图片」传几张（成片不算素材）',
+    nextLabel: '🎬 直接出片（AI 自己排）',
     proto: 'VF_DAILY_FORM',   // ★本线的协议串（前端 `next()` 用它，不跟成片线共用）
     images,
     names: Array.isArray(d.names) ? d.names : [],
@@ -1734,35 +1738,20 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
     try { ctx.log?.(uid, '[日报落地页] AI 自由设计：第' + attempt + '轮过闸门 · ' + secN + ' 段') } catch { /* ignore */ }
     return await finishDaily(ctx, d, picks, { html })
   }
-  // 3 轮都不过 ⇒ 回落模板档（d.plan 仍是方案卡那份，没被覆盖）
-  /* ★VF_AIDESIGN_DIAG_V1（2026-10-20 用户要求「闸门不要只说失败，失败要有日志什么原因」）：
-     ① 报错**压成单行**（原来多行 ⇒ `pm2 logs | grep` 只看得到第一行 ⇒ 像是"只说失败"）；
-     ② 轮次不再硬编码"3 轮"（已改成 1 轮，硬编码会误导）。 */
+  /* ★VF_DAILY_AIONLY_V1（2026-10-24 用户定案「日报线彻底 AI 自由，模板档停用」）：
+     **不再回落模板档**。原来这里会 `finishDaily(...)`（不带 html ⇒ 用方案卡那份 plan 生成模板页），
+     并把"已自动改用模板版"塞进卡片 ⇒ 用户以为是自己排的，其实是模板。
+     现口径：失败就**如实报错 + 让他重试**，不偷偷换实现。
+     ⚠️ 此时 `d.plan` 可能为空（已不经过方案卡）⇒ 不动草稿内容，只把 step 退回 pick。 */
   try {
-    // 当前配置只跑 1 轮（见上方 for 循环的 attempt <= 1）；如改轮次，这里同步改数字
-    ctx.log?.(uid, '[日报落地页] AI 自由设计：1 轮未过闸门 ⇒ 回落模板档 ｜ 最后报错：'
-      + String(lastErr || '（无）').replace(/\s*\n+\s*/g, ' ｜ ').slice(0, 1500))
+    ctx.log?.(uid, '[日报落地页] AI 自由设计：未过闸门 ⇒ 不回落模板，直接报错 ｜ '
+      + String(lastErr || '（无）').replace(/\s*\n+\s*/g, ' ｜ ').slice(0, 800))
   } catch { /* ignore */ }
-  /* ★VF_DAILYEDIT_V3（2026-10-19 用户实测「**吐字不是卡片**」）：原来这里把**提示文字拼在 `VF_JSON` 前面**：
-       `'⚠️ AI 版连续 3 轮没过闸门…' + 报错 + await finishDaily(...)` ⇒ 整条回复**以 ⚠️ 开头** ⇒
-       前端 `content.startsWith('VF_JSON:')` 判否 ⇒ **降级成纯文本**（用户看到"文字 + 一坨裸 JSON"）。
-       现口径：**先拿到卡片串，再把提示塞进卡片的 `hint` / `aiFailNote` 字段** ⇒ 整条回复仍是**纯 `VF_JSON`**，
-       卡片正常渲染，提示也不丢（显示在卡片顶部）。
-       ⚠️ 不调 `finishDaily` 的签名（避免牵连模板档），只在它返回的 JSON 里注入字段。 */
-  const cardStr = String(await finishDaily(ctx, d, picks) || '')
-  const PREFIX = 'VF_JSON:'
-  if (cardStr.startsWith(PREFIX)) {
-    try {
-      const j = JSON.parse(cardStr.slice(PREFIX.length))
-      // ★VF_AIDESIGN_DIAG_V1b：轮次改成 1 轮后，这句还写死"3 轮"⇒ 会误导。统一成"未过闸门"（不含轮次数字）。
-      const why = '⚠️ AI 版未过闸门，已自动改用模板版'
-      j.hint = why + ' · ' + String(j.hint || '')
-      if (lastErr) j.aiFailNote = String(lastErr).slice(0, 600)
-      return PREFIX + JSON.stringify(j)
-    } catch { return cardStr }
-  }
-  // 兜底（极端情况拿到的不是卡片）：至少把提示带上
-  return '⚠️ AI 版未过闸门，已自动改用模板版：\n' + (lastErr || '（无报错信息）') + '\n\n' + cardStr
+  d.step = 'pick'
+  try { await saveDailyDraft(ctx.prisma, uid, d) } catch { /* ignore */ }
+  return '⚠️ AI 这轮没排出合格的页面。\n'
+    + (lastErr ? '原因：' + String(lastErr).replace(/\s*\n+\s*/g, ' ｜ ').slice(0, 600) + '\n' : '')
+    + '\n可以回一句「再试一次」，或说「日报落地页」重新起一单（换几张素材有时就好了）。'
 }
 async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[], prebuilt?: { html: string }): Promise<string> {
   const uid = ctx.uid
@@ -2244,7 +2233,18 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
       return '⚠️ 你还没**勾选素材** —— 在上面缩略图上点一下（可以多选），至少选 1 张才能继续。\n'
         + '仓库里现在有 **' + all.length + ' 张**可勾。'
     }
-    return await runPlan(ctx, d, { kind: 'repo' }, picked, '')
+    /* ★VF_DAILY_AIONLY_V1（2026-10-24 用户定案「日报线彻底 AI 自由，删掉方案卡那一步」）：
+       原来这里 `runPlan`（读图 → 排段 → 出**方案卡**）⇒ 用户要再点一次「✅ 生成 HTML」。
+       现在：**选完素材直接让 AI 看素材写整页 HTML**（`runDesignRetry`），中间不再停。
+       为什么可以：AI 自由档本来就自己看图、自己定段数/版式/皮肤/文案，**不需要方案卡当输入**
+                  （`runDesignRetry` 只用 picks + topic）。
+       ⚠️ 失败不再回落模板档（模板档一并停用，见下面的回落分支）。 */
+    d.names = picked
+    d.source = { kind: 'repo' }
+    d.step = 'review'
+    await saveDailyDraft(ctx.prisma, uid, d)
+    try { ctx.log?.(uid, '[日报落地页] 选完素材 ⇒ 直接 AI 出片（跳过方案卡）· ' + picked.length + ' 张') } catch { /* ignore */ }
+    return await runDesignRetry(ctx, d, toPicks(uid, { kind: 'repo' }, picked))
   }
 
   /* ── 第 1 步：选素材（手动；来源可切换；主题可选） ── */
