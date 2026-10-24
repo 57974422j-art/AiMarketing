@@ -505,7 +505,9 @@ export async function aiDesignPage(
      否则请求会在网关被掐断，前端只看到"网络连接失败"（用户遇到的就是这个）。
      **不传 = 240s（逐字保持现状）**。 */
   opts?: { failNote?: string; timeoutMs?: number },
-): Promise<{ ok: boolean; html?: string; error?: string; captions?: string; vlErr?: string; diag?: string }> {
+  /* ★VF_STORY_TWOCOPY_V1：把分镜表（含每段的 `voice`）一起返回 ——
+     调用方可以直接用它填口播，**不用再调一次 AI 重写**。 */
+): Promise<{ ok: boolean; html?: string; error?: string; captions?: string; vlErr?: string; diag?: string; segs?: any[] }> {
   const n = picks.length
   if (!n) return { ok: false, error: '没有素材' }
 
@@ -719,7 +721,8 @@ export async function aiDesignPage(
       error: 'AI 没给出完整 HTML（前 120 字：' + txt.slice(0, 120).replace(/\s+/g, ' ') + '）',
     }
   }
-  return { ok: true, html: m[0], captions: summary, vlErr, diag }
+  // ★VF_STORY_TWOCOPY_V1：把分镜表带出去（含每段 voice），供调用方直接填口播
+  return { ok: true, html: m[0], captions: summary, vlErr, diag, segs: storySegs }
 }
 
 /* ═══ ★VF_DAIDESIGN_V2（2026-10-18 用户实测「content_overlap / 对比度 1.8:1」后定案「修吧」）：
@@ -1608,6 +1611,19 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
       + ' · 耗时 ' + Math.round((Date.now() - _tRound) / 1000) + 's'
         + ' ｜ ' + String(design.diag || '') + (design.vlErr ? ' ｜ 读图：' + design.vlErr : ''))
     } catch { /* ignore */ }
+    /* ★VF_STORY_TWOCOPY_V1（2026-10-24 用户定案「一次看图，两套文案一起写好」）：
+       分镜表里已经带了**每段的 voice**（同一次看图写的）⇒ **存进草稿**，
+       后面 `at:'voice'` 直接取用，**不再调一次 AI 另写一遍**（那正是"两次生成对不上"的根源）。
+       ⚠️ 只在段数一致时采用（AI 排版时可能合并/拆分段），否则回落到原来的写文案流程。 */
+    if (design.ok && Array.isArray(design.segs) && design.segs.length) {
+      const vs = design.segs.map((s: any) => String(s?.voice == null ? '' : s.voice).trim())
+      const hasVoice = vs.filter(Boolean).length >= Math.ceil(vs.length * 0.6)
+      if (hasVoice) {
+        ;(d as any).storyVoice = vs
+        try { await saveDailyDraft(ctx.prisma, uid, d) } catch { /* ignore */ }
+        try { ctx.log?.(uid, '[日报落地页] 分镜表已带口播 ' + vs.filter(Boolean).length + '/' + vs.length + ' 段 ⇒ 出片时直接用') } catch { /* ignore */ }
+      }
+    }
     if (!design.ok || !design.html) { lastErr = String(design.error || '未知原因'); failNote = ''; continue }
 
     // 字体适配（必须在 check 前：服务器无 CJK ⇒ 不换字体会误报对比度/溢出）
@@ -2052,8 +2068,23 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
           ? '还没生成 HTML。'
           : '没有**单文件版**（配音要在它基础上回填时间轴）。'))
       }
-      const v = await aiVoiceLines(
-        toPicks(uid, d.source || { kind: 'repo' }, d.names || []), d.plan.segments, d.topic || '')
+      /* ★VF_STORY_TWOCOPY_V1（2026-10-24 用户定案「一次看图，两套文案一起写好，点出片直接回填」）：
+         如果出 HTML 时那份**分镜表已带每段的 voice**（同一次看图写的），**直接用它** ——
+         不再调一次 AI 另写（那正是"两次独立生成、互相对不上"的根源）。
+         ⚠️ 段数不一致（AI 排版时合并/拆段）⇒ 回落到原流程（另写一次，带图 + 画面字）。 */
+      const _segN = (d.plan.segments || []).length
+      const _sv: string[] = Array.isArray((d as any).storyVoice) ? ((d as any).storyVoice as string[]) : []
+      const _useStory = _segN > 0 && _sv.length === _segN
+        && _sv.filter(Boolean).length >= Math.ceil(_segN * 0.6)
+      let v: any
+      if (_useStory) {
+        const nv = normVoiceLines({ voice: _sv }, _segN)
+        v = { ok: true, lines: nv.lines, fixes: (nv.fixes || []).slice(), sawImages: true, diag: '分镜表直出（未重复生成）' }
+        try { ctx.log?.(uid, '[日报落地页] 口播直接取分镜表 ' + _sv.filter(Boolean).length + '/' + _segN + ' 段（不再调 AI 重写）') } catch { /* ignore */ }
+      } else {
+        v = await aiVoiceLines(
+          toPicks(uid, d.source || { kind: 'repo' }, d.names || []), d.plan.segments, d.topic || '')
+      }
       if (!v.ok) {
         try { ctx.log?.(uid, '[日报落地页] 口播没写出来：' + String(v.error || '') + (v.vlErr ? ' · ' + v.vlErr : '') + (v.diag ? ' · ' + v.diag : '')) } catch { /* ignore */ }
         return '⚠️ 口播没写出来：' + String(v.error || '未知原因')
