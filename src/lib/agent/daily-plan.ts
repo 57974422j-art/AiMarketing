@@ -2196,15 +2196,59 @@ export function planFromAiHtml(html: string): { meta: any; segments: any[] } {
       .replace(/&nbsp;|&amp;/g, ' ')
       .replace(/\s+/g, ' ')
       .trim()
-    /* 按**出现顺序**取前两段（不再按字数排序）——
-       排序会把"树影和人影都浮着"（说明句）排到"踩着石墩过河"（标题）前面，导致主副颠倒。
-       过滤掉纯数字（页码）与单字符（装饰），保留正常中文/英文短句。 */
+    /* ★VF_PLAN_HTML_FONTSIZE_V1（2026-10-24 用户实测「编辑面板显示『百叶居/京味涮肉』，
+       而页面上的大字是『京味老号/铜锅涮肉』」）：
+       病灶：原来**按 DOM 出现顺序取前两段**。实测 133 号页面第 1 段的文字顺序是：
+             ① 百叶居 · 京味涮肉（顶部小标签） ② 京味老号（大字） ③ 铜锅涮肉（大字） ④ 正文
+             ⇒ 取前两个 ⇒ **抓到小标签** ⇒ 面板与页面显示不一致。
+       现口径：**按字号取最大的两个**（这才是"大字标题"），并额外把**最长的那句**当正文：
+         · 先从 `<style>` 建 class → font-size 映射；
+         · 再看每个文字节点所在标签的 class / inline style，估出它的字号；
+         · 大字里优先长度 ≤10 的（排除正文误入），降序取前 2；
+         · 正文 = 长度 ≥12 的最长一句（给编辑面板/校验用）。
+       兜底：一个字号都算不出来时（比如整页用 CSS 变量），退回原来的"按顺序取前两段"。 */
+    const sizeOf: Record<string, number> = {}
+    /* ⚠️ 必须支持**复合选择器**：实测 133 的大字写在 `.s1-title .ln1{font-size:132px}` 这种形式里，
+       只认 `.cls{...}` 会漏掉 ⇒ 那些节点的字号算成 0 ⇒ 被当成"没字号"排除
+       ⇒ 段2 的正文（27px）反而成了"最大字号" ⇒ **正文被抓去当标题**。
+       现口径：**任意选择器里出现的 .cls 都记一次字号**（取该 class 的最大值）。 */
+    for (const sm of String(html).matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      const fs = /font-size\s*:\s*([\d.]+)px/.exec(sm[2])
+      if (!fs) continue
+      const px = Number(fs[1])
+      for (const cm of sm[1].matchAll(/\.([a-zA-Z0-9_-]+)/g)) {
+        sizeOf[cm[1]] = Math.max(sizeOf[cm[1]] || 0, px)
+      }
+    }
+    const nodes: Array<{ t: string; size: number }> = []
+    for (const nm of inner.matchAll(/<([a-zA-Z][\w-]*)([^>]*)>([^<>]+)</g)) {
+      const t = String(nm[3]).replace(/\s+/g, ' ').trim()
+      if (!t || !/[\u4e00-\u9fa5]/.test(t)) continue
+      if (t.length < 2 || /^\d+([.:]\d+)?$/.test(t)) continue
+      const cls = ((/class="([^"]*)"/.exec(nm[2]) || [])[1] || '').trim()
+      let size = 0
+      for (const c of cls.split(/\s+/)) if (c && sizeOf[c]) size = Math.max(size, sizeOf[c])
+      const inl = /font-size\s*:\s*([\d.]+)px/.exec(nm[2])
+      if (inl) size = Math.max(size, Number(inl[1]))
+      nodes.push({ t, size })
+    }
+    const bigAll = nodes.filter((x) => x.size > 0).sort((a, b) => b.size - a.size)
+    const bigShort = bigAll.filter((x) => [...x.t].length <= 10)
+    const bigPick = (bigShort.length ? bigShort : bigAll).slice(0, 2).map((x) => x.t.slice(0, 14))
+    const bodyLong = nodes.filter((x) => [...x.t].length >= 12)
+      .sort((a, b) => [...b.t].length - [...a.t].length)[0]?.t || ''
+    // 兜底：字号一个都估不出来 ⇒ 退回"按顺序取前两段"
     const parts = plain.split(/[|｜/／·、,，。;；!！?？\s]+/).map((s) => s.trim())
       .filter((s) => s.length >= 2 && !/^\d+([.:]\d+)?$/.test(s))
+    const title2 = bigPick.length
+      ? [bigPick[0] || '', bigPick[1] || '']
+      : [(parts[0] || '').slice(0, 14), (parts[1] || '').slice(0, 14)]
     segments.push({
       layout: 'free',
-      title: [(parts[0] || '').slice(0, 14), (parts[1] || '').slice(0, 14)],
+      title: title2,
       points: [],
+      body: bodyLong.slice(0, 40),   // ★这一段的"正文那句"（编辑面板用）
+      texts: nodes.map((x) => ({ t: x.t.slice(0, 60), s: x.size })),  // ★全部文字（带字号），面板可逐条改
       imgs: imgs.length ? imgs : [1],
       start,
       dur,
