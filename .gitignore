@@ -84,3 +84,6 @@ scripts/video-factory/vo*.m4a
 scripts/video-factory/out_*.m4a
 scripts/video-factory/audio-list.txt
 scripts/video-factory/list.txt
+
+# 提示词全文快照（本地工作笔记，不上传）
+docs/DAILY-PROMPT-FULL.md
