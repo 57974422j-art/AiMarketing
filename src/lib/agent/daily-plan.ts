@@ -745,22 +745,47 @@ export function estimateSec(text: string): number {
 /** 逐段口播提示词（纯函数 ⇒ 可单测；写法要点全在这段字符串里，改口径只改这里） */
 export function voicePrompt(segs: any[], captions: string, topic = '', offset = 0): string {
   const list = Array.isArray(segs) ? segs : []
+  /* ★VF_VOICE_IMG_BIND_V1（2026-10-24 用真实思考记录定位到的根因，**这是最严重的一个 bug**）：
+     病灶：以前每段只给「画面字」，另附一个**按图号排的全局清单**（1. 小龙虾 / 2. 黑毛肚 / 3. 海参…）。
+          模型只好自己猜"第 1 段用哪张图" ⇒ 默认按 1、2、3 顺序 ⇒
+          而画面实际顺序是「图6、图7、图5…」（它排版时按叙事重排过）
+          ⇒ **从第 1 段就错位**：画面「铜锅炭火」，口播「红油小龙虾」；画面「清汤滚沸」，口播「毛肚啤酒」。
+          还会多写句数（按 17 张图写了 17~18 句，画面只有 16 段）⇒ 卡片上出现「口播多出 2 句（已丢弃）」。
+     现口径：**把图挂到段上** —— 每段直接写「这段用的图 6（图 6 拍到：门头夜景/铜锅炭火）」
+          ⇒ 它不需要猜，也不可能错位。
+     `captions` 的格式是视觉模型逐行给的「N. 描述」（见 daily.ts 的 ask），这里解析成 map 复用。 */
+  const capMap: Record<number, string> = {}
+  for (const line of String(captions || '').split('\n')) {
+    const mm = /^\s*(\d+)\s*[.、)]\s*(.+)$/.exec(line)
+    if (mm) capMap[Number(mm[1])] = String(mm[2]).trim().slice(0, 40)
+  }
   const rows = list.map((s: any, i: number) => {
     const title = (Array.isArray(s?.title) ? s.title : [s?.title])
       .map((x: any) => String(x == null ? '' : x)).filter(Boolean).join(' / ')
     const pts = (Array.isArray(s?.points) ? s.points : [])
       .map((p: any) => (Array.isArray(p) ? p.filter(Boolean).join('·') : String(p))).filter(Boolean).join('、')
+    const imgs = (Array.isArray(s?.imgs) ? s.imgs : [])
+      .map((x: any) => Number(x)).filter((x: number) => x > 0)
+    const imgDesc = imgs.map((n: number) => '图' + n + (capMap[n] ? '（' + capMap[n] + '）' : '')).join('、')
     return '  段' + (offset + i + 1) + '：画面字「' + title + '」' + (pts ? ' ＋ 信息点「' + pts + '」' : '')
+      + (imgDesc ? ' ｜ **这段的画面是** ' + imgDesc : '')
   }).join('\n')
   return [
     '你在给一条**竖屏短视频**写**口播旁白**（这份片叫「日报落地页」，主题：' + (topic || '未指定') + '）。',
     '',
     '【每一段的画面】',
     rows,
-    captions ? '\n【这些图实际拍的是什么（视觉模型逐张读出 —— **写旁白必须据此，不许编造**）】\n' + captions : '',
+    /* ★VF_VOICE_IMG_BIND_V1：清单**只作查证**，顺序一律以每段上标注的「这段的画面是 图N」为准。
+       不加这句就会重犯老 bug：它拿清单的 1、2、3 当段顺序 ⇒ 全片错位。 */
+    captions
+      ? '\n【全部素材清单（视觉模型逐张读出，**只用来查证细节，不要按这个清单的顺序写**）】\n' + captions
+        + '\n⚠️ **画面段不是按图号排的！** 每段到底对应哪张图，以该段后面标注的「这段的画面是 图N」为准。'
+      : '',
     '',
     '【怎么写】',
-    '1. **一段一句**，共 ' + list.length + ' 句，顺序与上面完全一致；',
+    /* ★VF_VOICE_IMG_BIND_V1：以前它按"17 张图"写 17~18 句（卡片上出现「口播多出 2 句（已丢弃）」）。
+       现口径：**句数必须等于段数**，多写少写都算错。 */
+    '1. **一段一句，正好 ' + list.length + ' 句**（多一句、少一句都不行；顺序与上面完全一致）；',
     '2. 每句 **不超过 ' + VOICE_MAX_CHARS + ' 个汉字**（硬上限：一句话的长短**决定这一段有多长**）；',
     '3. 像**旁边有人随口介绍**，用口语、别用书面语（不要"本店""致力于""为广大食客"这类词）；',
     /* ★VF_VOICE_ALIGN_V1（2026-10-23 用户定案「**原则是保证第一次输出配音文案能和画面对上**」）：
