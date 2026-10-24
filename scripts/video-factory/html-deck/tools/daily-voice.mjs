@@ -100,11 +100,16 @@ const SUB_SIZE = String(arg('sub-size', '10'))
    换算：libass 的 MarginV 单位 = 像素 / (视频高 1280 / PlayResY 288) = 像素 / 4.444
    仍支持 `--sub-margin` 直接给原始 libass 单位（给了就以它为准，兼容老调用）。 */
 const SUB_POS = String(arg('sub-pos', 'lower'))
-const POS_PX = { bottom: 40, lower: 320, mid: 560 }[SUB_POS] ?? 320
+/* ★VF_ASPECT_STEP1_V1：字幕换算原来写死"视频高 1280" ⇒ 横屏（720）时换算错 1.8 倍、字幕跑到画面中间。
+   现口径：按 `--h`（不传 = 1280，行为完全不变）换算。
+   另外横屏时"距底 320px"太高（720 高的片子里那已经接近中间）⇒ 横屏按比例的 0.18 折算。 */
+const VID_H = Math.max(240, Number(arg('h', '1280')) || 1280)
+const _posPxBase = { bottom: 40, lower: 320, mid: 560 }[SUB_POS] ?? 320
+const POS_PX = VID_H >= 1000 ? _posPxBase : Math.round(VID_H * (_posPxBase / 1280) * 1.6)
 const SUB_MARGIN_RAW = arg('sub-margin', '')
 const SUB_MARGIN = SUB_MARGIN_RAW
   ? String(SUB_MARGIN_RAW)
-  : String(Math.round(POS_PX / (1280 / 288)))
+  : String(Math.round(POS_PX / (VID_H / 288)))
 /* 旧的 `--sub-margin` 默认值 6（≈27px，贴底）已被上面的 `--sub-pos` 取代，见 SUB_POS 注释 */
 const TTS_NODE = path.join(TOOLS, 'tts-node.mjs')
 

@@ -3169,9 +3169,12 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
 
           {/* ★VF_USER_RULES_UI_V1：把系统那几条排版要求摊开给用户改（折叠，默认收起） */}
           <div className="mb-2">
+            {/* ★VF_RULES_BTN_VISIBLE_V1：原来太素（灰边灰字）用户说"没看到" ⇒ 改成绿色可点按钮 */}
             <button type="button" onClick={() => setRulesOpen((v) => !v)}
-              className="text-[10px] px-2 py-1 rounded-lg border border-white/15 text-gray-300 hover:bg-white/[0.08]">
-              {rulesOpen ? '▾' : '▸'} ✎ 补充要求（可选，可改这里再试）
+              className={'w-full text-left px-2.5 py-1.5 rounded-lg border text-[11px] transition ' + (rulesOpen
+                ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-100'
+                : 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20')}>
+              {rulesOpen ? '▾' : '▸'} ✎ 补充要求（点开改排版规则，可增删）
             </button>
             {rulesOpen ? (
               <div className="mt-1.5">
@@ -3190,7 +3193,30 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
             ) : null}
           </div>
 
-          <button onClick={() => { if (!sel.length) return; next('mat', { names: sel, plateRatio, userRules }) }}
+          {/* ★VF_ASPECT_STEP1_V1（2026-10-24 用户「横屏加上，先不做过多约束有个比例就行」）：
+              画幅原来也只长在风格卡（第 2 步），日报线没有第 2 步 ⇒ 搬一份到素材卡。
+              口径：竖屏 720×1280（默认）/ 横屏 1280×720；出片引擎按 `--w/--h` 走。 */}
+          <div className="rounded-xl border border-emerald-500/25 bg-black/20 px-3 py-2 mb-2">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] text-gray-300">画幅</span>
+              <span className="text-[11px] text-emerald-300 font-medium">
+                {aspect === '16:9' ? '横屏 1280×720' : '竖屏 720×1280'}
+              </span>
+            </div>
+            <div className="flex gap-2">
+              {[{ v: '9:16', t: '竖屏 9:16', d: '抖音 / 小红书 / 视频号竖版' },
+                { v: '16:9', t: '横屏 16:9', d: '视频号横版 / 公众号 / B 站' }].map((o) => (
+                <button key={o.v} onClick={() => setAspect(o.v)}
+                  className={'flex-1 px-3 py-2 rounded-lg text-left border ' +
+                    (aspect === o.v ? 'border-emerald-400/70 bg-emerald-500/[0.14]' : 'border-white/10 bg-black/20 hover:bg-white/[0.04]')}>
+                  <span className="block text-[11px] text-gray-100">{o.t}</span>
+                  <span className="block text-[9px] text-gray-500 mt-0.5">{o.d}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button onClick={() => { if (!sel.length) return; next('mat', { names: sel, plateRatio, userRules, aspect }) }}
             disabled={!sel.length}
             title={sel.length ? '' : '请先在上方勾选至少一张素材'}
             className={'w-full px-4 py-2 rounded-lg border text-sm transition ' + (sel.length

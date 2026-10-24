@@ -245,7 +245,7 @@ export async function startDailyFilm(
      ★VF_DAILY_TTSVOICE_V1：`ttsVoice` = 配音音色 id（空则用引擎默认）。
      ★VF_DAILY_BGM_V1：`bgm` = 个人仓库里的音频文件名（空则不配乐），`bgmVol` = dB（默认 -18）。 */
   uid: number | string, htmlName: string,
-  opts?: { voice?: string[]; subPos?: string; ttsVoice?: string; bgm?: string; bgmVol?: number },
+  opts?: { voice?: string[]; subPos?: string; ttsVoice?: string; bgm?: string; bgmVol?: number; aspect?: string },
 ): Promise<DailyFilmTask> {
   const voiced = Array.isArray(opts?.voice) && opts!.voice!.length > 0
   const id = 'df' + Date.now()
@@ -330,6 +330,12 @@ export async function startDailyFilm(
         /* ★VF_SUBPOS_V1：字幕位置默认 `lower`（距底 320px）——
            竖屏贴底会在抖音/快手被「@用户名 / 文案 / 音乐 / 进度条」整块挡住。 */
         args = [tool, htmlPath, '--voices', vp, '--outdir', outDir, '--sub-pos', String((opts as any)?.subPos || 'lower')]
+        /* ★VF_ASPECT_STEP1_V1：画幅（竖屏 720×1280 默认 / 横屏 1280×720）。
+           **不传 = 720×1280**，与以前完全一致；引擎侧 `--w/--h` 只改 root composition 的声明。 */
+        const _asp = String((opts as any)?.aspect || '') === '16:9' ? '16:9' : '9:16'
+        const _w = _asp === '16:9' ? '1280' : '720'
+        const _h = _asp === '16:9' ? '720' : '1280'
+        args.push('--w', _w, '--h', _h)
         // ★VF_DAILY_TTSVOICE_V1：选了音色就传（daily-voice.mjs 会转发给 tts-node.mjs 的 --voice）
         const _tv = String((opts as any)?.ttsVoice || '').trim()
         if (_tv) args.push('--voice', _tv)

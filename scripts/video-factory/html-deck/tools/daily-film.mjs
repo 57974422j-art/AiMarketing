@@ -197,8 +197,15 @@ if (first < 0 || lastEnd <= first) { console.log('stage=html ✗ 段包裹失败
    现口径（**防御式**）：**先清掉页面里所有 `data-composition-id`**，再加唯一的一个。
      这样不管 AI 写 0 个、1 个还是 3 个，结果都只有 1 个。 */
 html = html.replace(/\s*data-composition-id="[^"]*"/g, '')
+/* ★VF_ASPECT_STEP1_V1（2026-10-24 用户「横屏加上」）：
+   原来 root 的 `data-width/height` **写死 720×1280** ⇒ 横屏页面会被引擎按竖屏画布裁掉。
+   现口径：`--w` / `--h` 可选（**不传 = 720×1280，与以前完全一致**）。
+   ⚠️ 只影响 root composition 的声明；段的 CSS 尺寸由页面自己写（AI 会按提示词里的画布排）。 */
+// ⚠️ 本脚本的参数读取函数叫 `opt`（不是 arg）—— 见顶部 `const opt = (k, d) => …`
+const outW = Math.max(240, Math.min(2160, Number(opt('w', '720')) || 720))
+const outH = Math.max(240, Math.min(2160, Number(opt('h', '1280')) || 1280))
 const rootAttrs = 'data-composition-id="main" data-start="0" data-duration="' + total
-  + '" data-fps="' + fps + '" data-width="720" data-height="1280"'
+  + '" data-fps="' + fps + '" data-width="' + outW + '" data-height="' + outH + '"'
 const bodyWrap = /<body[^>]*>\s*<([a-zA-Z]+)/i.exec(html)
 const wrapIsContainer = !!bodyWrap && bodyWrap[1].toLowerCase() !== 'section'
 if (wrapIsContainer) {
