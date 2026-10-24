@@ -3184,7 +3184,7 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
                     className="text-[10px] px-2 py-0.5 rounded border border-white/15 text-gray-400 hover:bg-white/[0.06]">恢复默认</button>
                   <button type="button" onClick={() => setUserRules('')}
                     className="text-[10px] px-2 py-0.5 rounded border border-white/15 text-gray-400 hover:bg-white/[0.06]">清空</button>
-                  <span className="text-[10px] text-gray-600">只对这条片子生效；改不动硬规则（比如"必须有正文那句话"）</span>
+                  <span className="text-[10px] text-gray-600">只对这条片子生效；**删掉哪条 = 不再要求那条**（不会被系统默认补回来）；改不动硬规则（必须有正文那句话、不许元叙述…）</span>
                 </div>
               </div>
             ) : null}
