@@ -48,7 +48,7 @@ import { voiceOptions } from './vf/tts-voices'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 import { dashscopeFunctionCall } from '@/lib/ai-providers'
 // ★纯函数层（零依赖、可单测：temp/_exp/daily/test-plan.mjs）
-import { DAILY_STYLE, aiPrompt, extractJsonEx, normSegs, normMotion, normTheme, normFont, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, assignTextMotion, pickFont, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer, checkDiversity, fixDiversity, voicePrompt, voicePromptStrict, normVoiceLines, buildVoiceCardPayload, estimateSec, parseVoiceLines, VOICE_MAX_CHARS, voiceKeyOf, aiDesignPrompt, aiStoryboardPrompt, planFromAiHtml } from './daily-plan'
+import { DAILY_STYLE, aiPrompt, extractJsonEx, normSegs, normMotion, normTheme, normFont, themeName, buildPlanFromSegs, buildDailyPlan, formatDailyPlan, assignTextMotion, pickFont, applyDailyEdit, buildPlanCardPayload, buildDoneCardPayload, embedImages, rotateTheme, planFromCaptions, byLabel, assignFx, planFingerprint, similarity, rerollPlan, scrimFor, applyEditBatch, layoutLabel, assignTextLayer, checkDiversity, fixDiversity, voicePrompt, voicePromptStrict, normVoiceLines, buildVoiceCardPayload, estimateSec, parseVoiceLines, VOICE_MAX_CHARS, voiceKeyOf, aiDesignPrompt, aiDesignPromptLite, aiStoryboardPrompt, planFromAiHtml } from './daily-plan'
 import type { PlanBy } from './daily-plan'
 
 export { DAILY_STYLE }
@@ -625,7 +625,13 @@ export async function aiDesignPage(
 
   // ② 让 AI 出整页 HTML（关思考 + 大额度 + 长超时，与方案档同口径）
   // ★VF_PLATE_RATIO_V1：全图比例一起传（不传 = 60，与 HTML 成片线同默认）
-  const prompt = aiDesignPrompt(n, topic, { failNote: opts?.failNote, segs: storySegs, plateRatio: opts?.plateRatio, userRules: opts?.userRules, aspect: opts?.aspect })
+  /* ★VF_LITE_PROMPT_V1（2026-10-25 用户「横屏就把竖屏那套都不使用，只给一个比例」）：
+     横屏走 `aiDesignPromptLite` —— 只留分辨率 + 做视频的必要条件 + 文案，
+     不带任何竖屏排版偏好（安全区/下边界/遮罩/铺满那些词在横屏语义下是错的，会把它搞乱）。 */
+  const _isLandscape = String(opts?.aspect || '') === '16:9'
+  const prompt = _isLandscape
+    ? aiDesignPromptLite(n, topic, { segs: storySegs, userRules: opts?.userRules })
+    : aiDesignPrompt(n, topic, { failNote: opts?.failNote, segs: storySegs, plateRatio: opts?.plateRatio, userRules: opts?.userRules, aspect: opts?.aspect })
     + (summary ? '\n\n【素材实拍内容（视觉模型逐张读出，写文案必须据此，不许编造）】\n' + summary : '')
   let txt = ''
   let diag = ''

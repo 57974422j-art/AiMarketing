@@ -894,6 +894,76 @@ export function estimateSec(text: string): number {
   return n ? Math.max(1.2, Math.round((n / 4.5) * 10) / 10) : 0
 }
 /** 逐段口播提示词（纯函数 ⇒ 可单测；写法要点全在这段字符串里，改口径只改这里） */
+/* ══════════════════════════════════════════════════════════════════════════════
+   ★VF_LITE_PROMPT_V1（2026-10-25 用户「横屏模式下把现在竖屏的提示词都不使用，
+   就告诉它一个比例，先让它什么都不用，只要分辨率和最关键的做视频」）
+
+   为什么单独一份：竖屏那套提示词里混着大量**竖屏专属**的排版要求
+   （安全区 56、下边界 100px、抖音 UI、遮罩不超过 60%、铺满到 y≈1160…）
+   ⇒ 横屏时这些词**语义就不对**，模型看到"竖屏""9:16""下边界"会混乱
+   ⇒ 实测 019：尺寸对了（1280×720），但 0 处左右分栏，就是把竖版拉宽。
+
+   这一份**只留三样**：
+     ① 分辨率（1280×720）
+     ② 做视频的技术必要条件（分段/时间轴/__seek/字体/图引用/禁非确定性）
+     ③ 文案（分镜表原样给它，不给它会写空）
+   其余（字号、遮罩、铺满、转场、底色、字数上限）**一律不写** ⇒ 让它自己排。
+
+   ⚠️ 不动 `aiDesignPrompt`（竖屏零风险）；只有横屏走这里。
+   ══════════════════════════════════════════════════════════════════════════════ */
+export function aiDesignPromptLite(
+  n: number, topic: string,
+  opts?: { segs?: any[]; userRules?: string },
+): string {
+  const segs = Array.isArray(opts?.segs) ? opts!.segs! : []
+  const rows = segs.map((s: any, i: number) => {
+    const t = (Array.isArray(s?.title) ? s.title : [s?.title]).map((x: any) => String(x == null ? '' : x)).filter(Boolean).join(' / ')
+    const ln = String(s?.line || '').trim()
+    const im = Array.isArray(s?.imgs) && s.imgs.length ? ' ｜ 用图 ' + s.imgs.join(',') : ''
+    return '  段' + (i + 1) + '：' + (t || '（这条只有图）') + im + (ln ? '\n        正文：' + ln : '')
+  }).join('\n')
+
+  return [
+    '你是视觉设计师兼前端工程师。交付**一条横屏 16:9 视频的页面**，画布 **1280×720**。',
+    '它会被**逐帧渲染成 mp4**（不是给人滚动浏览的网页）。',
+    topic ? '主题：' + topic : '主题按素材自己判断。',
+    '',
+    '素材：用户提供的 ' + n + ' 张实拍照片，文件名 `1.jpg ~ ' + n + '.jpg`（与 HTML 同目录，直接 `src="3.jpg"` 引用）。',
+    '',
+    '**版式、配色、字号、动效、结构全部由你决定**（这是横屏，按横向构图想，别把竖屏的排法拉宽）。',
+    '',
+    ...(segs.length ? [
+      '【文案 · 用这份（每段标题和正文都要排上去）】',
+      rows,
+      '段数保持 ' + segs.length + ' 段（不要合并或拆分）。',
+      '',
+    ] : []),
+    '【做视频的必要条件（只这几条，违反会渲不出来）】',
+    '1) 按时间播放，不是滚动：**禁止** IntersectionObserver / scroll 事件 / requestAnimationFrame / performance.now；',
+    '2) 每段一个 `<section class="sec" data-start="秒" data-duration="秒">`，**首帧不能空白**，总时长 20~60 秒；',
+    '3) 必须**原样照抄**这段（唯一时间接口，别自己发明）：',
+    '   <script>',
+    '   window.__seek = function (t) {',
+    '     document.querySelectorAll(".sec").forEach(function (sec) {',
+    '       var s = Number(sec.dataset.start) || 0, d = Number(sec.dataset.duration) || 3;',
+    '       sec.style.setProperty("--p", String(Math.min(1, Math.max(0, (t - s) / d))));',
+    '     });',
+    '   };',
+    '   window.__seek(0);',
+    '   </script>',
+    '4) 字体**只能用** `TXT-Serif`（标题）和 `TXT-Sans`（正文/标签），CSS 写 `font-family:"TXT-Serif"`，并在页面里加：',
+    '   `@font-face{font-family:"TXT-Serif";src:local("TXT-Serif")}` / `@font-face{font-family:"TXT-Sans";src:local("TXT-Sans")}`；',
+    '   其余字体一律不要（系统字体在渲染机上是空的）。',
+    '5) **只用简体常用字**：禁止繁体（進/裡/後/麵/開/門）、异体字、生僻字、日文汉字、emoji 与 ①②★ 这类符号（字库里没有 ⇒ 会变空白方块）；',
+    '6) CSS/JS 全部内联；**只输出一个完整 HTML 文件**（`<!DOCTYPE html>` 到 `</html>`），不要解释、不要 markdown 围栏；',
+    '7) 页面外面套一层固定尺寸容器：`<div id="stage" style="width:1280px;height:720px;overflow:hidden;position:relative">`。',
+    '',
+    String(opts?.userRules || '').trim()
+      ? '【用户附加要求（只要不与上面 7 条冲突，就按他的来）】\n' + String(opts?.userRules || '').trim().slice(0, 800)
+      : '',
+  ].filter((x) => x !== undefined).join('\n')
+}
+
 export function voicePrompt(segs: any[], captions: string, topic = '', offset = 0): string {
   const list = Array.isArray(segs) ? segs : []
   /* ★VF_VOICE_IMG_BIND_V1（2026-10-24 用真实思考记录定位到的根因，**这是最严重的一个 bug**）：
