@@ -1971,10 +1971,8 @@ function VfDailyPlanCard({ vj, onSend }: { vj: any; onSend: (m: string) => void 
           取景 <span className="text-gray-300">{Number(vj.stats.place) || 0}</span> 种
         </div>
       ) : null}
-      {/* ★VF_DAILY_V20：卡片上的「✏️ 编辑」—— 就地改文字/版式/类型、删段（提交的是既有命令串） */}
-      {showEdit
-        ? <DailyEditPanel segs={segs} onSend={onSend} onClose={() => setShowEdit(false)} />
-        : null}
+      {/* ★VF_EDIT_ALLTEXT_V1：方案卡里的编辑面板已移除 —— 方案卡本身已停用（日报线只走 AI 自由），
+          而且它改的是 `d.plan`（影子），改了不影响页面。改字统一在**交付卡**上做。 */}
       <div className="text-[10px] text-gray-500 mb-2">
         想改某一段就直接发：<span className="text-gray-300">改 3 标题=第一行/第二行</span> ·{' '}
         <span className="text-gray-300">改 3 版式=竖排</span> · <span className="text-gray-300">改 3 用图=2,4</span> ·{' '}
@@ -2853,8 +2851,9 @@ function VfDailyDoneCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) 
           : null}
       </div>
       {/* ★VF_DAILY_V20：编辑面板（改完回方案卡，用户再点确认才重出文件） */}
+      {/* ★VF_EDIT_ALLTEXT_V1：改画面上的字（写回 HTML，重新出片生效） */}
       {showEdit && segsBrief.length
-        ? <DailyEditPanel segs={segsBrief} onSend={onSend} onClose={() => setShowEdit(false)} />
+        ? <DailyEditPanel segs={segsBrief} name={String(vj?.name || vj?.htmlName || '')} onClose={() => setShowEdit(false)} />
         : null}
       {showPv && apiView
         ? (
