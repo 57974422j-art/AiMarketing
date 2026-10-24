@@ -204,6 +204,21 @@ html = html.replace(/\s*data-composition-id="[^"]*"/g, '')
 // ⚠️ 本脚本的参数读取函数叫 `opt`（不是 arg）—— 见顶部 `const opt = (k, d) => …`
 const outW = Math.max(240, Math.min(2160, Number(opt('w', '720')) || 720))
 const outH = Math.max(240, Math.min(2160, Number(opt('h', '1280')) || 1280))
+
+/* ★VF_ASPECT_ENGINE_GUARD_V1（2026-10-25 实测：用户选横屏、`aspect` 也确实存进草稿了，
+   但出来的页面 `#stage{width:720px;height:1280px}` + `.sec{width:720px;height:1280px}` 全是竖的
+   ⇒ 引擎按 1280×720 开画布，里面塞了个 720 宽的竖版 ⇒ 看起来"还是竖屏"）。
+   根因是**提示词第一句写死"竖屏 9:16（720×1280）"**（已在 daily-plan.ts 修掉）。
+   但这层**不能只靠 AI 自觉** ⇒ 这里做**确定性兜底**：把 `#stage` / `.sec` 规则里的固定像素尺寸
+   按目标画幅改写。⚠️ 只动这两个选择器的声明块内部（不碰别的 720px，比如图片宽度）。 */
+if (outW !== 720 || outH !== 1280) {
+  const before = html
+  html = html.replace(/((?:#stage|\.sec)\s*\{[^}]*\})/gi, (block) => block
+    .replace(/(\bwidth\s*:\s*)720px/gi, '$1' + outW + 'px')
+    .replace(/(\bheight\s*:\s*)1280px/gi, '$1' + outH + 'px'))
+  const changed = html !== before
+  console.log('  画幅兜底：' + outW + '×' + outH + (changed ? '（已改写 #stage/.sec 的固定尺寸）' : '（页面没写死尺寸，无需改写）'))
+}
 const rootAttrs = 'data-composition-id="main" data-start="0" data-duration="' + total
   + '" data-fps="' + fps + '" data-width="' + outW + '" data-height="' + outH + '"'
 const bodyWrap = /<body[^>]*>\s*<([a-zA-Z]+)/i.exec(html)
