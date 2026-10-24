@@ -155,7 +155,12 @@ html = patched
 const noopDef = '<script>window.__noopNow=function(){return 0};window.__noopRaf=function(){return 0};</script>'
 html = html.replace(/performance\.now/g, 'window.__noopNow')
 html = html.replace(/requestAnimationFrame/g, 'window.__noopRaf')
-html = html.replace('</head>', noopDef + '\n</head>')
+/* ★VF_TEXTWRAP_V1（2026-10-24 用户实测排版问题：正文最后一行只剩「着。」两个字）：
+   `text-wrap: pretty` 是 CSS 标准属性（Chromium 117+），专门避免"最后一行只剩一两个字"。
+   为什么在**打包时统一注入**而不是让 AI 自己写：AI 写了也未必生效，注入则**所有页面都吃到**，
+   而且不改变任何布局参数（只是让断行提前一点）。 */
+const wrapCss = '<style>p,div,span,li,section,figcaption{text-wrap:pretty}</style>'
+html = html.replace('</head>', wrapCss + '\n' + noopDef + '\n</head>')
 /* ★VF_DAILYFILM_V8c：同上放宽，且**幂等** —— 已经打过包的副本（`class="sec clip"`）不要再叠一层 clip。
    ⚠️ 原来写死 `/class="sec"/g` ⇒ 遇到 `class="sec s1"` 一处都替换不到 ⇒ 段包裹也会失败。 */
 /* ★VF_DAIDESIGN_V1：**属性顺序任意**也能注入 clip（AI 常写 `<section id="s1" class="sec">`），且幂等 */
