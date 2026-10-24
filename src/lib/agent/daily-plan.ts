@@ -523,7 +523,11 @@ export function aiDesignPrompt(
        · 往 0 走 = 更多**多图页**（一屏塞 2~4 张，变化多）
        · 往 100 走 = 更多**整张不裁的大图**（相纸感，能看到完整构图）
      这里只把它翻译成"图片怎么摆"的一句设计约束（本文件不 import，纯数字约定）。 */
-  opts?: { failNote?: string; segs?: any[]; plateRatio?: number },
+  /* ★VF_USER_RULES_V1（2026-10-24 用户「把你现在设置的要求写在框里，我自己改试试」）：
+     `userRules` = 用户在素材卡「✎ 补充要求」里写的**可编辑规则**（预填系统那几条排版要求）。
+     口径：**追加在契约之后**，作为"用户本次的附加要求"——**只覆盖观感类**（字号/留白/遮罩/顺序），
+           **不得违反上面的硬契约**（必须有正文、不许元叙述、时长上限这些改不动）。 */
+  opts?: { failNote?: string; segs?: any[]; plateRatio?: number; userRules?: string },
 ): string {
   const fail = String(opts?.failNote || '').trim()
   /* ★VF_AIDESIGN_TWOSTEP_STORY_V1：`segs` 是**AI 自己上一步写的分镜表**（不是用户的方案卡）⇒ 照它排版。 */
@@ -786,6 +790,12 @@ export function aiDesignPrompt(
     '· 反过来，素材多（≥12 张）时也别硬塞每段 4 张 —— 一屏一件事，多出来的图用来做"细节特写页"。',
     '',
     fail ? ('【上一版没过闸门，请**只修相关处**，其余保持】\n' + fail + '\n') : '',
+    /* ★VF_USER_RULES_V1：用户的附加要求 —— **放在最靠后**（模型对最后几行最敏感），
+       但明确写"不得违反上面的契约" ⇒ 他能调观感，改不动硬规则。 */
+    (String(opts?.userRules || '').trim()
+      ? '\n【用户本次的附加要求（优先于上面的观感偏好，但**不得违反任何硬契约**）】\n'
+        + String(opts?.userRules || '').trim().slice(0, 800)
+      : ''),
     '【输出】只输出一个完整 HTML 文件（<!DOCTYPE html> 到 </html>），CSS/JS 全部内联；不要解释、不要 markdown 围栏。',
   ].filter(Boolean).join('\n')
 }

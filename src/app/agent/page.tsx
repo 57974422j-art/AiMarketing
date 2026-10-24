@@ -2908,6 +2908,19 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
   const packs: any[] = Array.isArray(vj?.packs) ? vj.packs : []
   const [sel, setSel] = useState<string[]>(Array.isArray(vj?.names) && vj.names.length ? vj.names.map((x: any) => String(x)) : [])
   const [pack, setPack] = useState<string>(String(vj?.pack || ''))
+  /* ★VF_USER_RULES_UI_V1（2026-10-24 用户「把你现在设置的要求写在这里，我自己改试试」）：
+     预填**系统那几条排版要求**（不是全部提示词——技术契约改了会挂），用户可改、可删、可加。
+     提交后作为"用户附加要求"追加到 AI 提示词末尾 ⇒ 只调观感，推翻不了硬规则。 */
+  const DEFAULT_RULES = [
+    '主标题尽量大（≥120px），副题 22~30px、标签 ≥16px',
+    '每段除了两行短标题，还要有一句完整的话（带标点，12~22 字）',
+    '版面要铺满，底部不要留大块空白（字幕已上移，不用给它让位）',
+    '遮罩最浓不超过 60%，不许把页面下半部压成一片黑',
+    '文字从上往下排，下边界离画布底部不超过 100px',
+    '不许写"第几帧 / 底片 / 构图 / 留白 / 光影"这类谈照片本身的话',
+  ].join('\n')
+  const [userRules, setUserRules] = useState<string>(String(vj?.userRules || DEFAULT_RULES))
+  const [rulesOpen, setRulesOpen] = useState(false)
   // ★VF_RATIO_V1（2026-10-10 用户定案）：**大图 : 填图 比例条**（百分数，默认 50 = 5:5）
   //   用户原话：「图片素材越多越能解决相似度，这样也能减少 AI 绘图的压力」——
   //   往左 = 更多多图页（一张页塞 3~4 张素材，变化自然多）；往右 = 更多"整张不裁"的大图。
@@ -3154,7 +3167,30 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
             ) : null}
           </div>
 
-          <button onClick={() => { if (!sel.length) return; next('mat', { names: sel, plateRatio }) }}
+          {/* ★VF_USER_RULES_UI_V1：把系统那几条排版要求摊开给用户改（折叠，默认收起） */}
+          <div className="mb-2">
+            <button type="button" onClick={() => setRulesOpen((v) => !v)}
+              className="text-[10px] px-2 py-1 rounded-lg border border-white/15 text-gray-300 hover:bg-white/[0.08]">
+              {rulesOpen ? '▾' : '▸'} ✎ 补充要求（可选，可改这里再试）
+            </button>
+            {rulesOpen ? (
+              <div className="mt-1.5">
+                <textarea value={userRules} rows={7}
+                  onChange={(e) => setUserRules(e.target.value)}
+                  className="w-full bg-black/30 border border-white/10 rounded px-2 py-1.5 text-[11px] text-gray-100 leading-relaxed resize-y"
+                  placeholder="一行一条，写你想要的排版要求" />
+                <div className="flex items-center gap-2 mt-1">
+                  <button type="button" onClick={() => setUserRules(DEFAULT_RULES)}
+                    className="text-[10px] px-2 py-0.5 rounded border border-white/15 text-gray-400 hover:bg-white/[0.06]">恢复默认</button>
+                  <button type="button" onClick={() => setUserRules('')}
+                    className="text-[10px] px-2 py-0.5 rounded border border-white/15 text-gray-400 hover:bg-white/[0.06]">清空</button>
+                  <span className="text-[10px] text-gray-600">只对这条片子生效；改不动硬规则（比如"必须有正文那句话"）</span>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <button onClick={() => { if (!sel.length) return; next('mat', { names: sel, plateRatio, userRules }) }}
             disabled={!sel.length}
             title={sel.length ? '' : '请先在上方勾选至少一张素材'}
             className={'w-full px-4 py-2 rounded-lg border text-sm transition ' + (sel.length
