@@ -2268,6 +2268,22 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
       setRev((p) => (p ? { ...p, aiBusy: false, msg: '改写失败：' + String(e?.message || e).slice(0, 90) } : p))
     }
   }
+  /* ★VF_VOICE_DUP_MARK_V1（2026-10-24 用户实测「14 段口播全部等于画面字」，但卡片上看不出来 ⇒ 只能靠猜）：
+     判据：去掉标点后，① 整句相同；② 有连续 6 个字相同；③ 一方完整包含另一方；
+     命中就标「≈画面字」⇒ **一眼看出哪几句是抄的**，不用再问"这是空的吗"。 */
+  const looksCopied = (line: string, title: string): boolean => {
+    const norm = (s: string) => String(s || '').replace(/[^\u4e00-\u9fa5A-Za-z0-9]/g, '')
+    const a = norm(line)
+    const b = norm(title)
+    if (!a || !b) return false
+    if (a === b) return true
+    if (a.length >= 6 && b.includes(a)) return true
+    if (b.length >= 6 && a.includes(b)) return true
+    for (let i = 0; i + 6 <= a.length; i++) {
+      if (b.includes(a.slice(i, i + 6))) return true
+    }
+    return false
+  }
   const send = () => {
     if (busy) return
     setBusy(true)
@@ -2322,6 +2338,10 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
                   <span className="text-gray-600">　画面：{String(r?.title || '').slice(0, 24)}</span>
                 </span>
                 <span className="flex items-center gap-1.5 shrink-0">
+                  {/* ★VF_VOICE_DUP_MARK_V1：这一句几乎是照抄画面字 ⇒ 标出来 */}
+                  {looksCopied(String(t || ''), String(r?.title || '')) ? (
+                    <span title="这句和画面上的字几乎一样，等于没说" className="text-[10px] text-rose-400">≈画面字</span>
+                  ) : null}
                   <span className={'text-[10px] ' + (over ? 'text-amber-400' : 'text-gray-500')}>
                     {n}/{maxChars} 字 · ~{est(t)}s
                   </span>
