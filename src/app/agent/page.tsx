@@ -2360,6 +2360,15 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
                 onChange={(e) => setLines((prev) => { const nx = prev.slice(); nx[i] = e.target.value; return nx })}
                 className="w-full bg-black/30 border border-white/10 rounded px-2 py-1 text-[12px] text-gray-100 leading-relaxed resize-y"
               />
+              {/* ★VF_VOICE_PREVIEW_V1（2026-10-24 血泪教训）：
+                  `<textarea>` 的值**不会被复制到纯文本**（选中整卡复制时拿不到内容）
+                  ⇒ 用户反复以为"口播是空的"，实际上日志一直是 `15/15 段有口播`。
+                  这里再渲染一份**只读纯文本**：复制、截图、扫一眼都能看到。 */}
+              <div className="text-[10px] text-gray-400 mt-0.5 leading-snug break-all">
+                ↳ {t
+                  ? String(t)
+                  : <span className="text-gray-600">（这一段不配音 · 只有画面）</span>}
+              </div>
             </div>
           )
         })}
