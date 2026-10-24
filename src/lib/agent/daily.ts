@@ -1909,6 +1909,12 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[], pre
       title: (Array.isArray(s.title) ? s.title : [s.title]).map((x: any) => String(x == null ? '' : x)),
       points: (Array.isArray(s.points) ? s.points : []).map((p: any) => (Array.isArray(p) ? p.filter(Boolean).join('·') : String(p))),
       imgs: Array.isArray(s.imgs) ? s.imgs : [],
+      /* ★VF_EDIT_ALLTEXT_V1（2026-10-24 用户「能让所有字都能改吗」）：
+         `body` = 这一段那句正文；`texts` = 这段里**所有**文字节点（带字号）。
+         编辑面板据此把每一句都列出来，不再只有"标题两行"。
+         来源：`planFromAiHtml` 从 HTML 里按字号/顺序提取（见 daily-plan.ts）。 */
+      body: String(s.body || ''),
+      texts: Array.isArray(s.texts) ? s.texts : [],
     })),
   }))
 }
