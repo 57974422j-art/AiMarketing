@@ -59,12 +59,33 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, message: '缺少文件名（prompt / think）' }, { status: 400 })
   }
 
-  const dir = path.join(process.cwd(), 'temp', 'aidesign-think')
+  /* ★VF_AIDESIGN_TRACE_V1c（2026-10-25 实测：文件明明在 `/root/AiMarketing/temp/aidesign-think/`，
+     接口却报"文件不存在"）：
+     病灶：接口写死 `process.cwd()`，而 **PM2 / next start 的 cwd 不一定是项目根**
+          （存的时候走的是 `vfRootDir()`，两者不是同一来源 ⇒ 存的目录 ≠ 读的目录）。
+     现口径：**按文件名在候选目录里找**（哪个目录里真有这个文件就用哪个），
+            和"存"彻底解耦，不依赖任何一方的 cwd。 */
+  const cands = [
+    path.join(process.cwd(), 'temp', 'aidesign-think'),
+    path.join(process.env.VF_ROOT || '', 'temp', 'aidesign-think'),
+    '/root/AiMarketing/temp/aidesign-think',
+    path.join(process.cwd(), '..', '..', 'temp', 'aidesign-think'),
+  ].filter((d) => !!d && d.length > 'temp/aidesign-think'.length)
+
+  const pickDir = (name: string) => {
+    const n = String(name || '').trim()
+    if (!n || !NAME_RE.test(n)) return cands[0]
+    for (const d of cands) {
+      try { if (fs.existsSync(path.join(d, n))) return d } catch { /* ignore */ }
+    }
+    return cands[0]
+  }
+
   return NextResponse.json({
     success: true,
     data: {
-      prompt: readOne(dir, promptName),
-      think: readOne(dir, thinkName),
+      prompt: readOne(pickDir(promptName), promptName),
+      think: readOne(pickDir(thinkName), thinkName),
     },
   })
 }
