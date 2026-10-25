@@ -14,10 +14,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 /** ★编辑面板：改画面上的每一句字（写回 HTML） */
-export function DailyEditPanel({ segs, name, onClose }: {
+export function DailyEditPanel({ segs, name, singleName, onClose }: {
   segs: any[]
-  /** 产物名（gen_xxx.html）—— 写回时必须知道改哪份 */
+  /** 配图版（分享 / 短链用，几十 KB） */
   name?: string
+  /** 单文件版（**出片渲染读这份**）—— 必须一起改，否则改了不出现在成片里 */
+  singleName?: string
   onClose: () => void
 }) {
   const base = useMemo(() => (Array.isArray(segs) ? segs : []).map((s: any) => ({
@@ -59,13 +61,14 @@ export function DailyEditPanel({ segs, name, onClose }: {
       const r = await fetch('/api/agent/daily-edit-html', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, edits: changes }),
+        body: JSON.stringify({ name, singleName, edits: changes }),
       })
       const j = await r.json().catch(() => null)
       if (j?.success) {
         const n = Number(j?.data?.changed || 0)
         const sk = Array.isArray(j?.data?.skipped) ? j.data.skipped.length : 0
-        setMsg('已改 ' + n + ' 处' + (sk ? '，' + sk + ' 处没改成' : '') + ' —— 点「出片」重新渲染才看得到')
+        const nf = Array.isArray(j?.data?.files) ? j.data.files.length : 0
+        setMsg('已改 ' + n + ' 处' + (nf > 1 ? '（分享版 + 出片版都改了）' : '') + (sk ? '，' + sk + ' 处没改成' : '') + ' —— 出片后生效')
       } else {
         setMsg('没改成：' + String(j?.message || '未知').slice(0, 100))
       }

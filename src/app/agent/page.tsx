@@ -2853,7 +2853,10 @@ function VfDailyDoneCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) 
       {/* ★VF_DAILY_V20：编辑面板（改完回方案卡，用户再点确认才重出文件） */}
       {/* ★VF_EDIT_ALLTEXT_V1：改画面上的字（写回 HTML，重新出片生效） */}
       {showEdit && segsBrief.length
-        ? <DailyEditPanel segs={segsBrief} name={String(vj?.name || vj?.htmlName || '')} onClose={() => setShowEdit(false)} />
+        ? <DailyEditPanel segs={segsBrief}
+            name={String(vj?.htmlName || vj?.name || '')}
+            singleName={String(vj?.singleName || '')}
+            onClose={() => setShowEdit(false)} />
         : null}
       {showPv && apiView
         ? (
