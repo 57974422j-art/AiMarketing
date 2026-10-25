@@ -35,8 +35,27 @@ export const dynamic = 'force-dynamic'
 type Edit = { seg: number; idx: number; from: string; to: string }
 type Skip = { seg: number; idx: number; reason: string }
 
-/** 在第 `idx` 个「文字节点」上做替换；命中返回新串，未命中返回 null */
-function replaceNthText(html: string, idx: number, from: string, to: string): string | null {
+/** 归一化：去掉所有空白与常见标点，只留字（比较用） */
+function normCn(s: string): string {
+  return String(s || '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/[\s\u3000]+/g, '')
+    .replace(/[，。、；：！？…—·,.;:!?"'（）()【】\[\]《》<>「」『』~～\-]/g, '')
+}
+
+/**
+ * 在第 `idx` 个「文字节点」上做替换。
+ * ★VF_EDIT_MATCH_V2（2026-10-25 用户实测「一处都没改成：对不上（页面上这句话变了？）」）：
+ *   原来只做**逐字精确比较**，只要面板上的字和页面上的字差一个空格/一个标点（`&nbsp;`、全角空格、
+ *   换行产生的空白）就判"对不上" ⇒ 整批全废。
+ *   现口径：**三级匹配**
+ *     ① 精确（去多余空白后全等）；
+ *     ② **归一化后全等**（去掉空白 + 标点再比）；
+ *     ③ **归一化后互相包含**（面板显示的可能被截断到 60 字，页面原文更长）；
+ *   三级都不中才判失败，并且**把"面板上的"和"页面上实际的"都带回去** ⇒ 下次一眼看出差在哪。
+ */
+function replaceNthText(html: string, idx: number, from: string, to: string):
+  { out: string | null; actual?: string } {
   // style / script 区间要跳过（CSS 选择器里也有 > 和 <）
   const skip: Array<[number, number]> = []
   for (const m of html.matchAll(/<(style|script)\b[\s\S]*?<\/\1>/gi)) {
@@ -45,7 +64,8 @@ function replaceNthText(html: string, idx: number, from: string, to: string): st
   }
   const inSkip = (p: number) => skip.some(([a, b]) => p >= a && p < b)
 
-  const wantFrom = String(from || '').replace(/\s+/g, ' ').trim()
+  const wantRaw = String(from || '').replace(/\s+/g, ' ').trim()
+  const wantNorm = normCn(wantRaw)
   let count = 0
   for (const m of html.matchAll(/>([^<>]+)</g)) {
     const start = (m.index ?? -1) + 1
@@ -58,13 +78,17 @@ function replaceNthText(html: string, idx: number, from: string, to: string): st
     if (!t || !/[\u4e00-\u9fa5]/.test(t)) continue
     if (t.length < 2 || /^\d+([.:]\d+)?$/.test(t)) continue
     if (count === idx) {
-      // 二次校验：内容必须和面板上看到的一致，否则不动（防顺序漂移改错）
-      if (wantFrom && t !== wantFrom) return null
-      return html.slice(0, start) + String(to) + html.slice(start + raw.length)
+      const tNorm = normCn(t)
+      const hit = !wantRaw
+        || t === wantRaw                          // ① 精确
+        || (!!wantNorm && tNorm === wantNorm)     // ② 归一化后全等
+        || (!!wantNorm && wantNorm.length >= 4 && (tNorm.includes(wantNorm) || wantNorm.includes(tNorm))) // ③ 互相包含
+      if (!hit) return { out: null, actual: t }
+      return { out: html.slice(0, start) + String(to) + html.slice(start + raw.length) }
     }
     count++
   }
-  return null
+  return { out: null, actual: '（这一段里没有第 ' + idx + ' 个文字节点）' }
 }
 
 /** 把 html 按 `<section class="sec">` 切开，返回每段的 [start,end) 区间 */
@@ -105,9 +129,16 @@ function applyEdits(html: string, edits: Edit[]): { html: string; changed: numbe
       if (!to) { skipped.push({ seg, idx: e.idx, reason: '新内容是空的' }); continue }
       if (to.length > 120) { skipped.push({ seg, idx: e.idx, reason: '新内容太长（>120 字）' }); continue }
       if (/[<>]/.test(to)) { skipped.push({ seg, idx: e.idx, reason: '新内容不能含 < >' }); continue }
-      const next = replaceNthText(inner, Number(e.idx) || 0, String(e.from || ''), to)
-      if (next === null) { skipped.push({ seg, idx: e.idx, reason: '对不上（页面上这句话变了？）' }); continue }
-      inner = next
+      const r = replaceNthText(inner, Number(e.idx) || 0, String(e.from || ''), to)
+      if (r.out === null) {
+        // ★VF_EDIT_MATCH_V2：把"面板上的"和"页面上实际的"都带回去，下次一眼看出差在哪
+        skipped.push({
+          seg, idx: e.idx,
+          reason: '对不上（面板：' + String(e.from || '').slice(0, 16) + ' ｜ 页面：' + String(r.actual || '').slice(0, 16) + '）',
+        })
+        continue
+      }
+      inner = r.out
       changed++
     }
     html = html.slice(0, range[0]) + inner + html.slice(range[1])
