@@ -597,7 +597,7 @@ export async function aiDesignPage(
       const _dsKey = process.env.DEEPSEEK_API_KEY
         || (() => { try { const c = fs.readFileSync(path.join(process.cwd(), '.env.local'), 'utf-8'); const m = c.match(/^DEEPSEEK_API_KEY=(.+)$/m); return m ? m[1].trim().replace(/^["']|["']$/g, '') : '' } catch { return '' } })()
       if (_dsKey) {
-        const sbText = aiStoryboardPrompt(n, topic, { tone: opts?.tone })
+        const sbText = aiStoryboardPrompt(n, topic, { tone: opts?.tone, allowNoImgEnds: opts?.allowNoImgEnds })
           + '\n\n【下面按顺序给出 ' + imgParts.length + ' 张图，第 i 张就是 i.jpg】'
         const r1 = await fetch('https://api.deepseek.com/v1/chat/completions', {
           method: 'POST',
