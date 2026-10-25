@@ -97,25 +97,75 @@ if (!/<section[^>]*\bclass="[^"]*\bsec\b/.test(html)) { console.log('stage=html 
    内嵌判定同理（`data:image` 出现在 src 或 url 里都算）。 */
 const extRefs = html.match(/(?:src\s*=\s*["']|url\(\s*["']?)(?!data:)([^"')\s]+\.(?:jpg|jpeg|png|webp))/gi) || []
 const hasInline = /(?:src\s*=\s*["']|url\(\s*["']?)data:image\//i.test(html)
+/* ★VF_INLINE_ALL_IMG_V1（2026-10-25 实测：用户勾了任何选项都没关系，AI 把这单**全部**图写成
+   `background-image:url('1.jpg')`（17 处），`url(data:image` **0 处** ⇒ 引擎自己"资源外置 2 个"⇒ check exit=1）。
+   病灶：这段逻辑只**搬图**（把 `images/` 复制到 outDir），从不把 `url('N.jpg')` 换成 base64
+        ⇒ 只要 AI 用背景图 + 相对路径，就一定外置 ⇒ 一定过不了闸门。
+   现口径：**打包时自己内嵌**（确定性，不靠 AI 自觉）：
+     ① 扫 `url('N.jpg')` / `src="N.jpg"` 这类相对引用；
+     ② 在同级目录找图，读成 base64 换进去；
+     ③ 单图 > 1.2MB 先用 ffmpeg 缩到宽 720（否则 17 张会到 60MB+，加载就炸）；
+     ④ 万一有图找不到 ⇒ 保留原样，走下面原来的"搬 images/"逻辑（兼容老产物）。 */
 if (extRefs.length) {
   console.log('[输入] 配图版：引用外部图 ' + extRefs.length + ' 处')
-  if (!hasInline) console.log('[输入] 这份页面没有任何内嵌图 —— 走"页面 + 图文件"模式')
-  // ★VF_DAILY_V39（本地实测踩到）：**必须把图搬到打包目录** —— 引擎读的是**打包产物**所在的目录，
-  //   不是源文件旁边。不搬 ⇒ 校验报 `missing_local_asset: images/eNNN.jpg`（本地就是这条）。
-  //   位置：`outDir` 在文件前部已 resolve（第 52 行附近）⇒ 这里就能用。
-  const srcImgDir = path.join(path.dirname(abs), 'images')
-  if (fs.existsSync(srcImgDir)) {
-    const dstImgDir = path.join(outDir, 'images')
-    fs.mkdirSync(dstImgDir, { recursive: true })
-    let moved = 0
-    for (const f of fs.readdirSync(srcImgDir)) {
-      const a2 = path.join(srcImgDir, f)
-      if (fs.statSync(a2).isFile()) { fs.copyFileSync(a2, path.join(dstImgDir, f)); moved++ }
+  let inlinedN = 0   // ★VF_INLINE_ALL_IMG_V1：内嵌成功了多少处（>0 就不再走"搬 images/"）
+  if (!hasInline) {
+    const baseDir = path.dirname(abs)
+    const { execFileSync } = await import('node:child_process')
+    let inlined = 0
+    let scaled = 0
+    const cache = new Map()
+    const relRe = /(url\(\s*['"]?|src\s*=\s*['"])(?!data:)([^"')\s]+\.(?:jpg|jpeg|png|webp))/gi
+    html = html.replace(relRe, (m0, pre, name) => {
+      if (cache.has(name)) return cache.get(name)
+      let p = path.join(baseDir, name)
+      if (!fs.existsSync(p)) {
+        // 兼容 `images/xxx.jpg` 形态
+        const p2 = path.join(baseDir, 'images', path.basename(name))
+        if (fs.existsSync(p2)) p = p2
+        else { cache.set(name, m0); return m0 }
+      }
+      let buf = fs.readFileSync(p)
+      /* 大图先压：17 张原图直接 base64 会到几十兆，hyperframes 加载就炸（本项目踩过）。 */
+      if (buf.length > 1.2 * 1024 * 1024) {
+        const tmpOut = path.join(outDir, '.inline-' + path.basename(name).replace(/\.[^.]+$/, '') + '.jpg')
+        try {
+          execFileSync('ffmpeg', ['-y', '-v', 'error', '-i', p, '-vf', 'scale=720:-2', '-q:v', '6', tmpOut], { timeout: 30000 })
+          if (fs.existsSync(tmpOut) && fs.statSync(tmpOut).size > 1024) { buf = fs.readFileSync(tmpOut); scaled++ }
+        } catch { /* 压失败就用原图 */ }
+      }
+      const ext = String(name).split('.').pop().toLowerCase()
+      const mime = ext === 'png' ? 'png' : ext === 'webp' ? 'webp' : 'jpeg'
+      const out = pre + 'data:image/' + mime + ';base64,' + buf.toString('base64')
+      cache.set(name, out)
+      inlined++
+      return out
+    })
+    if (inlined) {
+      inlinedN = inlined
+      console.log('[输入] 已内嵌 ' + inlined + ' 处图' + (scaled ? '（其中 ' + scaled + ' 张大图压到 720 宽）' : '') + ' · 页面 ' + Math.round(Buffer.byteLength(html, 'utf8') / 1024 / 1024 * 10) / 10 + 'MB')
+    } else {
+      console.log('[输入] 内嵌失败（图不在同级）—— 退回"页面 + 图文件"模式')
     }
-    console.log('[输入] 已搬图 ' + moved + ' 张 → ' + dstImgDir)
-  } else {
-    console.log('stage=media ✗ 页面引用了 images/ 里的图，但源目录里没有 images/（' + srcImgDir + '）')
-    process.exit(1)
+  }
+  /* ★VF_INLINE_ALL_IMG_V1：内嵌成功的**跳过搬图**（否则因为同级没有 images/ 目录而 exit=1）。 */
+  if (!inlinedN) {
+    // ★VF_DAILY_V39（本地实测踩到）：**必须把图搬到打包目录** —— 引擎读的是**打包产物**所在的目录，
+    //   不是源文件旁边。不搬 ⇒ 校验报 `missing_local_asset: images/eNNN.jpg`（本地就是这条）。
+    const srcImgDir = path.join(path.dirname(abs), 'images')
+    if (fs.existsSync(srcImgDir)) {
+      const dstImgDir = path.join(outDir, 'images')
+      fs.mkdirSync(dstImgDir, { recursive: true })
+      let moved = 0
+      for (const f of fs.readdirSync(srcImgDir)) {
+        const a2 = path.join(srcImgDir, f)
+        if (fs.statSync(a2).isFile()) { fs.copyFileSync(a2, path.join(dstImgDir, f)); moved++ }
+      }
+      console.log('[输入] 已搬图 ' + moved + ' 张 → ' + dstImgDir)
+    } else {
+      console.log('stage=media ✗ 页面引用了外图，但同级既找不到那张图、也没有 images/ 目录（' + srcImgDir + '）')
+      process.exit(1)
+    }
   }
 } else if (!hasInline) {
   console.log('stage=media ✗ 这份页面既没有内嵌图、也没有外部图引用（不是正常的日报页产物）')
