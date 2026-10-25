@@ -611,6 +611,23 @@ export function aiDesignPrompt(
     '     ⚠️ **不要用 `(1 - var(--p))` 做"出场淡出"**（那会让每段末尾变黑，不是转场）；转场靠下一段的画面盖上来。例：',
     '     opacity: clamp(0, calc(var(--p) * 3), 1); transform: translateY(calc((1 - clamp(0, calc(var(--p) * 3), 1)) * 34px));',
     '     逐行错峰就用位移：calc((var(--p) - 0.15) * 4)、0.30、0.45 …（后一行晚进场）',
+    /* ★VF_MOTION_RULES_V1（2026-10-25 实测定位，`sweep_static` 的唯一成因）：
+       那一单 `__seek` 抄了(2处)、`data-start` 齐全(12/12)，但引擎仍判「Timeline did not advance under seek」。
+       看页面里的写法，三个病都在：
+         ① `animation: grow calc(var(--p) * 1s) steps(1, end) both`
+            —— 拿 `--p` 当**动画时长**。引擎 seek 只是改 `--p` 的值，**CSS animation 不会因此重算/重播**
+            ⇒ 画面在 seek 下完全不变 ⇒ 引擎判"时间轴没推进"。
+         ② `opacity: clamp(0, calc(var(--p)*3), 1)` 用在了**画面主体**上
+            ⇒ `t=0` 时主体**全透明** ⇒ 首帧空白 ⇒ 引擎采样到的是空图。
+         ③ 12 段只有 9 处 `--p` ⇒ **有段根本没写动效**。
+       现口径：把这三条写成禁令（它们是"能不能渲成视频"的技术底线，不是审美）。 */
+    '   · ⚠️ **三条硬禁令**（违反就一定渲不出来，引擎会判 `Timeline did not advance`）：',
+    '     ① **不许用 `animation` / `@keyframes` 承载 `--p`**（例如 `animation: x calc(var(--p)*1s)`）',
+    '        —— 引擎只改 `--p` 的值，**不会重算动画** ⇒ 画面在 seek 下不动。动效一律写成 `var(--p)` 的表达式；',
+    '     ② **`t=0` 时画面主体必须可见**：`opacity: clamp(0, …)` 只能用在小字/装饰上，',
+    '        **背景图和主标题的第一帧不能是全透明**（否则首帧空白，判静态）；',
+    '     ③ **每一段都要有至少一处 `--p` 驱动的可见变化**（位移 / 缩放 / 透明度渐变，至少两种属性一起）——',
+    '        光有 `opacity` 不算，元素可能是透明的；光有静态 CSS 更不算。',
     '2) **零外部资源**：禁止任何 http(s):// 引用；**禁止 Google Fonts 家族名**（Noto Serif SC / Noto Sans SC 会被渲染器整份拉取，直接爆内存）；',
     '   字体只许用这两个**占位族名**（我们随后替换成内嵌字体）：',
     '   :root { --font-serif: "TXT-Serif", serif; --font-sans: "TXT-Sans", sans-serif; }',
@@ -940,6 +957,10 @@ export function aiDesignPromptLite(
     ] : []),
     '【做视频的必要条件（只这几条，违反会渲不出来）】',
     '1) 按时间播放，不是滚动：**禁止** IntersectionObserver / scroll 事件 / requestAnimationFrame / performance.now；',
+    /* ★VF_MOTION_RULES_V1：横屏同样适用（实测那次就是竖屏撞的，横屏写法一样会撞）。 */
+    '   · **禁止** 用 `animation` / `@keyframes` 承载 `--p`（引擎只改 `--p` 的值，不会重算动画 ⇒ 画面不动）；',
+    '   · **`t=0` 时画面主体要可见**（背景图/主标题第一帧不能全透明）；',
+    '   · **每段至少一处 `--p` 驱动的可见变化**（位移 / 缩放 / 透明度，至少两种）；',
     '2) 每段一个 `<section class="sec" data-start="秒" data-duration="秒">`，**首帧不能空白**，总时长 20~60 秒；',
     '3) 必须**原样照抄**这段（唯一时间接口，别自己发明）：',
     '   <script>',
