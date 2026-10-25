@@ -2660,6 +2660,82 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
   )
 }
 
+
+/* ★VF_AIDESIGN_TRACE_V1（2026-10-25 用户「我想看到回执，不用每次去服务器找答案」）：
+   交付卡上一个按钮，点开能看两样东西：
+     【提示词】那次**发给 AI 的完整提示词**（我让它做什么）
+     【思考】  那次的**思考 + 最终输出**（它怎么理解、实际写了什么）
+   为什么值得有：定位「头尾为什么还是用了图」，唯一依据就是思考里那句
+   "段1 和段14 可以用纯排版（允许），但为了铺满我可以用图 12 和 17" —— 没它只能猜。 */
+function VfDailyTrace({ trace }: { trace?: { prompt?: string; think?: string } | null }) {
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [tab, setTab] = useState<'prompt' | 'think'>('prompt')
+  const [data, setData] = useState<any>(null)
+  const [err, setErr] = useState('')
+  const has = !!(trace && (trace.prompt || trace.think))
+  const load = async () => {
+    if (!has || busy) return
+    setBusy(true); setErr('')
+    try {
+      const q = new URLSearchParams()
+      if (trace?.prompt) q.set('prompt', String(trace.prompt))
+      if (trace?.think) q.set('think', String(trace.think))
+      const r = await fetch('/api/agent/daily-trace?' + q.toString(), { cache: 'no-store' })
+      const j = await r.json().catch(() => null)
+      if (!r.ok || !j?.success) setErr(String(j?.message || '读取失败'))
+      else setData(j.data)
+    } catch (e: any) { setErr(String(e?.message || e).slice(0, 120)) }
+    setBusy(false)
+  }
+  const cur = data ? (tab === 'prompt' ? data.prompt : data.think) : null
+  const text = String(cur?.text || '')
+  return (
+    <>
+      <button type="button"
+        onClick={() => { setOpen(true); if (!data) load() }}
+        disabled={!has}
+        title={has ? '看这次 AI 收到了什么、怎么想的' : '这一单没有回执（旧单或采样失败）'}
+        className={'px-3 py-2 rounded-lg border text-xs ' + (has
+          ? 'bg-white/[0.06] hover:bg-white/[0.12] border-white/15 text-gray-200'
+          : 'bg-white/[0.03] border-white/10 text-gray-600 cursor-not-allowed')}>
+        🔍 AI 回执
+      </button>
+      {open ? (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setOpen(false)}>
+          <div className="w-full max-w-3xl max-h-[85vh] bg-[#141210] border border-white/15 rounded-xl flex flex-col"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
+              <span className="text-[12px] text-gray-200">AI 回执</span>
+              <div className="flex gap-1 ml-2">
+                {([['prompt', '提示词（我让它做什么）'], ['think', '思考 + 输出（它怎么理解）']] as const).map(([k, label]) => (
+                  <button key={k} type="button" onClick={() => setTab(k)}
+                    className={'px-2 py-0.5 rounded text-[11px] border ' + (tab === k
+                      ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-100'
+                      : 'border-white/10 text-gray-400 hover:bg-white/[0.06]')}>{label}</button>
+                ))}
+              </div>
+              <span className="ml-auto text-[10px] text-gray-500">
+                {cur ? Math.round(Number(cur.size || 0) / 1024) + 'KB' : ''}
+                {busy ? ' 读取中…' : ''}
+              </span>
+              <button type="button" onClick={() => setOpen(false)}
+                className="text-[11px] px-2 py-0.5 rounded border border-white/15 text-gray-300">关闭</button>
+            </div>
+            <div className="overflow-auto p-3">
+              {err ? <div className="text-[12px] text-rose-400">{err}</div> : null}
+              {cur?.err ? <div className="text-[12px] text-amber-400">{cur.err}</div> : null}
+              <pre className="text-[11px] leading-relaxed text-gray-300 whitespace-pre-wrap break-all">
+                {text || (busy ? '读取中…' : '（这份为空）')}
+              </pre>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
+  )
+}
+
 function VfDailyDoneCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => void; userId?: number | string }) {
   const viewUrl = String(vj?.viewUrl || '')
   const dlUrl = String(vj?.dlUrl || '')
@@ -2791,6 +2867,8 @@ function VfDailyDoneCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) 
               {showEdit ? '收起编辑' : '✏️ 编辑'}
             </button>
           : null}
+        {/* ★VF_AIDESIGN_TRACE_V1：看这次 AI 收到了什么提示词、想成了什么 */}
+        <VfDailyTrace trace={(vj as any)?.trace} />
         {openUrl
           ? <a href={openUrl} target="_blank" rel="noopener noreferrer"
               className="px-3 py-2 rounded-lg text-xs border border-emerald-400/30 text-emerald-200 hover:bg-emerald-500/10">

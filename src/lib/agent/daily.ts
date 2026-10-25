@@ -286,6 +286,8 @@ async function dailyMatCard(uid: number | string, d: DailyDraft): Promise<string
     rulesOn: (d as any).rulesOn !== false,
     tone: String((d as any).tone || 'auto'),
     noImgEnds: (d as any).allowNoImgEnds === true,
+    // ★VF_AIDESIGN_TRACE_V1：AI 回执（提示词 + 思考）的文件名，空 = 这就没有
+    trace: (d as any).trace || null,
     aspect: String((d as any).aspect || '9:16'),
     images,
     names: Array.isArray(d.names) ? d.names : [],
@@ -381,6 +383,9 @@ export async function aiPlanSegments(picks: DailyPick[], topic: string, lastThem
   // ① 看图（可选，失败不判死）
   let summary = ''
   let vlErr = ''
+  /* ★VF_AIDESIGN_TRACE_V1：本轮「提示词 / 思考」的文件名（存进草稿 ⇒ 前端可点开看回执） */
+  let tracePrompt = ''
+  let traceThink = ''
   try {
     const { describeImagesWithVL, vlReady, vlModel } = await import('@/lib/ai-providers')
     if (!vlReady()) vlErr = '服务端没配视觉模型 key（DASHSCOPE_API_KEY）'
@@ -522,7 +527,7 @@ export async function aiDesignPage(
   opts?: { failNote?: string; timeoutMs?: number; plateRatio?: number; userRules?: string; aspect?: string; tone?: string; allowNoImgEnds?: boolean },
   /* ★VF_STORY_TWOCOPY_V1：把分镜表（含每段的 `voice`）一起返回 ——
      调用方可以直接用它填口播，**不用再调一次 AI 重写**。 */
-): Promise<{ ok: boolean; html?: string; error?: string; captions?: string; vlErr?: string; diag?: string; segs?: any[] }> {
+): Promise<{ ok: boolean; html?: string; error?: string; captions?: string; vlErr?: string; diag?: string; segs?: any[]; tracePrompt?: string; traceThink?: string }> {
   const n = picks.length
   if (!n) return { ok: false, error: '没有素材' }
 
@@ -538,6 +543,9 @@ export async function aiDesignPage(
      ⚠️ `summary` 变量保留：若取图全失败，回落"纯文本 + 无图"也能出（只是回到旧水平）。 */
   let summary = ''
   let vlErr = ''
+  /* ★VF_AIDESIGN_TRACE_V1：本轮「提示词 / 思考」的文件名（存进草稿 ⇒ 前端可点开看回执） */
+  let tracePrompt = ''
+  let traceThink = ''
   const imgParts: any[] = []
   try {
     const { getObject } = await import('@/lib/oss')
@@ -691,18 +699,30 @@ export async function aiDesignPage(
            · `pm2 logs` 里打**前 240 字**（够判断它在往哪个方向想）
          后续可选：把这个文件路径回传给前端，做成"点开看思考"的面板。 */
       const _think = String((ch?.message as any)?.reasoning_content || '')
-      if (_think.trim()) {
+      /* ★VF_AIDESIGN_TRACE_V1（2026-10-25 用户「我想看到回执，不用每次去服务器找答案」）：
+         除了思考+输出，**把发出去的完整提示词也存一份**（`<ts>-prompt.txt`）。
+         为什么必须存：这轮定位「头尾为什么还是用了图」，只能从思考里那句
+         "为了铺满我可以用图 12 和 17" 反推 —— 有 prompt 就能直接对照"我让它做什么 vs 它怎么理解"。
+         返回 `trace`（文件名）⇒ 存进草稿 ⇒ 前端能点开看。 */
+      try {
+        const _dir = path.join(vfRootDir() || process.cwd(), 'temp', 'aidesign-think')
+        fs.mkdirSync(_dir, { recursive: true })
+        const _ts = new Date().toISOString().replace(/[:.]/g, '-')
         try {
-          const _dir = path.join(vfRootDir() || process.cwd(), 'temp', 'aidesign-think')
-          fs.mkdirSync(_dir, { recursive: true })
-          const _f = path.join(_dir, new Date().toISOString().replace(/[:.]/g, '-') + '.txt')
-          fs.writeFileSync(_f, '【思考过程 · ' + _think.length + ' 字】\n' + _think
+          const _pf = _ts + '-prompt.txt'
+          fs.writeFileSync(path.join(_dir, _pf), '【发给 AI 的完整提示词 · ' + prompt.length + ' 字】\n\n' + prompt, 'utf8')
+          tracePrompt = _pf
+        } catch { /* ignore */ }
+        if (_think.trim()) {
+          const _tf = _ts + '.txt'
+          fs.writeFileSync(path.join(_dir, _tf), '【思考过程 · ' + _think.length + ' 字】\n' + _think
             + '\n\n\n【最终输出 · ' + txt.length + ' 字】\n' + txt, 'utf8')
-          console.log('[AI设计] 思考 ' + _think.length + ' 字 · 输出 ' + txt.length + ' 字 · 已存 ' + _f)
+          traceThink = _tf
+          console.log('[AI设计] 思考 ' + _think.length + ' 字 · 输出 ' + txt.length + ' 字 · 已存 ' + _tf + ' · prompt 已存 ' + tracePrompt)
           console.log('[AI设计] 思考开头：' + _think.replace(/\s+/g, ' ').slice(0, 240))
-        } catch (e: any) {
-          try { console.error('[AI设计] 思考落盘失败：' + String(e?.message || e).slice(0, 100)) } catch { /* ignore */ }
         }
+      } catch (e: any) {
+        try { console.error('[AI设计] 落盘失败：' + String(e?.message || e).slice(0, 100)) } catch { /* ignore */ }
       }
       used = 'deepseek-flash'
       // ★VF_AIDESIGN_TWOSTEP_STORY_V1：把"分镜表有没有拿到"打进 diag —— 一眼能看出两步制有没有生效
@@ -744,7 +764,7 @@ export async function aiDesignPage(
     }
   }
   // ★VF_STORY_TWOCOPY_V1：把分镜表带出去（含每段 voice），供调用方直接填口播
-  return { ok: true, html: m[0], captions: summary, vlErr, diag, segs: storySegs }
+  return { ok: true, html: m[0], captions: summary, vlErr, diag, segs: storySegs, tracePrompt, traceThink }
 }
 
 /* ═══ ★VF_DAIDESIGN_V2（2026-10-18 用户实测「content_overlap / 对比度 1.8:1」后定案「修吧」）：
@@ -1652,6 +1672,8 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
       if (hasVoice) {
         ;(d as any).storyVoice = vs
         try { await saveDailyDraft(ctx.prisma, uid, d) } catch { /* ignore */ }
+        /* ★VF_AIDESIGN_TRACE_V1：本轮提示词/思考的文件名 ⇒ 前端「看 AI 回执」直接读 */
+        ;(d as any).trace = { prompt: String(design.tracePrompt || ''), think: String(design.traceThink || '') }
         try { ctx.log?.(uid, '[日报落地页] 分镜表已带口播 ' + vs.filter(Boolean).length + '/' + vs.length + ' 段 ⇒ 出片时直接用') } catch { /* ignore */ }
       }
     }
