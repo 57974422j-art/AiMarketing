@@ -199,6 +199,16 @@ export async function POST(request: NextRequest) {
 
     if (!anyChanged) {
       const why = files.map((f) => f.err).filter(Boolean)[0] || firstSkip || '未知'
+      /* ★VF_EDIT_LOG_FAIL_V1（2026-10-25 用户实测：接口返回 422，但 `pm2 logs` 里**一行都没有**
+         ⇒ 只能看到前端那句"一处都没改成"，具体哪段哪句对不上完全查不到）。
+         现口径：**失败也打日志**，带上每份文件的结果 + 前 3 条跳过原因（含面板文本 vs 页面文本）。 */
+      try {
+        const detail = files.map((f) => f.name + '：改' + f.changed
+          + (f.err ? ' 错=' + f.err : '')
+          + (f.skipped.length ? ' 跳过=' + f.skipped.slice(0, 3).map((s) => '段' + s.seg + '/第' + s.idx + ' ' + s.reason).join(' ; ') : '')
+        ).join(' ｜ ')
+        console.error('[改画面文字·失败] ' + detail.slice(0, 900))
+      } catch { /* ignore */ }
       return NextResponse.json({ success: false, message: '一处都没改成：' + why, data: { files } }, { status: 422 })
     }
 
