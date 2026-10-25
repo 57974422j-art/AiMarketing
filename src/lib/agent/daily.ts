@@ -284,6 +284,8 @@ async function dailyMatCard(uid: number | string, d: DailyDraft): Promise<string
     // ★VF_USER_RULES_V1：上次改过的"补充要求"回填（没改过就空，前端用默认那几条）
     userRules: String((d as any).userRules || ''),
     rulesOn: (d as any).rulesOn !== false,
+    tone: String((d as any).tone || 'auto'),
+    noImgEnds: (d as any).allowNoImgEnds === true,
     aspect: String((d as any).aspect || '9:16'),
     images,
     names: Array.isArray(d.names) ? d.names : [],
@@ -517,7 +519,7 @@ export async function aiDesignPage(
      否则请求会在网关被掐断，前端只看到"网络连接失败"（用户遇到的就是这个）。
      **不传 = 240s（逐字保持现状）**。 */
   /* ★VF_PLATE_RATIO_V1：`plateRatio` 0~100（默认 60 ⇒ 界面 6.0:4.0），透传给 aiDesignPrompt。 */
-  opts?: { failNote?: string; timeoutMs?: number; plateRatio?: number; userRules?: string; aspect?: string },
+  opts?: { failNote?: string; timeoutMs?: number; plateRatio?: number; userRules?: string; aspect?: string; tone?: string; allowNoImgEnds?: boolean },
   /* ★VF_STORY_TWOCOPY_V1：把分镜表（含每段的 `voice`）一起返回 ——
      调用方可以直接用它填口播，**不用再调一次 AI 重写**。 */
 ): Promise<{ ok: boolean; html?: string; error?: string; captions?: string; vlErr?: string; diag?: string; segs?: any[] }> {
@@ -589,7 +591,7 @@ export async function aiDesignPage(
       const _dsKey = process.env.DEEPSEEK_API_KEY
         || (() => { try { const c = fs.readFileSync(path.join(process.cwd(), '.env.local'), 'utf-8'); const m = c.match(/^DEEPSEEK_API_KEY=(.+)$/m); return m ? m[1].trim().replace(/^["']|["']$/g, '') : '' } catch { return '' } })()
       if (_dsKey) {
-        const sbText = aiStoryboardPrompt(n, topic)
+        const sbText = aiStoryboardPrompt(n, topic, { tone: opts?.tone })
           + '\n\n【下面按顺序给出 ' + imgParts.length + ' 张图，第 i 张就是 i.jpg】'
         const r1 = await fetch('https://api.deepseek.com/v1/chat/completions', {
           method: 'POST',
@@ -632,7 +634,7 @@ export async function aiDesignPage(
   const _isLandscape = String(opts?.aspect || '') === '16:9'
   const prompt = _isLandscape
     ? aiDesignPromptLite(n, topic, { segs: storySegs, userRules: opts?.userRules, plateRatio: opts?.plateRatio })
-    : aiDesignPrompt(n, topic, { failNote: opts?.failNote, segs: storySegs, plateRatio: opts?.plateRatio, userRules: opts?.userRules, aspect: opts?.aspect })
+    : aiDesignPrompt(n, topic, { failNote: opts?.failNote, segs: storySegs, plateRatio: opts?.plateRatio, userRules: opts?.userRules, aspect: opts?.aspect, tone: opts?.tone, allowNoImgEnds: opts?.allowNoImgEnds })
     + (summary ? '\n\n【素材实拍内容（视觉模型逐张读出，写文案必须据此，不许编造）】\n' + summary : '')
   let txt = ''
   let diag = ''
@@ -1631,6 +1633,8 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
       plateRatio: Number.isFinite(Number((d as any).plateRatio)) ? Number((d as any).plateRatio) : 60,
       userRules: String((d as any).userRules || '').slice(0, 800),
       aspect: String((d as any).aspect || '9:16'),
+      tone: String((d as any).tone || 'auto'),
+      allowNoImgEnds: (d as any).allowNoImgEnds === true,
     })
     try {
       // ★VF_DAIDESIGN_V20：加**耗时**（用户反复问"到底多久"，没这个数字只能猜）
@@ -2283,6 +2287,8 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
     ;(d as any).plateRatio = Number.isFinite(_pr) ? Math.max(0, Math.min(100, _pr)) : 60
     ;(d as any).userRules = String((f as any)?.userRules || '').trim().slice(0, 800)
     ;(d as any).rulesOn = (f as any)?.rulesOn !== false   // ★不勾 = false ⇒ 前端下次打开还是没勾
+    ;(d as any).tone = String((f as any)?.tone || 'auto').slice(0, 20)
+    ;(d as any).allowNoImgEnds = (f as any)?.noImgEnds === true
     ;(d as any).aspect = String((f as any)?.aspect || '') === '16:9' ? '16:9' : '9:16'
     d.names = picked
     d.source = { kind: 'repo' }

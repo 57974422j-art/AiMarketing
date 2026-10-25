@@ -462,7 +462,7 @@ export function aiPrompt(n: number, topic: string, opts?: { lastTheme?: string; 
      ② 再让它照着**自己刚写的**分镜表排版、做动效、画图形。
    为什么这样能解决：单独一次"只写文案"的调用，等于把它从"排版压力"里解放出来；
    且分镜表是**它自己写的** ⇒ 完全符合"AI 自己规划文案自己排版"。 */
-export function aiStoryboardPrompt(n: number, topic: string): string {
+export function aiStoryboardPrompt(n: number, topic: string, opts?: { tone?: string }): string {
   const lo = Math.max(6, Math.round(n * 0.6))
   const hi = n + 4
   return [
@@ -487,6 +487,15 @@ export function aiStoryboardPrompt(n: number, topic: string): string {
          而 095/114 只剩 4 字词组（实测 43 条文案里**长句 0 条**）⇒ 观感从"散文"退化成"标签墙"。
        现口径：**加回 `line` 字段** —— 每段必须有一句**带标点的完整句子**（12~22 字），
               它是画面上的"正文"，和两行短标题一起构成 026 那种层次。 */
+    /* ★VF_TONE_PICK_V1（2026-10-25 用户「第一步再加一个文案类型选择」）：
+       一条片子**一个调性**，`title` 和 `voice` 都按它写 ⇒ 不会一个探店腔、一个文艺腔。 */
+    (() => {
+      const tr = toneRule(String(opts?.tone || 'auto'))
+      if (!tr.title) return ''
+      return '· **文案类型：' + tr.name + '**（画面字和口播都照这个调性）\n'
+        + '   · 画面字（title / line）：' + tr.title + '\n'
+        + '   · 口播（voice）：' + tr.voice
+    })(),
     '2) 每段**五个字段**：',
     '   · title：两行**短标题**，每行 ≤8 字 —— 写**这一屏的卖点 / 人话**（不是"画面里有什么"）；',
     '   · line：**一句完整的话**（12~22 字，**必须带标点**）—— 这一屏的"正文"，把这一屏**讲成一句话**，',
@@ -527,7 +536,7 @@ export function aiDesignPrompt(
      `userRules` = 用户在素材卡「✎ 补充要求」里写的**可编辑规则**（预填系统那几条排版要求）。
      口径：**追加在契约之后**，作为"用户本次的附加要求"——**只覆盖观感类**（字号/留白/遮罩/顺序），
            **不得违反上面的硬契约**（必须有正文、不许元叙述、时长上限这些改不动）。 */
-  opts?: { failNote?: string; segs?: any[]; plateRatio?: number; userRules?: string; aspect?: string },
+  opts?: { failNote?: string; segs?: any[]; plateRatio?: number; userRules?: string; aspect?: string; tone?: string; allowNoImgEnds?: boolean },
 ): string {
   const fail = String(opts?.failNote || '').trim()
   /* ★VF_AIDESIGN_TWOSTEP_STORY_V1：`segs` 是**AI 自己上一步写的分镜表**（不是用户的方案卡）⇒ 照它排版。 */
@@ -583,6 +592,17 @@ export function aiDesignPrompt(
         + '多图段一屏 2~3 张；两种都用，别一屏到底都是同一种。'
     })(),
     '',
+    /* ★VF_TONE_PICK_V1 + ★VF_NOIMG_ENDS_V1：画面字的口径 + 首末段可不用图 */
+    (() => {
+      const tr = toneRule(String(opts?.tone || 'auto'))
+      const out: string[] = []
+      if (tr.title) out.push('· **画面字口径：' + tr.name + '** —— ' + tr.title)
+      if (opts?.allowNoImgEnds) {
+        out.push('· **首段与末段可以不使用实拍图**：第一段（封面）和最后一段（结尾）允许**纯排版**'
+          + '（大字 / 色块 / 图形 / 印章 / 细线），不要为了塞图硬塞；中间各段照常用图。')
+      }
+      return out.join('\n')
+    })(),
     '【出片契约 · 违反即返工】',
     /* ★VF_RULE_DEMOTE_V1（2026-10-24 用户「你降级我试试。我说的设计，不是文案哦」）：
        把**设计/排版类**从"硬命令"降成"可覆盖的默认值"，**文案底线不动**（那是质量，不是审美）。
@@ -868,6 +888,45 @@ export const VOICE_MAX_CHARS = 22
      · item（单品特写）⇒ 这一口的卖点/口感
      · end（最后一段）⇒ 收尾/邀请
    ⚠️ 纯函数，可单测；不依赖任何 import（本文件约束）。 */
+/* ★VF_TONE_PICK_V1（2026-10-25 用户「第一步再加一个文案类型选择」）：
+   一条片子**一个调性**，同时决定「画面字写什么」和「口播讲什么」⇒ 两边不会一个探店腔一个文艺腔。
+   与"设计风格/皮肤"无关（那个会套路化，早就删了），这里选的是**内容类型**，跨行业都能套。
+   返回：{ title: 画面字怎么写, voice: 口播讲什么 } —— 两行话，不写话术。 */
+export function toneRule(tone: string): { name: string; title: string; voice: string } {
+  const t = String(tone || 'auto')
+  if (t === 'store') return {
+    name: '门店探店',
+    title: '写**这家凭什么值得来**（招牌/招牌菜/手艺/年头），一个具体卖点',
+    voice: '讲**来一趟的感受**（什么时候来、和谁来、进门第一感觉）',
+  }
+  if (t === 'goods') return {
+    name: '产品带货',
+    title: '写**一个具体卖点**（材质/做工/用法/和别处不同），别喊口号',
+    voice: '讲**它解决什么麻烦**（谁需要、什么时候用、值不值）',
+  }
+  if (t === 'pet') return {
+    name: '宠物日常',
+    title: '写**一个瞬间**（它在干什么，具体到动作/表情）',
+    voice: '讲**那个瞬间多好笑/多软**（像在跟人转述刚看到的一幕）',
+  }
+  if (t === 'scene') return {
+    name: '风景旅拍',
+    title: '写**一个具体的景**（材质/光线/季节/声音），别写"风景优美"',
+    voice: '讲**站在那里什么感觉**（脚步慢了、想多待一会儿、想起什么）',
+  }
+  if (t === 'people') return {
+    name: '人物写真',
+    title: '写**一个细节**（手/眼神/衣角/姿态），不写"气质出众"',
+    voice: '讲**那一刻的状态**（他在想什么、什么情绪、像什么样的人）',
+  }
+  if (t === 'brand') return {
+    name: '品牌宣传',
+    title: '写**一句气质话**（一句话立起调性，别罗列业务）',
+    voice: '讲**为什么做这件事**（初心/坚持/对谁有意义）',
+  }
+  return { name: '自动', title: '', voice: '' }
+}
+
 export type SegTag = 'brand' | 'scene' | 'craft' | 'item' | 'end'
 
 export function segTag(title: string, idx: number, total: number): SegTag {

@@ -2932,6 +2932,23 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
     '不许写"第几帧 / 底片 / 构图 / 留白 / 光影"这类谈照片本身的话',
   ].join('\n')
   const rulesFor = (a: string) => (String(a || '') === '16:9' ? RULES_LANDSCAPE : RULES_PORTRAIT)
+  /* ★VF_TONE_PICK_V1（2026-10-25 用户「第一步再加一个文案类型选择」）：
+     一条片子**一个调性**，同时在"分镜表（画面字+口播）"这一步生效 ⇒ 两边不会一个探店腔、一个文艺腔。
+     与"设计风格/皮肤"无关（那个已经证明会套路化，早就删了），这里选的是**内容类型**。 */
+  const TONES: Array<{ id: string; name: string; desc: string }> = [
+    { id: 'auto', name: '自动', desc: '按素材自己判断' },
+    { id: 'store', name: '门店探店', desc: '这家好在哪 / 来一趟什么感受' },
+    { id: 'goods', name: '产品带货', desc: '一个卖点 / 解决什么麻烦' },
+    { id: 'pet', name: '宠物日常', desc: '一个瞬间 / 多好笑多软' },
+    { id: 'scene', name: '风景旅拍', desc: '一个具体的景 / 站在那里什么感觉' },
+    { id: 'people', name: '人物写真', desc: '一个细节 / 那一刻的状态' },
+    { id: 'brand', name: '品牌宣传', desc: '一句气质话 / 为什么做这件事' },
+  ]
+  const [tone, setTone] = useState<string>(String(vj?.tone || 'auto'))
+  /* ★VF_NOIMG_ENDS_V1（2026-10-25 用户「加一个按键：头尾可以没素材」）：
+     首段（封面）和末段（结尾）**允许不用实拍图**，用纯排版（大字/色块/图形）——
+     封面常常只想放标题，结尾常常只想放邀请语，硬塞一张图反而更差。 */
+  const [noImgEnds, setNoImgEnds] = useState<boolean>(vj?.noImgEnds === true)
   const [useRules, setUseRules] = useState<boolean>(vj?.rulesOn !== false)   // 外层勾选框（默认勾）
   const [userRules, setUserRules] = useState<string>(() => {
     const saved = String(vj?.userRules || '').trim()
@@ -3184,6 +3201,49 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
             ) : null}
           </div>
 
+          {/* ★VF_TONE_PICK_V1：文案类型（一条片子一个调性，画面字和口播同时受影响） */}
+          <div className="rounded-xl border border-emerald-500/25 bg-black/20 px-3 py-2 mb-2">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] text-gray-300">文案类型</span>
+              <span className="text-[11px] text-emerald-300 font-medium">
+                {TONES.find((t) => t.id === tone)?.name || '自动'}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {TONES.map((t) => {
+                const on = tone === t.id
+                return (
+                  <button key={t.id} type="button" title={t.desc}
+                    onClick={() => setTone(t.id)}
+                    className={'px-2 py-1 rounded-lg text-[11px] border transition ' + (on
+                      ? 'border-emerald-400/70 bg-emerald-500/20 text-emerald-50'
+                      : 'border-white/10 text-gray-400 hover:border-white/25 hover:text-gray-200')}>
+                    {on ? '● ' : ''}{t.name}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="text-[9px] text-gray-600 mt-1">
+              {TONES.find((t) => t.id === tone)?.desc || ''}
+              <span className="text-gray-700">　只影响画面字和口播的写法，不影响排版</span>
+            </div>
+          </div>
+
+          {/* ★VF_NOIMG_ENDS_V1：首末段允许不用实拍图（纯排版：大字/色块/图形） */}
+          <label className={'flex items-start gap-2 mb-2 px-3 py-2 rounded-xl border cursor-pointer ' + (noImgEnds
+            ? 'border-emerald-400/40 bg-emerald-500/10' : 'border-white/10 bg-black/20 hover:bg-white/[0.04]')}>
+            <input type="checkbox" checked={noImgEnds} onChange={(e) => setNoImgEnds(e.target.checked)}
+              className="accent-emerald-400 mt-0.5" />
+            <span className="min-w-0">
+              <span className={'block text-[11px] ' + (noImgEnds ? 'text-emerald-200' : 'text-gray-300')}>
+                头尾可以不用素材
+              </span>
+              <span className="block text-[9px] text-gray-500 mt-0.5">
+                第一段（封面）和最后一段（结尾）可以用纯排版——大字/色块/图形，不硬塞图；中间各段照常用图
+              </span>
+            </span>
+          </label>
+
           {/* ★VF_RULES_ASPECT_V2（2026-10-25 用户「外面直接给我一个框，打钩使用、不打钩不使用；点横屏显示横屏的，点竖屏显示竖屏的」）：
               · **勾选框在外层**（折叠时就看得见）⇒ 一眼知道这单到底用没用；
               · 不勾 ⇒ 提交空串 ⇒ 提示词**整段不加**（也不会触发"设计偏作废"）；
@@ -3256,7 +3316,11 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
           {/* ★VF_RULES_ASPECT_V2：不勾 ⇒ 发空串（提示词整段不加）；rulesOn 存下来，刷新后勾选状态还在 */}
           <button onClick={() => {
             if (!sel.length) return
-            next('mat', { names: sel, plateRatio, aspect, rulesOn: useRules, userRules: useRules ? userRules : '' })
+            next('mat', {
+              names: sel, plateRatio, aspect,
+              rulesOn: useRules, userRules: useRules ? userRules : '',
+              tone, noImgEnds,
+            })
           }}
             disabled={!sel.length}
             title={sel.length ? '' : '请先在上方勾选至少一张素材'}
