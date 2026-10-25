@@ -1701,13 +1701,22 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
     // 通过 ⇒ 预览兜底 + 最小 plan ⇒ 交付（以下与 runDesign 成功路径一致）
     if (!/data-mode=/.test(html)) html = html.replace(/<html\b/i, '<html data-mode="preview"')
     if (!/id="ai-preview-guard"/.test(html)) {
+      /* ★VF_PREVIEW_ASPECT_V1：把画幅尺寸注入成 CSS 变量（默认竖屏，横屏时改成 1280×720） */
+      const _aspP = String((d as any).aspect || '') === '16:9'
       const guard = '<style id="ai-preview-guard">'
+        + ':root{--daily-cw:' + (_aspP ? '1280px' : '720px') + ';--daily-ch:' + (_aspP ? '720px' : '1280px') + '}'
         + 'html:not([data-mode="film"]),html:not([data-mode="film"]) body{height:auto!important;overflow-y:auto!important;background:#000}'
         + 'html:not([data-mode="film"]) body>*{height:auto!important;max-height:none!important;overflow:visible!important}'
         + 'html:not([data-mode="film"]) .stage,html:not([data-mode="film"]) #stage{height:auto!important;overflow:visible!important}'
+        /* ★VF_PREVIEW_ASPECT_V1（2026-10-25 实测：用户选横屏、页面里 `.sec` 是 1280×720，
+           但**预览**看起来"两侧全黑、内容全居中" —— 就是这条兜底把 `.sec` 强行
+           `width:720px!important; height:1280px!important; margin:0 auto`（竖条居中）覆盖掉的）。
+           现口径：尺寸**按画幅走**（`--daily-cw/--daily-ch` 由下面注入；没注入就回落到 720×1280）。
+           ⚠️ 只影响 `data-mode!=="film"` 的预览；出片时 data-mode=film ⇒ 这条整段不生效。 */
         + 'html:not([data-mode="film"]) .sec{display:flex!important;visibility:visible!important;'
         + 'position:relative!important;inset:auto!important;left:auto!important;top:auto!important;'
-        + 'width:720px!important;height:1280px!important;overflow:hidden!important;opacity:1!important;margin:0 auto 12px}'
+        + 'width:var(--daily-cw,720px)!important;height:var(--daily-ch,1280px)!important;'
+        + 'overflow:hidden!important;opacity:1!important;margin:0 auto 12px}'
         + '</style>'
         + '<script id="ai-preview-guard-js">(function(){'
         + 'var root=document.documentElement;if(root.getAttribute("data-mode")==="film")return;'

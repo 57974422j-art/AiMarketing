@@ -361,6 +361,11 @@ export async function startDailyFilm(
         }
       } else {
         args = [tool, htmlPath, '--outdir', outDir]
+        /* ★VF_ASPECT_STEP1_V1c（2026-10-25 实测漏点）：**无配音**走的是直接渲染 `daily-film.mjs`，
+           这条分支原来**没有 `--w/--h`** ⇒ 横屏选了也出竖屏（只有带配音那条传了）。
+           这里补上，与上面那条分支同口径。 */
+        const _asp2 = String((opts as any)?.aspect || '') === '16:9' ? '16:9' : '9:16'
+        args.push('--w', _asp2 === '16:9' ? '1280' : '720', '--h', _asp2 === '16:9' ? '720' : '1280')
       }
       // 配音比无声多花 TTS 的时间 ⇒ 上限给到 60 分钟（前端轮询本身是 30 分钟超时，够）
       const r = await runTool(process.execPath, args, 60 * 60 * 1000)

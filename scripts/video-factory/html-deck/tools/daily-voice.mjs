@@ -276,7 +276,16 @@ console.log('④ 渲染画面（沿用 daily-film.mjs：打包 + 两道闸门 + 
 //          ② 产物路径**从文件读**（`daily-film.mjs` 会写 `FINAL_MP4.txt`），拿不到才回退到日志正则；
 //          ③ 失败时把**渲染日志的尾部**带出来 —— 真正的原因（Chrome/内存/字体）都打在那里。
 const renderLog = path.join(outDir, 'render.log')
+/* ★VF_ASPECT_STEP1_V1b（2026-10-25 实测：用户选了横屏、草稿 aspect="16:9" 也对，
+   但成片 ffprobe 出来是 **720×1280 竖屏**，画面内容横着排在上半部、下面一大块黑）。
+   根因：成片带配音 ⇒ 走本脚本 ⇒ 本脚本再调 `daily-film.mjs` 渲染，但**没有把 `--w/--h` 传下去**
+        ⇒ 内层用默认 720×1280 ⇒ 输出永远是竖屏。
+   现口径：本脚本收到 `--w`/`--h` 就**原样透传**；没收到就不加（内层走默认，老行为不变）。 */
+const _wArg = arg('w', '')
+const _hArg = arg('h', '')
 const renderArgs = [path.join(TOOLS, 'daily-film.mjs'), voicedHtml, '--outdir', renderDir, '--fps', fps, '--quality', quality]
+if (_wArg && _hArg) renderArgs.push('--w', String(_wArg), '--h', String(_hArg))
+console.log('  画面尺寸：' + (_wArg && _hArg ? _wArg + '×' + _hArg + '（透传给渲染器）' : '720×1280（默认）'))
 const logFd = fs.openSync(renderLog, 'w')
 const rr = spawnSync(process.execPath, renderArgs, { stdio: ['ignore', logFd, logFd], timeout: 60 * 60 * 1000 })
 try { fs.closeSync(logFd) } catch { /* ignore */ }
