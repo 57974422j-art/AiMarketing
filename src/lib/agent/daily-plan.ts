@@ -2128,8 +2128,11 @@ export function buildDoneCardPayload(o: {
    *  `apiView` = `/api/storage/file?…`（HTML 流式 inline 直出，卡内 iframe 用）；
    *  `previewPath` = `/preview/repo?…`（整页预览，给"新窗口打开"）。 */
   apiView?: string; previewPath?: string
+  /** ★VF_AIDESIGN_TRACE_V1：本轮 AI 回执的文件名（`prompt`=提示词 / `think`=思考+输出） */
+  trace?: { prompt?: string; think?: string } | null
 }): any {
   const days = o.expiresDays || 7
+  const _traceOut = o.trace || null
   const facts: string[] = [o.segs + ' 段', '皮肤 ' + o.skin,
     byLabel(o.by)]
   if (o.aiSegs) facts.push('AI 自写 ' + o.aiSegs + ' 段')
@@ -2160,6 +2163,8 @@ export function buildDoneCardPayload(o: {
     plainDlUrl: o.singleUrl ? (o.dlUrl || '') : '',
     apiView: o.apiView || '',
     previewPath: o.previewPath || '',
+    // ★VF_AIDESIGN_TRACE_V1：AI 回执（提示词 + 思考）的文件名 —— 前端「🔍 AI 回执」按钮靠它
+    trace: o.trace || null,
     facts: facts.join(' · '),
     imgMsg,
     imgNames: Array.isArray(o.imgNames) ? o.imgNames : [],

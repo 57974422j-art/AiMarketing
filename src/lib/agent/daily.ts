@@ -286,8 +286,6 @@ async function dailyMatCard(uid: number | string, d: DailyDraft): Promise<string
     rulesOn: (d as any).rulesOn !== false,
     tone: String((d as any).tone || 'auto'),
     noImgEnds: (d as any).allowNoImgEnds === true,
-    // ★VF_AIDESIGN_TRACE_V1：AI 回执（提示词 + 思考）的文件名，空 = 这就没有
-    trace: (d as any).trace || null,
     aspect: String((d as any).aspect || '9:16'),
     images,
     names: Array.isArray(d.names) ? d.names : [],
@@ -1939,6 +1937,8 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[], pre
     //   配图版只引用扁平图名，由 `/api/storage/htmlview` 在**服务端**把相对图名换成本站签名短链
     //   （`/f/<uid>/<图名>?t=…`，**不需要 cookie**）⇒ 卡内 iframe（sandbox 无同源）也能正常出图。
     apiView: `/api/storage/htmlview?userId=${uid}&name=${encodeURIComponent(r.name)}`,
+    // ★VF_AIDESIGN_TRACE_V1b：AI 回执（提示词 + 思考）—— **交付卡**才需要，素材卡不要
+    trace: (d as any).trace || null,
     previewPath: `/preview/repo?userId=${uid}&name=${encodeURIComponent(r.name)}`,
     imgCount: picks.length,
     // ★V19：这批图的扁平名（客户端据此把图一起镜像到本地同一文件夹）
