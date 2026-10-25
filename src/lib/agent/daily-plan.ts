@@ -2393,6 +2393,42 @@ export function applyDailyEdit(plan: any, raw: string, picks: PlanPick[] = []): 
    · 文案取「该段内最长的 1~2 段文字」（通常是主标题/副标题，装饰性小字自然被排后）；
    · 用图取 `<img src>` / `url(...)` 里的编号；取不到就给 `[1]` 兜底（不阻断流程）。
    ⚠️ 纯函数、不依赖 IO ⇒ 可单测。 */
+/* ★VF_TEXTNODES_ONE_V1（2026-10-25 用户实测「改『京味老号』，它却拿『百叶居』来比」）：
+   **根因**：提取（面板显示）和替换（写回定位）用了**两套正则**：
+     · 提取：`/<标签 属性>文字</`  —— 要求"**开标签** + 文字" ⇒ `</span>百叶居` 这种**闭标签后的文字被漏掉**
+     · 替换：`/>文字</`            —— 什么都不要求 ⇒ 那些又**算进去**
+     ⇒ 同一个 `idx` 在两边指向不同句子 ⇒ 必然「对不上」，而且改错地方。
+   **现口径**：**一个函数，两边用**。规则简单到不会错：
+     · 跳过 `<style>/<script>` 区间（里面的字改了会崩）；
+     · 跳过纯空白 / 纯标点；
+     · **其余全收**（中文、英文、数字、单字都算），**严格按 DOM 顺序**，**不按字号排序、不过滤**。
+   ⇒ 面板里第 N 条 = 页面上第 N 条，永久一致。 */
+export type TextNode = { start: number; end: number; raw: string; t: string }
+
+export function collectTextNodes(html: string): TextNode[] {
+  const src = String(html || '')
+  const skip: Array<[number, number]> = []
+  for (const m of src.matchAll(/<(style|script)\b[\s\S]*?<\/\1>/gi)) {
+    const i = m.index ?? -1
+    if (i >= 0) skip.push([i, i + m[0].length])
+  }
+  const inSkip = (p: number) => skip.some(([a, b]) => p >= a && p < b)
+
+  const out: TextNode[] = []
+  for (const m of src.matchAll(/>([^<>]+)</g)) {
+    const start = (m.index ?? -1) + 1
+    if (start <= 0) continue
+    if (inSkip(start)) continue
+    const raw = m[1]
+    const t = String(raw).replace(/\s+/g, ' ').trim()
+    if (!t) continue
+    // 纯标点/纯符号不收（改了没意义，还会让列表变噪音）
+    if (!/[\u4e00-\u9fa5A-Za-z0-9]/.test(t)) continue
+    out.push({ start, end: start + raw.length, raw, t })
+  }
+  return out
+}
+
 export function planFromAiHtml(html: string): { meta: any; segments: any[] } {
   const segments: any[] = []
   const secRe = /<section\b[^>]*\bclass="[^"]*\bsec\b[^>]*>([\s\S]*?)<\/section>/gi
@@ -2445,18 +2481,19 @@ export function planFromAiHtml(html: string): { meta: any; segments: any[] } {
         sizeOf[cm[1]] = Math.max(sizeOf[cm[1]] || 0, px)
       }
     }
-    const nodes: Array<{ t: string; size: number }> = []
-    for (const nm of inner.matchAll(/<([a-zA-Z][\w-]*)([^>]*)>([^<>]+)</g)) {
-      const t = String(nm[3]).replace(/\s+/g, ' ').trim()
-      if (!t || !/[\u4e00-\u9fa5]/.test(t)) continue
-      if (t.length < 2 || /^\d+([.:]\d+)?$/.test(t)) continue
-      const cls = ((/class="([^"]*)"/.exec(nm[2]) || [])[1] || '').trim()
+    /* ★VF_TEXTNODES_ONE_V1：节点集合一律走 `collectTextNodes`（**全收、按 DOM 顺序**），
+       字号只用来挑"哪两个是大标题"（不影响节点顺序与数量）⇒ 面板与替换永远同一个 idx。 */
+    const nodes: Array<{ t: string; size: number }> = collectTextNodes(inner).map((n) => {
+      const before = inner.slice(Math.max(0, n.start - 240), n.start)
+      const tagM = [...before.matchAll(/<([a-zA-Z][\w-]*)([^>]*)>/g)].pop()
+      const attrs = tagM ? tagM[2] : ''
       let size = 0
+      const cls = ((/class="([^"]*)"/.exec(attrs) || [])[1] || '').trim()
       for (const c of cls.split(/\s+/)) if (c && sizeOf[c]) size = Math.max(size, sizeOf[c])
-      const inl = /font-size\s*:\s*([\d.]+)px/.exec(nm[2])
+      const inl = /font-size\s*:\s*([\d.]+)px/.exec(attrs)
       if (inl) size = Math.max(size, Number(inl[1]))
-      nodes.push({ t, size })
-    }
+      return { t: n.t, size }
+    })
     const bigAll = nodes.filter((x) => x.size > 0).sort((a, b) => b.size - a.size)
     const bigShort = bigAll.filter((x) => [...x.t].length <= 10)
     const bigPick = (bigShort.length ? bigShort : bigAll).slice(0, 2).map((x) => x.t.slice(0, 14))

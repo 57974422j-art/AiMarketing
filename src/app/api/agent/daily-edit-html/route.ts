@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAuthFromHeaders } from '@/lib/api-auth'
+import { collectTextNodes } from '@/lib/agent/daily-plan'
 
 /**
  * 交付卡「✏️ 编辑」—— **把画面上某一句文字改成新的**（真正写回 HTML）
@@ -56,39 +57,22 @@ function normCn(s: string): string {
  */
 function replaceNthText(html: string, idx: number, from: string, to: string):
   { out: string | null; actual?: string } {
-  // style / script 区间要跳过（CSS 选择器里也有 > 和 <）
-  const skip: Array<[number, number]> = []
-  for (const m of html.matchAll(/<(style|script)\b[\s\S]*?<\/\1>/gi)) {
-    const i = m.index ?? -1
-    if (i >= 0) skip.push([i, i + m[0].length])
+  /* ★VF_TEXTNODES_ONE_V1b：节点集合**直接用 `collectTextNodes`**（与面板提取同一个函数）
+     ⇒ 面板第 N 条 = 这里第 N 条，不会再"面板给 A、页面找到 B"。 */
+  const nodes = collectTextNodes(html)
+  if (idx < 0 || idx >= nodes.length) {
+    return { out: null, actual: '（这一段只有 ' + nodes.length + ' 个文字节点，没有第 ' + idx + ' 个）' }
   }
-  const inSkip = (p: number) => skip.some(([a, b]) => p >= a && p < b)
-
+  const n = nodes[idx]
   const wantRaw = String(from || '').replace(/\s+/g, ' ').trim()
   const wantNorm = normCn(wantRaw)
-  let count = 0
-  for (const m of html.matchAll(/>([^<>]+)</g)) {
-    const start = (m.index ?? -1) + 1
-    if (start <= 0) continue
-    if (inSkip(start)) continue
-    const raw = m[1]
-    const t = String(raw).replace(/\s+/g, ' ').trim()
-    /* ⚠️ 这里的过滤条件**必须和 `planFromAiHtml` 提取时一模一样**，否则 idx 会错位（改错句子）：
-       那边是：含中文 + 长度 ≥2 + 不是纯数字（页码）。 */
-    if (!t || !/[\u4e00-\u9fa5]/.test(t)) continue
-    if (t.length < 2 || /^\d+([.:]\d+)?$/.test(t)) continue
-    if (count === idx) {
-      const tNorm = normCn(t)
-      const hit = !wantRaw
-        || t === wantRaw                          // ① 精确
-        || (!!wantNorm && tNorm === wantNorm)     // ② 归一化后全等
-        || (!!wantNorm && wantNorm.length >= 4 && (tNorm.includes(wantNorm) || wantNorm.includes(tNorm))) // ③ 互相包含
-      if (!hit) return { out: null, actual: t }
-      return { out: html.slice(0, start) + String(to) + html.slice(start + raw.length) }
-    }
-    count++
-  }
-  return { out: null, actual: '（这一段里没有第 ' + idx + ' 个文字节点）' }
+  const tNorm = normCn(n.t)
+  const hit = !wantRaw
+    || n.t === wantRaw                                                                    // ① 精确
+    || (!!wantNorm && tNorm === wantNorm)                                                 // ② 归一化后全等
+    || (!!wantNorm && wantNorm.length >= 4 && (tNorm.includes(wantNorm) || wantNorm.includes(tNorm))) // ③ 互相包含
+  if (!hit) return { out: null, actual: n.t }
+  return { out: html.slice(0, n.start) + String(to) + html.slice(n.end) }
 }
 
 /** 把 html 按 `<section class="sec">` 切开，返回每段的 [start,end) 区间 */
