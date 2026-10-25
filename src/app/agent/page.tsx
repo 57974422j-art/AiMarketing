@@ -2910,8 +2910,13 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
   const [pack, setPack] = useState<string>(String(vj?.pack || ''))
   /* ★VF_USER_RULES_UI_V1（2026-10-24 用户「把你现在设置的要求写在这里，我自己改试试」）：
      预填**系统那几条排版要求**（不是全部提示词——技术契约改了会挂），用户可改、可删、可加。
-     提交后作为"用户附加要求"追加到 AI 提示词末尾 ⇒ 只调观感，推翻不了硬规则。 */
-  const DEFAULT_RULES = [
+     提交后作为"用户附加要求"追加到 AI 提示词末尾 ⇒ 只调观感，推翻不了硬规则。
+     ★VF_RULES_ASPECT_V2（2026-10-25 用户「点横屏显示横屏的，点竖屏显示竖屏的；外面给个勾选框，不勾全部不用」）：
+       · **竖屏 / 横屏各一套默认**（横屏那套去掉"文字从上往下排、下边界 100px"——
+         那条本身就是竖版排法，横屏照做会被拉回竖版，正是"看着不像横屏"的原因之一）；
+       · 外层一个勾选框：**不勾 = 整段不发**（连"设计偏用作废"都不触发，等于系统默认）；
+       · 切画幅时：**只有内容还是旧的默认值才换**（用户手改过就保留，不能冲掉他的字）。 */
+  const RULES_PORTRAIT = [
     '主标题尽量大（≥120px），副题 22~30px、标签 ≥16px',
     '每段除了两行短标题，还要有一句完整的话（带标点，12~22 字）',
     '版面要铺满，底部不要留大块空白（字幕已上移，不用给它让位）',
@@ -2919,7 +2924,19 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
     '文字从上往下排，下边界离画布底部不超过 100px',
     '不许写"第几帧 / 底片 / 构图 / 留白 / 光影"这类谈照片本身的话',
   ].join('\n')
-  const [userRules, setUserRules] = useState<string>(String(vj?.userRules || DEFAULT_RULES))
+  /* 横屏只用**与横竖无关**的那几条：不说"从上往下"，不说"下边界"（那些是竖版排法） */
+  const RULES_LANDSCAPE = [
+    '每段除了两行短标题，还要有一句完整的话（带标点，12~22 字）',
+    '版面要铺满，不要留大块空白',
+    '遮罩最浓不超过 60%，不许把整块画面压黑',
+    '不许写"第几帧 / 底片 / 构图 / 留白 / 光影"这类谈照片本身的话',
+  ].join('\n')
+  const rulesFor = (a: string) => (String(a || '') === '16:9' ? RULES_LANDSCAPE : RULES_PORTRAIT)
+  const [useRules, setUseRules] = useState<boolean>(vj?.rulesOn !== false)   // 外层勾选框（默认勾）
+  const [userRules, setUserRules] = useState<string>(() => {
+    const saved = String(vj?.userRules || '').trim()
+    return saved || rulesFor(String(vj?.aspect || '9:16'))
+  })
   const [rulesOpen, setRulesOpen] = useState(false)
   // ★VF_RATIO_V1（2026-10-10 用户定案）：**大图 : 填图 比例条**（百分数，默认 50 = 5:5）
   //   用户原话：「图片素材越多越能解决相似度，这样也能减少 AI 绘图的压力」——
@@ -3167,27 +3184,42 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
             ) : null}
           </div>
 
-          {/* ★VF_USER_RULES_UI_V1：把系统那几条排版要求摊开给用户改（折叠，默认收起） */}
-          <div className="mb-2">
-            {/* ★VF_RULES_BTN_VISIBLE_V1：原来太素（灰边灰字）用户说"没看到" ⇒ 改成绿色可点按钮 */}
-            <button type="button" onClick={() => setRulesOpen((v) => !v)}
-              className={'w-full text-left px-2.5 py-1.5 rounded-lg border text-[11px] transition ' + (rulesOpen
-                ? 'border-emerald-400/60 bg-emerald-500/20 text-emerald-100'
-                : 'border-emerald-400/40 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20')}>
-              {rulesOpen ? '▾' : '▸'} ✎ 补充要求（点开改排版规则，可增删）
-            </button>
+          {/* ★VF_RULES_ASPECT_V2（2026-10-25 用户「外面直接给我一个框，打钩使用、不打钩不使用；点横屏显示横屏的，点竖屏显示竖屏的」）：
+              · **勾选框在外层**（折叠时就看得见）⇒ 一眼知道这单到底用没用；
+              · 不勾 ⇒ 提交空串 ⇒ 提示词**整段不加**（也不会触发"设计偏作废"）；
+              · 标题里直接写出「横屏默认 4 条 / 竖屏默认 6 条 / 已关闭」，不用再猜。 */}
+          <div className={'mb-2 rounded-lg border transition ' + (useRules
+            ? 'border-emerald-400/40 bg-emerald-500/10'
+            : 'border-white/10 bg-white/[0.03]')}>
+            <div className="flex items-center gap-2 px-2.5 py-1.5">
+              <label className="flex items-center gap-1.5 cursor-pointer shrink-0">
+                <input type="checkbox" checked={useRules} onChange={(e) => setUseRules(e.target.checked)}
+                  className="accent-emerald-400" />
+                <span className={'text-[11px] ' + (useRules ? 'text-emerald-200' : 'text-gray-500')}>用补充要求</span>
+              </label>
+              <button type="button" onClick={() => setRulesOpen((v) => !v)}
+                className={'flex-1 min-w-0 text-left text-[11px] truncate ' + (useRules
+                  ? 'text-emerald-200/90 hover:text-emerald-100'
+                  : 'text-gray-500 hover:text-gray-300')}>
+                {rulesOpen ? '▾' : '▸'} {useRules
+                  ? '✎ ' + (aspect === '16:9' ? '横屏默认 ' : '竖屏默认 ') + userRules.split('\n').filter((x) => x.trim()).length + ' 条（点开可改）'
+                  : '✎ 已关闭 · 不发给 AI（走系统原始规则）'}
+              </button>
+            </div>
             {rulesOpen ? (
-              <div className="mt-1.5">
-                <textarea value={userRules} rows={7}
+              <div className="px-2.5 pb-2">
+                <textarea value={userRules} rows={7} disabled={!useRules}
                   onChange={(e) => setUserRules(e.target.value)}
-                  className="w-full bg-black/30 border border-white/10 rounded px-2 py-1.5 text-[11px] text-gray-100 leading-relaxed resize-y"
+                  className={'w-full bg-black/30 border border-white/10 rounded px-2 py-1.5 text-[11px] text-gray-100 leading-relaxed resize-y ' + (useRules ? '' : 'opacity-40')}
                   placeholder="一行一条，写你想要的排版要求" />
-                <div className="flex items-center gap-2 mt-1">
-                  <button type="button" onClick={() => setUserRules(DEFAULT_RULES)}
-                    className="text-[10px] px-2 py-0.5 rounded border border-white/15 text-gray-400 hover:bg-white/[0.06]">恢复默认</button>
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  <button type="button" onClick={() => setUserRules(rulesFor(aspect))}
+                    className="text-[10px] px-2 py-0.5 rounded border border-white/15 text-gray-400 hover:bg-white/[0.06]">
+                    恢复{aspect === '16:9' ? '横屏' : '竖屏'}默认
+                  </button>
                   <button type="button" onClick={() => setUserRules('')}
                     className="text-[10px] px-2 py-0.5 rounded border border-white/15 text-gray-400 hover:bg-white/[0.06]">清空</button>
-                  <span className="text-[10px] text-gray-600">只对这条片子生效；**删掉哪条 = 不再要求那条**（不会被系统默认补回来）；改不动硬规则（必须有正文那句话、不许元叙述…）</span>
+                  <span className="text-[10px] text-gray-600">只对这条片子生效；删掉哪条 = 不再要求那条；改不动硬规则（必须有正文那句话、不许元叙述…）</span>
                 </div>
               </div>
             ) : null}
@@ -3206,7 +3238,12 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
             <div className="flex gap-2">
               {[{ v: '9:16', t: '竖屏 9:16', d: '抖音 / 小红书 / 视频号竖版' },
                 { v: '16:9', t: '横屏 16:9', d: '视频号横版 / 公众号 / B 站' }].map((o) => (
-                <button key={o.v} onClick={() => setAspect(o.v)}
+                <button key={o.v} onClick={() => {
+                    // ★VF_RULES_ASPECT_V2：切画幅 ⇒ 若规则还是旧的默认值就换成新画幅默认（手改过则保留）
+                    const _oldDef = rulesFor(aspect)
+                    setUserRules((cur) => (String(cur || '').trim() === _oldDef.trim() ? rulesFor(o.v) : cur))
+                    setAspect(o.v)
+                  }}
                   className={'flex-1 px-3 py-2 rounded-lg text-left border ' +
                     (aspect === o.v ? 'border-emerald-400/70 bg-emerald-500/[0.14]' : 'border-white/10 bg-black/20 hover:bg-white/[0.04]')}>
                   <span className="block text-[11px] text-gray-100">{o.t}</span>
@@ -3216,7 +3253,11 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
             </div>
           </div>
 
-          <button onClick={() => { if (!sel.length) return; next('mat', { names: sel, plateRatio, userRules, aspect }) }}
+          {/* ★VF_RULES_ASPECT_V2：不勾 ⇒ 发空串（提示词整段不加）；rulesOn 存下来，刷新后勾选状态还在 */}
+          <button onClick={() => {
+            if (!sel.length) return
+            next('mat', { names: sel, plateRatio, aspect, rulesOn: useRules, userRules: useRules ? userRules : '' })
+          }}
             disabled={!sel.length}
             title={sel.length ? '' : '请先在上方勾选至少一张素材'}
             className={'w-full px-4 py-2 rounded-lg border text-sm transition ' + (sel.length
@@ -3276,7 +3317,12 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
             <div className="flex gap-2">
               {[{ v: '9:16', t: '竖屏 9:16', d: '抖音 / 小红书 / 视频号竖版' },
                 { v: '16:9', t: '横屏 16:9', d: '视频号横版 / 公众号 / B 站' }].map((o) => (
-                <button key={o.v} onClick={() => setAspect(o.v)}
+                <button key={o.v} onClick={() => {
+                    // ★VF_RULES_ASPECT_V2：切画幅 ⇒ 若规则还是旧的默认值就换成新画幅默认（手改过则保留）
+                    const _oldDef = rulesFor(aspect)
+                    setUserRules((cur) => (String(cur || '').trim() === _oldDef.trim() ? rulesFor(o.v) : cur))
+                    setAspect(o.v)
+                  }}
                   className={'flex-1 px-3 py-2 rounded-lg text-left border ' +
                     (aspect === o.v ? 'border-emerald-400/70 bg-emerald-500/[0.14]' : 'border-white/10 bg-black/20 hover:bg-white/[0.04]')}>
                   <span className="block text-[11px] text-gray-100">{o.t}</span>

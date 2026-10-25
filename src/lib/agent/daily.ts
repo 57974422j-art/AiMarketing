@@ -283,6 +283,7 @@ async function dailyMatCard(uid: number | string, d: DailyDraft): Promise<string
     plateRatioHint: '大图 : 填图 —— 往左=更多多图页（素材多、变化多）；往右=更多整张不裁的大图',
     // ★VF_USER_RULES_V1：上次改过的"补充要求"回填（没改过就空，前端用默认那几条）
     userRules: String((d as any).userRules || ''),
+    rulesOn: (d as any).rulesOn !== false,
     aspect: String((d as any).aspect || '9:16'),
     images,
     names: Array.isArray(d.names) ? d.names : [],
@@ -2281,6 +2282,7 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
     const _pr = Number((f as any)?.plateRatio)
     ;(d as any).plateRatio = Number.isFinite(_pr) ? Math.max(0, Math.min(100, _pr)) : 60
     ;(d as any).userRules = String((f as any)?.userRules || '').trim().slice(0, 800)
+    ;(d as any).rulesOn = (f as any)?.rulesOn !== false   // ★不勾 = false ⇒ 前端下次打开还是没勾
     ;(d as any).aspect = String((f as any)?.aspect || '') === '16:9' ? '16:9' : '9:16'
     d.names = picked
     d.source = { kind: 'repo' }
