@@ -131,7 +131,7 @@ function fixTrailingCommas(s: string): string {
 }
 /** 全角标点归一（**只在解析失败时才用**；会把中文标点变成 ASCII，属于最后手段） */
 function normalizeFullWidth(s: string): string {
-  return s.replace(/，/g, ',').replace(/：/g, ':').replace(/[“”]/g, '"').replace(/[‘’]/g, "'")
+  return s.replace(/，/g, ',').replace(/：/g, ':').replace(/[""]/g, '"').replace(/['']/g, "'")
 }
 /** 截断修复：扫括号栈 → 回退到最后一个"安全位置"（顶层逗号/闭合括号）→ 补齐未闭合的括号 */
 function closeTruncated(s: string): string {
@@ -165,7 +165,7 @@ function closeTruncated(s: string): string {
  *   老实现 = "首个 `{` 到最后一个 `}`" + `JSON.parse` ⇒ 一碰就碎。模型最常见的五种废输出**全都当场失败**：
  *     ① 被 maxTokens **截断**（最后那个 `}` 是内层的 ⇒ 括号不闭合）；
  *     ② **尾随逗号**（`,}` / `,]`）；
- *     ③ **全角标点**当分隔符（`，` `：` `“”`）；
+ *     ③ **全角标点**当分隔符（`，` `：` `""`）；
  *     ④ **代码块围栏**、JSON 前后夹解释文字；
  *     ⑤ 多个 JSON 片段连写。
  *   现口径：**逐级放宽**（原文 → 去围栏 → 修尾逗号 → 全角归一 → 截断修复），任一级成功即返回，
@@ -566,12 +566,21 @@ export function aiDesignPrompt(
 
     '素材是用户提供的 ' + n + ' 张实拍照片，文件名 1.jpg ~ ' + n + '.jpg（与 HTML 同目录）。主题：「' + (topic || '（未给，按素材自己判断）') + '」。',
     '**风格、版式、布局、动效创意完全由你决定**；只遵守下面「出片契约」。',
-    /* ★VF_PLATE_RATIO_V1：把 0~100 的比例翻译成"图片怎么摆"，分三档说人话（模型对连续数字不敏感）。 */
+    /* ★VF_PLATE_RATIO_V2（2026-10-25 实测：滑块拉到 10.0:0.0 时，竖屏 16 段全变成
+       「整张不裁 + 米色底垫着」——`.bg{background:#f2ece0}` + `object-fit:contain`
+       ⇒ 观感是"一张图贴在一张纸上"，而不是"图就是底、字压上去"）。
+       病灶：V1 写的是「相纸感、**可留白**」⇒ 模型理解成"图不裁、留白用底色填"。
+       现口径：**"大图"= 满幅大图（cover 铺满画布）**，并明确禁止"缩图 + 底色填空"。
+       （横屏那份 lite 原来**根本不吃这个参数** ⇒ 所以横屏反而对；这次一并传进去，两边口径一致。） */
     (() => {
       const r = Number.isFinite(Number(opts?.plateRatio)) ? Number(opts?.plateRatio) : 60
-      if (r >= 70) return '· **图片呈现：偏"整张不裁"**（用户把它调到了 ' + Math.round(r) + '%）——多用**完整构图的大图**（相纸感、可留白），少做一屏塞好几张的拼版。'
-      if (r <= 30) return '· **图片呈现：偏"填满裁切"**（用户把它调到了 ' + Math.round(r) + '%）——多用**满幅裁切（object-fit: cover）**，一屏可以塞 2~4 张，版式变化多一点。'
-      return '· **图片呈现：整张不裁与填满裁切各一半**（用户把它留在 ' + Math.round(r) + '%）——两种都用，别一屏到底都是同一种。'
+      if (r >= 70) return '· **图片呈现：偏"大图"**（用户调到 ' + Math.round(r) + '%）——每屏用**一张满幅大图**：'
+        + '图片 `width:100%;height:100%;object-fit:cover` **铺满整个画布**，文字/动效压在图上。'
+        + ' ⚠️ **不要**把图片缩小放中间、**不要**用底色/纸感背景填四周留白（那是"一张图贴一张纸"，不是大图）。'
+      if (r <= 30) return '· **图片呈现：偏"多图"**（用户调到 ' + Math.round(r) + '%）——一屏 2~4 张，'
+        + '每张同样 **object-fit: cover 铺满各自槽位**（不要 contain、不要露底色），版式变化多一点。'
+      return '· **图片呈现：大图与多图各一半**（用户留在 ' + Math.round(r) + '%）——单图段用**满幅 cover 铺满**，'
+        + '多图段一屏 2~3 张；两种都用，别一屏到底都是同一种。'
     })(),
     '',
     '【出片契约 · 违反即返工】',
@@ -930,7 +939,7 @@ export function estimateSec(text: string): number {
    ══════════════════════════════════════════════════════════════════════════════ */
 export function aiDesignPromptLite(
   n: number, topic: string,
-  opts?: { segs?: any[]; userRules?: string },
+  opts?: { segs?: any[]; userRules?: string; plateRatio?: number },
 ): string {
   const segs = Array.isArray(opts?.segs) ? opts!.segs! : []
   const rows = segs.map((s: any, i: number) => {
@@ -946,6 +955,15 @@ export function aiDesignPromptLite(
     topic ? '主题：' + topic : '主题按素材自己判断。',
     '',
     '素材：用户提供的 ' + n + ' 张实拍照片，文件名 `1.jpg ~ ' + n + '.jpg`（与 HTML 同目录，直接 `src="3.jpg"` 引用）。',
+
+    /* ★VF_PLATE_RATIO_V2：横屏原来完全不看这个参数 ⇒ 只能满幅。这里补一句（只在明显偏离中点时说），
+       口径与竖屏一致：大图 = cover 铺满画布，不许"缩图 + 底色填留白"。 */
+    (() => {
+      const r = Number.isFinite(Number(opts?.plateRatio)) ? Number(opts?.plateRatio) : 60
+      if (r >= 70) return '· **图片呈现：偏大图**——每屏用一张**满幅大图**（`object-fit:cover` 铺满画布），文字压在图上；不要把图缩小放中间、不要用底色填四周。'
+      if (r <= 30) return '· **图片呈现：偏多图**——一屏 2~4 张，每张 `object-fit:cover` 铺满各自槽位（不要 contain、不要露底色）。'
+      return ''
+    })(),
     '',
     '**版式、配色、字号、动效、结构全部由你决定**（这是横屏，按横向构图想，别把竖屏的排法拉宽）。',
     '',

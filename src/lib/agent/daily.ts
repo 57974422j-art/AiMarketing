@@ -631,7 +631,7 @@ export async function aiDesignPage(
      不带任何竖屏排版偏好（安全区/下边界/遮罩/铺满那些词在横屏语义下是错的，会把它搞乱）。 */
   const _isLandscape = String(opts?.aspect || '') === '16:9'
   const prompt = _isLandscape
-    ? aiDesignPromptLite(n, topic, { segs: storySegs, userRules: opts?.userRules })
+    ? aiDesignPromptLite(n, topic, { segs: storySegs, userRules: opts?.userRules, plateRatio: opts?.plateRatio })
     : aiDesignPrompt(n, topic, { failNote: opts?.failNote, segs: storySegs, plateRatio: opts?.plateRatio, userRules: opts?.userRules, aspect: opts?.aspect })
     + (summary ? '\n\n【素材实拍内容（视觉模型逐张读出，写文案必须据此，不许编造）】\n' + summary : '')
   let txt = ''
