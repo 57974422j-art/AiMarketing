@@ -1819,14 +1819,18 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[], pre
   // ★VF_DAILY_V19（A′）：**先**把所选图入库成同级扁平名，**再**生成 HTML —— HTML 直接引用这些名字，
   //   于是"页面 + 它用的图"在仓库里是同一层的平铺文件，客户端镜像会把它们放进同一个文件夹。
   //   失败不拦交付（计 0 张，卡上如实报）。
-  let imageNames: string[] = []
-  try {
-    imageNames = await publishPickedImages(uid, picks)
-    const okN = imageNames.filter(Boolean).length
-    try { ctx.log?.(uid, `[日报落地页] 图片入库 ${okN}/${picks.length} 张（同级扁平名，供本地镜像同目录落地）`) } catch { /* ignore */ }
-  } catch (e: any) {
-    try { ctx.log?.(uid, '[日报落地页] 图片入库失败（不影响交付）：' + String(e?.message || e).slice(0, 120)) } catch { /* ignore */ }
-  }
+  /* ★VF_NO_COPY_MAT_V1（2026-10-26 用户「生成的HTML没图片版能不要吗？每次把素材全部再传一次进仓库，挤压很多」）：
+     原来每出一单都会把所选 N 张素材**复制一份**成 `gen_日期_序号.jpg` 放进 storage
+     ⇒ 仓库每单多 17 张原图（几十 MB），测试期空间直接爆。
+     为什么当初要复制：配图版 HTML 要与"同级扁平名"对应，客户端镜像才能一起落地。
+     **现在不需要了**：① 出片只读**单文件版**（图已 base64 内嵌）；
+                      ② 分享/预览也改走单文件版（见下面 viewUrl 的改动）；
+                      ③ 编辑面板改字不依赖同级图。
+     现口径：**imageNames 直接用 picks 里的原始名**（`20261019_001.jpg`，本来就躺在 storage 根）
+             ⇒ 页面里的 `1.jpg` 被换成它 ⇒ `buildSingleFile` 用 `picks[].key` 取图内嵌 ⇒ 一样能内嵌，
+             **零复制、零额外占空间**。 */
+  let imageNames: string[] = picks.map((x: any) => String(x?.name || '')).filter(Boolean)
+  try { ctx.log?.(uid, `[日报落地页] 素材不复制（直接用仓库原名 ${imageNames.length} 张）`) } catch { /* ignore */ }
   if (imageNames.some(Boolean)) plan.imageNames = imageNames
   // ★L3/B：走"生成 → 真浏览器逐段体检 → 不合格段逐段退回 L2 模板 → 重生"（纯模板件自动跳过体检）
   /* ★VF_DAIDESIGN_V1（阶段 1 第 4 步，2026-10-17）：**AI 自由档**直接把成品 HTML 交进来（`prebuilt`），
@@ -1893,7 +1897,6 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[], pre
     try { p = link ? link.fileLinkPath(uid, nm, 7 * 86400) : '' } catch { p = '' }
     return { view: p, dl: p ? p + (p.includes('?') ? '&' : '?') + 'dl=1' : '' }
   }
-  const apiPath = `/api/storage/file?userId=${uid}&name=${encodeURIComponent(r.name)}&download=1`
   // ★VF_DAILY_V8：单文件版（图内嵌）—— 失败不影响交付，只是回落到"配图版"
   let single: { name: string; embedded: number } | null = null
   try {
@@ -1909,12 +1912,18 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[], pre
     await saveDailyDraft(ctx.prisma, uid, d)
   }
   const std = linkOf(r.name)
-  const stdView = abs(std.view) || apiPath
-  const stdDl = abs(std.dl)
   const one = single && single.name ? linkOf(single.name) : { view: '', dl: '' }
   const oneView = abs(one.view)
   const oneDl = abs(one.dl)
+  /* ★VF_NO_COPY_MAT_V1：**分享/下载/预览一律用单文件版** —— 因为配图版现在引用的是原始素材名
+     （不带签名）⇒ 打开后图会 403。单文件版图已内嵌 ⇒ 打开即可看，且**永远不丢图**。
+     配图版仍然生成（几十 KB），只留给「✏️ 编辑」做文字定位用。 */
   const singleOk = !!(single && single.name && oneView)
+  /* ★VF_NO_COPY_MAT_V1：下载回落的 api 也指单文件版（否则会下到「引外链图」的那份） */
+  const _dlName = (single && single.name) ? String(single.name) : String(r.name)
+  const apiPath = `/api/storage/file?userId=${uid}&name=${encodeURIComponent(_dlName)}&download=1`
+  const stdView = oneView || abs(std.view) || apiPath
+  const stdDl = oneDl || abs(std.dl)
   try { ctx.log?.(uid, `[日报落地页] 交付：${key} ｜ 短链 ${std.view || apiPath}`) } catch { /* ignore */ }
   // ★L3/B：如实报"AI 自写了几段 / 哪几段没过体检被退回模板"（回落过的段此时已经没有 html 字段）
   const aiSegs = plan.segments.filter((s: any) => s && typeof s.html === 'string' && s.html.trim()).length
@@ -1936,13 +1945,13 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[], pre
     //   为什么改：单文件版是几 MB 的 data: 内嵌 HTML，塞进 `srcDoc` 又大又慢（客户端里还可能是空白）；
     //   配图版只引用扁平图名，由 `/api/storage/htmlview` 在**服务端**把相对图名换成本站签名短链
     //   （`/f/<uid>/<图名>?t=…`，**不需要 cookie**）⇒ 卡内 iframe（sandbox 无同源）也能正常出图。
-    apiView: `/api/storage/htmlview?userId=${uid}&name=${encodeURIComponent(r.name)}`,
+    apiView: `/api/storage/htmlview?userId=${uid}&name=${encodeURIComponent(_dlName)}`,
     // ★VF_AIDESIGN_TRACE_V1b：AI 回执（提示词 + 思考）—— **交付卡**才需要，素材卡不要
     trace: (d as any).trace || null,
-    previewPath: `/preview/repo?userId=${uid}&name=${encodeURIComponent(r.name)}`,
+    previewPath: `/preview/repo?userId=${uid}&name=${encodeURIComponent(_dlName)}`,
     imgCount: picks.length,
     // ★V19：这批图的扁平名（客户端据此把图一起镜像到本地同一文件夹）
-    imgNames: imageNames.filter(Boolean),
+    imgNames: [],   // ★VF_NO_COPY_MAT_V1：不再复制素材 ⇒ 客户端不需要镜像任何图
     embedded: singleOk ? (single as any).embedded : 0,
     segs: plan.segments.length,
     skin: themeName(plan?.meta?.theme),
