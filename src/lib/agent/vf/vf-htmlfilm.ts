@@ -534,6 +534,8 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; warn?: stri
     //   （降级取词会把整行当文案，带 `xxx.jpg` 会混出数字/扩展名 —— 老坑）
     summary = picked.map((m: any, i: number) => (i + 1) + '. ' + (descMap[String(m.name)] || '（未识别）')).join('\n')
     vfLog(uid, `[HTML成片] 读图：${readN}/${picked.length} 张（逐张 · 并发 ${VL_CONC}）· 素材 ${picked.length} 张（仓库候选 ${pick.pool.length}${pick.capped ? ' · 超上限砍 ' + pick.capped : ''}）`)
+    /* ★VF_HTMLFILM_STEPS_V1：① 看图完成（读图张数如实报，不藏） */
+    try { ctx.step?.('看图 ' + readN + ' 张') } catch { /* 未注入 */ }
     if (!readN) vfLog(uid, '[HTML成片] ⚠️ 读图 0 张：' + (vlErr || '原因未记录') + ' ⇒ 文案没有素材依据（只能按骨架写，贴合度会明显变差）')
   } catch { /* ignore */ }
   // ③ 骨架（只出骨架、不渲染）——需要**本地文件**，先下载（与出片同一步）
@@ -633,6 +635,8 @@ Promise<{ ok: boolean; err?: string; summary?: string; plan?: any[]; warn?: stri
     spec,
   })
   if (!pl.ok || !pl.scenes || !pl.scenes.length) return { ok: false, err: '编排骨架失败：' + String(pl.err || '') }
+  /* ★VF_HTMLFILM_STEPS_V1：② 骨架排出（段数） */
+  try { ctx.step?.('排 ' + pl.scenes.length + ' 段') } catch { /* 未注入 */ }
   // ★VF_FILMSRC_V1：把**这份骨架本身**（整份 film.json）与素材名单一起固化 —— 出片直接用它，
   //   不再重新编排（老实现出片会再 orchestrate 一次；素材一变 ⇒ 段数一变 ⇒ 整片文案错位）。
   const filmJson = pl.film
@@ -1052,6 +1056,8 @@ Promise<{ ok: boolean; err?: string; copy?: any[]; plan?: any[]; warn?: string
   }
   // ⚠️ `warn` 只装"**降级/补齐**"这类**异常**信息（日志用 `prep.warn ? '（降级）'` 判断）；
   //   `specNote`（AI 规划了什么）单独返回 —— 早先把它并进 warn 导致日志把"AI 规划成功"误标成"（降级）"。
+  /* ★VF_HTMLFILM_STEPS_V1：③ 逐镜文案写完（段数） */
+  try { ctx.step?.('写 ' + copy.length + ' 段文案') } catch { /* 未注入 */ }
   return { ok: true, plan: planOut, copy, warn: warnParts.join('\n'), voiceN, needChars }
 }
 
@@ -1276,6 +1282,8 @@ export type HtmlFilmCtx = {
    *  ★VF_FILMSRC_V2：类型放宽到 `string | null` —— 注入它的 `genTextW` 在模型不通时就返回 null，
    *  写窄了会出现"类型对不上"的噪声（而且会让读代码的人以为它永不返回 null）。 */
   generateText?: (p: string) => Promise<string | null>
+  /** ★VF_HTMLFILM_STEPS_V1：执行步骤上报（与日报线同口径）——**可选**，没注入就静默跳过 */
+  step?: (label: string, extra?: { tool?: string; since?: number; args?: string }) => void
 }
 
 /** 返回 string = 本线的回复（协议串/卡）；返回 null = 不是本线的话，交给后面的流程 */
@@ -1525,6 +1533,8 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
     const wantV = pickTtsVoice(goF.voice) || voiceForTone(vd.voiceTone)
     vfLog(uid, `[HTML成片] 开始：${files.length} 张素材 → 出片（骨架 ${planScenes.length || '现排'} 段 · 风格包=${vd.pack || '自动'}`
       + `${wantVoice ? ' · 配音+字幕（音色 ' + ttsVoiceName(wantV) + ' / ' + wantV + '）' : ' · 无声'}）`)
+    /* ★VF_HTMLFILM_STEPS_V1：④ 生成页面（这一步会排版 + 渲染，耗时较长） */
+    try { ctx.step?.('生成页面') } catch { /* 未注入 */ }
     const r = await makeFilmFromMaterials({
       materials: files,
       text: String(vd.topic || ''),
@@ -1553,6 +1563,8 @@ export async function handleHtmlFilmLine(ctx: HtmlFilmCtx): Promise<string | nul
       return `TOOL_REJECT:HTML成片出片被拦（${r.stage}）：${String(r.err || '').slice(0, 200)}；可改文案/换风格包后重试，或改用「图片成片」。`
     }
     vfLog(uid, `[HTML成片] 完成：${r.mp4}（赛道=${r.vertical} 风格包=${r.pack}${r.voiced ? ' · 配音+字幕' : ''}${r.voiceErr ? ' · 配音失败：' + r.voiceErr : ''}）`)
+    /* ★VF_HTMLFILM_STEPS_V1：⑤ 提交出片（入库 + 回执这一步） */
+    try { ctx.step?.('提交出片') } catch { /* 未注入 */ }
     // 出片即作废草稿（与各线一致：同一套内容要重做就重新说一次命令）
     await clearHtmlFilmDraft(prisma, uid)
     return await filmDoneProtocol(uid, r)
