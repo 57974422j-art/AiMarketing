@@ -286,6 +286,8 @@ async function dailyMatCard(uid: number | string, d: DailyDraft): Promise<string
     rulesOn: (d as any).rulesOn !== false,
     tone: String((d as any).tone || 'auto'),
     noImgEnds: (d as any).allowNoImgEnds === true,
+    // ★VF_PROMPT_TIER_V1：三档开关的回填
+    tier: String((d as any).promptTier || 'strict'),
     aspect: String((d as any).aspect || '9:16'),
     images,
     names: Array.isArray(d.names) ? d.names : [],
@@ -522,7 +524,7 @@ export async function aiDesignPage(
      否则请求会在网关被掐断，前端只看到"网络连接失败"（用户遇到的就是这个）。
      **不传 = 240s（逐字保持现状）**。 */
   /* ★VF_PLATE_RATIO_V1：`plateRatio` 0~100（默认 60 ⇒ 界面 6.0:4.0），透传给 aiDesignPrompt。 */
-  opts?: { failNote?: string; timeoutMs?: number; plateRatio?: number; userRules?: string; aspect?: string; tone?: string; allowNoImgEnds?: boolean },
+  opts?: { failNote?: string; timeoutMs?: number; plateRatio?: number; userRules?: string; aspect?: string; tone?: string; allowNoImgEnds?: boolean; tier?: string },
   /* ★VF_STORY_TWOCOPY_V1：把分镜表（含每段的 `voice`）一起返回 ——
      调用方可以直接用它填口播，**不用再调一次 AI 重写**。 */
 ): Promise<{ ok: boolean; html?: string; error?: string; captions?: string; vlErr?: string; diag?: string; segs?: any[]; tracePrompt?: string; traceThink?: string }> {
@@ -640,7 +642,7 @@ export async function aiDesignPage(
   const _isLandscape = String(opts?.aspect || '') === '16:9'
   const prompt = _isLandscape
     ? aiDesignPromptLite(n, topic, { segs: storySegs, userRules: opts?.userRules, plateRatio: opts?.plateRatio })
-    : aiDesignPrompt(n, topic, { failNote: opts?.failNote, segs: storySegs, plateRatio: opts?.plateRatio, userRules: opts?.userRules, aspect: opts?.aspect, tone: opts?.tone, allowNoImgEnds: opts?.allowNoImgEnds })
+    : aiDesignPrompt(n, topic, { failNote: opts?.failNote, segs: storySegs, plateRatio: opts?.plateRatio, userRules: opts?.userRules, aspect: opts?.aspect, tone: opts?.tone, allowNoImgEnds: opts?.allowNoImgEnds, tier: opts?.tier })
     + (summary ? '\n\n【素材实拍内容（视觉模型逐张读出，写文案必须据此，不许编造）】\n' + summary : '')
   let txt = ''
   let diag = ''
@@ -1653,6 +1655,7 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
       aspect: String((d as any).aspect || '9:16'),
       tone: String((d as any).tone || 'auto'),
       allowNoImgEnds: (d as any).allowNoImgEnds === true,
+      tier: String((d as any).promptTier || 'strict'),
     })
     try {
       // ★VF_DAIDESIGN_V20：加**耗时**（用户反复问"到底多久"，没这个数字只能猜）
@@ -2328,6 +2331,10 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
     ;(d as any).rulesOn = (f as any)?.rulesOn !== false   // ★不勾 = false ⇒ 前端下次打开还是没勾
     ;(d as any).tone = String((f as any)?.tone || 'auto').slice(0, 20)
     ;(d as any).allowNoImgEnds = (f as any)?.noImgEnds === true
+    /* ★VF_PROMPT_TIER_V1（2026-10-26 用户「加开关，让它能变化再大一点」）：
+       三档：strict（全开·默认）/ loose（关掉审美补丁）/ free（只留技术+内容底线）。 */
+    const _tier = String((f as any)?.tier || '')
+    ;(d as any).promptTier = (_tier === 'loose' || _tier === 'free') ? _tier : 'strict'
     ;(d as any).aspect = String((f as any)?.aspect || '') === '16:9' ? '16:9' : '9:16'
     d.names = picked
     d.source = { kind: 'repo' }

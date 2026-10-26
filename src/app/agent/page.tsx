@@ -3031,6 +3031,8 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
      封面常常只想放标题，结尾常常只想放邀请语，硬塞一张图反而更差。 */
   const [noImgEnds, setNoImgEnds] = useState<boolean>(vj?.noImgEnds === true)
   const [useRules, setUseRules] = useState<boolean>(vj?.rulesOn !== false)   // 外层勾选框（默认勾）
+  /* ★VF_PROMPT_TIER_V1：设计约束三档（strict 全开 / loose 关审美补丁 / free 只留技术+内容底线） */
+  const [tier, setTier] = useState<string>(String(vj?.tier || 'strict'))
   const [userRules, setUserRules] = useState<string>(() => {
     const saved = String(vj?.userRules || '').trim()
     return saved || rulesFor(String(vj?.aspect || '9:16'))
@@ -3325,6 +3327,42 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
             </span>
           </label>
 
+          {/* ★VF_PROMPT_TIER_V1（2026-10-26 用户「加开关，让它能变化再大一点」）：
+              三档决定"发多少条设计约束"。A（技术必需）+ B（内容底线）**任何档位都发**，
+              所以关到最松也不会渲不出来、也不会出元叙述。 */}
+          <div className="rounded-xl border border-violet-500/25 bg-black/20 px-3 py-2 mb-2">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] text-gray-300">设计约束</span>
+              <span className="text-[11px] text-violet-300 font-medium">
+                {tier === 'free' ? '自由' : tier === 'loose' ? '宽松' : '严格'}
+              </span>
+            </div>
+            <div className="flex gap-1.5">
+              {[
+                { v: 'strict', t: '严格', d: '现在的默认，最稳' },
+                { v: 'loose', t: '宽松', d: '关掉审美补丁' },
+                { v: 'free', t: '自由', d: '只留技术底线' },
+              ].map((o) => {
+                const on = tier === o.v
+                return (
+                  <button key={o.v} type="button" onClick={() => setTier(o.v)} title={o.d}
+                    className={'flex-1 px-2 py-1.5 rounded-lg text-[11px] border transition ' + (on
+                      ? 'border-violet-400/70 bg-violet-500/20 text-violet-50'
+                      : 'border-white/10 text-gray-400 hover:border-white/25 hover:text-gray-200')}>
+                    {on ? '● ' : ''}{o.t}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="text-[9px] text-gray-600 mt-1">
+              {tier === 'free'
+                ? '只发技术底线（时间轴/字体/用字）和内容底线（要有正文/不写图注）⇒ 版式完全由它定，可能很惊艳也可能很难看'
+                : tier === 'loose'
+                  ? '关掉「遮罩≤60% / 从上往下排 / 铺满到1160 / 每段非照片元素 / 特效限2段」这 5 条补丁'
+                  : '全开：含字号档、遮罩、铺满、纵排、底色、黑白、设计原则等 14 条'}
+            </div>
+          </div>
+
           {/* ★VF_RULES_ASPECT_V2（2026-10-25 用户「外面直接给我一个框，打钩使用、不打钩不使用；点横屏显示横屏的，点竖屏显示竖屏的」）：
               · **勾选框在外层**（折叠时就看得见）⇒ 一眼知道这单到底用没用；
               · 不勾 ⇒ 提交空串 ⇒ 提示词**整段不加**（也不会触发"设计偏作废"）；
@@ -3400,7 +3438,7 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
             next('mat', {
               names: sel, plateRatio, aspect,
               rulesOn: useRules, userRules: useRules ? userRules : '',
-              tone, noImgEnds,
+              tone, noImgEnds, tier,
             })
           }}
             disabled={!sel.length}
