@@ -134,6 +134,28 @@ export function vfTaskTraceFile(userId: string | number, taskId: string): string
   return path.join(vfTaskTraceDir(userId), String(taskId) + '.log')
 }
 
+/** ★VF_TASK_TRACE_V1-D1c：清理 7 天前的 trace 文件（每单开始时顺手跑一次，天然节流）
+ *  为什么必须清：每单一个文件 ⇒ 一天几十单、一年就是上万个小文件，**磁盘会慢慢涨**。
+ *  口径：与项目里临时目录的保留期一致（7 天）；只删 `.log`，不碰别的。
+ *  ⚠️ 删除失败（权限/占用）一律忽略 —— 清理绝不影响出片。 */
+export function vfTaskTraceGc(userId: string | number, days = 7): void {
+  try {
+    const dir = vfTaskTraceDir(userId)
+    if (!fs.existsSync(dir)) return
+    const cut = Date.now() - days * 86400_000
+    let n = 0
+    for (const f of fs.readdirSync(dir)) {
+      if (!/\.log$/i.test(f)) continue
+      const p = path.join(dir, f)
+      try {
+        const st = fs.statSync(p)
+        if (st.isFile() && st.mtimeMs < cut) { fs.unlinkSync(p); n++ }
+      } catch { /* 单个删不掉就跳过 */ }
+    }
+    if (n > 0) console.log('[VF] trace 清理 ' + n + ' 个超过 ' + days + ' 天的日志')
+  } catch { /* ignore */ }
+}
+
 /** 开始记录某一单：之后该用户的 vfLog 会双写进这一单的 trace 文件 */
 export function vfTaskTraceBegin(userId: string | number, taskId: string): void {
   const t = String(taskId || '').trim()
@@ -141,6 +163,8 @@ export function vfTaskTraceBegin(userId: string | number, taskId: string): void 
   try {
     const dir = vfTaskTraceDir(userId)
     fs.mkdirSync(dir, { recursive: true })
+    // ★VF_TASK_TRACE_V1-D1c：顺手清掉 7 天前的旧日志（不阻塞、失败不影响）
+    vfTaskTraceGc(userId, 7)
     // ★VF_TASK_TRACE_V1-D1b：单文件上限 5MB（超了只留尾部）—— 长片 tail 可能很大，
     //   但诊断只取尾部 200 行，无限增长只会拖慢接口。
     const f = vfTaskTraceFile(userId, t)

@@ -3660,7 +3660,15 @@ export async function POST(request: NextRequest) {
           if (!merged.length) return steps
           // 同一轮里还有"工具步骤"（非本单步骤链）⇒ 也一并带上，别把工具分支的步骤吞掉
           for (const s of steps) if (!_orderTools.has(s.tool)) merged.push(s)
-          return merged
+          /* ★VF_TASK_TRACE_V1-B2b（2026-10-26 顺手修）：**同一单内反复"改设置→重排"会让同一步骤重复**
+             （`VF_ORDER_STEPS` 上限 12 条，累计多了就会看到"写文案"出现 3 次）。
+             口径：按「线名 + label（**去掉尾部耗时**）」去重，**保留最后一条**（耗时以最新为准）。
+             ⚠️ 只影响展示，不影响出片；去重后仍保持"先按线、再按时间"的原有顺序。 */
+          const _seen = new Map<string, { tool: string; label: string; args?: string }>()
+          for (const s of merged) {
+            _seen.set(String(s.tool) + '|' + String(s.label).replace(/ · [\d.]+s$/, ''), s)
+          }
+          return Array.from(_seen.values())
         } catch { return steps }
       }
       let videoTaskId = '' // 2026-09-06: 提取视频任务ID（不靠 AI 汇总保留 VIDEO_TASK 标记——前端从 data.videoTaskId 轮询）
