@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 // 2026-08-27: 发布草稿状态（多轮确认工作流用）：userId -> { videoName, frames, selectedFrame, title, topics, cover, step }
 // ★VF_VIDEOLINE_V1（2026-09-24）：视频素材探测 + 抽帧理解（给「视频混剪」线用；素材线仍走"仅列名"）
-import { listRepoMaterials, summarizeMaterials, downloadMaterials, vfLog, vfRootDir, vfStorageRoot, probeMaterialSizes, probeVideos, describeVideoClips, readOutcomeNames } from '@/lib/agent/video-material'
+import { listRepoMaterials, summarizeMaterials, downloadMaterials, vfLog, vfRootDir, vfStorageRoot, probeMaterialSizes, probeVideos, describeVideoClips, readOutcomeNames,
+  // ★VF_TASK_TRACE_V1-D1（2026-10-26）：每单独立日志 + AI 诊断入口（AI 读日志出结论，人只看原因）
+  vfTaskTraceBegin, vfTaskTraceAppend, vfTaskTraceEnd } from '@/lib/agent/video-material'
 // ★VF_MATONLY_V1（2026-10-12 用户定案「AGENT 页里用到仓库的地方，路径直接改成**原始素材**。不要有成片」）：
 //   素材清单的成片判据（`gen_日期_序号.`）只认 lib/repo-naming 一处口径
 import { isGeneratedName } from '@/lib/repo-naming'
@@ -79,6 +81,17 @@ import { buildBanner, bannerFieldOf, shouldRebuildBanner,
 const PUBLISH_DRAFT: Map<number, any> = new Map()
 // ★VF_FLOW_V1（2026-09-18）：成片状态机草稿——与 PUBLISH_DRAFT 【完全独立】，互不干扰
 const VIDEO_DRAFT: Map<number, any> = new Map()
+/* ★VF_TASK_TRACE_V1-B2（2026-10-26）：**同一单跨轮次的步骤链**（进程内存，**不落库**）。
+   为什么需要：图片成片"一单"横跨两轮 —— 第 1 轮（素材合成）出「看图/写文案/排镜头」，第 2 轮（确认出片）才出「开始出片」。
+   而接口每轮只回本轮推的步骤 ⇒ 面板永远只看得到一半（验收要求"一单出现 4 条"）。
+   现口径：`forOrder:true` 的步骤同时记进这条链（key = `uid::线名`，上限 12 条），
+   **只在"新一单开始"时清空** ⇒ 下一轮把同一单的前几步一起带上。刷新会丢（已知限制，与文档口径一致）。 */
+const VF_ORDER_STEPS: Map<string, { tool: string; label: string; args?: string }[]> = new Map()
+function clearOrderSteps(uid: number | string, tool?: string): void {
+  const pre = String(uid) + '::'
+  if (tool) { VF_ORDER_STEPS.delete(pre + tool); return }
+  for (const k of Array.from(VF_ORDER_STEPS.keys())) if (k.startsWith(pre)) VF_ORDER_STEPS.delete(k)
+}
 // ★VF_VOICE_V1（2026-09-20）：百炼官方音色（与 /api/agent/prefs 的 TTS_VOICES 对齐）
 //   注意：原代码写死的 longyuan/龙嫗 **不在官方列表**（无效），已全部改掉；克隆音色按用户追加
 const VF_VOICE_BASE = [
@@ -1738,6 +1751,9 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
       writeVfTask({ id: vfTaskId, status: 'running', startedAt: vfStarted,
                     out: vfOut, cost: vfCost, script: String(vfScript || '').slice(0, 200),
                     work: vfWorkDir, uid: String(uidVF), bgm: vfBgm })
+      /* ★VF_TASK_TRACE_V1-D1：开这一单的独立日志（`trace/<taskId>.log`）——
+         此后本用户的 `vfLog` 会自动双写进来；子进程输出在 close 时整段补进（失败原因就在里面）。 */
+      try { vfTaskTraceBegin(uidVF, vfTaskId) } catch { /* ignore */ }
       try {
         const ch = spawn(py, argsVF, { windowsHide: true })
         let so = ''
@@ -1795,14 +1811,22 @@ async function executeToolCall(name: string, args: Record<string, any>, auth: an
                         ...repoExtra })
           // ★I2V_BILL_V1：扣的是"真实生成出来的"那部分（没生成出来的不收）
           if (okDone) { spendTokens(uidVF, vfCharge, 'make_ai_video').catch(() => {}) }
+          /* ★VF_TASK_TRACE_V1-D1：把**渲染进程的完整输出尾部**也进这一单的日志 ——
+             这是排查"到底哪一步失败"的唯一真材料（诊断接口拿它当输入）。 */
+          try {
+            vfTaskTraceAppend(uidVF, vfTaskId, `----- 渲染进程结束 code=${code} ok=${okDone} -----\n` + so.slice(-16000))
+            vfTaskTraceEnd(uidVF)
+          } catch { /* ignore */ }
         })
         ch.on('error', (e: any) => {
           writeVfTask({ id: vfTaskId, status: 'failed', startedAt: vfStarted,
                         finishedAt: new Date().toISOString(), error: String(e).slice(0, 300) })
+          try { vfTaskTraceAppend(uidVF, vfTaskId, '===== 渲染进程启动失败：' + String(e).slice(0, 300) + ' ====='); vfTaskTraceEnd(uidVF) } catch { /* ignore */ }
         })
       } catch (e: any) {
         writeVfTask({ id: vfTaskId, status: 'failed', startedAt: vfStarted,
                       finishedAt: new Date().toISOString(), error: String(e).slice(0, 300) })
+        try { vfTaskTraceAppend(uidVF, vfTaskId, '===== 后台启动异常：' + String(e).slice(0, 300) + ' ====='); vfTaskTraceEnd(uidVF) } catch { /* ignore */ }
         return 'MAKE_VIDEO_FAIL:后台启动失败 ' + String(e).slice(0, 120)
       }
       return `MAKE_VIDEO_TASK:${vfTaskId} 本地成片已在后台开始（配音 + 字幕 + 画面）。过程中可随时问我"视频做得怎么样了"查看进度。`
@@ -3595,6 +3619,50 @@ export async function POST(request: NextRequest) {
       } as any)
 
       const steps: { tool: string; label: string; args?: string }[] = []
+      /* ★VF_TASK_TRACE_V1-B（2026-10-26 用户定案「状态机线必须报步骤」）：
+         病灶：右侧「思考步骤流」只认"AI 真调了工具"那条路（就是下面这个 `steps` 数组），
+               而**状态机线（图片成片/日报/图视混剪…）一个工具都不调** ⇒ `steps` 恒空
+               ⇒ 前端只能编两条假步骤兜底（已在本任务 A 节删掉）⇒ 用户以为 AI 什么都没干。
+         现口径：**统一入口 `pushStep(label, extra)`** —— 任何线在"真干完一个动作"时推一条：
+           · `label` 只写**人话动作**（`看图 5 张` / `写文案 138 字` / `排 10 个镜头` / `出片 132s`）；
+           · `tool` 填**线名**（`vf_local` / `daily` / …），前端据此显示来源；
+           · `since` 传动作开始时的 `Date.now()` ⇒ 自动带耗时（`看图 5 张 · 3.2s`）。
+         元素格式保持 `{tool,label,args}` 不变（前端已按这个渲染，不加新字段）。
+         ⚠️ **不落库**：`steps` 只在本次响应里，刷新/回档就没了（已知限制，本任务不做持久化）。 */
+      const _uidStep = auth?.userId ? String(auth.userId) : ''
+      const _orderTools = new Set<string>()   // 本轮推过"同一单"步骤的线名（决定回包要不要合并步骤链）
+      const pushStep = (label: string, extra?: { tool?: string; since?: number; args?: string; forOrder?: boolean }) => {
+        try {
+          const ms = extra?.since ? Date.now() - Number(extra.since) : 0
+          const dur = (ms > 0 && Number.isFinite(ms)) ? ' · ' + (ms / 1000).toFixed(1) + 's' : ''
+          const tool = String(extra?.tool || 'state_machine')
+          const item = { tool, label: String(label) + dur, args: extra?.args }
+          steps.push(item)
+          if (extra?.forOrder && _uidStep) {
+            const k = _uidStep + '::' + tool
+            const arr = VF_ORDER_STEPS.get(k) || []
+            arr.push(item)
+            if (arr.length > 12) arr.splice(0, arr.length - 12)   // 单条链最多 12 条（一单正常 3~6 条）
+            VF_ORDER_STEPS.set(k, arr)
+            _orderTools.add(tool)
+          }
+        } catch { /* 埋点绝不能影响主流程 */ }
+      }
+      /** 回包用的步骤：本轮有推 ⇒ 把**同一单前几轮**的步骤一起带上（按线名合并、保序）。
+       *  本轮一条都没推（纯对话/只刷新卡片）⇒ 返回本轮的空数组（**不拿旧单的步骤充数**）。 */
+      const collectSteps = () => {
+        try {
+          if (!steps.length || !_orderTools.size || !_uidStep) return steps
+          const merged: { tool: string; label: string; args?: string }[] = []
+          for (const t of Array.from(_orderTools)) {
+            for (const s of (VF_ORDER_STEPS.get(_uidStep + '::' + t) || [])) merged.push(s)
+          }
+          if (!merged.length) return steps
+          // 同一轮里还有"工具步骤"（非本单步骤链）⇒ 也一并带上，别把工具分支的步骤吞掉
+          for (const s of steps) if (!_orderTools.has(s.tool)) merged.push(s)
+          return merged
+        } catch { return steps }
+      }
       let videoTaskId = '' // 2026-09-06: 提取视频任务ID（不靠 AI 汇总保留 VIDEO_TASK 标记——前端从 data.videoTaskId 轮询）
       for (const tc of normCalls) {
         let args: Record<string, any> = {}
@@ -3602,7 +3670,7 @@ export async function POST(request: NextRequest) {
         const stepLabel = TOOL_STEP_LABEL[tc.name] || tc.name
         let argsSum = ''
         try { const a = JSON.parse(tc.arguments || '{}'); argsSum = JSON.stringify(a).slice(0, 100) } catch {}
-        steps.push({ tool: tc.name, label: stepLabel, args: argsSum })
+        pushStep(stepLabel, { tool: tc.name, args: argsSum })
         console.log(`[Agent] 🔧 ${tc.name}`, JSON.stringify(args).substring(0, 100))
         const result = await executeToolCall(tc.name, args, auth)
         const vtM = typeof result === 'string' ? result.match(/VIDEO_TASK:([^|]+)/) : null
@@ -4335,25 +4403,32 @@ PUBLISH_DRAFT.delete(uidW)
                 }
               }
               vfLog(uidVF2, `[新引擎出片] 确认卡按钮（草稿线 ${_df.tag} · skin=${_dc.skin} ${_ori}${_deckMd ? ' · AI 要点版文案' : ' · 规则映射文案'}）`)
+              const _tDeck = Date.now()
               const _dr = await runDeckVideoTask({ uid: uidVF2, draft: _df.draft, skin: _dc.skin, ori: _ori, deckMd: _deckMd, db: prisma, log: (u: any, m: string) => vfLog(u, m) })
               if (_dr.ok) {
                 await stdClearAllDrafts(uidVF2)
                 vfLog(uidVF2, `[新引擎出片] 已入队 ${_dr.taskId} → 草稿作废（下一条不必再点两次）`)
                 wfEarlyReply = `MAKE_VIDEO_TASK:${_dr.taskId} 新引擎（HTML 逐帧 · 动态 PPT）成片已在后台开始。过程中可随时问我"视频做得怎么样了"查看进度。`
+                pushStep('开始出片', { tool: 'vf_ppt', since: _tDeck, forOrder: true })
               } else {
                 wfEarlyReply = '新引擎出片失败：' + String(_dr.msg || '未知原因')
+                pushStep('出片失败 · ' + String(_dr.msg || '未知原因').slice(0, 40), { tool: 'vf_ppt', since: _tDeck, forOrder: true })
               }
             }
             finalResult = wfEarlyReply
+            /* ★VF_TASK_TRACE_V1-B：**协议线直返也要带 steps** —— 这条 return 是"卡片协议串"专用出口，
+               原来不带 `steps` ⇒ 前端永远拿不到本轮的步骤（面板空着，只能显示假数据）。
+               现在把已推的步骤一并返回（空数组也返回，形状与工具分支一致）。 */
             return NextResponse.json({ success: true, data: {
-              reply: wfEarlyReply, intent: 'chat', toolUsed: false,
+              reply: wfEarlyReply, intent: 'chat', toolUsed: false, steps: collectSteps(),
               sessionId: sid || null, scene: null, scenes: [], pointsSpent: 0,
             } })
           } catch (eDC: any) {
             const _msg = '新引擎出片异常：' + String(eDC?.message || eDC).slice(0, 160)
             try { vfLog(uidVF2, '[新引擎出片] 异常: ' + _msg) } catch { /* ignore */ }
+            pushStep('出片失败 · ' + _msg.slice(0, 40), { tool: 'vf_ppt' })
             return NextResponse.json({ success: true, data: {
-              reply: _msg, intent: 'chat', toolUsed: false,
+              reply: _msg, intent: 'chat', toolUsed: false, steps: collectSteps(),
               sessionId: sid || null, scene: null, scenes: [], pointsSpent: 0,
             } })
           }
@@ -4386,6 +4461,8 @@ PUBLISH_DRAFT.delete(uidW)
         //   ⚠️ 登记三处（命令表 / stdHasAnyDraft / stdClearAllDrafts）已在本次一并加好。
         try {
           const _msgDL = String(userMessage || '').trim()
+          // ★VF_TASK_TRACE_V1-B2：命中「日报落地页」命令 = **新一单** ⇒ 清掉上一单的步骤链
+          if (!!stdCmdHit && stdCmdHit.id === 'daily') clearOrderSteps(uidVF2, 'daily')
           // ★VF_DAILY_V5：补上 `!stdCmdHit ||`（照获客线那行的写法）——
           //   旧写法 `stdCmdOwned(['daily']) || shouldTakeOver…` 会在**本线残留草稿**时把**别条命令**蹭走
           //   （本线"有草稿就接管"，而别条命令不是命令命中本线 ⇒ 左边为 false、右边为 true）。
@@ -4409,6 +4486,12 @@ PUBLISH_DRAFT.delete(uidW)
                 } catch { return '' }
               })(),
               log: (u: number | string, s: string) => { try { vfLog(u, s) } catch { /* ignore */ } },
+              /* ★VF_TASK_TRACE_V1-C（2026-10-26）：日报线的**执行步骤**入口。
+                 daily.ts 里那 5 处 `(ctx as any).step?.()` 早就埋好了、只是**没有任何人提供这个函数**
+                 （注释写着"机制未上线"）⇒ 面板一直空着。这里把它接到通用通道上：
+                 `tool:'daily'` + 人话 label（`看图 17 张` / `排 16 段方案` / `生成 HTML 10.6MB` / `提交出片`）。
+                 ⚠️ 只推"步骤"，与日报窗口那个 AI 回执（prompt/think 查看器）是**两回事**，别混。 */
+              step: (label: string, extra?: { tool?: string; since?: number; args?: string }) => pushStep(label, { tool: 'daily', forOrder: true, ...(extra || {}) }),
             })
             if (_rDL) { wfEarlyReply = _rDL; finalResult = _rDL }
             // ★VF_DAILY_V21（2026-10-14 用户实测「就感觉漏，AI 直接接管开始编了」）：
@@ -4661,6 +4744,8 @@ PUBLISH_DRAFT.delete(uidW)
               VIDEO_DRAFT.delete(uidVF2)
               clearVfDraft(uidVF2)
               vd = undefined
+              // ★VF_TASK_TRACE_V1-B2：**新一单开始** ⇒ 该用户的步骤链清空（否则上一单的步骤会串进来）
+              clearOrderSteps(uidVF2)
             }
 
             /** ★VF_BANNER_RECOMPUTE_V1（2026-09-29 team-lead 要求）：文案被改后按新文案重算标题。
@@ -5123,7 +5208,14 @@ PUBLISH_DRAFT.delete(uidW)
                 const vfVisN = _uploadMode
                   ? Math.max(8, Math.min(40, Math.max(_wanted.length, _vfImgN)))
                   : Math.max(8, Math.min(20, Math.round(_dur0 / 30) * 5))
+                /* ★VF_TASK_TRACE_V1-C（图片成片埋点 ①）：**看图** —— 这是本线第一个真动作。
+                   条数口径 = 实际送进视觉模型的张数（`vfVisN` 是"打算看几张"，`_vfImgN` 是可看总数，取小的）。 */
+                const _tSeeVF = Date.now()
                 let vfBrief = await summarizeMaterials(uidVF2, vfMats, vfVisN)
+                pushStep(`看图 ${Math.min(_vfImgN, vfVisN)} 张`, {
+                  tool: String(vd?.line || 'local') === 'pptimg' ? 'vf_pptimg' : 'vf_local', forOrder: true,
+                  since: _tSeeVF,
+                })
                 // ★VF_I2VSUIT_V1（2026-09-30）：单独留一份 **AI 原始看图结论** ——
                 //   用户可以在"素材识别结果"里手改（briefOverride 覆盖 vfBrief），但"这张图有没有主体可动"
                 //   要按 **AI 的原始判断**来（用户手改的往往是文案措辞，不保证还带 `图N（name）：` 这种结构，
@@ -5249,6 +5341,7 @@ PUBLISH_DRAFT.delete(uidW)
                   + `【他的素材】${vfBrief ? '\n' + vfBrief : '（仓库里没有可用图片）'}`
                   + `\n【今日热点（可参考，不结合也行）】${vfHot || '（无）'}`
                 // ① 文案：用户在表单里直接贴了文案就用他的（★VF_FORM_V1），否则 AI 写
+                const _tScriptVF = Date.now()   // ★VF_TASK_TRACE_V1-C：写文案这一段计时
                 let vfScript2 = String(vd.formScript || '').slice(0, 4000)
                 if (vfScript2) {
                   vfLog(uidVF2, `[文案] 用用户贴的文案 ${vfScript2.length} 字（目标 ${vfNeed}）`)
@@ -5287,6 +5380,12 @@ PUBLISH_DRAFT.delete(uidW)
                   vfScript2 = lastP > vfNeed * 0.6 ? cut.slice(0, lastP + 1) : cut
                   vfLog(uidVF2, `[硬截] → ${vfScript2.length} 字（目标 ${vfNeed}）`)
                 }
+                /* ★VF_TASK_TRACE_V1-C（图片成片埋点 ②）：**写文案**（含扩写/压缩/硬截之后的定稿字数）。
+                   耗时口径 = 从"文案这一段开工"到定稿；用户自己贴文案时也推一条（如实是 0.x s）。 */
+                pushStep(`写文案 ${String(vfScript2 || '').length} 字`, {
+                  tool: String(vd?.line || 'local') === 'pptimg' ? 'vf_pptimg' : 'vf_local', forOrder: true,
+                  since: _tScriptVF,
+                })
                 // ①.5) ★VF_BANNER_V1（2026-09-29 用户定案）「顶部固定标题」：文案定稿后用一次**便宜的文本调用**
                 //   提炼两行（钩子 / 核心承诺）。开关关掉（pin='off'）→ 不调 AI、不带字段；
                 //   失败/返回不合法 → 规则兜底（首句前 10 字 / 次句前 16 字）—— **绝不因此不出片**。
@@ -5303,6 +5402,7 @@ PUBLISH_DRAFT.delete(uidW)
                   vd.banner = undefined
                 }
                 // ② 分镜（★VF_SHOTGEN_V1：prompt 给合法示例 + 解析正则容错 + **自动重试一次修 JSON**）
+                const _tShotsVF = Date.now()   // ★VF_TASK_TRACE_V1-C：排分镜这一段计时
                 const vfImgs = vfLocal.map((m: any) => m.localPath).filter(Boolean)
                 const vfShots = await genVideoShots({
                   uid: uidVF2, aspect: vfAspect, dur: vfDur, shotN: vfShotN,
@@ -5500,6 +5600,12 @@ PUBLISH_DRAFT.delete(uidW)
                     vfLog(uidVF2, `[时长] 分镜预估合计 ${Math.round(_dfSum)} 秒 / 目标 ${_dfTarget} 秒（仅供参考：最终时长由逐镜配音决定，不再按目标缩放）`)
                   }
                 }
+                /* ★VF_TASK_TRACE_V1-C（图片成片埋点 ③）：**排镜头** —— 放在拆镜/合并/字幕体检**之后**，
+                   报的是**最终**镜数（不是 AI 刚返回时的那个数，否则面板数字与成片对不上）。 */
+                pushStep(`排 ${vfShots.length} 个镜头`, {
+                  tool: String(vd?.line || 'local') === 'pptimg' ? 'vf_pptimg' : 'vf_local', forOrder: true,
+                  since: _tShotsVF,
+                })
                 const vfEstSec = Math.round(vfSubLen / VF_SUB_CPS)
                 const vfHasPlan = vfShots.length >= 2 && !!vfScript2 && vfCover >= 0.8
                 vd.script = vfScript2 || vd.topic || '看这条视频'
@@ -5722,6 +5828,10 @@ PUBLISH_DRAFT.delete(uidW)
                   picked: (await loadMatPolicy(uidVF2)).i2v,
                 })
                 for (const _n of _i2vRun.notes) vfLog(uidVF2, '[图生视频] ' + _n)
+                /* ★VF_TASK_TRACE_V1-C（图片成片埋点 ④）：**出片提交**（主表最后一个动作）。
+                   如实两态：成功入队 = `开始出片`；被拒/后台启动失败 = `出片失败 · 原因` ——
+                   **失败也必须留一条**，否则失败时面板是空的（用户会以为 AI 什么都没干）。 */
+                const _tFilmVF = Date.now()
                 const vfRun = await executeToolCall('make_ai_video', (vd.shots?.length && !vfForce)
                   // ★VF_DECK_STYLES_V1（2026-10-01）：画面模版 → plan **根级** `deck_style`（渲染层读它；
                   //   取值 'auto' | 'deck'|'deck-grad'|'deck-mono'|'deck-mag'|'deck-glass'|'deck-soft'，缺省/非法 = 'auto'）。
@@ -5735,6 +5845,16 @@ PUBLISH_DRAFT.delete(uidW)
                 vfLog(uidVF2, '[草稿收尾] 已入队 → 旧草稿作废（下一条不必再点两次）')
                 VIDEO_DRAFT.delete(uidVF2)
                 await clearVfDraft(uidVF2)
+                { // ★VF_TASK_TRACE_V1-C：出片这一步的如实回执（成功 / 失败都推一条）
+                  const _runTxt = String(vfRun || '')
+                  const _okFilm = /MAKE_VIDEO_TASK:|MAKE_QUEUED:/.test(_runTxt)
+                  const _failWhy = (_runTxt.match(/MAKE_VIDEO_FAIL:([^\n]{0,40})/) || [])[1]
+                    || (/TOOL_REJECT:/.test(_runTxt) ? '点数不足' : '')
+                  pushStep(_okFilm ? '开始出片' : ('出片失败' + (_failWhy ? ' · ' + _failWhy.trim() : '')), {
+                    tool: String(vd?.line || 'local') === 'pptimg' ? 'vf_pptimg' : 'vf_local', forOrder: true,
+                    since: _tFilmVF,
+                  })
+                }
                 wfEarlyReply = String(vfRun)
                 finalResult = wfEarlyReply
                 vfLog(uidVF2, `[入队] ${String(vfRun).slice(0, 100)}`)
@@ -6041,7 +6161,7 @@ PUBLISH_DRAFT.delete(uidW)
       }
       return NextResponse.json({
         success: true,
-        data: { reply, intent: toolCalls.map((t: any) => t.name), toolUsed: true, steps, scene: scene || templateScene, scenes: extracted.scenes.length > 1 ? extracted.scenes : undefined, sessionId, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG, videoTaskId },
+        data: { reply, intent: toolCalls.map((t: any) => t.name), toolUsed: true, steps: collectSteps(), scene: scene || templateScene, scenes: extracted.scenes.length > 1 ? extracted.scenes : undefined, sessionId, pointsSpent: TOKEN_COSTS.CHAT_PER_MSG, videoTaskId },
       })
     }
       // ═══ 标准模式专属：发布状态机 结束（下面是共用逻辑 / 自由模式也走）═══

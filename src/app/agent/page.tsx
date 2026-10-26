@@ -28,6 +28,10 @@ import {
 //   TS 侧在 anti-ai.ts 的 VF_STYLES，纯数据零副作用 → 客户端可直接引，界面不会与归一化规则漂移）。
 import { VF_STYLES, VF_SUB_CPS, VF_PPTIMG_SKINS } from '@/lib/agent/vf/anti-ai'
 import TourGuide from '@/components/TourGuide'
+// ★VF_TASK_TRACE_V1-A：ToastContainer 已挂在 app/layout.tsx，「复制执行链」没步骤时要给提示
+import { showToast } from '@/components/Toast'
+// ★VF_TASK_TRACE_V1-D4：卡片上的「🩺 这次怎么了」（AI 读这一单日志 → 3~5 条人话结论 + 原始日志折叠）
+import TaskDiagnoseButton from '@/components/task-diagnose-panel'
 import { Solar } from 'lunar-javascript'
 import { createPortal } from 'react-dom'
 import VoiceOrb from '@/components/VoiceOrb'
@@ -4194,6 +4198,19 @@ function AgentPageInner() {
     const taskId = mMv[1].trim()
     if (!taskId) return
     if (handledMakeVideos.current.has(taskId)) return
+    /* ★VF_TASK_TRACE_V1-D4b（2026-10-26）：把「处理过的任务」落到 localStorage ——
+       病灶与日报线同一个（`handledMakeVideos` 是 useRef，**刷新即清空**）⇒ 历史里只要还有一条
+       `MAKE_VIDEO_TASK`，刷新就会重新轮询 → 早已 failed ⇒ **每刷新一次弹一次失败卡**。
+       以前是一段纯文本（烦但轻），现在失败卡带按钮和红边（更显眼）⇒ 一并按日报线的口径修掉。
+       只留最近 30 条。 */
+    const MV_LS_KEY = 'mvHandled'
+    const _mvRead = (): string[] => {
+      try { const j = JSON.parse(localStorage.getItem(MV_LS_KEY) || '[]'); return Array.isArray(j) ? j.map(String) : [] } catch { return [] }
+    }
+    const _mvMark = (id: string) => {
+      try { localStorage.setItem(MV_LS_KEY, JSON.stringify(_mvRead().filter(x => x !== id).concat([id]).slice(-30))) } catch { /* ignore */ }
+    }
+    if (_mvRead().indexOf(taskId) >= 0) { handledMakeVideos.current.add(taskId); return }
     let stopped = false
     let ticks = 0
     const iv = setInterval(async () => {
@@ -4219,6 +4236,7 @@ function AgentPageInner() {
         if (t.status === 'done') {
           clearInterval(iv)
           handledMakeVideos.current.add(taskId)
+          _mvMark(taskId)   // ★VF_TASK_TRACE_V1-D4b：刷新后别再重复拉这条任务
           if (!stopped) {
             // ★2026-09-19 修（用户实测：上次做好的视频会在下次会话/刷新后又冒出来）：
             //   任务文件一直在（status=done 不会消失），而 handledMakeVideos 是内存 ref
@@ -4233,8 +4251,17 @@ function AgentPageInner() {
         } else if (t.status === 'failed') {
           clearInterval(iv)
           handledMakeVideos.current.add(taskId)
+          _mvMark(taskId)   // ★VF_TASK_TRACE_V1-D4b：刷新后别再弹同一张失败卡
           if (!stopped) {
-            setMessages(prev => [...prev, { id: 'mv-' + Date.now(), role: 'assistant', content: '❌ 本地成片失败（已跑 ' + (t.elapsedSec || 0) + 's）\n' + ((t.error || (t.tail || []).join('\n')) || '（无日志）') + '\n可让我重试。' }])
+            /* ★VF_TASK_TRACE_V1-D4：失败回执改成**协议串**（原来是纯文本）——
+               只为在卡片上挂「🩺 这次怎么了」按钮（AI 读这一单日志给结论）。
+               文案**一字不改**，只是从"直接显示文本"变成"渲染成卡 + 带 taskId"。 */
+            setMessages(prev => [...prev, { id: 'mv-' + Date.now(), role: 'assistant', content: 'MAKE_VIDEO_FAILED:' + JSON.stringify({
+              taskId,
+              elapsedSec: Number(t.elapsedSec) || 0,
+              error: String(t.error || ''),
+              tail: Array.isArray(t.tail) ? t.tail.slice(-8) : [],
+            }) }])
           }
         }
       } catch {}
@@ -6064,6 +6091,30 @@ function AgentPageInner() {
             {md.repoError ? <div className="text-[10px] text-amber-400 mt-1">入库提示：{md.repoError}</div> : null}
             {/* ★VF_RENDER_ONESHOT_V1：片出完后改一镜 → 只重渲染（复用配音、不扣点）。入口就在这里。 */}
             {md.taskId ? <VfReRenderShot taskId={String(md.taskId)} onSend={sendMessage} /> : null}
+            {/* ★VF_TASK_TRACE_V1-D4：出片完成后同样能问「这次怎么了」（例如"出是出了，但哪里不对劲"） */}
+            {md.taskId ? <div className="mt-2"><TaskDiagnoseButton taskId={String(md.taskId)} /></div> : null}
+          </div>
+        )
+      } catch {}
+    }
+    // ★VF_TASK_TRACE_V1-D4：**失败卡**（协议串由上面的轮询推入）——挂「🩺 这次怎么了」。
+    //   为什么要这张卡：失败时面板/对话里只有一坨 stderr，用户看不懂也不会去服务器找日志；
+    //   现在点一下就有 3~5 条人话结论（普通用户看不到日志原文，admin 能看到）。
+    if (content.startsWith('MAKE_VIDEO_FAILED:')) {
+      try {
+        const fd = JSON.parse(content.slice(18))
+        const tailTxt: string[] = Array.isArray(fd.tail) ? fd.tail.map((x: any) => String(x)) : []
+        return (
+          <div className="mb-2 p-3 rounded-xl border border-red-500/30 bg-red-500/[0.06]">
+            <div className="text-xs text-red-300 mb-2">❌ 本地成片失败（已跑 {Number(fd.elapsedSec) || 0}s）</div>
+            <div className="text-[10px] text-gray-400 whitespace-pre-wrap break-all max-h-40 overflow-y-auto bg-black/30 rounded-lg p-2">
+              {String(fd.error || '') || (tailTxt.length ? tailTxt.join(String.fromCharCode(10)) : '（无日志）')}
+            </div>
+            <div className="mt-2 flex items-center gap-2 flex-wrap">
+              <TaskDiagnoseButton taskId={String(fd.taskId || '')} />
+              <span className="text-[9px] text-gray-600">AI 读这一单的日志给结论；原始日志可展开/复制</span>
+            </div>
+            <div className="text-[10px] text-gray-500 mt-2">可让我重试。</div>
           </div>
         )
       } catch {}
@@ -7790,19 +7841,23 @@ function AgentPageInner() {
             )}
           </div>
           <div className="p-3 border-b border-white/5">
-            <p className="text-[11px] text-gray-300 font-medium flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              思考步骤流
-            </p>
-            <p className="text-[9px] text-gray-600 mt-0.5">实时展示助手执行链路</p>
-            <button onClick={() => {
-              const last = [...messages].reverse().find(m => m.role === 'assistant' && m.steps?.length)
-              if (!last) return
-              const txt = last.steps.map((s: any) => (s.label + ' [' + (s.tool || '') + ']' + (s.args ? ' args=' + s.args : ''))).join(String.fromCharCode(10))
-              navigator.clipboard.writeText(txt).then(() => setRecordingTip('✅ 执行链已复制')).catch(() => setRecordingTip('复制失败'))
-            }} className="shrink-0 px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-gray-400 text-[9px]">
-              复制执行链
-            </button>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] text-gray-300 font-medium flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                思考步骤流
+              </p>
+              <button onClick={() => {
+                /* ★VF_TASK_TRACE_V1-A：原来 `if (!last) return` —— 点了完全没反应（用户以为是坏的）。
+                   现在明确提示；同时"没有步骤"就是没有，不许再编两条假步骤（下面 7817 的兜底已删）。 */
+                const last = [...messages].reverse().find(m => m.role === 'assistant' && m.steps?.length)
+                if (!last) { try { showToast('这一轮没有步骤可复制', 'error') } catch { /* ignore */ } return }
+                const txt = last.steps.map((s: any) => (s.label + ' [' + (s.tool || '') + ']' + (s.args ? ' args=' + s.args : ''))).join(String.fromCharCode(10))
+                navigator.clipboard.writeText(txt).then(() => setRecordingTip('✅ 执行链已复制')).catch(() => setRecordingTip('复制失败'))
+              }} className="shrink-0 px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-gray-400 text-[9px]">
+                复制执行链
+              </button>
+            </div>
+            <p className="text-[9px] text-gray-600 mt-0.5">步骤 = 后端实际执行的动作（不含 AI 思考）</p>
           </div>
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
             {liveSteps.length === 0 && !loading ? (
@@ -7815,19 +7870,15 @@ function AgentPageInner() {
                   </p>
                 )
                 if (!last.steps?.length) {
-                  // 2026-08-23: D 纯对话（无工具调用）也显示思考摘要
+                  /* ★VF_TASK_TRACE_V1-A（2026-10-26 用户定案「宁可空着也不许编」）：
+                     这里原来硬编两条假步骤（`['分析用户意图','组织回复']`）—— 状态机线不调工具 ⇒ steps 恒空
+                     ⇒ 用户看到"AI 干了这两件事"，其实什么都没发生；「复制执行链」也跟着拿到假数据。
+                     现在如实说：这一轮没有可展示的步骤。 */
                   return (
-                    <div className="flex flex-col gap-1.5">
-                      {['分析用户意图', '组织回复'].map((t, i) => (
-                        <div key={i} className="flex items-start gap-2 rounded-lg bg-white/[0.03] border border-white/[0.06] px-2.5 py-2">
-                          <span className="mt-0.5 w-4 h-4 rounded-full bg-violet-500/20 text-violet-300 flex items-center justify-center text-[9px] shrink-0 font-semibold">⚡</span>
-                          <div className="min-w-0">
-                            <p className="text-[10px] text-gray-300 leading-snug">{t}</p>
-                            <p className="text-[8px] text-violet-400/60 mt-0.5">快速响应（无工具调用）</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    <p className="text-[10px] text-gray-600 px-1 py-4 text-center leading-relaxed">
+                      这一轮没有可展示的步骤<br />
+                      <span className="text-[9px] text-gray-700">（步骤 = 后端实际执行的动作）</span>
+                    </p>
                   )
                 }
                 return last.steps!.map((s, i) => (

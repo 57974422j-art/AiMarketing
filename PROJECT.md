@@ -1,7 +1,7 @@
 # AiMarketing 项目文档
 
 > 本文档为**唯一权威项目文档**（替代已删除的 PROJECT_REPORT.md 与 docs/ 全部散落文档）。
-> 最后更新：2026-10-22 ｜ 配套文档：[AGENT-HANDOFF.md](./AGENT-HANDOFF.md)（**AGENT 页接手文档——换工具/换机器先读它**）、[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
+> 最后更新：2026-10-26 ｜ 配套文档：[AGENT-HANDOFF.md](./AGENT-HANDOFF.md)（**AGENT 页接手文档——换工具/换机器先读它**）、[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
 > 维护规则：**每次执行操作后**，必须同步更新本文档「当前进度/待办」章节 + EXECUTION_LOG.md + ISSUES.md。
 
 
@@ -222,6 +222,33 @@ dashboard(+insights/sop)、workspace、ai-tools、ai-copy、image-generator、au
 i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
+
+### 2026-10-26：执行链改真 + AI 读日志出结论（`VF_TASK_TRACE_V1` A/B/C第一批/D，✅ 代码完成 + tsc 90 = 基线）
+
+- **病灶（用户三句原话）**：「复制执行链也是空的」「看不到 AI 回复，每次要去服务器找很烦」「几万字人看不懂」
+  ⇒ 右侧「思考步骤流」只有"AI 真调了工具"那条路会返回 `steps`，**状态机线一个工具都不调** ⇒ `steps` 恒空
+  ⇒ 前端用**两条写死假步骤**兜底；「复制执行链」在空数据时**直接 return，点了没反应**。
+- **A 通用面板改真**：删掉假步骤兜底（`['分析用户意图','组织回复']`）⇒ 空就显示「这一轮没有可展示的步骤」；
+  复制按钮空数据时 `showToast('这一轮没有步骤可复制','error')`；标题旁加「步骤 = 后端实际执行的动作（不含 AI 思考）」。
+- **B 状态机步骤机制**：`chat/route.ts` 抽出统一入口 `pushStep(label, extra)`（`tool` = 线名、`since` = 毫秒 ⇒ 自动带 `· 3.2s`）；
+  元素格式仍是 `{tool,label,args}`（前端不改）。**协议线直返（PPT 新引擎那条 `return`）也补上 `steps`**。
+  ⚠️ **不落库**：刷新/回档会丢，已知限制。
+- **C 第一批埋点**：① 图片成片 `vf_local`/`vf_pptimg` 四处 —— `看图 N 张` / `写文案 N 字` / `排 N 个镜头`（**最终镜数**，在拆镜/合并之后）/
+  `开始出片`（失败也留一条 `出片失败 · 原因`）；② **日报线**：`daily.ts` 里 5 处 `(ctx as any).step?.()` 早就埋好"但没人提供函数"
+  ⇒ 本次在 `chat/route.ts` 传入 `step`，并在 `DailyCtx` 里补了类型（看图 / 排方案 / 生成 HTML / 提交出片）。**没碰** `VfDailyTrace` 组件内部与 trace 写盘。
+- **D AI 读日志出结论**：① `video-material.ts` 新增 `vfTaskTraceBegin/Append/End` ⇒ 每单再写一份
+  `storage/<uid>/video-factory/trace/<taskId>.log`（`vfLog` 自动双写 + 渲染进程 tail 整段补进，5MB 上限）；
+  ② 新接口 `GET /api/agent/task-trace?taskId=&diag=1`（文件名白名单 / 禁 `..` / 400KB / **只读自己目录**，照抄 daily-trace 范式）；
+  ③ 新文件 `src/lib/agent/task-diagnose.ts`（`deepseek-flash`，尾部 200 行 + 首个错误行；**evidence 必须是日志里真有的原文**，
+  模型编的原文会被降级成「日志里没记这一项」；无错误行 ⇒ 直接回「日志没有异常」；模型失败 ⇒ 确定性抽取报错行）；
+  ④ 前端新组件 `TaskDiagnoseButton`（成功卡 + 失败卡都挂「🩺 这次怎么了」，上半结论 / 下半原始日志折叠可复制，普通用户的 evidence 由**服务端**抹掉）。
+  失败回执由纯文本改成 `MAKE_VIDEO_FAILED:{taskId,…}` 协议串（文案不变，只为能挂按钮）。
+- **B2（跨轮次）**：图片成片"一单"横跨两轮（素材合成 → 确认出片）⇒ 新增**进程内存**步骤链 `VF_ORDER_STEPS`
+  （key=`uid::线名`、上限 12 条、`forOrder:true` 才进链、**新一单开始清空**）⇒ 第 2 轮把第 1 轮那 3 条一起带上；**仍不落库**。
+- **读数**：`tsc` **90 = 基线**（改动文件 0 新增错误）；lint 0；**诊断探针** `temp/_daily/_trace_probe.cjs` **21/0 全过**
+  （无错误行不调模型 / 空日志如实 / **编造的 evidence 被降级成「日志里没记这一项」** / 模型乱答走确定性兜底 / 模型抛错不打挂 / 尾部截断保留首个错误行）。
+- ⏳ 待部署后：跑一单图片成片（面板应有 4 条带耗时）+ 一单日报（看图/排方案/生成 HTML/出片）+ 造一个失败任务点「🩺 这次怎么了」。
+- **未做（下一批）**：C 第二批（图视混剪 / 素材+AI / AI制片 / PPT成片 / HTML成片 / 获客）＋ `steps` 持久化。
 
 ### 2026-10-22：图文对不上（`VF_MEDIADESC_V1`，✅ 完成 + 10 条断言全过，待部署走一单）
 

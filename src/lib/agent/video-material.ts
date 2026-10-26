@@ -104,8 +104,73 @@ export function vfLog(userId: string | number, msg: string): void {
     const dir = path.join(vfStorageRoot(), String(userId), 'video-factory')
     fs.mkdirSync(dir, { recursive: true })
     fs.appendFileSync(path.join(dir, 'vf_debug.log'), line + '\n')
+    // ★VF_TASK_TRACE_V1-D1：若这位用户此刻有一单在跑，**同样内容再写一份**到该单的 trace 文件。
+    const t = _activeTrace.get(String(userId))
+    if (t) vfTaskTraceAppend(userId, t, line)
   } catch { /* 日志失败不影响主流程 */ }
   console.log('[VF]', msg)
+}
+
+/* ═══ ★VF_TASK_TRACE_V1-D1（2026-10-26 用户定案「AI 读日志出结论」的前置）═══
+ * 病灶：`vf_debug.log` 是**按用户追加的一个大文件** —— 用户一天跑几单就混在一起，
+ *       既无法"只看这一单"，也没法当 AI 诊断的输入（会读到别的单的错误）。
+ * 现口径：**每单再写一份** `storage/<uid>/video-factory/trace/<taskId>.log`（append）。
+ *   · 写入方式：① 任务开始 `vfTaskTraceBegin(uid, taskId)` ⇒ 之后该用户的 `vfLog` 自动双写；
+ *               ② 进程输出/关键结论可 `vfTaskTraceAppend(uid, taskId, text)` 直接补；
+ *               ③ 任务结束 `vfTaskTraceEnd(uid)` 关掉双写。
+ *   · 只给**新任务**写（老任务没有这个文件，接口会如实报"没有日志"）。
+ *   · 为什么用"当前任务"映射而不是改 vfLog 签名：vfLog 有几十个调用点，签名一改全会漏改；
+ *     同一用户同时只会有一个成片任务在跑（状态机已保证），映射足够。
+ */
+const _activeTrace = new Map<string, string>()
+
+/** trace 目录（唯一口径：与 vf_debug.log 同根，都在 `storage/<uid>/video-factory/trace/`） */
+export function vfTaskTraceDir(userId: string | number): string {
+  return path.join(vfStorageRoot(), String(userId), 'video-factory', 'trace')
+}
+
+/** trace 文件绝对路径（只做拼路径，不校验存在性） */
+export function vfTaskTraceFile(userId: string | number, taskId: string): string {
+  return path.join(vfTaskTraceDir(userId), String(taskId) + '.log')
+}
+
+/** 开始记录某一单：之后该用户的 vfLog 会双写进这一单的 trace 文件 */
+export function vfTaskTraceBegin(userId: string | number, taskId: string): void {
+  const t = String(taskId || '').trim()
+  if (!t) return
+  try {
+    const dir = vfTaskTraceDir(userId)
+    fs.mkdirSync(dir, { recursive: true })
+    // ★VF_TASK_TRACE_V1-D1b：单文件上限 5MB（超了只留尾部）—— 长片 tail 可能很大，
+    //   但诊断只取尾部 200 行，无限增长只会拖慢接口。
+    const f = vfTaskTraceFile(userId, t)
+    try { if (fs.existsSync(f) && fs.statSync(f).size > 5 * 1024 * 1024) fs.writeFileSync(f, '') } catch { /* ignore */ }
+    _activeTrace.set(String(userId), t)
+    vfTaskTraceAppend(userId, t, `[${new Date().toISOString()}] ===== 任务 ${t} 开始 =====`)
+  } catch { /* trace 失败绝不影响出片 */ }
+}
+
+/** 直接往某一单的 trace 追加一段文本（多行会逐行带时间戳） */
+export function vfTaskTraceAppend(userId: string | number, taskId: string, text: string): void {
+  const t = String(taskId || '').trim()
+  if (!t) return
+  const body = String(text == null ? '' : text)
+  if (!body) return
+  try {
+    const dir = vfTaskTraceDir(userId)
+    fs.mkdirSync(dir, { recursive: true })
+    const flat = body.replace(/\r\n/g, '\n').replace(/\n$/, '')
+    fs.appendFileSync(vfTaskTraceFile(userId, t), flat + '\n')
+  } catch { /* ignore */ }
+}
+
+/** 结束记录（关掉双写；不删文件） */
+export function vfTaskTraceEnd(userId: string | number): void {
+  try {
+    const t = _activeTrace.get(String(userId))
+    if (t) vfTaskTraceAppend(userId, t, `[${new Date().toISOString()}] ===== 任务结束 =====`)
+    _activeTrace.delete(String(userId))
+  } catch { /* ignore */ }
 }
 
 /**
