@@ -920,6 +920,19 @@ function vfScriptCard(vd: any, shots: any[], imgN: number, brief: string, aspect
     //   之前这类事只写服务端日志 ⇒ 用户"传了视频没被用"完全不知情（他实测就是这么被误导的）。
     matWarn: String(vd.matWarn || '').slice(0, 300),
     voice: vd.voice, voiceName, theme: vd.theme, cost,
+    /* ★VF_FORMECHO_V1（2026-10-26 用户实测「手填的顶部标题两行每进一次卡就变空，再点出片就被抹掉」）：
+       **病灶**：设置卡下发时**没有这几个字段** ⇒ 前端 `useState(vj.pin1 || '')` 只能拿到空
+       ⇒ 你重新进卡时输入框是空的 ⇒ 再点出片时 `f.pin1 = ''`（`5048` 的解析是"有就覆盖"）
+       ⇒ **手填内容被空串抹掉**，退回 AI 自动拟。
+       现口径：把这几个"用户改过的设置"**原样回显**，前端就不必靠默认值瞎猜。
+       ⚠️ 只补**有 UI 且用户会改**的字段；`style` 已停用（★VF_NOSTYLE_V1）故固定空串，不回显。 */
+    bgm: String((vd as any).bgm || 'auto'),
+    pin: String((vd as any).pin || 'on'),
+    pin1: String((vd as any).pin1 || ''),
+    pin2: String((vd as any).pin2 || ''),
+    i2v: String((vd as any).i2v || 'off'),
+    deckStyle: String((vd as any).deckStyle || 'auto'),
+    style: '',
     // ★VF_PRICE_CLARITY_V1（2026-09-30）：不含动图的部分（=只算文案费）+ 主题中文名 ——
     //   前端拿它写「约 Y 点 = 动图 A + 文案 B」，两个数各自有名字。
     costNoI2v, themeName,
@@ -4312,6 +4325,19 @@ PUBLISH_DRAFT.delete(uidW)
         }
         // ★VF_LOG_V1（2026-09-19）：成片入口日志（服务器侧 <storage>/<uid>/video-factory/vf_debug.log）——排查用
         vfLog(uidVF2, `[入口] msg="${String(userMessage).slice(0, 60)}" vfIntent=${vfIntent} 内存草稿=${VIDEO_DRAFT.has(uidVF2) ? '有' : '无'} 自由模式=${isFreeMode} 任务词=${isTaskCmd}`)
+        /* ★VF_TASK_TRACE_V1-2批（2026-10-26）：**命中某条线自己的命令 = 那一线"新一单"** ⇒ 清它的步骤链。
+           不清的后果：第二条片会把第一条的步骤一起带进面板（最多串成 12 条），看起来像"AI 干了两次"。
+           ⚠️ 必须放在**所有线分派之前**（HTML成片/PPT 在本块下方就先跑了）—— 放后面等于"跑完再清"。
+           （日报线的清空在它自己的分派里、图片成片在草稿重置处，同一个口径，各清各的。） */
+        if (stdCmdHit?.id) {
+          const _id2tool: Record<string, string> = {
+            vf_video: 'vf_video', vf_mix: 'vf_mix', vf_ai: 'vf_aivideo',
+            vf_ppt: 'vf_ppt', vf_pptimg: 'vf_pptimg', vf_local: 'vf_local',
+            lead: 'vf_lead', film: 'vf_htmlfilm',
+          }
+          const _clrTool = _id2tool[String(stdCmdHit.id)]
+          if (_clrTool) clearOrderSteps(uidVF2, _clrTool)
+        }
         // ═══════════════════════════════════════════════════════════════════════
         // ★VF_AILINE_V1（2026-09-21）【AI 制片】独立线分派（用户定案：
         //   「把现在的视频状态机**先不动**，抽你需要的做 AI 制片。不用制作牵涉太广。」）
@@ -4403,6 +4429,10 @@ PUBLISH_DRAFT.delete(uidW)
                 //   「写了但被 sanitize/gen-deck 丢掉了」（后者才是我们的 bug），不用再来回猜。
                 if (_deckMd) {
                   const _secN = (_deckMd.match(/^##[^\n]*/gm) || []).length
+                  /* ★VF_TASK_TRACE_V1-2批（2026-10-26）：**排段版式** —— 「PPT 成片」线唯一
+                     能在提交前拿到"真实节数"的地方（页数 = 节数 + 2，但页数由 gen-deck 后台决定，
+                     提交这一刻还不知道 ⇒ **不报页数，只报节数**，不许把推测写成结果）。 */
+                  pushStep(`排 ${_secN} 段版式`, { tool: 'vf_ppt', forOrder: true })
                   const _tblRows = (_deckMd.match(/^\|[^\n]*\|[^\n]*$/gm) || []).length
                   const _numN = (_deckMd.match(/^\d[^\n]*$/gm) || []).length
                   const _bulletN = (_deckMd.match(/^\s*-\s/gm) || []).length
@@ -4555,6 +4585,12 @@ PUBLISH_DRAFT.delete(uidW)
               // ★VF_FILMCOPY_V1（2026-10-09 用户定案「B该用模型就用模型」）：把"写字用哪个模型"注入本线 ——
               //   风格卡「下一步」时要**先让 AI 看图总结素材 + 按骨架写逐镜文案**，用的就是 writer 档位（与 PPT 线同一套）
               generateText: genTextW,
+              /* ★VF_TASK_TRACE_V1-2批·第 3.5 节（2026-10-26）：**只补机制，不改调用点**。
+                 背景：vf-htmlfilm 里 `ctx.step?.(…)` 早就埋好了，但构造 HtmlFilmCtx 时没传 step
+                 ⇒ 那些调用一直是**空转**（`?.` 静默跳过）。这里把通道接上（`tool:'vf_htmlfilm'`）。
+                 ⚠️ 出片正常但步骤仍为空 ⇒ 说明该分支没走到 pushStep 这条路（**记现象，不硬改**）。 */
+              step: (label: string, extra?: { tool?: string; since?: number; args?: string }) =>
+                pushStep(label, { tool: 'vf_htmlfilm', forOrder: true, ...(extra || {}) }),
             })
             if (_rHF) { wfEarlyReply = _rHF; finalResult = _rHF }
             else {
@@ -4587,6 +4623,9 @@ PUBLISH_DRAFT.delete(uidW)
             const _rP = await handlePptLine({
               uid: uidVF2, userMessage, prisma, generateText: genTextW,
               log: (u: any, m: string) => vfLog(u, m), voiceList: VF_VOICE_BASE,
+              // ★VF_TASK_TRACE_V1-2批：本线步骤上报（「排 N 段版式」在下方出片分支里推，此处只管设置卡这两步）
+              step: (label: string, extra?: { tool?: string; since?: number; args?: string }) =>
+                pushStep(label, { tool: 'vf_ppt', forOrder: true, ...(extra || {}) }),
             })
             if (_rP) { vfPptHandled = true; wfEarlyReply = _rP; finalResult = _rP }
             else { try { vfLog(uidVF2, '[PPT-DIAG] handler 返回 null（本线没接管，消息会落到 AI）') } catch { /* ignore */ } }
@@ -4602,6 +4641,9 @@ PUBLISH_DRAFT.delete(uidW)
             wfEarlyReply = await handleLeadLine({
               uid: uidVF2, userMessage, auth, prisma,
               log: (u: any, m: string) => vfLog(u, m),
+              // ★VF_TASK_TRACE_V1-2批：本线步骤上报
+              step: (label: string, extra?: { tool?: string; since?: number; args?: string }) =>
+                pushStep(label, { tool: 'vf_lead', forOrder: true, ...(extra || {}) }),
             })
             finalResult = wfEarlyReply
           }
@@ -4639,6 +4681,9 @@ PUBLISH_DRAFT.delete(uidW)
               uid: uidVF2, userMessage, auth, prisma,
               executeToolCall, generateText: genTextW, vfScriptCard,
               log: (u: any, m: string) => vfLog(u, m),
+              // ★VF_TASK_TRACE_V1-2批：本线步骤上报（线名写死在这层，模块里不再重复写）
+              step: (label: string, extra?: { tool?: string; since?: number; args?: string }) =>
+                pushStep(label, { tool: 'vf_video', forOrder: true, ...(extra || {}) }),
               voiceList: VF_VOICE_BASE,
               listRepoMaterials, summarizeMaterials, probeVideos, describeVideoClips,
               downloadMaterials, splitScript: vfSplitScript, parseForm: _parseVfForm,
@@ -4662,6 +4707,9 @@ PUBLISH_DRAFT.delete(uidW)
               uid: uidVF2, userMessage, auth, prisma,
               executeToolCall, generateText: genTextW,
               log: (u: any, m: string) => vfLog(u, m),
+              // ★VF_TASK_TRACE_V1-2批：本线步骤上报
+              step: (label: string, extra?: { tool?: string; since?: number; args?: string }) =>
+                pushStep(label, { tool: 'vf_mix', forOrder: true, ...(extra || {}) }),
               voiceList: VF_VOICE_BASE,
               listRepoMaterials, summarizeMaterials, probeMaterialSizes, downloadMaterials,
               splitScript: vfSplitScript,
@@ -4684,6 +4732,9 @@ PUBLISH_DRAFT.delete(uidW)
                 prisma,
                 executeToolCall, genVideoShots, generateText: genTextW, vfScriptCard,
                 log: (u: any, m: string) => vfLog(u, m),
+                // ★VF_TASK_TRACE_V1-2批：本线步骤上报
+                step: (label: string, extra?: { tool?: string; since?: number; args?: string }) =>
+                  pushStep(label, { tool: 'vf_aivideo', forOrder: true, ...(extra || {}) }),
                 voiceList: VF_VOICE_BASE,
                 listRepoMaterials, summarizeMaterials, probeMaterialSizes,
                 splitScript: vfSplitScript,

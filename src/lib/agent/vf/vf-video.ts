@@ -204,6 +204,10 @@ export interface VfVideoCtx {
   downloadMaterials: (userId: number | string, mats: any[]) => Promise<any[]>
   splitScript: (script: string, n: number, maxLen?: number) => string[]
   parseForm: (userMessage: string) => Record<string, any> | null
+  /** ★VF_TASK_TRACE_V1（2026-10-26）：**执行步骤**上报（右侧通用面板用）。
+   *  只写人话动作 + 可选耗时；**不是 AI 的思考**。可选 —— 没注入就静默跳过。
+   *  `tool`（线名）由调用方（chat/route.ts）在包装时写死，本文件不重复写。 */
+  step?: (label: string, extra?: { tool?: string; since?: number; args?: string }) => void
 }
 
 /* ==================== ① 草稿（本线自己一份） ==================== */
@@ -529,6 +533,7 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   // ★VF_MULTIFRAME_V1：每个视频抽 2~5 帧、一次多图识别 → 得到"时间轴"（哪一段有内容）
   // ★三件事【并行】做（视频时间轴 / 图片识别 / 图片下载）—— 串行会让起草多等十几秒，
   //   而它们彼此独立，并行后总耗时≈最慢的那一件。
+  const _tSeeVF = Date.now()   // ★VF_TASK_TRACE_V1：看图这一步的真实耗时
   const [clipLines, imgBrief, imgLocal] = await Promise.all([
     ctx.describeVideoClips(clips, uid),
     // ★VF_USEALL_V1（2026-10-08 用户定案「都识别一下，因为要有文案，到时候对不上麻烦」）：
@@ -556,6 +561,8 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   //   `imgBrief`（不含视频行），因为 i2v 只作用在图片镜上。出片时复用同一份（存进草稿 vd.i2vSuit）。
   const i2vSuitByPath = i2vSummaryByPath(imgBrief, imgLocal)
   ctx.log(uid, `[VF-V] 素材：图 ${imgPaths.length} 张 / 视频 ${clips.length} 个（含${clips.filter((c: any) => c.sizeMB).length} 条已探到大小）`)
+  // ★VF_TASK_TRACE_V1-2批（2026-10-26）：看图（含视频抽帧）—— 与上面那条日志**同一事实**
+  ctx.step?.(`看图 ${imgPaths.length} 张`, { since: _tSeeVF })
 
   if (!imgPaths.length && !clips.length) {
     vd.step = 'form'
@@ -574,6 +581,7 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   // ── 3) 文案：用户贴了就用他的 ──
   const need = Math.round(dur * 4.5)
   const ctxTxt = `【他的素材】\n${brief || '（没有可用素材）'}`
+  const _tScriptVF = Date.now()   // ★VF_TASK_TRACE_V1：写文案这一步的真实耗时
   let script = cleanText(vd.script || '')
   if (!script) {
     try {
@@ -587,6 +595,7 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   }
   if (!script) return '视频混剪：文案没写出来（AI 调用失败）。回「重试」我再试一次。'
   ctx.log(uid, `[VF-V] 文案 ${script.length} 字（目标 ${need}）`)
+  ctx.step?.(`写文案 ${script.length} 字`, { since: _tScriptVF })   // ★VF_TASK_TRACE_V1-2批
 
   // ── 3.5) ★VF_BANNER_V1（2026-09-29 用户定案）「顶部固定标题」：出片前用一次**便宜的文本调用**拟两行 ──
   //   为什么在【起草】时就提炼、而不是出片那一刻：① 文案在这里才定稿（出片只读草稿）；② 出片那一刻再调
@@ -608,6 +617,7 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   }
 
   // ── 4) 排分镜：把图片 + 视频（含真实时长与内容）一起给 AI，由它决定哪几镜用视频 ──
+  const _tShotsVF = Date.now()   // ★VF_TASK_TRACE_V1：排分镜这一步的真实耗时
   // ★VF_SHOTN_V1（2026-10-08 用户实测「**上传 15 张图，它只调 5 个做的** —— 上传多少就该用多少，
   //   不管视频多长、图片多少张」）：
   //   原口径 shotN = round(dur/5)，而 dur 缺省 30 ⇒ **6 镜**；规则⑧又要求"每 4~5 镜 1 张文字卡"
@@ -1027,6 +1037,7 @@ async function draftAndCard(ctx: VfVideoCtx, vd: VfVideoDraft, retryHint = ''): 
   }
   const nV = shotsOut.filter((s) => s.type === 'video').length
   ctx.log(uid, `[VF-V] 分镜 ${shotsOut.length} 镜（视频 ${nV} 镜 / 图片 ${shotsOut.length - nV} 镜）覆盖 ${Math.round(cover * 100)}%`)
+  ctx.step?.(`排 ${shotsOut.length} 个镜头`, { since: _tShotsVF })   // ★VF_TASK_TRACE_V1-2批（报的是最终镜数）
   // ★VF_VIDI2V_V1：这次要让哪几张图动起来（开关关掉 → 空；费用如实报在确认卡上）
   const _i2vB = i2vBuildOf(vd)
   logI2vNotes(ctx, _i2vB.notes)
@@ -1260,6 +1271,7 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
       VF_VIDEO_DRAFT.delete(uid)
       await clearVfVideoDraft(ctx.prisma, uid)
       ctx.log(uid, '[VF-V] 已入队 → 本线草稿作废')
+      const _tRunVF = Date.now()   // ★VF_TASK_TRACE_V1：提交出片这一步的真实耗时
       const run = await ctx.executeToolCall('make_ai_video', {
         // ★OVERLAY_TEXT_SWITCH_V1（2026-09-29）：把"画面大字开关"写进分镜 plan ——
         //   render.py 读到 overlay_text=false 就不再把这些大字压在素材/视频上（独立文字卡与字幕照旧）。
@@ -1277,6 +1289,14 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
         // ★VF_VIDI2V_V1：{ i2vShots, source:'mix', mix } 由通用函数拼好（没有可动的图时是空对象）
         ..._i2vB.args,
       }, ctx.auth)
+      // ★VF_TASK_TRACE_V1-2批：**成功/失败都留一条**（失败也留 —— 否则失败时面板是空的）
+      {
+        const _rt = String(run || '')
+        const _okRun = /MAKE_VIDEO_TASK:|MAKE_QUEUED:/.test(_rt)
+        const _whyRun = (_rt.match(/MAKE_VIDEO_FAIL:([^\n]{0,14})/) || [])[1]
+          || (/TOOL_REJECT:/.test(_rt) ? '点数不足' : '')
+        ctx.step?.(_okRun ? '提交出片' : ('出片失败' + (_whyRun ? ' · ' + _whyRun.trim() : '')), { since: _tRunVF })
+      }
       ctx.log(uid, `[VF-V] 出片入队 → ${String(run).slice(0, 100)}`)
       return String(run)
     }
@@ -1293,6 +1313,7 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
   } catch (e: any) {
     const msg = String(e?.message || e).slice(0, 200)
     try { ctx.log(uid, '[VF-V] ❌ 异常: ' + msg) } catch { /* ignore */ }
+    ctx.step?.('出错 · ' + msg.slice(0, 12))   // ★VF_TASK_TRACE_V1-2批：失败也留一条
     return `视频混剪环节出错：${msg}\n（把这句发我即可定位；这次没有静默失败。）`
   }
 }

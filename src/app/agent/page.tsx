@@ -462,6 +462,20 @@ const SLASH_COMMANDS: { cmd: string; desc: string; fill: string }[] = [
 
 // 思考步骤流工具中文标签（右侧常驻面板渲染用）
 const TOOL_STEP_LABEL: Record<string, string> = {
+  /* ★VF_STEPS_LABEL_V1（2026-10-26）：**状态机线名**的中文名。
+     为什么补：第二批埋点完成后，各线 `pushStep(..., {tool:'vf_video'})` 会把这些原始 id 送进面板，
+     而这里没有对应条目 ⇒ 「复制执行链」里会露出 `vf_video` / `vf_aivideo` / `vf_lead` 这种机器名。
+     口径：**必须与各线 `pushStep` 的 `tool` 值逐字一致**（见 `chat/route.ts` 里各线 ctx 的构造处）。 */
+  vf_local: '图片成片',
+  vf_video: '图视混剪',
+  vf_mix: '素材+AI',
+  vf_aivideo: 'AI制片',
+  vf_ppt: 'PPT成片',
+  vf_pptimg: 'PPT+图视',
+  vf_htmlfilm: 'HTML成片',
+  vf_lead: '获客',
+  daily: '日报落地页',
+  state_machine: '状态机',
   generate_image: '生成图片',
   generate_video: '生成视频',
   digital_human_speak: '生成数字人口播',

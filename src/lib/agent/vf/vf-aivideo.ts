@@ -79,6 +79,9 @@ export interface VfAiCtx {
   downloadMaterials: (userId: number | string, mats: any[]) => Promise<any[]>
   splitScript: (script: string, n: number, maxLen?: number) => string[]
   parseForm: (userMessage: string) => Record<string, any> | null
+  /** ★VF_TASK_TRACE_V1（2026-10-26）：**执行步骤**上报（右侧通用面板用）；可选，没注入就静默跳过。
+   *  `tool`（线名）由调用方写死。 */
+  step?: (label: string, extra?: { tool?: string; since?: number; args?: string }) => void
 }
 
 /* ==================== ① 成片风格（★本线自己一份；用户要我"补充成片风格"） ==================== */
@@ -348,6 +351,8 @@ export async function handleAiLine(ctx: VfAiCtx): Promise<string> {
       VF_AI_DRAFT.set(uid, vd)
       await saveVfAiDraft(ctx.prisma, uid, vd)
       ctx.log(uid, `[VF-A] 起稿（AI 制片）topic="${vd.topic.slice(0, 30)}"（guess=${guess ? '有' : '无'}）`)
+      // ★VF_TASK_TRACE_V1-2批（2026-10-26）：定题材（用户给的 / 按素材库猜的，如实标一句）
+      ctx.step?.(guess ? '定题材 · 按素材库猜' : '定题材')
       return 'VF_JSON:' + JSON.stringify({
         step: 'ai_setup', aiLine: true, topic: vd.topic, guess: guess || '',
         hint: guess
@@ -366,6 +371,7 @@ export async function handleAiLine(ctx: VfAiCtx): Promise<string> {
       // 第一部分：主题卡 → 写文案 → 发选项卡
       if (vd.step === 'ai_setup') {
         if (!vd.script) {
+          const _tScriptVF = Date.now()   // ★VF_TASK_TRACE_V1-2批：写文案这一步的真实耗时
           const need = Math.round((Number(vd.dur) || 30) * 4.5)
           let brief = ''
           try {
@@ -408,6 +414,8 @@ export async function handleAiLine(ctx: VfAiCtx): Promise<string> {
             ctx.log(uid, '[VF-A] 文案时长护栏异常（不影响出片）: ' + String(e?.message || e).slice(0, 100))
           }
           ctx.log(uid, `[VF-A] 文案 ${vd.script.length} 字（目标 ${need}）`)
+          // ★VF_TASK_TRACE_V1-2批：报的是**护栏之后**的定稿字数（与卡上、与配音同源）
+          ctx.step?.(`写文案 ${vd.script.length} 字`, { since: _tScriptVF })
         }
         vd.step = 'ai_opts'
         VF_AI_DRAFT.set(uid, vd)
@@ -455,6 +463,7 @@ export async function handleAiLine(ctx: VfAiCtx): Promise<string> {
       VF_AI_DRAFT.delete(uid)
       await clearVfAiDraft(ctx.prisma, uid)
       try { ctx.log(uid, '[VF-A] 已入队 → 本线草稿作废（不再吞掉后续消息）') } catch { /* ignore */ }
+      const _tRunVF = Date.now()   // ★VF_TASK_TRACE_V1-2批：提交出片这一步的真实耗时
       // ★VF_AISTYLE_KEY_V1（2026-10-01 team-lead 定案）：本线的「成片风格」标签（cinematic/commercial/…
       //   见 AI_STYLES）**与渲染层新引入的"成品风格"（蓝白科技…）语义不同、不该同名**。
       //   历史撞车：两者都叫 `style` → plan 根级 `style` 会被 render.py 的 apply_style 误当成品风格
@@ -475,6 +484,17 @@ export async function handleAiLine(ctx: VfAiCtx): Promise<string> {
         duration: vd.dur,
         confirmed: true,
       }, ctx.auth)
+      // ★VF_TASK_TRACE_V1-2批：成功/失败都留一条。
+      //   ⚠️ **不写"逐镜生成"**：那一步真身是 make.py 后台调 H3（本进程看不到），
+      //   没观测到就不许报 —— 这里只报"提交出去的这一单是 N 镜全 AI"（当场为真）。
+      {
+        const _rt = String(run || '')
+        const _okRun = /MAKE_VIDEO_TASK:|MAKE_QUEUED:/.test(_rt)
+        const _whyRun = (_rt.match(/MAKE_VIDEO_FAIL:([^\n]{0,14})/) || [])[1]
+          || (/TOOL_REJECT:/.test(_rt) ? '点数不足' : '')
+        ctx.step?.(_okRun ? `提交出片（${(vd.shots || []).length} 镜 AI）` : ('出片失败' + (_whyRun ? ' · ' + _whyRun.trim() : '')),
+          { since: _tRunVF })
+      }
       ctx.log(uid, `[VF-A] 出片入队（约 ${cost} 点 / ${vd.dur} 秒 / 风格 ${vd.styleResolved || 'AI自选'}）→ ${String(run).slice(0, 100)}`)
       return String(run)
     }
@@ -497,6 +517,7 @@ export async function handleAiLine(ctx: VfAiCtx): Promise<string> {
   } catch (e: any) {
     const msg = String(e?.message || e).slice(0, 200)
     try { ctx.log(uid, '[VF-A] ❌ 异常: ' + msg) } catch { /* ignore */ }
+    ctx.step?.('出错 · ' + msg.slice(0, 12))   // ★VF_TASK_TRACE_V1-2批：失败也留一条
     return `AI 制片环节出错：${msg}\n（把这句发我即可定位；这次没有静默失败。）`
   }
 }
@@ -524,6 +545,7 @@ async function draftAndCard(ctx: VfAiCtx, vd: VfAiDraft, retryHint: string): Pro
   const st = styleOf(styleId)
   if (st) { vd.theme = st.theme; if (!vd.musicType) vd.musicType = st.music }
 
+  const _tShotsVF = Date.now()   // ★VF_TASK_TRACE_V1-2批：排分镜这一步的真实耗时
   const shotN = Math.max(4, Math.min(40, Math.round(dur / 5)))
   const imgs: string[] = []   // ★AI 制片画面全 AI 生成 → 不给素材图（素材只当"题材依据"）
   const shots = await ctx.genVideoShots({
@@ -558,6 +580,7 @@ async function draftAndCard(ctx: VfAiCtx, vd: VfAiDraft, retryHint: string): Pro
   VF_AI_DRAFT.set(uid, vd)
   await saveVfAiDraft(ctx.prisma, uid, vd)
   ctx.log(uid, `[VF-A] 分镜 ${(shots || []).length} 镜 / 覆盖 ${Math.round(cover * 100)}% / 预计 ${estSec} 秒 / 画幅 ${aspect} / 风格 ${st?.name}`)
+  ctx.step?.(`排 ${(shots || []).length} 个镜头`, { since: _tShotsVF })   // ★VF_TASK_TRACE_V1-2批
 
   // 确认卡：成本按秒（与 make_ai_video 同口径）+ 把风格/画幅透给卡片
   const card = ctx.vfScriptCard(

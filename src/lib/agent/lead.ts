@@ -412,6 +412,9 @@ export interface LeadCtx {
   /** 数据库连接（由 route.ts 注入 —— 是“连接”，不是共用业务逻辑） */
   prisma: any
   log: (uid: number | string, msg: string) => void
+  /** ★VF_TASK_TRACE_V1（2026-10-26）：**执行步骤**上报（右侧通用面板用）；可选，没注入就静默跳过。
+   *  `tool`（线名）由调用方写死。 */
+  step?: (label: string, extra?: { tool?: string; since?: number; args?: string }) => void
 }
 
 /**
@@ -437,6 +440,8 @@ export async function handleLeadLine(ctx: LeadCtx): Promise<string> {
       d = newLeadDraft()
       await saveLeadDraft(ctx.prisma, uid, d)
       try { ctx.log(uid, '[LEAD] 起稿（智能获客设置面板）') } catch { /* ignore */ }
+      // ★VF_TASK_TRACE_V1-2批（2026-10-26）：打开面板（本线本轮范围 = 只配置 + 预演，不自动执行）
+      ctx.step?.('打开设置面板')
       return 'VF_JSON:' + JSON.stringify(buildLeadSetupCard(d))
     }
 
@@ -452,6 +457,7 @@ export async function handleLeadLine(ctx: LeadCtx): Promise<string> {
         await saveLeadDraft(ctx.prisma, uid, d)
         const pv = buildLeadPreview(d)
         try { ctx.log(uid, `[LEAD] 预演：${pv.actions.length} 条动作清单（不执行）`) } catch { /* ignore */ }
+        ctx.step?.(`预演 ${pv.actions.length} 条动作`)   // ★VF_TASK_TRACE_V1-2批（只预览、不发送）
         return 'VF_JSON:' + JSON.stringify({
           step: 'lead_preview', leadLine: true,
           actions: pv.actions, cadence: pv.cadence, perDay: pv.perDay,
@@ -472,6 +478,8 @@ export async function handleLeadLine(ctx: LeadCtx): Promise<string> {
       d.step = 'lead_setup'
       await saveLeadDraft(ctx.prisma, uid, d)
       try { ctx.log(uid, `[LEAD] 保存配置：${summaryLine(d)}`) } catch { /* ignore */ }
+      // ★VF_TASK_TRACE_V1-2批：保存配置（数量取自刚保存的草稿，与日志同一事实）
+      ctx.step?.(`保存配置 · ${(d.platforms || []).length} 平台`)
       return `✅ 已保存「智能获客」配置（存到服务端草稿，刷新/重启不丢）：${summaryLine(d)}。\n本轮不会自动执行 —— 想看将要执行的动作清单与频控节奏，回「预演」；想改就回「智能获客」重开面板。`
     }
 
@@ -481,6 +489,7 @@ export async function handleLeadLine(ctx: LeadCtx): Promise<string> {
   } catch (e: any) {
     const msg = String(e?.message || e).slice(0, 200)
     try { ctx.log(uid, '[LEAD] ❌ 异常: ' + msg) } catch { /* ignore */ }
+    ctx.step?.('出错 · ' + msg.slice(0, 12))   // ★VF_TASK_TRACE_V1-2批：失败也留一条
     return `「智能获客」环节出错：${msg}\n（把这句发我即可定位；这次没有静默失败。）`
   }
 }

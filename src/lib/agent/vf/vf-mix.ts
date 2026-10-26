@@ -66,6 +66,9 @@ export interface VfMixCtx {
   downloadMaterials: (userId: number | string, mats: any[]) => Promise<any[]>
   parseForm: (userMessage: string) => Record<string, any> | null
   splitScript: (script: string, n: number, maxLen?: number) => string[]
+  /** ★VF_TASK_TRACE_V1（2026-10-26）：**执行步骤**上报（右侧通用面板用）；可选，没注入就静默跳过。
+   *  `tool`（线名）由调用方写死 —— 本文件保持"零业务 import"，连类型也不引别的线。 */
+  step?: (label: string, extra?: { tool?: string; since?: number; args?: string }) => void
 }
 
 /* ★VF_BIGCUT_V1（2026-10-06）：画面大字"避词边界"截断 —— **本文件刻意自带一份**，不 import anti-ai。
@@ -309,6 +312,7 @@ export async function handleMixLine(ctx: VfMixCtx): Promise<string> {
       VF_MIX_DRAFT.delete(uid)
       await clearVfMixDraft(ctx.prisma, uid)
       try { ctx.log(uid, '[VF-X] 已入队 → 本线草稿作废（不再吞掉后续消息）') } catch { /* ignore */ }
+      const _tRunVF = Date.now()   // ★VF_TASK_TRACE_V1-2批：提交出片这一步的真实耗时
       const run = await ctx.executeToolCall('make_ai_video', {
         plan: JSON.stringify({ size: vd.size || [720, 1280], fps: 25, shots: vd.shots }),
         script: vd.script,
@@ -323,6 +327,14 @@ export async function handleMixLine(ctx: VfMixCtx): Promise<string> {
         duration: vd.dur,
         confirmed: true,
       }, ctx.auth)
+      // ★VF_TASK_TRACE_V1-2批：成功/失败都留一条（失败也留 —— 否则失败时面板是空的）
+      {
+        const _rt = String(run || '')
+        const _okRun = /MAKE_VIDEO_TASK:|MAKE_QUEUED:/.test(_rt)
+        const _whyRun = (_rt.match(/MAKE_VIDEO_FAIL:([^\n]{0,14})/) || [])[1]
+          || (/TOOL_REJECT:/.test(_rt) ? '点数不足' : '')
+        ctx.step?.(_okRun ? '提交出片' : ('出片失败' + (_whyRun ? ' · ' + _whyRun.trim() : '')), { since: _tRunVF })
+      }
       ctx.log(uid, `[VF-X] 出片入队（${aiN} 镜 AI / 共 ${vd.shots.length} 镜，约 ${cost} 点）→ ${String(run).slice(0, 100)}`)
       return String(run)
     }
@@ -340,6 +352,7 @@ export async function handleMixLine(ctx: VfMixCtx): Promise<string> {
   } catch (e: any) {
     const msg = String(e?.message || e).slice(0, 200)
     try { ctx.log(uid, '[VF-X] ❌ 异常: ' + msg) } catch { /* ignore */ }
+    ctx.step?.('出错 · ' + msg.slice(0, 12))   // ★VF_TASK_TRACE_V1-2批：失败也留一条
     return `素材+AI 创作环节出错：${msg}\n（把这句发我即可定位；这次没有静默失败。）`
   }
 }
@@ -353,17 +366,20 @@ async function draftAndCard(ctx: VfMixCtx, vd: VfMixDraft, isRetry = false): Pro
 
   // ① 文案
   if (!vd.script) {
+    const _tScriptVF = Date.now()   // ★VF_TASK_TRACE_V1-2批：只在"AI 真写了"时上报（用户自带文案就不报）
     const p = `你是短视频编导。为「${vd.topic || 'AI 营销'}」写一条约 ${dur} 秒的口播文案，` +
       `**约 ${need} 字**（中文配音约 4.5 字/秒），口语化、有钩子、结尾有行动号召。` +
       `只输出文案本身，不要标题、不要解释。`
     vd.script = String(await ctx.generateText(p) || '').trim().slice(0, 4000)
     ctx.log(uid, `[VF-X] 文案 ${vd.script.length} 字（目标 ${need}）`)
+    ctx.step?.(`写文案 ${vd.script.length} 字`, { since: _tScriptVF })
   }
 
   // ② 取素材 + 下载到本地（本线【真的要用你的图】）
   let brief = ''
   let imgs: string[] = []
   let maxSide = 0
+  const _tMatVF = Date.now()   // ★VF_TASK_TRACE_V1-2批：取素材这一步的真实耗时
   try {
     // ★A3（2026-09-22，用户铁律）：**本轮带了上传 → 只认上传的那几张，绝不掺素材库**。
     //   用户原话：「上传时上传的，素材库是素材库的……哪怕已经看过素材库了，看到上传的也以上传的为主。
@@ -387,6 +403,7 @@ async function draftAndCard(ctx: VfMixCtx, vd: VfMixDraft, isRetry = false): Pro
     const dl = await ctx.downloadMaterials(uid, (mats || []).slice(0, 30))
     imgs = (dl || []).map((m: any) => m?.localPath).filter(Boolean)
     ctx.log(uid, `[VF-X] 素材 ${(mats || []).length} 张 → 本地可用 ${imgs.length} 张（最大边 ${maxSide}px）`)
+    ctx.step?.(`取素材 ${imgs.length} 张`, { since: _tMatVF })   // ★VF_TASK_TRACE_V1-2批（报"真下到本地"的张数）
   } catch (e: any) {
     ctx.log(uid, '[VF-X] ⚠️ 素材准备失败: ' + String(e?.message || e).slice(0, 120))
   }
@@ -401,6 +418,7 @@ async function draftAndCard(ctx: VfMixCtx, vd: VfMixDraft, isRetry = false): Pro
   vd.imgs = imgs
 
   // ④ 排分镜（★本线自己一份 prompt —— 要 need_ai；**不复用 genVideoShots**）
+  const _tShotsVF = Date.now()   // ★VF_TASK_TRACE_V1-2批：排分镜这一步的真实耗时
   const shotN = Math.max(4, Math.min(40, Math.round(dur / 5)))
   const shots = await genMixShots(ctx, vd, shotN, imgs, brief, isRetry)
 
@@ -446,6 +464,7 @@ async function draftAndCard(ctx: VfMixCtx, vd: VfMixDraft, isRetry = false): Pro
   VF_MIX_DRAFT.set(uid, vd)
   await saveVfMixDraft(ctx.prisma, uid, vd)
   ctx.log(uid, `[VF-X] 分镜 ${shots.length} 镜（其中 **${aiShots.length} 镜用 AI**：第 ${aiShots.join(',') || '无'} 镜）/ 覆盖 ${Math.round(cover * 100)}% / 预计 ${estSec} 秒 / 风格 ${THEME_NAMES[vd.theme] || vd.theme}`)
+  ctx.step?.(`排 ${shots.length} 个镜头`, { since: _tShotsVF })   // ★VF_TASK_TRACE_V1-2批（报的是最终镜数）
 
   // ⑦ 确认卡（自己拼 —— 成本与 make_ai_video 的实扣**完全同口径**：
   //    ★"AI 镜的【实际 dur 之和】× 50" + "素材部分按文案字数"，不是"全片时长 × 占比"，

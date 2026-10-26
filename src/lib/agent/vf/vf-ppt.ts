@@ -110,6 +110,9 @@ export type PptCtx = {
   generateText: (prompt: string) => Promise<string | null>
   log: (uid: any, m: string) => void
   voiceList: { id: string; name: string }[]
+  /** ★VF_TASK_TRACE_V1（2026-10-26）：**执行步骤**上报（右侧通用面板用）；可选，没注入就静默跳过。
+   *  `tool`（线名）由调用方写死。 */
+  step?: (label: string, extra?: { tool?: string; since?: number; args?: string }) => void
 }
 
 /** 设置卡（step='ppt_setup'）——客户端按它渲染「PPT 成片」配置卡 */
@@ -226,11 +229,14 @@ export async function handlePptLine(ctx: PptCtx): Promise<string | null> {
         })
       }
       try {
+        const _tScriptVF = Date.now()   // ★VF_TASK_TRACE_V1-2批：写文案这一步的真实耗时
         script = await writeScriptFor(ctx, topic, dur)
         wrote = `（AI 按主题写了 ${script.length} 字文案）`
         ctx.log(uid, `[PPT成片] 未贴文案 → AI 按主题「${topic.slice(0, 20)}」写了 ${script.length} 字`)
+        ctx.step?.(`写文案 ${script.length} 字`, { since: _tScriptVF })
       } catch (e: any) {
         ctx.log(uid, '[PPT成片] 写文案失败：' + String(e?.message || e).slice(0, 120))
+        ctx.step?.('写文案失败 · ' + String(e?.message || e).slice(0, 10))   // ★VF_TASK_TRACE_V1-2批：失败也留一条
         const vd: PptDraft = { step: 'form', topic, script: '', aspect, dur, voice, bgm, skin, deckOnly: true }
         ;(vd as any).voiceList = ctx.voiceList
         return 'VF_JSON:' + JSON.stringify({
@@ -243,6 +249,9 @@ export async function handlePptLine(ctx: PptCtx): Promise<string | null> {
     ;(vd as any).voiceList = ctx.voiceList
     await savePptDraft(ctx.prisma, ctx.uid, vd)
     ctx.log(uid, `[PPT成片] 确认卡：${script.length} 字 · ${aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16'} · 皮肤 ${skin} · 音色 ${voice}${wrote}`)
+    // ★VF_TASK_TRACE_V1-2批：文案定稿（用户贴的 / 改的 / AI 刚写的，都走到这里）——
+    //   "排 N 段版式"和"生成 N 页"都要等真的分节/排版才知道，报在出片那一支（route.ts）。
+    ctx.step?.(`定稿 ${script.length} 字`)
     return confirmCard(vd)
   }
 
