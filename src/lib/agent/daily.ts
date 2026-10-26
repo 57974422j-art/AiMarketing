@@ -1889,13 +1889,14 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[], pre
   d.step = 'done'
   d.htmlName = String(r.name || '')
   await saveDailyDraft(ctx.prisma, uid, d)
-  try { ctx.log?.(uid, `[日报落地页] 已生成 ${r.name}（${plan.segments.length} 段 · ${d.planBy}）`) } catch { /* ignore */ }
+  /* ★VF_FIX_EMPTY_NAME_V1：不再上传配图版 ⇒ r.name 为空；这里改成"已生成（N 段）"，
+     真正的文件名统一在下面「单文件版已生成」那条日志里打。 */
+  try { ctx.log?.(uid, `[日报落地页] 已生成（${plan.segments.length} 段 · ${d.planBy}）`) } catch { /* ignore */ }
   // ★VF_FILELINK_V1（2026-10-12 用户原话「你至少包装一下 怎么这么现实出来了 连我服务器地址什么都搞出来了」）：
   //   不再往回复里贴 OSS 原始签名地址（桶名/区域/OSSAccessKeyId/内部 key 全在里面）。
   //   对外只给**本站短链** `/f/<uid>/<文件名>?t=<过期>.<签名>` —— 由 src/app/f/[uid]/[name]/route.ts
   //   校验签名后 302 跳到真地址（不代理流量、无状态；7 天有效、可发人）。
   //   OSS 原始地址与内部路径只写进**服务端日志**（排障用），不出现在聊天里。
-  const key = `storage/${uid}/${r.name}`
   const base = String(ctx.origin || '').replace(/\/+$/, '')
   const abs = (p: string) => (p ? (base ? base + p : p) : '')
   let link: any = null
@@ -1934,7 +1935,12 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[], pre
   const apiPath = `/api/storage/file?userId=${uid}&name=${encodeURIComponent(_dlName)}&download=1`
   const stdView = oneView || abs(std.view) || apiPath
   const stdDl = oneDl || abs(std.dl)
-  try { ctx.log?.(uid, `[日报落地页] 交付：${key} ｜ 短链 ${std.view || apiPath}`) } catch { /* ignore */ }
+  /* ★VF_FIX_EMPTY_NAME_V1：原来用 ${key}（= r.name，现在是空）和 ${std.view}（配图版短链，也是空）
+     ⇒ 日志里出现 "交付：storage/1/ ｜ 短链 /f/1/?t=…"，看着像坏了，实际交付用的是单文件版。
+     现口径：一律用 `_dlName`（= 单文件版名）拼。 */
+  try {
+    ctx.log?.(uid, `[日报落地页] 交付：storage/${uid}/${_dlName} ｜ 短链 ${oneView ? '/f/' + uid + '/' + _dlName : apiPath}`)
+  } catch { /* ignore */ }
   // ★L3/B：如实报"AI 自写了几段 / 哪几段没过体检被退回模板"（回落过的段此时已经没有 html 字段）
   const aiSegs = plan.segments.filter((s: any) => s && typeof s.html === 'string' && s.html.trim()).length
   // ★VF_DAILY_V7：最后一步也出**卡**（原来是纯文本 ⇒ 用户说"最后一步都是文字"）。

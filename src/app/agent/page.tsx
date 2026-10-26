@@ -5739,7 +5739,12 @@ function AgentPageInner() {
       const errName = String(eNet?.name || '')
       const errMsg = String(eNet?.message || '')
       let failReason = '网络连接失败'
-      if (errName === 'TimeoutError' || errMsg.includes('timeout')) failReason = '请求超时（服务器处理超过 240s——封面生成慢）——请重试'
+      /* ★VF_TIMEOUT_MSG_V1（2026-10-26 用户「失败是失败，成功了显示失败不合理」）：
+         这句原来写死"超过 240s"、并且**一律说"请重试"** —— 但实测好几次：
+         前端等满 660s 才断，而**后端其实已经跑完了**（草稿 step=done、文件也落盘）。
+         ⇒ 用户以为失败又重试 ⇒ 后端白跑 5 分钟。
+         现口径：① 不写死秒数；② 明说"很可能已经做完了"，给出确认动作。 */
+      if (errName === 'TimeoutError' || errMsg.includes('timeout')) failReason = '等待超时（前端等太久先断了）——**但这单很可能已经做完了**：先回一句「继续」把结果取回来，确实没有再重试。'
       else if (errMsg.includes('fetch')) failReason = '网络请求失败（请检查网络/服务器）'
       pushTerm('chat 异常：' + failReason, 'err')
       setMessages(prev => [...prev, {

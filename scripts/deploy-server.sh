@@ -62,6 +62,11 @@ echo "[4/7] 构建…"
 rm -rf .next && npm run build
 echo "[5/7] 复制静态资源…"
 cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/public
+# ★VF_NODE_TIMEOUT_V1（2026-10-26）：Node 22 默认 requestTimeout=300s，
+#   而 AI 出页那步要 285s ⇒ 请求被掐断、客户端收不到响应（实测 11 分钟后才报超时）。
+#   这里给 standalone/server.js 注入"关掉请求超时"（幂等，重复跑不会重复注入）。
+echo "[5b/7] 关闭 Node 请求超时（长任务）…"
+node scripts/patch-node-timeout.mjs || echo "  ⚠️ patch 失败（不影响启动，但长请求可能仍被 300s 掐断）"
 echo "[6/7] 重启 pm2（delete+start 更新版本）…"
 pm2 delete aimarketing || true
 DOTENV_CONFIG_PATH=/root/AiMarketing/.env.local pm2 start .next/standalone/server.js --name aimarketing --node-args="-r dotenv/config"
