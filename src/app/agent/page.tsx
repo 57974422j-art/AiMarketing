@@ -2698,6 +2698,47 @@ function VfDailyTrace({ trace }: { trace?: { prompt?: string; think?: string } |
   }
   const cur = data ? (tab === 'prompt' ? data.prompt : data.think) : null
   const text = String(cur?.text || '')
+  /* ★VF_TRACE_COPY_V1（2026-10-26 用户「弹窗里加个复制键，整个复制；太长了我没法复制给你看」）：
+     · 复制：一次拷**整份**（不是可视区），拷完在标题栏给个"已复制 N 字"的反馈；
+     · 下载：存成 .txt，文件名带 tab + 时间 ⇒ 用户可以直接把文件发人 / 发我。 */
+  const [copied, setCopied] = useState('')
+  const copyAll = async () => {
+    if (!text) { setCopied('没有内容'); setTimeout(() => setCopied(''), 1500); return }
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied('已复制 ' + text.length + ' 字')
+    } catch {
+      /* 非 https / 浏览器限制时退回 textarea 选中法 */
+      try {
+        const ta = document.createElement('textarea')
+        ta.value = text
+        ta.style.position = 'fixed'
+        ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+        setCopied('已复制 ' + text.length + ' 字')
+      } catch { setCopied('复制失败（请用下载）') }
+    }
+    setTimeout(() => setCopied(''), 2000)
+  }
+  const dlAll = () => {
+    if (!text) return
+    try {
+      const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'ai-trace-' + tab + '-' + new Date().toISOString().replace(/[:.]/g, '-') + '.txt'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      setTimeout(() => URL.revokeObjectURL(url), 3000)
+      setCopied('已下载 .txt')
+      setTimeout(() => setCopied(''), 2000)
+    } catch { setCopied('下载失败') }
+  }
   return (
     <>
       <button type="button"
@@ -2727,6 +2768,20 @@ function VfDailyTrace({ trace }: { trace?: { prompt?: string; think?: string } |
                 {cur ? Math.round(Number(cur.size || 0) / 1024) + 'KB' : ''}
                 {busy ? ' 读取中…' : ''}
               </span>
+              {/* ★VF_TRACE_COPY_V1：整份复制 / 下载成 .txt（太长时用这个，不用手拉选中） */}
+              <button type="button" onClick={copyAll} disabled={!text}
+                className={'text-[11px] px-2 py-0.5 rounded border ' + (text
+                  ? 'border-emerald-400/40 text-emerald-200 hover:bg-emerald-500/15'
+                  : 'border-white/10 text-gray-600 cursor-not-allowed')}>
+                📋 复制全文
+              </button>
+              <button type="button" onClick={dlAll} disabled={!text}
+                className={'text-[11px] px-2 py-0.5 rounded border ' + (text
+                  ? 'border-white/15 text-gray-300 hover:bg-white/[0.08]'
+                  : 'border-white/10 text-gray-600 cursor-not-allowed')}>
+                ⬇ 下载 .txt
+              </button>
+              {copied ? <span className="text-[10px] text-emerald-300">{copied}</span> : null}
               <button type="button" onClick={() => setOpen(false)}
                 className="text-[11px] px-2 py-0.5 rounded border border-white/15 text-gray-300">关闭</button>
             </div>
