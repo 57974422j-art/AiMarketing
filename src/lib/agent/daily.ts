@@ -1865,21 +1865,26 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[], pre
         return nm ? 'url(' + nm + ')' : m0
       })
     const pb = Buffer.from(h1, 'utf8')
-    const saved = await saveToPersonalRepo({ userId: uid, buffer: pb, ext: 'html', mime: 'text/html', gen: true })
+    /* ★VF_ONE_FILE_ONLY_V1（2026-10-26 用户「个人仓库生成素材中只会有完整 HTML 可分享 + 生成的视频」）：
+       这里原来会把**配图版**（引用 `xxx.jpg` 外链的那份）也上传进仓库
+       ⇒ 每单仓库里出现 **2 个 html**（配图版几十 KB + 单文件版 5~10MB）。
+       而分享/预览/出片现在**全部走单文件版** ⇒ 配图版**没有任何用处**。
+       现口径：**只上传单文件版**（下面 `buildSingleFile` 会生成），这里不再落盘。
+       ⚠️ `r.name` 留空，等单文件版出来再回填 `d.htmlName`（见后面那段）。 */
     r = {
-      ok: !!saved?.name, name: String(saved?.name || ''), buf: pb,
+      ok: true, name: '', buf: pb,
       note: 'AI 自由设计版（整页版式由 AI 写；未过四道闸门，出片时若有问题会如实报）',
       dropped: [],
     }
   } else {
     r = await generateVerified(ctx, plan)
   }
-  if (!r.ok || !r.name) {
+  if (!r.ok) {   /* ★VF_ONE_FILE_ONLY_V1：r.name 现在故意为空（配图版不上传仓库） */
     try { ctx.log?.(uid, '[日报落地页] 生成失败：' + String(r.error || '')) } catch { /* ignore */ }
     return '⚠️ HTML 生成失败：' + String(r.error || '未知原因') + '\n（可以回 `确认` 再试一次；若反复失败，把这句发给开发者）'
   }
   d.step = 'done'
-  d.htmlName = r.name
+  d.htmlName = String(r.name || '')
   await saveDailyDraft(ctx.prisma, uid, d)
   try { ctx.log?.(uid, `[日报落地页] 已生成 ${r.name}（${plan.segments.length} 段 · ${d.planBy}）`) } catch { /* ignore */ }
   // ★VF_FILELINK_V1（2026-10-12 用户原话「你至少包装一下 怎么这么现实出来了 连我服务器地址什么都搞出来了」）：
@@ -1909,6 +1914,8 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[], pre
   //   交付卡里虽然有 `name`（=单文件版名），但那是发给前端的；**服务端唯一能读的地方就是这个草稿**。
   if (single && single.name) {
     d.singleName = String(single.name)
+    /* ★VF_ONE_FILE_ONLY_V1：**单文件版就是唯一产物** ⇒ htmlName 也指它（编辑面板改字靠它定位） */
+    d.htmlName = String(single.name)
     await saveDailyDraft(ctx.prisma, uid, d)
   }
   const std = linkOf(r.name)
@@ -1932,7 +1939,8 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[], pre
   //   事实行与体检回落、真图命名对照全在卡里（不再往聊天里倒一大段文字）。
   try { ctx.log?.(uid, `[日报落地页] 交付卡已发（${r.name} · ${plan.segments.length} 段 · 结构 ${new Set(plan.segments.map((s: any) => String(s.layout || '-'))).size} 种）`) } catch { /* ignore */ }
   return 'VF_JSON:' + JSON.stringify(buildDoneCardPayload({
-    name: r.name,
+    /* ★VF_ONE_FILE_ONLY_V1b：仓库里只有单文件版 ⇒ 载荷的 name 也必须是它（前端下载/镜像靠这个名字） */
+    name: (single && single.name) ? String(single.name) : String(r.name || ''),
     viewUrl: stdView,
     dlUrl: stdDl,
     singleName: singleOk ? (single as any).name : '',

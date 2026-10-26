@@ -2171,7 +2171,9 @@ export function buildDoneCardPayload(o: {
     name: o.singleName || o.name,
     // ★VF_DAILYFILM_V3：**出片按钮的判据**（不看 `embedded` —— 它会被"短链没生成成功"带偏）
     hasSingle: !!o.hasSingle,
-    plainName: o.name,
+    /* ★VF_ONE_FILE_ONLY_V1b：`plainName` 原来是"配图版"，现在不存在了 ⇒ 指单文件版，
+     否则前端「本地打开/镜像」会因为拿到空名字而拒绝执行。 */
+  plainName: o.singleName || o.name,
     viewUrl: o.singleUrl || o.viewUrl,
     dlUrl: o.singleDlUrl || o.dlUrl || '',
     plainUrl: o.singleUrl ? o.viewUrl : '',

@@ -2832,7 +2832,7 @@ function VfDailyDoneCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) 
       <div className="text-[11px] text-gray-100 mb-1">
         ✅ 单文件版：{String(vj?.name || '')}
         {vj?.plainName
-          ? <span className="text-gray-500">　｜　配图版：{String(vj.plainName)}（图与页面同级，客户端会自动镜像到本地同一文件夹）</span>
+          ? <span className="text-gray-500">　｜　文件：{String(vj.plainName)}（图已内嵌，客户端镜像时只下这一个文件）</span>
           : null}
       </div>
       <div className="text-[10px] text-gray-400 mb-2">{String(vj?.facts || '')}</div>
