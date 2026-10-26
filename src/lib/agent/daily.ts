@@ -1238,6 +1238,8 @@ async function runPlan(ctx: DailyCtx, d: DailyDraft, src: DailySource, picked: s
   // ★VF_DAILY_V9：把"上次用的皮肤"告诉 AI（提示词里明确要求换一个）——这是"看着像同一套"的第一道药
   const recent = await recentSkins(ctx.prisma, uid)
   const ai = await aiPlanSegments(picks, d.topic || '', recent[0], { aiLayout: !!d.aiLayout, aiPickSkin: !!d.aiPickSkin })
+  /* ★VF_DAILY_STEPS_V1：② 方案排出（`ai.segs` 是段数组） */
+  try { (ctx as any).step?.('排 ' + ((Array.isArray(ai.segs) ? ai.segs.length : 0)) + ' 段方案') } catch { /* 机制未上线 */ }
   // ★VF_DAILY_V9：第二道药 —— AI 没挑 / 挑的还是上一套 ⇒ **服务端强制换**（纯函数 rotateTheme，可复现）
   const rot = rotateTheme(ai.ok ? String(ai.theme || '') : '', recent, picked.join('|') + '|' + (d.topic || ''))
   // ★VF_DAILY_V25：种子提前到"建 plan 之前"算 —— 因为**字体配对**要在建 plan 时就写进 meta
@@ -1675,7 +1677,9 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
         try { await saveDailyDraft(ctx.prisma, uid, d) } catch { /* ignore */ }
         /* ★VF_AIDESIGN_TRACE_V1：本轮提示词/思考的文件名 ⇒ 前端「看 AI 回执」直接读 */
         ;(d as any).trace = { prompt: String(design.tracePrompt || ''), think: String(design.traceThink || '') }
-        try { ctx.log?.(uid, '[日报落地页] 分镜表已带口播 ' + vs.filter(Boolean).length + '/' + vs.length + ' 段 ⇒ 出片时直接用') } catch { /* ignore */ }
+        /* ★VF_DAILY_STEPS_V1：① 看图完成 —— 这一步已经把 17 张图逐张喂给模型 */
+    try { (ctx as any).step?.('看图 ' + picks.length + ' 张') } catch { /* 机制未上线 */ }
+    try { ctx.log?.(uid, '[日报落地页] 分镜表已带口播 ' + vs.filter(Boolean).length + '/' + vs.length + ' 段 ⇒ 出片时直接用') } catch { /* ignore */ }
       }
     }
     if (!design.ok || !design.html) { lastErr = String(design.error || '未知原因'); failNote = ''; continue }
@@ -1911,6 +1915,11 @@ async function finishDaily(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[], pre
   try {
     single = await buildSingleFile(uid, r.buf, picks, (n: number) => String(imageNames[n - 1] || ''))
     if (single) try { ctx.log?.(uid, `[日报落地页] 单文件版已生成 ${single.name}（内嵌真图 ${single.embedded} 张）`) } catch { /* ignore */ }
+    /* ★VF_DAILY_STEPS_V1：③ HTML 生成完成（报大小，人话） */
+    try {
+      const _mb = (single && (single as any).bytes) ? ((single as any).bytes / 1048576).toFixed(1) : ''
+      ;(ctx as any).step?.('生成 HTML ' + (_mb ? _mb + 'MB' : (single ? '完成' : '失败')))
+    } catch { /* 机制未上线 */ }
   } catch (e: any) {
     try { ctx.log?.(uid, '[日报落地页] 单文件版生成失败（不影响交付）：' + String(e?.message || e).slice(0, 120)) } catch { /* ignore */ }
   }
@@ -2236,6 +2245,8 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
         return '⏳ 上一次出片**还在跑**（' + running.id + '）—— 完成后会自动发卡片，不用重复点。\n\n'
           + 'VF_DAILY_FILM_TASK:' + JSON.stringify({ id: running.id, name: running.htmlName, reuse: true })
       }
+      /* ★VF_DAILY_STEPS_V1：④ 提交出片（无配音） */
+      try { (ctx as any).step?.('提交出片') } catch { /* 机制未上线 */ }
       const t = await startDailyFilm(uid, d.singleName)
       d.filmTaskId = t.id
       await saveDailyDraft(ctx.prisma, uid, d)
@@ -2320,6 +2331,8 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
       ;(d as any).bgmVol = bgmVol
       d.voice = arr
       await saveDailyDraft(ctx.prisma, uid, d)
+      /* ★VF_DAILY_STEPS_V1：④ 提交出片（带配音，段数一起报） */
+      try { (ctx as any).step?.('提交出片 · ' + arr.length + ' 段') } catch { /* 机制未上线 */ }
       const t = await startDailyFilm(uid, d.singleName, { voice: arr, subPos, ttsVoice, bgm, bgmVol, aspect: String((d as any).aspect || '9:16') })
       d.filmTaskId = t.id
       await saveDailyDraft(ctx.prisma, uid, d)
