@@ -2514,6 +2514,10 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
             }}
             className="flex-1 min-w-0 bg-black/30 border border-white/10 rounded px-2 py-1 text-[12px] text-gray-100">
             <option value="">不加音乐</option>
+            {/* ★VF_AI_BGM_V1（2026-10-26 用户「加个电子音乐开关，勾上就加，默认不勾」）：
+                这一项不是文件，是**让 AI 生成一首**（MiniMax，生成一次存仓库长期复用）。
+                默认不选 —— 保持 `value=""` 在最上面。 */}
+            <option value="__ai_edm__">🎵 AI 电子乐（自动生成·首次约 1 分钟）</option>
             {bgmList.map((b: any) => (
               <option key={String(b.name)} value={String(b.name)}>
                 {String(b.name)}{b.mb ? '（' + b.mb + ' MB）' : ''}

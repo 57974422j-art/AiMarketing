@@ -2218,7 +2218,8 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
         voiceList: _voiceList,
         voicePick: String((d as any).ttsVoice || ''),
         bgmList: _bgmList,
-        bgmPick: String((d as any).bgm || ''),
+        // ★VF_AI_BGM_V1：`__ai_edm__` 表示"用户勾了 AI 电子乐"，回填时保持这个值（不是文件名）
+    bgmPick: (String((d as any).bgmPick || '') === '__ai_edm__') ? '__ai_edm__' : String((d as any).bgm || ''),
         bgmVol: Number.isFinite(Number((d as any).bgmVol)) ? Number((d as any).bgmVol) : -18,
       }))
     }
@@ -2272,7 +2273,45 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
         ? String((f as any).ttsVoice) : ''
       /* ★VF_DAILY_BGM_V1：配乐（可选）。只做**文件名形状校验**（禁路径分隔符与 ..），
          真正的存在性由 daily-film.ts 从 OSS 取时判断；取不到就跳过（不阻断出片）。 */
-      const bgmRaw = String((f as any)?.bgm || '')
+      let bgmRaw = String((f as any)?.bgm || '')
+      /* ★VF_AI_BGM_V1（2026-10-26 用户「加个电子音乐开关，勾上就加，默认不勾」）：
+         下拉里的特殊值 `__ai_edm__` = **让 AI 生成一首**（走已有的 MiniMax 音乐接口）。
+         三个必须遵守的口径：
+           ① **默认不勾** ⇒ 前端默认仍是空串，只有用户主动选了才有这个值；
+           ② **生成一次就存仓库**（`ai-bgm-edm.mp3`）⇒ 以后每单直接复用，不重复烧额度；
+           ③ **失败必须静音照出片** —— BGM 是锦上添花，绝不能因为它卡住整条片子。 */
+      if (bgmRaw === '__ai_edm__') {
+        const FIXED = 'ai-bgm-edm.mp3'
+        let ready = false
+        try {
+          const { getObject } = await import('@/lib/oss')
+          const b = await getObject('storage/' + uid + '/' + FIXED)
+          if (b && b.length > 20000) {
+            ready = true
+            try { ctx.log?.(uid, '[配乐] 复用已生成的 AI 电子乐（' + Math.round(b.length / 1024) + ' KB）') } catch { /* ignore */ }
+          }
+        } catch { /* 没有就往下生成 */ }
+        if (!ready) {
+          try {
+            const { generateMusic } = await import('@/lib/minimax-music')
+            const { putObject } = await import('@/lib/oss')
+            try { ctx.log?.(uid, '[配乐] 正在生成 AI 电子乐（30~60 秒）…') } catch { /* ignore */ }
+            const g = await generateMusic(
+              '轻快的电子律动背景乐，四四拍，节奏明快但不吵，无人声，适合美食与街景短视频铺底',
+            )
+            if (g.ok && g.buffer && g.buffer.length > 20000) {
+              await putObject('storage/' + uid + '/' + FIXED, g.buffer, 'audio/mpeg')
+              ready = true
+              try { ctx.log?.(uid, '[配乐] AI 电子乐已生成并入库 ' + Math.round(g.buffer.length / 1024) + ' KB') } catch { /* ignore */ }
+            } else {
+              try { ctx.log?.(uid, '[配乐] AI 生成失败（本条改为无配乐，不影响出片）：' + String(g.error || '').slice(0, 100)) } catch { /* ignore */ }
+            }
+          } catch (e: any) {
+            try { ctx.log?.(uid, '[配乐] AI 生成异常（本条改为无配乐）：' + String(e?.message || e).slice(0, 100)) } catch { /* ignore */ }
+          }
+        }
+        bgmRaw = ready ? FIXED : ''
+      }
       const bgm = /^[A-Za-z0-9._\-]{1,120}\.(mp3|m4a|wav|aac)$/i.test(bgmRaw) ? bgmRaw : ''
       const bgmVol = Math.max(-30, Math.min(0, Number((f as any)?.bgmVol) || -18))
       ;(d as any).subPos = subPos
