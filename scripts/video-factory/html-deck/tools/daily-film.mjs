@@ -269,7 +269,11 @@ if (outW !== 720 || outH !== 1280) {
   const changed = html !== before
   console.log('  画幅兜底：' + outW + '×' + outH + (changed ? '（已改写 #stage/.sec 的固定尺寸）' : '（页面没写死尺寸，无需改写）'))
 }
-const rootAttrs = 'data-composition-id="main" data-start="0" data-duration="' + total
+/* ★VF_TAIL_HOLD_V1b（2026-10-26 用户「结尾稍微给它预留1秒吧 忽然就没了好奇怪」）：
+   根容器时长 = 段总时长 **+1 秒**；段本身不动 ⇒ 多出来的 1 秒里所有段 `--p` 都已是 1
+   ⇒ **最后一帧定格 1 秒**再结束（不是黑屏，也不会突然切）。 */
+const TAIL_HOLD = 1
+const rootAttrs = 'data-composition-id="main" data-start="0" data-duration="' + (total + TAIL_HOLD)
   + '" data-fps="' + fps + '" data-width="' + outW + '" data-height="' + outH + '"'
 const bodyWrap = /<body[^>]*>\s*<([a-zA-Z]+)/i.exec(html)
 const wrapIsContainer = !!bodyWrap && bodyWrap[1].toLowerCase() !== 'section'

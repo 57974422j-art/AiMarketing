@@ -197,6 +197,13 @@ console.log('   有配音 ' + withVoice + '/' + secs.length + ' 段 · ffmpeg �
 
 // ── ② 回填时间轴（两处一起改）────────────────────────────────────────────────
 let acc = 0
+/* ★VF_TAIL_HOLD_V1（2026-10-26 用户「最后一个字没说出来 视频结束了」「结尾稍微给它预留1秒吧 忽然就没了好奇怪」）：
+   病因有两层：① 每段 dur = 语音时长 + gap，最后一段没有额外余量 ⇒ 话音刚落就切；
+            ② 合成时的 `-shortest` 会**按较短的流截断**（AAC 逐段对齐累积少约 0.2s）⇒ 连那点 gap 也被吃掉。
+   现口径：**最后一段额外 +1 秒**（画面停在最终状态、音频补静音），并把 `-shortest` 换成显式 `-t total`。 */
+/* ★VF_TAIL_HOLD_V1b：**整片末尾**留 1 秒（而不是只加在最后一段的 data-duration 上）——
+   因为画面定格由打包侧统一处理（root duration = total + 1），这里只要把**音频**补到同样长度即可。 */
+const TAIL_HOLD = 1.0
 const tl = timed.map((t) => { const o = { start: +acc.toFixed(2), dur: t.dur }; acc += t.dur; return o })
 const total = +acc.toFixed(2)
 /* ★VF_DAIDESIGN_V1c：**不靠 `data-seg`**，按"第几个 .sec 段"回填 —— AI 页没有 `data-seg`，
@@ -374,7 +381,11 @@ if (!has('no-sub') && CAPS.libass) {
     + ",PrimaryColour=&H00FFFFFF,OutlineColour=&H80000000,BorderStyle=3,Outline=1,Shadow=0,MarginV=" + SUB_MARGIN + "'"
 }
 // ★faststart 必须加：不加的话 moov 被推到文件尾 ⇒ 网页 video 要下完整个文件才能播（实测踩过）
-const AMIX = ['-c:a', 'aac', '-b:a', '192k', '-shortest', '-movflags', '+faststart', finalMp4]
+/* ★VF_TAIL_HOLD_V1：`-shortest` 改成 `-t total` —— 原来按**较短的流**截断（配音轨因 AAC 逐段对齐
+   会比画面短 0.1~0.3s）⇒ 最后一句话的尾音被切掉。现在**以画面总长为唯一标准**。 */
+/* ★VF_TAIL_HOLD_V1b：`apad` 把音频补静音 + `-t` 按「总长 +1 秒」截断。
+   原来用 `-shortest` ⇒ 按**较短的流**截断（配音轨比画面短 0.1~0.3s）⇒ 最后一句尾音被切。 */
+const AMIX = ['-c:a', 'aac', '-b:a', '192k', '-af', 'apad', '-t', String(+(total + TAIL_HOLD).toFixed(2)), '-movflags', '+faststart', finalMp4]
 const tries = []
 if (vvf) tries.push({ tag: '混音 + 烧字幕', vf: vvf, enc: venc })
 if (CAPS.x264) tries.push({ tag: '混音（不烧字幕）', vf: null, enc: venc })
