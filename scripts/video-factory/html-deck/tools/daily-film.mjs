@@ -413,16 +413,20 @@ if (!skipCheck) {
          · **未知错误** ⇒ **保守拦下**（不能因为"没听过"就放行）。
        ⚠️ 只改"拦不拦"，不改渲染本身。 */
     const allBad = String(ck.stdout || '').split('\n').filter((l) => l.includes('✗'))
+    /* ★VF_FILM_CHECK_SOFT_V2（2026-10-26 用户「我看这个 HTML 片子没问题，让它放行，别多管闲事」）：
+       V1 是"只有 soft 且没有 unknown 才放行" ⇒ 只要引擎报了一条**我不认识**的规则名，
+       就被判成 unknown ⇒ **整片被拦**（实测用户那单：content_overlap + 一条被截断的未知行 ⇒ 白跑 23 秒）。
+       现口径：**只拦"真的渲不出来"**（fatal），其余（审美 / 未知）一律放行并打日志。
+       理由：用户能看片、能改、能重出；而拦死等于**一次都看不到**。
+       ⚠️ fatal 保持原来那几个关键词，不新增、不减少。 */
     const FATAL_RE = /css_parse_error|missing_local_asset|表外字|font_family_without_font_face|Timeline did not advance|parse error|unclosed|parseError/i
-    const SOFT_RE = /content_overlap|\bcontrast\b|need\s*4\.5:1|对比度|\b\d\.\d+:1\b/i
     const hard = allBad.filter((l) => FATAL_RE.test(l))
-    const soft = allBad.filter((l) => !FATAL_RE.test(l) && SOFT_RE.test(l))
-    const unknown = allBad.filter((l) => !FATAL_RE.test(l) && !SOFT_RE.test(l))
-    if (!hard.length && !unknown.length && soft.length) {
-      console.log('③ 引擎校验：仅审美告警（放行，继续渲染）—— ' + soft.slice(0, 3).join(' | ').slice(0, 300))
+    if (!hard.length) {
+      const warn = allBad.slice(0, 3).join(' | ').slice(0, 300)
+      console.log('③ 引擎校验：' + (allBad.length ? '仅观感告警（放行，继续渲染）—— ' + warn : 'OK'))
     } else {
-      const lines = (hard.length ? hard : allBad).slice(0, 8).join(' | ')
-      console.log('stage=check ✗ 引擎校验未过：' + (lines.slice(0, 500) || 'check 未通过'))
+      const lines = hard.slice(0, 8).join(' | ')
+      console.log('stage=check ✗ 引擎校验未过（致命）：' + (lines.slice(0, 500) || 'check 未通过'))
       process.exit(1)
     }
   }
