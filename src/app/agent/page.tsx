@@ -5866,14 +5866,23 @@ function AgentPageInner() {
       // 2026-09-02: 失败要有原因（超时/网络/服务器状态）
       const errName = String(eNet?.name || '')
       const errMsg = String(eNet?.message || '')
-      let failReason = '网络连接失败'
+      /* ★VF_ERRVISIBLE_V1（2026-10-27 用户实测「刚才没有成功提示网络失败」但后端明明成功了）：
+         病灶：原来 `failReason` **默认就是"网络连接失败"**，只有 `timeout` / `fetch` 两种会被细分
+              ⇒ 其它一切错误（AbortError、500、返回非 JSON、ECONNRESET…）都被统一说成"网络失败"
+              ⇒ **真实原因被吃掉**，我们只能猜。
+         现口径：**默认把 errName + errMsg 原样带出来**（截断到 120 字），宁可难看也要知道是什么。
+         另外 `AbortError` 也归到"等待超时"那一类（AbortSignal.timeout 有时报的是它）。 */
+      const _isTimeout = errName === 'TimeoutError' || errName === 'AbortError' || errMsg.includes('timeout') || errMsg.includes('aborted')
+      let failReason = ''
       /* ★VF_TIMEOUT_MSG_V1（2026-10-26 用户「失败是失败，成功了显示失败不合理」）：
-         这句原来写死"超过 240s"、并且**一律说"请重试"** —— 但实测好几次：
-         前端等满 660s 才断，而**后端其实已经跑完了**（草稿 step=done、文件也落盘）。
-         ⇒ 用户以为失败又重试 ⇒ 后端白跑 5 分钟。
-         现口径：① 不写死秒数；② 明说"很可能已经做完了"，给出确认动作。 */
-      if (errName === 'TimeoutError' || errMsg.includes('timeout')) failReason = '等待超时（前端等太久先断了）——**但这单很可能已经做完了**：先回一句「继续」把结果取回来，确实没有再重试。'
-      else if (errMsg.includes('fetch')) failReason = '网络请求失败（请检查网络/服务器）'
+         不再写死秒数，并明说"很可能已经做完了"，给出确认动作。 */
+      if (_isTimeout) {
+        failReason = '等待超时（前端等太久先断了）——**但这单很可能已经做完了**：先回一句「继续」把结果取回来，确实没有再重试。'
+      } else if (errMsg.includes('fetch') || errMsg.includes('Failed to fetch')) {
+        failReason = '网络请求失败（请检查网络/服务器）：' + (errMsg || errName).slice(0, 120)
+      } else {
+        failReason = '请求失败（' + (errName || '未知类型') + '）：' + (errMsg || '没有错误信息').slice(0, 120)
+      }
       pushTerm('chat 异常：' + failReason, 'err')
       setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(), role: 'assistant',

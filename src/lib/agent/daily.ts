@@ -731,14 +731,45 @@ export async function aiDesignPage(
         + ' · 思考 ' + _think.length + ' 字'
         + ' · 输出 ' + txt.length + ' 字 · prompt ' + prompt.length + ' 字'
     } catch (eDs: any) {
-      // 回落百炼（原路径，逐字不变）
+      /* ★VF_FALLBACK_VL_V1（2026-10-27 用户实测「我给的素材是猫，它做出来是火锅」）：
+         病灶：deepseek 挂了会回落百炼，但**回落那条路只传了文字提示词，一张图都没带**
+              ⇒ 模型看不到素材，只能照着提示词里的示例瞎猜 ⇒ **素材是猫，它写成火锅**。
+         为什么之前没人发现：`ai-providers.ts` 里 `hasImg` 是靠 messages 里有没有
+              `{type:'image_url'}` 判断的，纯文本 ⇒ 用 `qwen3.8-flash`（**不看图**）。
+         现口径：**把已经准备好的 `imgParts`（17 张图 base64）一起传过去**
+              ⇒ `hasImg` 自动为真 ⇒ 走 `qwen3-max`（多模态，真的看图）。
+         ⚠️ 仍然 `noThink=true`：回落是兜底，要的是快（关思考实测快 12 倍）。 */
       const res = await dashscopeFunctionCall(
-        [{ role: 'user', content: prompt }], [], PLAN_MAX_TOKENS, 0.8, false, undefined, budget, true,
+        [{ role: 'user', content: [...imgParts, { type: 'text', text: prompt }] }],
+        [], PLAN_MAX_TOKENS, 0.8, false, undefined, budget, true,
       )
       txt = String(res?.content || '')
-      used = 'qwen(回落)'
+      used = 'qwen(回落·带图)'
       diag = 'deepseek 失败(' + String(eDs?.message || eDs).slice(0, 80) + ') ⇒ 回落百炼 · 模型 '
-        + String((res as any)?.model || '?') + ' · 输出 ' + txt.length + ' 字 · prompt ' + prompt.length + ' 字'
+        + String((res as any)?.model || '?') + ' · 图 ' + imgParts.length + ' 张'
+        + ' · 输出 ' + txt.length + ' 字 · prompt ' + prompt.length + ' 字'
+      /* ★VF_TRACE_FALLBACK_V1（2026-10-27 用户「AI 回执是灰色的，点不开」）：
+         病灶：回执（prompt + 思考两个 txt）**只在 deepseek 成功那条路里落盘** ⇒
+              deepseek 一挂、回落百炼 ⇒ **什么都没存** ⇒ 草稿 `trace` 空 ⇒ 前端按钮 disabled。
+         现口径：**回落也要落**（这条兜底恰恰是最需要看回执的时候 —— 模型都没看图，更要知道它收到了什么）。
+         ⚠️ 百炼这条没有 `reasoning_content`，所以"思考"那份里放**输出正文**（有 prompt 就能对照）。
+         ⚠️ 只记录，不改任何行为。 */
+      try {
+        const _dir = path.join(vfRootDir() || process.cwd(), 'temp', 'aidesign-think')
+        fs.mkdirSync(_dir, { recursive: true })
+        const _ts = new Date().toISOString().replace(/[:.]/g, '-')
+        const _pf = _ts + '-prompt.txt'
+        fs.writeFileSync(path.join(_dir, _pf),
+          '【发给 AI 的完整提示词 · 回落百炼 · ' + prompt.length + ' 字 · 图 ' + imgParts.length + ' 张】\n\n' + prompt, 'utf8')
+        tracePrompt = _pf
+        const _tf = _ts + '.txt'
+        fs.writeFileSync(path.join(_dir, _tf),
+          '【回落百炼（deepseek 失败）· 无思考内容 · 输出 ' + txt.length + ' 字】\n' + txt, 'utf8')
+        traceThink = _tf
+        console.log('[AI设计] 回落路径回执已存 ' + _tf + ' · prompt ' + _pf)
+      } catch (eT: any) {
+        try { console.error('[AI设计] 回落回执落盘失败：' + String(eT?.message || eT).slice(0, 100)) } catch { /* ignore */ }
+      }
     }
     diag = '[' + used + '] ' + diag
   } catch (e: any) {
@@ -2404,7 +2435,13 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
     d.source = { kind: 'repo' }
     d.step = 'review'
     await saveDailyDraft(ctx.prisma, uid, d)
-    try { ctx.log?.(uid, '[日报落地页] 选完素材 ⇒ 直接 AI 出片（跳过方案卡）· ' + picked.length + ' 张') } catch { /* ignore */ }
+    /* ★VF_MATLOG_V1（2026-10-27 用户实测「素材是猫，它做出来是火锅」）：日志原来只记"14 张"，
+       出这种内容错乱时**根本查不出用的是哪几张**（只能靠反推）。
+       现口径：**把文件名逐个打出来**（最多 20 个，够判断"是不是勾错了一批图"）。 */
+    try {
+      ctx.log?.(uid, '[日报落地页] 选完素材 ⇒ 直接 AI 出片（跳过方案卡）· ' + picked.length + ' 张：'
+        + picked.slice(0, 20).join(', ') + (picked.length > 20 ? ' …' : ''))
+    } catch { /* ignore */ }
     return await runDesignRetry(ctx, d, toPicks(uid, { kind: 'repo' }, picked))
   }
 
