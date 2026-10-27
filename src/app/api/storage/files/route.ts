@@ -103,10 +103,17 @@ export async function GET(request: NextRequest) {
           size: o.size,
           mtime: o.lastModified.toISOString(),
           isVideo,
-          // 视频用 .thumbs 缩略图；图片直接用文件本身作预览；缺图时返回 null（由懒补齐生成）
+          /* ★VF_THUMB_ONLY_IMAGE_V1（2026-10-27 用户实测「个人仓库里 html 显示成破图」）：
+             病灶：原来"非视频就一律把**文件自己**当缩略图" ⇒ `.html`（10.6MB）也被塞进 `<img src>`
+                  ⇒ 浏览器当图片解码失败 ⇒ **破图**（前端本来给 html 留了 📄 图标分支，被这个假 url 骗过去了）。
+             现口径：**只有图片**才用文件本身作预览；html / mp4(无缩略图) / 其它 ⇒ `null`
+                  ⇒ 前端显示 📄 图标（点文件名照样能打开预览）。
+             ⚠️ 不改前端：前端已经有 `thumbUrl ? <img> : 📄` 的分支。 */
           thumbUrl: isVideo
             ? (thumbExists ? `/api/storage/file?userId=${auth!.userId}&name=.thumbs/${thumbName}&v=${thumbVer.get(thumbName) || 0}` : null)
-            : `/api/storage/file?userId=${auth!.userId}&name=${encodeURIComponent(name)}&v=${o.size}-${o.lastModified.getTime()}`,
+            : (/\.(jpg|jpeg|png|gif|webp)$/i.test(name)
+              ? `/api/storage/file?userId=${auth!.userId}&name=${encodeURIComponent(name)}&v=${o.size}-${o.lastModified.getTime()}`
+              : null),
         }
       })
       .sort((a, b) => b.mtime.localeCompare(a.mtime))
