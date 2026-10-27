@@ -1049,28 +1049,104 @@ async function dashscopeQueryVideoTask(taskId: string): Promise<{ taskId: string
  * createDigitalHumanVideo(photoUrl, audioUrl)
  * <=20s 直接 wan2.2-s2v；>20s FFmpeg 切段 → 每段生成 → concat 拼接
  */
+/**
+ * ★VF_DH_DETECT_V1（2026-10-27 数字人独立线）：**照片合规把关（同步接口）**
+ *
+ * 官方 `wan2.2-s2v-detect` 是**同步**接口 ⇒ **不能带 `X-DashScope-Async` 头**
+ *   （旧实现给它带了，等于告诉服务端"异步建任务"，于是拿不到 `results` / 拿不到人脸的 bbox）。
+ * 返回分三种，**调用方必须分清**（照片不合规 ≠ 接口/地域出错，话术完全不同）：
+ *   · `ok:true`                      → 通过，带上 face/ext bbox 给提交用
+ *   · `ok:false, kind:'reject'`     → 图里没人脸 / 侧脸太远 ⇒ **拦住，不扣点不提交**
+ *   · `ok:false, kind:'error'`      → 接口/鉴权/地域问题（wan2.2-s2v **仅华北2（北京）** 可用）
+ */
+export async function wanS2vDetect(imageUrl: string): Promise<{
+  ok: boolean
+  kind?: 'reject' | 'error'
+  face?: number[]
+  ext?: number[]
+  reason?: string
+}> {
+  const key = getDashScopeKey()
+  if (!key) return { ok: false, kind: 'error', reason: '未配置 DASHSCOPE_API_KEY' }
+  const judge = (out: any): { ok: boolean; kind?: 'reject' | 'error'; face?: number[]; ext?: number[]; reason?: string } => {
+    const rr = out?.results?.[0]
+    if (!rr) return { ok: false, kind: 'reject', reason: '接口没有返回检测结果（这张图多半不是单人正脸）' }
+    const face = rr.face_bbox || rr.face_bboxes?.[0]
+    const ext = rr.ext_bbox || rr.ext_bboxes?.[0]
+    // `pass` 明说 false ⇒ 不合规；说了 true 或有 bbox ⇒ 通过
+    if (rr.pass === false) return { ok: false, kind: 'reject', reason: String(rr.message || rr.reason || '照片未通过人脸检测') }
+    if (rr.pass === true || face) return { ok: true, face, ext }
+    return { ok: false, kind: 'reject', reason: '没检测到可用的人脸' }
+  }
+  try {
+    const det = await fetchJSON(`${DH_BASE}/video-synthesis/`, {
+      method: 'POST',
+      // ★不带 X-DashScope-Async —— 这是同步接口
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({ model: 'wan2.2-s2v-detect', input: { image_url: imageUrl }, parameters: { resolution: 480 } }),
+      timeoutMs: 60000,
+    } as any)
+    // 万一服务端仍按异步返回（只有 task_id）→ 短轮询一次把它等回来，避免把"能过"判成"不过"
+    const tid = det?.output?.task_id
+    if (tid && !det?.output?.results) {
+      for (let i = 0; i < 10; i++) {
+        await new Promise((r) => setTimeout(r, 1500))
+        try {
+          const q = await fetchJSON(`https://dashscope.aliyuncs.com/api/v1/tasks/${tid}`, {
+            headers: { 'Authorization': `Bearer ${key}` },
+          }, 0)
+          const st = q?.output?.task_status
+          if (st === 'SUCCEEDED') return judge(q.output)
+          if (st === 'FAILED' || st === 'CANCELED') {
+            return { ok: false, kind: 'reject', reason: String(q?.output?.message || q?.output?.code || '检测任务失败') }
+          }
+        } catch { /* 继续等 */ }
+      }
+      return { ok: false, kind: 'error', reason: '照片检测超时（可稍后重试）' }
+    }
+    return judge(det?.output)
+  } catch (e: any) {
+    const msg = String(e?.message || e)
+    console.error('[数字人] detect 异常:', msg.slice(0, 200))
+    return {
+      ok: false,
+      kind: 'error',
+      // 官方口径：wan2.2-s2v 仅适用于**华北2（北京）**——把这句直接写进原因里，省得用户来回问
+      reason: msg.slice(0, 160) + '（此模型仅适用于华北2·北京地域，请核对百炼 Key 的地域）',
+    }
+  }
+}
+
 // wan2.2-s2v 提交任务（detect 预处理 + 提交，返回 taskId）——异步（前端轮询）
-export async function wanS2vSubmit(photoUrl: string, audioUrl: string): Promise<string | null> {
+// ★VF_DH_S2V_FIX_V1（2026-10-27，需求文档 §7 三个坑）：① detect 不再带 Async 头；② **不传 duration**
+//   （官方口径：时长由音频决定，写死 5 秒只会被忽略/报错）；③ resolution 可传（480P 默认 / 720P）。
+//   调用方已经自己 detect 过时，传 `skipDetect:true` + `bbox` 可省一次检测（少花一次钱、少等十秒）。
+export async function wanS2vSubmit(
+  photoUrl: string,
+  audioUrl: string,
+  opt?: { resolution?: '480P' | '720P'; skipDetect?: boolean; bbox?: { face?: number[]; ext?: number[] } },
+): Promise<string | null> {
   const key = getDashScopeKey()
   if (!key) return null
   try {
     let bbox: { face_bbox?: number[]; ext_bbox?: number[] } = {}
-    try {
-      const det = await fetchJSON(`${DH_BASE}/video-synthesis/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
-        body: JSON.stringify({ model: 'wan2.2-s2v-detect', input: { image_url: photoUrl }, parameters: { resolution: 480 } }),
-      })
-      const rr = det?.output?.results?.[0]
-      if (rr) { bbox.face_bbox = rr.face_bbox || rr.face_bboxes?.[0]; bbox.ext_bbox = rr.ext_bbox || rr.ext_bboxes?.[0] }
-    } catch (e) { console.log('[数字人] detect 失败:', e?.message || e) }
+    if (!opt?.skipDetect) {
+      try {
+        const det = await wanS2vDetect(photoUrl)
+        if (det.ok) { bbox.face_bbox = det.face; bbox.ext_bbox = det.ext }
+      } catch (e: any) { console.log('[数字人] detect 失败:', e?.message || e) }
+    } else if (opt?.bbox) {
+      bbox.face_bbox = opt.bbox.face
+      bbox.ext_bbox = opt.bbox.ext
+    }
     const input: any = { image_url: photoUrl, audio_url: audioUrl }
     if (bbox.face_bbox) input.face_bbox = bbox.face_bbox
     if (bbox.ext_bbox) input.ext_bbox = bbox.ext_bbox
     const data = await fetchJSON(`${DH_BASE}/video-synthesis/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'X-DashScope-Async': 'enable' },
-      body: JSON.stringify({ model: 'wan2.2-s2v', input, parameters: { resolution: '480P', duration: 5 } }),
+      // ⚠️ 不要加 duration：官方是"时长由音频决定"
+      body: JSON.stringify({ model: 'wan2.2-s2v', input, parameters: { resolution: opt?.resolution || '480P' } }),
     })
     const taskId = data?.output?.task_id || data?.task_id
     if (!taskId) { console.error('[数字人] wan2.2-s2v 创建失败:', JSON.stringify(data).substring(0, 200)); return null }
@@ -1079,14 +1155,17 @@ export async function wanS2vSubmit(photoUrl: string, audioUrl: string): Promise<
 }
 
 // 查询 wan2.2-s2v 任务（异步轮询用）——返回 video_url 或状态
-export async function wanS2vQuery(taskId: string): Promise<{ status: string; videoUrl?: string } | null> {
+// ★VF_DH_S2V_FIX_V1：多回一个 `reason`（失败原因）—— 数字人线要**如实告诉用户为什么失败**，
+//   原来只回 status/videoUrl ⇒ 前端只能看到"失败"三个字，排查只能上服务器。
+export async function wanS2vQuery(taskId: string): Promise<{ status: string; videoUrl?: string; reason?: string } | null> {
   const key = getDashScopeKey()
   if (!key) return null
   try {
     const q = await fetchJSON(`https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`, { headers: { 'Authorization': `Bearer ${key}` } })
     const st = q?.output?.task_status || q?.status || 'unknown'
     const url = q?.output?.video_url || q?.output?.results?.[0]?.url || ''
-    return { status: st, videoUrl: url || undefined }
+    const reason = String(q?.output?.message || q?.output?.code || q?.message || '').slice(0, 200)
+    return { status: st, videoUrl: url || undefined, reason: reason || undefined }
   } catch (e) { console.error('[数字人] wan 查询异常:', e?.message || e); return null }
 }
 

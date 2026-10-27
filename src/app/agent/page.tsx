@@ -30,6 +30,8 @@ import { VF_STYLES, VF_SUB_CPS, VF_PPTIMG_SKINS } from '@/lib/agent/vf/anti-ai'
 import TourGuide from '@/components/TourGuide'
 // ★VF_TASK_TRACE_V1-A：ToastContainer 已挂在 app/layout.tsx，「复制执行链」没步骤时要给提示
 import { showToast } from '@/components/Toast'
+// ★VF_DH_V1（2026-10-27 用户定案「数字人呼出页面不一样」）：数字人口播线**自己的卡片**（全新，不复用成片卡）
+import VfDhCard from '@/components/VfDhCard'
 // ★VF_TASK_TRACE_V1-D4：卡片上的「🩺 这次怎么了」（AI 读这一单日志 → 3~5 条人话结论 + 原始日志折叠）
 import TaskDiagnoseButton from '@/components/task-diagnose-panel'
 import { Solar } from 'lunar-javascript'
@@ -6064,6 +6066,9 @@ function AgentPageInner() {
       // ★VF_PROTO_PARSE_V1：改为"括号配对"截取第一个完整 JSON（不再用 lastIndexOf，防被后续协议串带偏）
       const _vj = pickProtoJson(content, 'VF_JSON:')
       if (!_vj) throw new Error('VF_JSON 解析失败')
+      /* ★VF_DH_V1（2026-10-27）：**数字人口播**线自己的卡片（`dh_*` 前缀，与任何成片卡无关）。
+         放在最前：它的 step 与其它线**不重名**，先命中不影响任何人。 */
+      if (_vj && String(_vj.step || '').startsWith('dh_')) return <VfDhCard vj={_vj} onSend={sendMessage} />
         // ★VF_LINES_V1（2026-09-21）：AI 制片走**专属卡**（卡1 主题+上传 / 卡2 横竖屏+时长+风格）
         // ★2026-09-22：把当前用户 id 透传给卡片（上传后要在客户端镜像到本地仓库）
         if (_vj && _vj.step === 'ai_setup') return <VfAiSetupCard vj={_vj} onStart={sendMessage} userId={user?.id} />

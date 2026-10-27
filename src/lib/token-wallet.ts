@@ -58,6 +58,38 @@ export const TOKEN_COSTS = {
   VOICE_TTS: 10,            // 克隆声音合成音频：10 点/次
 } as const
 
+/**
+ * ★VF_DH_PRICE_V1（2026-10-27 数字人独立线）——**万相数字人 wan2.2-s2v 的按秒单价（单位：点/秒）**
+ *
+ * 为什么要单独一组常量：`TOKEN_COSTS.DH_VIDEO` 是"200 点/条"的老口径（千寻 liveportrait 估 ¥2/条），
+ * 而 wan2.2-s2v 是**按秒计费**的，用"每条 200 点"会严重亏本 —— 用户也明确要求"按秒"。
+ *
+ * 换算依据（百炼官方 2026 价，1 点 = ¥0.01）：
+ *   · 480P：$0.071677/秒 ⇒ **成本 ≈ ¥0.51/秒**
+ *   · 720P：$0.129018/秒 ⇒ **成本 ≈ ¥0.92/秒**
+ *
+ * ★VF_DH_PRICE_V1b（2026-10-27 用户定案「先按你建议修改」）：
+ *   原来定的是 **50 / 90 点/秒** —— 那正好等于**成本价**（1 点 = ¥0.01）：
+ *     480P 收 ¥0.50/秒 vs 成本 ¥0.51/秒 ⇒ **毛利 ≈ 0（还略亏）**
+ *     720P 收 ¥0.90/秒 vs 成本 ¥0.92/秒 ⇒ 同上
+ *   ⇒ 等于**白干**（服务器、带宽、失败重试全没算）。
+ *   现口径：**480P 100 点/秒（¥1.00，毛利≈49%）· 720P 180 点/秒（¥1.80，毛利≈49%）**。
+ *   ⚠️ 若要调价，**只改这里** —— 卡片通过 `prices/perSec` 下发，自动跟着变，不会两处不一致。
+ * ⚠️ **报价 = 实扣**：状态机里报价与真正扣费必须调**同一个函数**（`dhCostOf`），
+ *    绝不写两套算法（历史事故：卡片报 205 点、实扣 1500 点）。
+ */
+export const DH_POINTS_PER_SEC = {
+  '480P': 100,
+  '720P': 180,
+} as const
+
+/** 数字人按时长计费（四舍五入到秒 + 至少 1 秒；非法分辨率按 480P） */
+export function dhCostOf(sec: number, res?: string): number {
+  const r = String(res) === '720P' ? '720P' : '480P'
+  const s = Math.max(1, Math.round(Number(sec) || 0))
+  return s * DH_POINTS_PER_SEC[r]
+}
+
 /** 免费套餐（0元周卡等）的固定试用额度（点） */
 export const FREE_TRIAL_POINTS = 500
 export const FREE_TRIAL_TOKENS = FREE_TRIAL_POINTS // 向后兼容别名

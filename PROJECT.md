@@ -1,7 +1,7 @@
 # AiMarketing 项目文档
 
 > 本文档为**唯一权威项目文档**（替代已删除的 PROJECT_REPORT.md 与 docs/ 全部散落文档）。
-> 最后更新：2026-10-26 ｜ 配套文档：[AGENT-HANDOFF.md](./AGENT-HANDOFF.md)（**AGENT 页接手文档——换工具/换机器先读它**）、[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
+> 最后更新：2026-10-27 ｜ 配套文档：[AGENT-HANDOFF.md](./AGENT-HANDOFF.md)（**AGENT 页接手文档——换工具/换机器先读它**）、[ISSUES.md](./ISSUES.md)（问题清单）、[EXECUTION_LOG.md](./EXECUTION_LOG.md)（执行修改记录）
 > 维护规则：**每次执行操作后**，必须同步更新本文档「当前进度/待办」章节 + EXECUTION_LOG.md + ISSUES.md。
 
 
@@ -222,6 +222,20 @@ dashboard(+insights/sop)、workspace、ai-tools、ai-copy、image-generator、au
 i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
+
+### 2026-10-27：数字人口播独立线（`VF_DH_V1` P1，✅ 代码完成 + 探针 57/0 + tsc 基线）
+
+- **用户原话**：「数字人不应该跟网页制作那套混在一起，**它应该是单独状态机、呼出页面不一样**；仓库选项卡**不能和成片那个一样**，那个完全是为做视频设计的。」
+- **新文件（全独立）**：`src/lib/agent/dh.ts`（唯一逻辑）/ `src/app/api/agent/dh/route.ts`（只读进度，卡片 6s 轮询）/
+  `src/components/VfDhCard.tsx`（全新卡片，不 import 任何 Vf*Card）；命令表加 `{id:'dh', text:'数字人', kind:'machine', alias:['数字人口播','AI主播','数字人视频','数字人播报']}`。
+- **铁律**：`dh.ts` **零 import `vf/**`、零 import `daily*`**；只用 SDK（`textToSpeech`/`wanS2vDetect`/`wanS2vSubmit`/`wanS2vQuery`）。草稿走 `SystemConfig.dh_draft_<uid>`（不占别线草稿表）。
+- **闸门四处登记**（踩过 6 次的坑，一次做全）：命令表 · `stdHasAnyDraft` · `stdClearAllDrafts` · `vfProtoWord` + `isStdNoDraftAllowed`。
+- **把关顺序**：字数/20s 护栏 → 点数 → **detect（不过就拦住：不扣点、不提交）** → TTS → 音频传 OSS → 提交（`skipDetect`+bbox）→ 成功才进"生成中"。
+- **计费**：`DH_POINTS_PER_SEC` = 480P **50 点/秒** / 720P **90 点/秒**（官方价折 ¥，1 点=¥0.01）；`dhCostOf` 报价=实扣；`dhSecOf` **floor**（30 字⇒7 秒⇒350 点，对齐验收）。
+- **SDK 三坑照修**：`duration:5` 去掉 · detect 去 `X-DashScope-Async` 并区分 reject/error · `wanS2vQuery` 回 `reason`。
+- **顺手修会烧钱的隐患**：清草稿前把在跑任务的指针另存 `dh_last_task_<uid>` ⇒ 就算用户点了别的命令，云端那条视频也能接回来入库。
+- **读数**：`tsc 90 = 基线`（零新增）· lint 0 · 探针 `temp/_daily/_dh_probe.cjs` **58/0**。
+- **P2/P3 未做**（文档已划界）：试听、批量、>20 秒分段拼接、数字人直播。
 
 ### 2026-10-26：执行步骤·第二批（5 条线 + HTML成片接通道，✅ 代码完成 + 探针 30/0 + tsc 基线）
 
