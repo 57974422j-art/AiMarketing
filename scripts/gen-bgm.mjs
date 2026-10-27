@@ -280,28 +280,39 @@ const client = new OSS({ region: REGION, accessKeyId: g('OSS_ACCESS_KEY_ID'), ac
 
 const { PrismaClient } = await import('@prisma/client')
 const prisma = new PrismaClient()
+/* ★VF_LOCAL_BGM_V2（2026-10-27 用户「就这个很好，在音乐那里加个选择，选了就加，不选不加」）：
+   两处都要放，因为两条线读的是**不同来源**：
+     · 图片成片  ⇒ `mediaAsset`（source='public', category='music'），bgm='auto' 挑最新一首
+     · 日报线下拉 ⇒ **个人仓库**里的音频（`listRepoAudio`：`AUD_RE` 认 wav，且名字不能以 `gen_` 开头）
+   ⚠️ 所以 wav 各放一份：`music/public/` 给图片成片，`storage/{uid}/` 给日报线。
+   用户明确要求**默认不加音乐** ⇒ 这里只是"让它们可选"，不改任何默认值。 */
+const UID = (process.argv.find((a) => a.startsWith('--uid=')) || '--uid=1').split('=')[1]
 console.log('')
 for (const m of made) {
   const fileName = `bgm-local-${m.key}.wav`
   const ossKey = `music/public/${fileName}`
+  const repoKey = `storage/${UID}/${fileName}`
   try {
     await client.put(ossKey, m.wav, { mime: 'audio/wav' })
     const ossUrl = `https://${BUCKET}.${REGION}.aliyuncs.com/${ossKey}`
     const exists = await prisma.mediaAsset.findFirst({ where: { title: fileName, source: 'public' } })
     if (exists) {
       await prisma.mediaAsset.update({ where: { id: exists.id }, data: { ossUrl, type: 'audio', category: 'music' } })
-      console.log('  ✓ 已更新：' + m.song.title + '  → ' + fileName)
     } else {
       await prisma.mediaAsset.create({
         data: { title: fileName, ossUrl, type: 'audio', category: 'music', source: 'public', prompt: m.song.prompt },
       })
-      console.log('  ✓ 已入库（公开）：' + m.song.title + '  → ' + fileName)
     }
+    // 同一份放进个人仓库 ⇒ 日报线配音卡的下拉里能选到
+    await client.put(repoKey, m.wav, { mime: 'audio/wav' })
+    console.log('  ✓ ' + m.song.title + '  →  音乐库(public) + 个人仓库(' + UID + ')')
   } catch (e) {
     console.log('  ✗ 失败：' + m.song.title + ' —— ' + String((e && e.message) || e).slice(0, 120))
   }
 }
 await prisma.$disconnect()
 console.log('')
-console.log('  完成。图片成片（bgm=auto）与日报线下拉里现在能看到这几首。')
-console.log('  ⚠️ wav 比 mp3 大（每首 3.4MB），但不用转码、省一步依赖。')
+console.log('  完成。')
+console.log('  · 图片成片（bgm=auto）会挑到它们')
+console.log('  · 日报线第 3 步「背景音乐」下拉里能选到（默认仍是「不加音乐」）')
+console.log('  ⚠️ wav 每首 3.4MB，比 mp3 大，但免转码。')

@@ -2538,10 +2538,13 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
             }}
             className="flex-1 min-w-0 bg-black/30 border border-white/10 rounded px-2 py-1 text-[12px] text-gray-100">
             <option value="">不加音乐</option>
-            {/* ★VF_AI_BGM_V1（2026-10-26 用户「加个电子音乐开关，勾上就加，默认不勾」）：
-                这一项不是文件，是**让 AI 生成一首**（MiniMax，生成一次存仓库长期复用）。
-                默认不选 —— 保持 `value=""` 在最上面。 */}
-            <option value="__ai_edm__">🎵 AI 电子乐（自动生成·首次约 1 分钟）</option>
+            {/* ★VF_LOCAL_BGM_V2（2026-10-27 用户「就这个很好，在音乐那里加个选择，选了就加，不选不加」）：
+                原来那项 `__ai_edm__` 走 MiniMax 生成 ⇒ 实测 `status_code 2153`
+                （音乐 API 已对**新账户关闭**）⇒ 选了也是静音，还有 60 秒等待。
+                ⇒ **撤掉这一项**。改用本地合成的三首（`bgm-local-*.wav`，由 scripts/gen-bgm.mjs 生成）。
+                  它们会作为**普通音频文件**出现在下面的 `bgmList` 里（个人仓库音轨），
+                  所以这里不用特殊分支 —— 用户选哪个就是哪个，**不选就是完全不加音乐**。
+                ⚠️ 后端 `__ai_edm__` 分支保留（将来账号恢复、改 env 就能用）。 */}
             {bgmList.map((b: any) => (
               <option key={String(b.name)} value={String(b.name)}>
                 {String(b.name)}{b.mb ? '（' + b.mb + ' MB）' : ''}
