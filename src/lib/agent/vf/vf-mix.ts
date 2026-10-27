@@ -256,6 +256,50 @@ export async function handleMixLine(ctx: VfMixCtx): Promise<string> {
       })
     }
 
+    /* ── ★VF_FORMAPPLY_V1（2026-10-27）：分镜卡阶段又点了一次起稿卡 ══
+       以前：落到下面那条 `form|script` 分支 ⇒ **无条件 `draftAndCard`**（重取素材 + 重新看图 + 重排分镜），
+       用户只是又点了一下/只想确认一眼，却要等十几秒还白花钱（用户实测报的就是"整单重来"）。
+       现在按"这次到底改了什么"分流 —— 本线的卡只有 `topic` / `uploaded` 两个字段
+       （见 page.tsx 的 `VfAiSetupCard`），没有音色/大字/特效这些可"即时生效"的设置项，
+       所以只有两种结局：改了主题或换了上传 ⇒ 作废内容退回起稿卡；什么都没改 ⇒ 只刷新确认卡。 */
+    if (vd.step === 'script') {
+      const _f2 = ctx.parseForm(userMessage)
+      if (_f2) {
+        const _topicNew = (typeof _f2.topic === 'string' && _f2.topic.trim()) ? _f2.topic.trim().slice(0, 300) : ''
+        const _upNew = Array.isArray(_f2.uploaded) ? _f2.uploaded.map((x: any) => String(x)).slice(0, 60) : null
+        const _topicChg = !!_topicNew && _topicNew !== String(vd.topic || '')
+        const _normNames = (a: any[]) => JSON.stringify((Array.isArray(a) ? a : []).map(String).slice().sort())
+        const _upChg = !!_upNew && _normNames(_upNew) !== _normNames(vd.uploaded as any[])
+        if (_topicChg) vd.topic = _topicNew
+        if (_upNew && _upChg) vd.uploaded = _upNew
+        if (_topicChg || _upChg) {
+          // 内容级变更：旧文案是照着旧主题/旧素材写的 ⇒ 旧文案 + 旧分镜都不作数。
+          // **不自动重写**：重写是花钱的 AI 调用，必须让用户先知道再决定（用户定过的规矩）。
+          vd.script = ''
+          vd.shots = undefined
+          vd.aiShots = []
+          vd.cover = 0
+          vd.subLen = 0
+          vd.brief = ''
+          vd.imgs = []
+          vd.step = 'form'
+          VF_MIX_DRAFT.set(uid, vd)
+          await saveVfMixDraft(ctx.prisma, uid, vd)
+          ctx.log(uid, `[VF-X] 设置卡：${_topicChg ? '主题' : '上传的素材'}变了 → 旧文案/旧分镜作废（设置全保留），退回起稿卡`)
+          return 'VF_JSON:' + JSON.stringify({
+            step: 'ai_setup', mixLine: true, topic: vd.topic, dur: vd.dur, costRate: 50,
+            hint: `你这次改的是「${_topicChg ? '主题' : '上传的素材'}」—— 旧文案 / 旧分镜已作废（设置都还在）。`
+              + '再说一句主题（或直接点下面的按钮），我按现在的素材重写文案 + 重排分镜。',
+          })
+        }
+        // 什么都没变（用户只是又点了一下）→ 只刷新确认卡：不重排、不计点、不调模型
+        VF_MIX_DRAFT.set(uid, vd)
+        await saveVfMixDraft(ctx.prisma, uid, vd)
+        ctx.log(uid, '[VF-X] 设置卡内容没变 → 只刷新确认卡（不重排/不计点）')
+        return mixConfirmCard(ctx, vd)
+      }
+    }
+
     /* ── 表单提交 → 起草 ── */
     const f = ctx.parseForm(userMessage)
     if (f && (vd.step === 'form' || vd.step === 'script')) {
@@ -466,14 +510,28 @@ async function draftAndCard(ctx: VfMixCtx, vd: VfMixDraft, isRetry = false): Pro
   ctx.log(uid, `[VF-X] 分镜 ${shots.length} 镜（其中 **${aiShots.length} 镜用 AI**：第 ${aiShots.join(',') || '无'} 镜）/ 覆盖 ${Math.round(cover * 100)}% / 预计 ${estSec} 秒 / 风格 ${THEME_NAMES[vd.theme] || vd.theme}`)
   ctx.step?.(`排 ${shots.length} 个镜头`, { since: _tShotsVF })   // ★VF_TASK_TRACE_V1-2批（报的是最终镜数）
 
-  // ⑦ 确认卡（自己拼 —— 成本与 make_ai_video 的实扣**完全同口径**：
-  //    ★"AI 镜的【实际 dur 之和】× 50" + "素材部分按文案字数"，不是"全片时长 × 占比"，
-  //      否则每镜时长不均时，卡片报价和实扣会对不上）
-  // ★A2（2026-09-22）：**去掉 `Math.max(4, …)`** —— 它让"0 镜 AI"也恒收 4 秒 AI 费（≈200 点，
-  //   用户实测卡片报的 205 点里 200 点是假的）。现在按**实际 AI 镜秒数**算，与服务端扣费同口径。
+  // ⑦ 确认卡（★VF_FORMAPPLY_V1：构造抽到 mixConfirmCard，唯一实现）
+  return mixConfirmCard(ctx, vd)
+}
+
+/** ★VF_FORMAPPLY_V1（2026-10-27 用户实测「只想改个设置 → 整单重来」）确认卡的**唯一**构造。
+ *  为什么抽出来：原来它只写在 `draftAndCard` 的尾巴里 ⇒ 想"只刷新一下卡"就只能把整条起草再跑一遍
+ *  （重取素材 + 重新看图 + 重排分镜 = 花钱又慢）。现在"分镜卡阶段只改设置"直接调它，零 AI 调用。
+ *  口径全在草稿里：shots / aiShots / cover / subLen / imgs / brief / uploaded / aspectResolved / theme。
+ *  ⚠️ 成本与 make_ai_video 的实扣**完全同口径**：★"AI 镜的【实际 dur 之和】× 50" + "素材部分按文案字数"
+ *     （不是"全片时长 × 占比"，否则每镜时长不均时卡片报价和实扣对不上）；
+ *     ★A2（2026-09-22）已去掉 `Math.max(4, …)` —— 它让"0 镜 AI"也恒收 4 秒 AI 费（≈200 点是假的）。
+ */
+function mixConfirmCard(ctx: VfMixCtx, vd: VfMixDraft, overrideHint = ''): string {
+  const shots: any[] = Array.isArray(vd.shots) ? vd.shots : []
+  const aiShots: number[] = Array.isArray(vd.aiShots) ? vd.aiShots : []
+  const cover = Number(vd.cover) || 0
+  const subLen = Number(vd.subLen) || 0
+  const estSec = Math.round(subLen / VF_SUB_CPS)
+  const aspect = vd.aspectResolved || 'portrait'
+  const imgN = Array.isArray(vd.imgs) ? vd.imgs.length : 0
   const aiSecExact = shots.reduce(
     (a: number, s: any, i: number) => a + (aiShots.includes(i + 1) ? (Number(s.dur) || 0) : 0), 0)
-  const aiSec = Math.round(aiSecExact)
   const cost = Math.max(1, Math.ceil(aiSecExact * 50) + Math.ceil(String(vd.script || '').length / 20))
   // ★A1（2026-09-22）：AI 一镜都没标时，不要再输出"第 **无** 镜"（用户实测看到的就是这句），
   //   而要把后果说清楚（否则用户点确认 → 全镜 AI + 按整片扣费，与报价不符）。
@@ -481,6 +539,7 @@ async function draftAndCard(ctx: VfMixCtx, vd: VfMixDraft, isRetry = false): Pro
     ? `其中 **第 ${aiShots.join('、')} 镜由 AI 生成**，其余用你的素材。`
     : '**这次没有任何镜被标为"需要 AI"**（直接出片会退化成「全镜 AI」并按整片时长计费）—— 回「重试」我重排一次。'
   const _srcHint = (Array.isArray(vd.uploaded) && vd.uploaded.length) ? '（★只看你本次上传的图）' : ''
+  const _hint = overrideHint || `看完 ${imgN} 张图${_srcHint}，排了 ${shots.length} 个镜头（覆盖文案 ${Math.round(cover * 100)}%·预计 ${estSec} 秒·${aspect === 'landscape' ? '按素材定为横屏' : '按素材定为竖屏'}·风格 ${THEME_NAMES[vd.theme] || vd.theme}）—— ${_aiHint}回复「确认」开始出片。`
   return 'VF_JSON:' + JSON.stringify({
     step: 'script', mixLine: true, source: 'mix',
     topic: vd.topic, script: vd.script,
@@ -488,13 +547,13 @@ async function draftAndCard(ctx: VfMixCtx, vd: VfMixDraft, isRetry = false): Pro
       type: s.type, text: s.text || s.title || '', dur: Math.round((Number(s.dur) || 0) * 10) / 10,
       need_ai: !!s.need_ai,                                  // ★前端可在清单里标出"这镜是 AI 生成"
     })),
-    usedImages: imgs.length, brief: String(brief || '').slice(0, 400),
+    usedImages: imgN, brief: String(vd.brief || '').slice(0, 400),
     voice: vd.voice, voiceName: (ctx.voiceList || []).find((v: any) => v.id === vd.voice)?.name || vd.voice,
     theme: vd.theme, cost,
     aspect, aspectName: aspect === 'landscape' ? '横屏 16:9' : '竖屏 9:16',
     coverage: cover, estSec,
     aiShots, aiShotCount: aiShots.length,
-    hint: `看完 ${imgs.length} 张图${_srcHint}，排了 ${shots.length} 个镜头（覆盖文案 ${Math.round(cover * 100)}%·预计 ${estSec} 秒·${aspect === 'landscape' ? '按素材定为横屏' : '按素材定为竖屏'}·风格 ${THEME_NAMES[vd.theme] || vd.theme}）—— ${_aiHint}回复「确认」开始出片。`,
+    hint: _hint,
   })
 }
 

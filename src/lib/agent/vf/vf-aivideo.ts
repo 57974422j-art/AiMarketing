@@ -362,6 +362,77 @@ export async function handleAiLine(ctx: VfAiCtx): Promise<string> {
       })
     }
 
+    /* ── ★VF_FORMAPPLY_V1（2026-10-27 用户实测「只想改个设置 → 整单重来」）：分镜卡阶段又点了前面的卡 ──
+       以前：`script` 阶段的 `VF_FORM` 只把 `topic/uploaded` 写进草稿就**什么都不返回** ⇒ 用户看到"点了没反应"
+       （最后落到下面的兜底话术里）。现在按"这次到底改了什么"分流。
+       ⚠️ 本线**不套用 vf-form.ts 的通用解析**：那里的 `style` 是已停用的「5 套成品风格」（VF_NOSTYLE_V1），
+          而本线的 `style` 是「成片风格」（AI_STYLES：cinematic/commercial/…）——套用会把用户选的风格清空。
+       ⚠️ 位置铁律：必须排在下面 `AI_FLOW_WORD`（确认出片）之前 —— 表单里带的文案正文含"确认/开始/出片"
+          就会被当成"确认出片"**直接烧钱**。 */
+    if (vd.step === 'script') {
+      const _f2 = ctx.parseForm(userMessage)
+      if (_f2) {
+        const _topicNew = (typeof _f2.topic === 'string' && _f2.topic.trim()) ? _f2.topic.trim().slice(0, 300) : ''
+        const _upNew = Array.isArray(_f2.uploaded) ? _f2.uploaded.map((x: any) => String(x)).slice(0, 60) : null
+        const _topicChg = !!_topicNew && _topicNew !== String(vd.topic || '')
+        const _normNames = (a: any[]) => JSON.stringify((Array.isArray(a) ? a : []).map(String).slice().sort())
+        const _upChg = !!_upNew && _normNames(_upNew) !== _normNames(vd.uploaded as any[])
+        const _scriptNew = (typeof _f2.script === 'string' && _f2.script.trim()) ? _f2.script.trim().slice(0, 4000) : ''
+        const _scriptChg = !!_scriptNew && _scriptNew !== String(vd.script || '')
+        // 选项卡上的三项（画幅 / 时长 / 成片风格）：本线画面**全 AI 生成**、不取素材 ⇒ size 与素材无关，
+        // 直接改即可（起草函数里是同一套推导），不必为了改画幅整条重来。
+        const _aspBefore = String(vd.aspect || '')
+        const _durBefore = Number(vd.dur) || 0
+        const _styleBefore = String(vd.style || '')
+        if (_f2.aspect) vd.aspect = String(_f2.aspect) === 'landscape' ? 'landscape' : 'portrait'
+        if (_f2.dur) vd.dur = Math.max(5, Math.min(900, parseInt(_f2.dur) || 30))
+        if (_f2.style !== undefined) vd.style = styleOf(String(_f2.style)) ? String(_f2.style) : ''
+        const _optChg = String(vd.aspect || '') !== _aspBefore || (Number(vd.dur) || 0) !== _durBefore
+          || String(vd.style || '') !== _styleBefore
+        if (_topicChg) vd.topic = _topicNew
+        if (_upNew && _upChg) vd.uploaded = _upNew
+        // ① 主题 / 上传素材变了 ⇒ 内容级变更：旧文案是照着旧的写的，旧文案 + 旧分镜都不作数。
+        //    **不自动重写**（重写是花钱的 AI 调用，必须让用户先知道再决定）→ 退回起稿卡。
+        if (_topicChg || _upChg) {
+          vd.script = ''
+          vd.shots = undefined
+          vd.cover = 0
+          vd.subLen = 0
+          vd.brief = ''
+          vd.step = 'ai_setup'
+          VF_AI_DRAFT.set(uid, vd)
+          await saveVfAiDraft(ctx.prisma, uid, vd)
+          const _why = _topicChg ? '主题' : '上传的素材'
+          ctx.log(uid, `[VF-A] 设置卡：${_why}变了 → 旧文案/旧分镜作废（设置全保留），退回起稿卡`)
+          return 'VF_JSON:' + JSON.stringify({
+            step: 'ai_setup', aiLine: true, topic: vd.topic,
+            hint: `你这次改的是「${_why}」—— 旧文案 / 旧分镜已作废（设置都还在）。`
+              + '说个主题（或直接点下面的按钮），我就按新主题重写文案 + 重排分镜。',
+          })
+        }
+        // ② 改了文案 / 画幅 / 时长 / 成片风格 ⇒ 重排分镜（draftAndCard 沿用 vd.script，**不重写文案**）
+        if (_scriptChg || _optChg) {
+          if (_scriptChg) vd.script = _scriptNew
+          VF_AI_DRAFT.set(uid, vd)
+          await saveVfAiDraft(ctx.prisma, uid, vd)
+          const _what = [_scriptChg ? '文案' : '', _optChg ? '画幅/时长/风格' : ''].filter(Boolean).join('、')
+          ctx.log(uid, `[VF-A] 设置卡改了${_what} → 重排分镜（文案 ${String(vd.script || '').length} 字）`)
+          return await draftAndCard(ctx, vd, _scriptChg
+            ? '用户在设置卡里换了**新文案**（下面这段就是新文案）：请完全按新文案重排分镜，subtitle 必须完整覆盖新文案且顺序一致，镜头数按新文案长度给足。'
+            : '')
+        }
+        // ③ 什么都没改 → 只刷新确认卡（不重排、不计点）
+        VF_AI_DRAFT.set(uid, vd)
+        await saveVfAiDraft(ctx.prisma, uid, vd)
+        const _st0 = styleOf(vd.styleResolved || vd.style)
+        ctx.log(uid, '[VF-A] 设置卡内容没变 → 只刷新确认卡（不重排/不计点）')
+        return ctx.vfScriptCard(
+          { ...vd, source: 'ai', styleName: _st0?.name || '', aspectName: vd.aspectResolved === 'landscape' ? '横屏 16:9' : '竖屏 9:16' },
+          vd.shots || [], 0, String(vd.brief || ''), vd.aspectResolved || 'portrait',
+          Number(vd.cover) || 0, Math.round((Number(vd.subLen) || 0) / VF_SUB_CPS))
+      }
+    }
+
     /* ── 第 2 步：主题卡提交（VF_FORM:{topic,uploaded}）→ 写文案 → 发"选项卡" ── */
     const f = ctx.parseForm(userMessage)
     if (f && (vd.step === 'ai_setup' || vd.step === 'ai_opts' || vd.step === 'script')) {

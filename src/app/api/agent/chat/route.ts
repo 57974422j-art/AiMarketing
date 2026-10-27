@@ -57,13 +57,19 @@ import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, s
   // ★VF_NEIGHBOR_DEDUP_V1（2026-10-01）：「相邻两镜同大字」的服务端硬兜底（用户实测 3 组连续同大字）。
   // ★VF_DECK_STYLES_V1（2026-10-01）：用户选了画面模版 → 提示词补一句「优先用用户选的」+ 值归一化
   //   （非法/缺省 → 'auto'；渲染层读 plan 根级 deck_style 的逐字契约）。
-  dedupeAdjacentSameText, deckStylePromptNote, normalizeDeckStyle,
+  // ★VF_FORMAPPLY_V1（2026-10-27）：`normalizeDeckStyle` 的调用点已随字段解析一起搬进 vf-form.ts
+  //   （本文件不再需要它，避免"两处归一"再次漂移）。
+  dedupeAdjacentSameText, deckStylePromptNote,
   // ★VF_STYLES_WIRE_V1（2026-10-01）：用户选了「画面风格」→ 值归一化 + 提示词补一句「版式由系统统一负责」。
   normalizeStyle, stylePromptNote,
   // ★VF_BIGCUT_V1（2026-10-06）：画面大字"避词边界"截断（治成片里「真正价值在6」这种被切坏的数字/英文）
   bigTextCut,
   // ★VF_BIGSUB_V1（2026-10-06）：同一镜"大字=字幕"的治理（清掉重复的那层，字幕不动）
-  quietBigSameAsSubtitle, VF_SUB_CPS, VF_PPTIMG_SKINS } from '@/lib/agent/vf/anti-ai'
+  // ★VF_FORMAPPLY_V1：`VF_PPTIMG_SKINS` 的皮肤白名单也搬进 vf-form.ts 了（本文件不再直接用）
+  quietBigSameAsSubtitle, VF_SUB_CPS } from '@/lib/agent/vf/anti-ai'
+// ★VF_FORMAPPLY_V1（2026-10-27 用户实测「只想改个音色 → 整单重来」）：
+//   设置卡表单（VF_FORM:{…}）→ 草稿的字段解析只有**一份**实现，起草阶段与分镜卡阶段共用（零漂移）。
+import { applyVfFormFields } from '@/lib/agent/vf/vf-form'
 // ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：把「长镜必须有动效」的档位接进【图片成片线】的分镜提示词
 //   （与「视频混剪」线共用 anti-ai.ts 里同一份常量，两条线的字段说明与硬规矩逐字一致），
 //   并在 genVideoShots 出口跑服务端兜底 ensurePersistentMotion（AI 忘写时给 title/end 长镜补 grow）。
@@ -4830,7 +4836,13 @@ PUBLISH_DRAFT.delete(uidW)
             //     · 未知    → 兜底出"素材来源卡"（参数同样丢）
             //   三种都会让"我选的时长/上传没生效" → 现在一律【作废旧草稿】并用本次表单重新起草。
             //   ★仍然只清"孤儿"：step=form/source 时的表单提交是「改选项」，绝不能清。
-            const _vfOrphan = _vfIsForm && !!vd && vd.step !== 'form' && vd.step !== 'source'
+            // ★VF_FORMAPPLY_V1（2026-10-27 用户实测「草稿已经停在分镜卡，我进设置卡只想改个音色 →
+            //   又看一遍图、又写一遍文案、又排一遍分镜」）：**`step='script'` 不是孤儿** ——
+            //   分镜卡阶段的表单提交是【改设置】，有一条专门分支（本文件下方 `vd.step === 'script'
+            //   && /^VF_FORM:/`，即 VF_FORMATSCRIPT_V1）负责"只刷新确认卡 / 改文案才重排"。
+            //   原来把它也当孤儿 ⇒ clearVfDraft 整条清掉、vd=undefined ⇒ 落到"新一单起稿"重新烧一遍
+            //   （还连带把那条专门分支变成**永远走不到的死代码**）。
+            const _vfOrphan = _vfIsForm && !!vd && vd.step !== 'form' && vd.step !== 'source' && vd.step !== 'script'
             if (_vfOrphan) vfLog(uidVF2, `[草稿认领] 本次是表单提交，旧草稿 step=${vd?.step} → 作废，用本次表单重新起草`)
             // ★VF_PPTIMG_V1（2026-10-07 用户实测「它还是用的原来的皮肤」的**根因**）：**换线命令必须作废旧草稿**。
             //   改前这里只看 `vfIntent`（= 旧的素材线正则），而新线入口词「PPT+图视 / HTML+图视 / 版式混剪 …」
@@ -5110,86 +5122,17 @@ PUBLISH_DRAFT.delete(uidW)
               if (_mForm) {
                 try {
                   const f = JSON.parse(_mForm[1]) || {}
-                  // ★VF_PPTSOLO_V1（2026-10-06 用户定案「彻底拆开」）：**本线（图片成片 / 素材线）只出老引擎**
-                  //   动态 PPT（HTML 逐帧 deck）自今日起独占给「PPT成片」那条独立线 —— 本线收到 deck 一律拒绝并提示。
-                  //   原因（用户实测 2026-10-06 的 20261006_001）：两条线时序真源不同（本线 = 分镜 dur；deck = 配音句），
-                  //   混在一起会出现"卡片承诺 6s/镜、实际一页 20 秒"这类对不上的现象，且改一条坏另一条。
-                  if (f.engine !== undefined) {
-                    if (String(f.engine) === 'deck') {
-                      vfLog(uidVF2, '[成片方式] 拒绝 deck：图片成片/图视混剪已不再支持动态 PPT（自 10-06 起独占给「PPT成片」线）→ 本次按老引擎出片')
-                      vd.engineRejected = 'deck'
-                    }
-                    vd.engine = 'classic'
-                  }
-                  if (f.aspect) vd.aspect = String(f.aspect)
-                  if (f.dur) vd.dur = Math.max(5, Math.min(900, parseInt(f.dur) || 30))
-                  // ★VF_THEME_UI_V1（2026-09-20）：画面风格（dark / tech / light）—— 之前表单没暴露，只能默认 dark
-                  //   ★白名单校验：make.py 的 --theme 是 choices=[dark,light,tech]，传别的值 argparse 会直接报错
-                  //   ★VF_DEFTHEME_V1（2026-10-08）：非法/未选时兜底也从 'dark' 改成 'light'
-                  //     —— 否则"没选模版就变黑乎乎"的老毛病在**脏值**这条路上还在。
-                  if (f.theme) vd.theme = ['dark', 'tech', 'light'].includes(String(f.theme)) ? String(f.theme) : 'light'
-                  if (f.voice) vd.voice = String(f.voice)
-                  if (typeof f.topic === 'string' && f.topic.trim()) vd.topic = f.topic.trim().slice(0, 300)
-                  if (f.script && String(f.script).trim()) vd.formScript = String(f.script).trim().slice(0, 4000) // 用户直接贴了文案
-                  if (f.source) vd.formSource = String(f.source)   // ★表单选的画面来源（repo/upload/mix/ai）——下面分支要按它走
-                  if (f.bgm !== undefined) vd.bgm = (String(f.bgm) === 'auto') ? 'auto' : ''
-                  // ★VF_BANNER_V1：顶部固定标题开关（'on' 默认自动拟两行 / 'off' 不要）—— 同上走白名单
-                  if (f.pin !== undefined) vd.pin = (String(f.pin) === 'off') ? 'off' : 'on'
-                  // ★VF_BANNER_PIN2_V1（2026-09-29 team-lead 要求）：手填的第 1/2 行（留空 = AI 自动拟）——
-                  //   原样存草稿，起草时交给 buildBanner 决定"用手填还是调 AI"（清洗/截断都在 buildBanner 里）。
-                  if (f.pin1 !== undefined) vd.pin1 = String(f.pin1 || '').slice(0, 60)
-                  if (f.pin2 !== undefined) vd.pin2 = String(f.pin2 || '').slice(0, 80)
-                  // ★OVERLAY_TEXT_SWITCH_V1 补齐（2026-10-08 实测）：本线**一直没解析 `big`**
-                  //   （`vd.big` 在 route.ts 里 0 命中）⇒ 用户在卡上选「画面大字：不加」其实**不生效**
-                  //   （用户正好发了这个开关的截图当证据）。现在接上：走 plan 根级 overlay_text（渲染层读它）。
-                  if (f.big !== undefined) vd.big = (String(f.big) === 'off') ? 'off' : 'on'
-                  // ★VF_FX_SWITCH_V1（2026-10-08 用户定案「另加一个『特效：开 / 关』」）：
-                  //   'on'（默认 = 现状）/ 'off'（整片静态）。落地在 buildVideoPlan（一处覆盖全部线）+
-                  //   渲染层总闸（render.py）。这里只做**白名单归一**。
-                  if (f.fx !== undefined) vd.fx = (String(f.fx) === 'off') ? 'off' : 'on'
-                  // ★VF_DECK_STYLES_V1（2026-10-01 用户定案「我没看到新模版」）：设置卡「🎨 画面模版」——
-                  //   走 normalizeDeckStyle 白名单归一（非法/缺省 → 'auto'）；出片时写进 plan 根级 `deck_style`。
-                  if (f.deckStyle !== undefined) vd.deckStyle = normalizeDeckStyle(f.deckStyle)
-                  // ★VF_STYLES_WIRE_V1（2026-10-01 用户定案「我本次选的是新闻资讯，因为我没看到新模版」）：
-                  //   设置卡「🎨 画面风格」（5 套成品风格）—— 走 normalizeStyle 白名单归一
-                  //   （非法 / 未选 → '' = 不指定）；出片时由 buildVideoPlan 决定是否写 plan 根级 `style`。
-                  // ★VF_NOSTYLE_V1（2026-10-20 用户定案「按你说的来」）：**`style` 停用** ——
-                  //   设置卡上的「🎨 画面风格」整块已删（`page.tsx` ★VF_ONEFORM_V1），后端这里也一并停：
-                  //   **无论前端/老草稿送什么，都强制清空** ⇒ 出片不带 plan 根级 `style`
-                  //   （否则老草稿里的 'deepblue' 会让确认卡继续显示「风格 深蓝墨」—— 用户实测过）。
-                  //   ⚠️ 只影响 图片成片 / 图视混剪 / PPT+图视（它们共用 buildVideoPlan）；
-                  //      HTML 成片（film-spec.ts）与日报（自己的渲染器）不受影响。
-                  if (f.style !== undefined) vd.style = ''
-                  // ★VF_PPTIMG_V1（2026-10-07）：新线「PPT+图视」的新引擎皮肤（master + palette）——
-                  //   白名单来自 anti-ai.ts 的 `VF_PPTIMG_SKINS`（真源是 masters/*/master.json）。
-                  //   非法 skin → 回落 'tech'；palette 不在该母版的配色里 → 用该母版的**第一个配色**
-                  //   （绝不把脏值写进 plan 根级 `pptpage`，否则引擎会渲出意料之外的皮肤）。
-                  // ★VF_PPTIMG_V1：**卡片上真正看到的线标识才作数** —— 防"命令没匹配上 / 草稿串线"
-                  //   导致"卡片显示一条线、出片按另一条线走"（用户实测「还是原来的皮肤」就是这一类）。
-                  //   客户端从 `vj.line` 原样回传，这里只做白名单。
-                  if (f.line !== undefined) {
-                    const _lnRaw = String(f.line)
-                    if (['local', 'video', 'pptimg'].includes(_lnRaw)) vd.line = _lnRaw
-                  }
-                  if (f.skin !== undefined) {
-                    const _skRaw = String(f.skin || '').replace(/^master-/, '').toLowerCase()
-                    const _hitSk = VF_PPTIMG_SKINS.find((s) => s.id === _skRaw)
-                    vd.skin = _hitSk ? _hitSk.id : 'tech'
-                    const _plRaw = String(f.palette || '')
-                    const _defPl = (_hitSk || VF_PPTIMG_SKINS[0]).palettes[0].id
-                    vd.palette = (_hitSk && _hitSk.palettes.some((p) => p.id === _plRaw)) ? _plRaw : _defPl
-                  }
-                  // ★VF_I2V_BASELINE_V1（2026-09-29 team-lead 要求）：「图片成片」线也复用设置卡的
-                  //   「🎞 让图动起来」开关（'on' 默认 / 'off' 不注入、不额外计费）。原来本线没解析这个字段。
-                  // ★VF_I2VSUIT_V1（2026-09-30）：额外支持 'all' = 手动全开（不按素材类型筛选，全部图都做）。
-                  if (f.i2v !== undefined) {
-                    const _i2vV = String(f.i2v)
-                    // ★VF_MATUI_V1（2026-09-30）：新增 'picked' = 只动我勾选的（四档全保留）
-                    vd.i2v = (_i2vV === 'off' || _i2vV === 'picked' || _i2vV === 'all') ? _i2vV : 'on'
-                  }
-                  // ★VF_UPLOAD_V2（2026-09-20，用户实测“上传 8 张却用了旧图”）：前端把**刚上传的文件名列表**
-                  //   一起发过来 → 后端按名字精确取，不再靠“按时间猜最近”。确定性优先。
-                  if (Array.isArray(f.uploaded)) vd.uploaded = f.uploaded.map((x: any) => String(x)).slice(0, 60)
+                  // ★VF_FORMAPPLY_V1（2026-10-27 用户实测「只想改个音色 → 整单重来」）：
+                  //   字段解析**收口到 `lib/agent/vf/vf-form.ts::applyVfFormFields`** ——
+                  //   与「分镜卡阶段进设置卡」（step='script' 分支）**共用同一份实现**，绝不各写一遍。
+                  //   为什么必须收口：原来两块解析的字段不一样（script 那块漏了 aspect/bgm/pin/pin1/pin2/
+                  //   big/i2v/uploaded/line/skin）⇒ 在分镜卡改画幅或换一批上传，卡片显示改了、草稿没改
+                  //   （与 VF_FORM_CLAIM_V1 那次「选 60 秒出成 200 秒」同一类账：承诺与产出不一致）。
+                  //   各字段的取值口径/白名单/原因注释都搬进了那个文件（一处一份）。
+                  const _fa = applyVfFormFields(vd, f, 'draft')
+                  // ★VF_PPTSOLO_V1：本线只出老引擎，收到 deck 一律拒绝并提示（时序真源不同，混起来会"卡片 6s/镜、实际一页 20 秒"）
+                  if (_fa.engineRejected === 'deck') vfLog(uidVF2, '[成片方式] 拒绝 deck：图片成片/图视混剪已不再支持动态 PPT（自 10-06 起独占给「PPT成片」线）→ 本次按老引擎出片')
+                  if (_fa.notes.length) vfLog(uidVF2, '[表单改动] ' + _fa.notes.join('、'))
                   vfLog(uidVF2, `[表单] aspect=${vd.aspect} dur=${vd.dur} voice=${vd.voice} source=${f.source || 'repo'} topic="${String(vd.topic).slice(0, 30)}"`)
                 } catch (e: any) { vfLog(uidVF2, '[表单解析失败] ' + String(e?.message || e).slice(0, 120)) }
               }
@@ -5976,23 +5919,44 @@ PUBLISH_DRAFT.delete(uidW)
               //   这一串会掉进下面的"文案微调"兜底（把整串 JSON 当"用户要求"喂给 AI）⇒
               //  **文案/分镜一个字都没变**（用户看到的"改了没用"）。
               //   现在：解析**同一份表单** → ① 改了文案 ⇒ 重排分镜；② 只换音色/风格 ⇒ 只刷新确认卡。
+              // ★VF_FORMAPPLY_V1（2026-10-27）：字段解析与起草阶段**共用同一份**（lib/agent/vf/vf-form.ts）。
+              //   原来这块只解析 script/voice/theme/style/deckStyle/big/fx/dur —— 用户在分镜卡改
+              //   画幅 / 背景音乐 / 顶部标题 / 图生视频 / 上传名单 / 皮肤时**一律丢掉**
+              //   （卡片显示改了、草稿没改 → 出片后才发现"跟卡上不一样"，与"选 60 秒出成 200 秒"同一类账）。
               let _f2: any = {}
-              try { _f2 = JSON.parse(userMessage.trim().replace(/^VF_FORM:/, '')) || {} } catch { /* 非法 JSON → 按"没改文案"处理 */ }
-              let _scriptChanged = false
-              if (typeof _f2.script === 'string' && _f2.script.trim() && String(_f2.script).trim() !== String(vd.script || '')) {
-                vd.script = String(_f2.script).trim().slice(0, 4000)
-                vd.formScript = vd.script          // 与首次起草同口径：用户贴的文案就是 formScript
-                _scriptChanged = true
-              }
-              if (_f2.voice) vd.voice = String(_f2.voice)
-              if (_f2.theme) vd.theme = ['dark', 'tech', 'light'].includes(String(_f2.theme)) ? String(_f2.theme) : vd.theme
-              // ★VF_NOSTYLE_V1：同上 —— 第二次改设置也强制清空（`style` 已停用）
-              if (_f2.style !== undefined) vd.style = ''
-              if (_f2.deckStyle !== undefined) vd.deckStyle = normalizeDeckStyle(_f2.deckStyle)
-              if (_f2.big !== undefined) vd.big = (String(_f2.big) === 'off') ? 'off' : 'on'
-              if (_f2.fx !== undefined) vd.fx = (String(_f2.fx) === 'off') ? 'off' : 'on'
-              if (_f2.dur && !vd.durAuto) vd.dur = Math.max(5, Math.min(900, parseInt(_f2.dur) || 30))
-              if (_scriptChanged) {
+              try { _f2 = JSON.parse(userMessage.trim().replace(/^VF_FORM:/, '')) || {} } catch { /* 非法 JSON → 按"没改内容"处理 */ }
+              const _fs = applyVfFormFields(vd, _f2, 'script')
+              if (_fs.engineRejected === 'deck') vfLog(uidVF2, '[成片方式] 拒绝 deck（分镜卡改设置时）：本线只出老引擎')
+              if (_fs.notes.length) vfLog(uidVF2, '[设置卡改动] ' + _fs.notes.join('、'))
+              if (_fs.materialChanged || _fs.topicChanged || _fs.aspectChanged) {
+                // ═══ ★VF_FORMAPPLY_V1：换素材 / 换主题 ⇒ 旧文案 + 旧分镜都不作数 ═══
+                //   口径与 VF_MATSIG_V1（换素材 ⇒ 旧文案自动作废）**逐字一致**：
+                //   只清**内容**、保留**用户设置**、如实告知、退回"素材来源"等用户点一下。
+                //   为什么不自动重写：重写文案是花钱的 AI 调用 —— 必须让用户先知道再决定（用户定过的规矩）。
+                //   ⚠️ `matSig` 必须清空：否则下一条消息在入口处会**再判一次**"素材变了"（连提示两遍，
+                //      而且第一次还会被拦下不自动起草 —— 用户得说两遍「素材合成」）。
+                vd.script = ''
+                vd.shots = undefined
+                vd.cover = 0
+                vd.subLen = 0
+                vd.imgs = []
+                vd.brief = ''
+                vd.briefOverride = ''
+                vd.matSig = ''
+                // ★VF_FORMAPPLY_V1：**新传了素材就必须让下一次起草真的用它** ——
+                //   起草分支只认 `formSource==='upload'` 或消息里带"上传"字样（用户回的是「素材合成」），
+                //   不在这里把来源切过去，重写完的文案会配**仓库里的旧图**（与"传了不用"那次事故同类）。
+                if (_fs.materialChanged) { vd.formSource = 'upload'; vd.useRecent = true }
+                vd.step = 'source'
+                VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
+                // ★VF_FORMAPPLY_V1：三种原因分别说清（别让用户猜"为什么又不算数了"）
+                const _fsWhy = _fs.materialChanged ? '上传的素材' : (_fs.topicChanged ? '主题' : '画幅')
+                vfLog(uidVF2, `[设置卡] ${_fsWhy}变了 → 旧文案/旧分镜作废（设置项全保留）`)
+                wfEarlyReply = `你这次改的是**${_fsWhy}** —— `
+                  + '旧文案是照着旧的那份写的 ⇒ **旧文案 / 旧分镜已作废**，没有拿旧内容去配新素材。\n'
+                  + '你的设置都还在（音色 / 画幅 / 时长 / 画面风格 / 大字 / 特效 / 图生视频）。\n'
+                  + '回一句「**素材合成**」，我就按现在的素材重写文案 + 重排分镜（约十几秒）。'
+              } else if (_fs.scriptChanged) {
                 // ★VF_REPLAN_V1：**文案改了必须重排分镜**（成片的画面/字幕/配音全部来自 shots）
                 await _maybeRebuildBanner(vd, String(vd.script || ''))
                 vfLog(uidVF2, `[设置卡改文案] 新文案 ${vd.script.length} 字 → 重排分镜（不重排 = 成片还是旧文案）`)
@@ -6001,9 +5965,11 @@ PUBLISH_DRAFT.delete(uidW)
                   '设置卡改文案重排')
                 wfEarlyReply = _rpF.card
               } else {
-                // 没改文案 → 只刷新确认卡（音色/风格/大字/特效等设置项即时生效，不重排、不计点）
+                // 没改文案、也没换素材/主题 → **只刷新确认卡**
+                //   （音色 / 画幅 / 时长 / 画面风格 / 大字 / 特效 / 图生视频 / 皮肤等即时生效：
+                //    不重排分镜、不重新看图、不重写文案 ⇒ 不扣点，也不再等十几秒）
                 VIDEO_DRAFT.set(uidVF2, vd); await saveVfDraft(uidVF2, vd)
-                vfLog(uidVF2, '[设置卡] 未改文案 → 只刷新确认卡（不重排分镜）')
+                vfLog(uidVF2, `[设置卡] 只改设置（${_fs.notes.join('、') || '无实际变化'}）→ 只刷新确认卡（不重排/不计点）`)
                 wfEarlyReply = vfScriptCard({ ...vd }, vd.shots || [], (vd.imgs || []).length,
                   String(vd.brief || ''), vd.aspectResolved || 'portrait', vd.cover || 0,
                   Math.round((vd.subLen || 0) / VF_SUB_CPS))

@@ -55,6 +55,10 @@ import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, s
 //   buildI2vShots() —— **本线只是第一个调用方**，别的线（图片成片 / 素材+AI）要开图生视频，
 //   把那边的 shots + keyByPath 传进同一个函数即可（默认仍然只在图视混剪开启）。
 import { buildI2vShots, i2vKeyMap } from './i2v-plan'
+// ★VF_FORMAPPLY_V1（2026-10-27 用户实测「只想改个音色 → 整单重来」）：
+//   设置卡（`VideoFormCard`，本线与图片成片/PPT+图视共用）**分镜卡阶段的表单提交**走这份共用解析
+//   ——各字段的白名单/归一/原因注释只在 vf-form.ts 里写一次，绝不与 route.ts 各写一份（必然漂移）。
+import { applyVfFormFields } from './vf-form'
 import type { I2vBuildResult, I2vPlan } from './i2v-plan'
 // ★VF_I2VDFLT_V1（2026-09-30 用户定案）：把「关掉动图 / 保持静态 / 全部动起来 / 智能筛」这句话
 //   解析成 i2v 取值（协议串 VF_I2V_OFF: 也认）—— 与闸门（standard-commands.ts）共用同一份规则，
@@ -324,8 +328,19 @@ export async function shouldTakeOverVideoLine(
   const d = await loadVfVideoDraft(db, uid)
   const _f = String(m).trim().match(/^VF_FORM:(\{[\s\S]*\})/)
   if (_f) {
-    // ★本线复用了素材线那张设置卡 → 表单字段与素材线**相同**，只能靠"本线草稿停在 form"来认领
-    return !!d && d.step === 'form'
+    // ★本线复用了素材线那张设置卡 → 表单字段与素材线**相同**，只能靠"本线草稿"来认领
+    // ★VF_FORMAPPLY_V1（2026-10-27 用户实测「只想改个音色 → 整单重来」）：
+    //   **分镜卡阶段（step='script'）的表单也必须认领**。原来只认 form ⇒ 用户从聊天记录里
+    //   再点一次那张设置卡时，本线直接不接管，消息掉到图片成片块（串线）或主 AI（胡答），
+    //   用户看到的就是"没反应 / 又要重来一遍"。现在由 handleVideoLine 的 script 分支决定
+    //   「改文案→重排 / 换素材·主题·画幅→退回 / 只改设置→刷新」。
+    if (!d || (d.step !== 'form' && d.step !== 'script')) return false
+    // ★表单按**字段**认领（照 VF_FORM_OWNER_V1 的形制）：共用设置卡必带 aspect/voice/engine/source 之一；
+    //   素材+AI / AI 制片 的卡只发 {topic, uploaded}（没有这几个字段）⇒ 绝不会被本线蹭走。
+    try {
+      const f = JSON.parse(_f[1] || '{}')
+      return !!(f && (f.aspect || f.voice || f.engine !== undefined || f.source !== undefined))
+    } catch { return false }
   }
   if (OTHER_LINE_ENTRY.test(m)) return false
   if (d?.step) {
@@ -407,7 +422,10 @@ function formCard(vd: VfVideoDraft): string {
     //   也被打到本线头上（用户实测："图视混剪还是提示不认识视频"）。有了 line 就能按线出文案。
     //   'video'=图视混剪（吃视频） | 'local'=图片成片（只吃图片，见 route.ts 的同名字段）。
     line: 'video',
-    hint: '视频混剪：用你仓库里的**视频片段 + 图片**混排（AI 决定哪几镜用视频）；原声默认静音、配音统一铺',
+    // ★VF_FORMAPPLY_V1：允许调用方改一句话（"素材/主题/画幅变了 → 请再点一次开始出片重写"）——
+    //   否则那条告知只能靠正文回一句话、而正文回话会和卡片协议串混在一条消息里（客户端只认一行协议）。
+    hint: String((vd as any).hintOverride || '').trim()
+      || '视频混剪：用你仓库里的**视频片段 + 图片**混排（AI 决定哪几镜用视频）；原声默认静音、配音统一铺',
     topic: vd.topic || '',
     voice: vd.voice,
     voices: (vd as any).voiceList || [],
@@ -1137,6 +1155,63 @@ export async function handleVideoLine(ctx: VfVideoCtx): Promise<string> {
         return await draftAndCard(ctx, vd)
       }
       return '视频混剪：请在上面选好 时长/画幅/音色，点「🚀 开始出片」；或直接说个主题。'
+    }
+
+    // ═══ ★VF_FORMAPPLY_V1（2026-10-27 用户实测「草稿停在分镜卡，进设置卡只想改个音色 → 整单重来」）═══
+    //   场景：那张共用设置卡（VideoFormCard）还留在聊天记录里，草稿已经走到 `script`，用户又点了一次。
+    //   以前：`shouldTakeOverVideoLine` 只认 `step==='form'` ⇒ 本线不接管 ⇒ 消息掉去图片成片块（串线）
+    //        或主 AI（胡答）。现在认领，并按与图片成片线**同一口径**分三种结局：
+    //     ① 改文案              → 重排分镜（成片的画面/字幕/配音全部来自 shots）
+    //     ② 换素材 / 主题 / 画幅 → 内容级变更：保留设置、清内容、退回设置卡（不自动烧钱重写）
+    //                             画幅也归这类：出片读的是 `vd.size`，而 size 按素材最大边算，分镜阶段拿不到
+    //                             ⇒ 只改 aspect 会"卡片写横屏、成片还是竖屏"
+    //     ③ 只改设置            → 只刷新确认卡（不重排、不计点）
+    //   ⚠️ **位置铁律**：必须在下面 `FLOW_WORD`（确认出片）之前 —— 表单 JSON 里只要出现
+    //      "确认/开始/出片"这些字（用户在文案框里写的正文就会带），就会被当成"确认出片"**直接烧钱**。
+    if (vd.step === 'script') {
+      const _f2 = ctx.parseForm(userMessage)
+      if (_f2) {
+        const _fs = applyVfFormFields(vd, _f2, 'script')
+        if (_fs.notes.length) ctx.log(uid, `[VF-V] 设置卡改动：${_fs.notes.join('、')}`)
+        // ② 内容级变更 → 退回设置卡（本线没有"素材来源"这一步，上一步就是设置卡）
+        if (_fs.materialChanged || _fs.topicChanged || _fs.aspectChanged) {
+          const _why = _fs.materialChanged ? '上传的素材' : (_fs.topicChanged ? '主题' : '画幅')
+          vd.durAuto = (Array.isArray(vd.uploaded) ? vd.uploaded.length : 0) > 0
+          vd.script = ''
+          vd.shots = undefined
+          vd.cover = 0
+          vd.subLen = 0
+          vd.brief = ''
+          vd.step = 'form'
+          VF_VIDEO_DRAFT.set(uid, vd)
+          await saveVfVideoDraft(ctx.prisma, uid, vd)
+          ctx.log(uid, `[VF-V] 设置卡：${_why}变了 → 旧文案/旧分镜作废（设置项全保留），退回设置卡`)
+          return formCard({
+            ...vd, voiceList: ctx.voiceList,
+            hintOverride: `你这次改的是「${_why}」—— 旧文案是照着旧的那份写的 ⇒ **旧文案 / 旧分镜已作废**。`
+              + `你的设置都还在；再点一次「🚀 开始出片」，我就按现在的素材重写文案 + 重排分镜（约十几秒）。`,
+          } as any)
+        }
+        // ① 改了文案 → 重排（draftAndCard 会沿用 vd.script，**不再重写文案**）
+        if (_fs.scriptChanged) {
+          VF_VIDEO_DRAFT.set(uid, vd)
+          await saveVfVideoDraft(ctx.prisma, uid, vd)
+          ctx.log(uid, `[VF-V] 设置卡改了文案（${String(vd.script || '').length} 字）→ 重排分镜（不重排 = 成片还是旧文案）`)
+          return await draftAndCard(ctx, vd,
+            '用户在设置卡里换了**新文案**（下面这段就是新文案）：请完全按新文案重排分镜，subtitle 必须完整覆盖新文案且顺序一致，镜头数按新文案长度给足。')
+        }
+        // ③ 只改设置 → 只刷新确认卡（音色/时长/风格/大字/特效/标题/动图/皮肤即时生效，不重排、不计点）
+        VF_VIDEO_DRAFT.set(uid, vd)
+        await saveVfVideoDraft(ctx.prisma, uid, vd)
+        const _a2 = i2vBuildOf(vd)
+        ctx.log(uid, `[VF-V] 设置卡只改设置（${_fs.notes.join('、') || '无实际变化'}）→ 只刷新确认卡（不重排/不计点）`)
+        return ctx.vfScriptCard(
+          { ...vd, voiceList: ctx.voiceList, source: '', i2vSec: _a2.plan.sec, i2vImages: _a2.plan.images,
+            i2vSkipped: _a2.plan.unfitSamples, i2vSkippedN: _a2.plan.skippedUnfit,
+            i2vNotPicked: _a2.plan.notPickedNames, i2vNotPickedN: _a2.plan.skippedNotPicked },
+          vd.shots || [], Number(vd.imgN) || 0, String(vd.brief || ''), vd.aspectResolved || 'portrait',
+          Number(vd.cover) || 1, Math.round((Number(vd.subLen) || 0) / 4.5))
+      }
     }
 
     // ── ★VF_I2VDFLT_V1（2026-09-30 用户定案）：一键改「动图」设置 → 重出确认卡 ──

@@ -223,6 +223,33 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
 
+### 2026-10-27：设置卡「只改设置」不再整单重来（`VF_FORMAPPLY_V1`，✅ 已修 + 6 条断言 + tsc 基线）
+
+- **症状**：分镜确认卡（`step='script'`）已出来，点「⚙ 设置」只换音色 → **又看图、又写文案、又排分镜**（烧点 + 等十几秒）。
+- **定因（两处叠加）**：① `route.ts` 孤儿判定 `_vfOrphan` 把 `script` 也算孤儿 ⇒ `clearVfDraft` + `vd=undefined` ⇒ 落回"新一单起稿"；
+  ② 连带 `step==='script' && VF_FORM:` 那条专门分支（`VF_FORMATSCRIPT_V1`）成了**死代码**。
+- **改法**：新增 `src/lib/agent/vf/vf-form.ts::applyVfFormFields(vd, f, mode)` = 表单→草稿的**唯一**实现（起草/分镜卡共用，各字段白名单与原因注释一起搬进去）；
+  `_vfOrphan` 排除 `script`；script 分支按 flags 三分：**改文案→重排** / **新传素材·改主题→保留设置只清内容、退回素材来源（不自动烧钱）** / **只改设置→只刷新确认卡**。
+- **误伤闸门**：`page.tsx:578` 的 `source` 写死 `'repo'`（不读 `vj.source`）⇒ script 模式**不比较 source**，`materialChanged` 只由 `uploaded` 触发
+  （否则"只改音色"也会被判成换素材）。
+- **顺手**：`dur` 统一 `!vd.durAuto`（与 `vf-video.ts` 同口径）；`route.ts` 去掉搬走后变成死引用的 `normalizeDeckStyle`/`VF_PPTIMG_SKINS`。
+- **第二轮（图视混剪）**：`VideoFormCard` 是**三条线共用的一张卡**（`line=local|video|pptimg`），背后却是两套代码 ⇒
+  第一轮只修了 `route.ts` 内联块。补 `vf-video.ts`：`shouldTakeOverVideoLine` 认领 `form|script`（且按字段认领，防蹭走素材+AI/AI制片的卡）；
+  `handleVideoLine` 加 `step==='script'` 分支，用同一份 `applyVfFormFields`，三种结局与图片成片线逐字同口径。
+  **位置铁律**：必须排在 `FLOW_WORD`（确认出片）之前 —— 表单正文含"确认/开始/出片"会被当成确认出片**直接烧钱**（已入闸门）。
+- **画幅口径**：出片读 `vd.size`（`banner.ts:288`），size 按**素材最大边**算 ⇒ 分镜阶段只改 `aspect` 会"卡片横屏、成片竖屏"。
+  故 `aspectChanged` 归**内容级变更**：保留设置、清内容、退回上一步重做（尺寸与分镜一起重算）。`engine` 归一只在 `draft` 阶段。
+- **第三轮（素材+AI / AI制片）**：两条线各自显式处理（**不套通用解析**：AI制片的 `style` 是"成片风格" AI_STYLES，
+  与通用解析里已停用的「5 套成品风格」语义冲突，套用会清空用户选的风格）。
+  · 素材+AI：确认卡构造抽成 `mixConfirmCard`（唯一实现）；`script` 阶段三分——改主题/换上传⇒清内容退回起稿卡、
+    什么都没变⇒只刷新卡（零 AI 调用）。
+  · AI制片：`script` 阶段原来"什么都不返回"（用户看到点了没反应）；现在三分——主题/上传变了⇒退回起稿卡、
+    改文案或画幅·时长·风格⇒重排（沿用 `vd.script` 不重写文案）、没改⇒只重出确认卡。
+    本线 `size` 与素材无关（画面全 AI 生成）⇒ 改画幅可直接生效，不必退回。
+  · 两条线的新分支都必须在各自的 `*_FLOW_WORD`（确认出片）**之前**（表单正文含"确认/出片"会直接烧钱）。
+- **读数**：`tsc 90 = 基线`（零新增）· `temp/_repo/test.mjs` 第 ⑪ 节 **18/0**（该脚本另有 4 条既有 ✗，与本次无关）。
+- **未做（留待用户）**：`page.tsx` 默认 `theme='dark'`（交接单 #4）、图片成片 `durAuto` 补齐（#3）。
+
 ### 2026-10-27：数字人口播独立线（`VF_DH_V1` P1，✅ 代码完成 + 探针 57/0 + tsc 基线）
 
 - **用户原话**：「数字人不应该跟网页制作那套混在一起，**它应该是单独状态机、呼出页面不一样**；仓库选项卡**不能和成片那个一样**，那个完全是为做视频设计的。」
