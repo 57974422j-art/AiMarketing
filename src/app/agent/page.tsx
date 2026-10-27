@@ -2522,8 +2522,12 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
       {/* ★VF_DAILY_BGM_V1：配乐（可选，抄自 HTML 成片线的 VF_BGM_PICK_V1） */}
       <div className="mt-3 pt-3 border-t border-white/10">
         <div className="text-[10px] text-gray-400 mb-1.5">
-          背景音乐{bgm ? '' : '（不加）'}
-          {bgmList.length ? '' : '　·　仓库里还没有音频，去「个人仓库」传一首 mp3 就能选'}
+          背景音乐{bgm === '__ai_edm__' ? '（AI 电子乐）' : bgm ? '' : '（不加）'}
+          {/* ★VF_BGM_TIP_V1（2026-10-27 用户「选了 AI 电子乐还显示'仓库里还没有音频'是误导」）：
+              只有在**没选 AI 电子乐**且仓库里确实没有 mp3 时，才提示去传文件。 */}
+          {bgm === '__ai_edm__'
+            ? '　·　首次出片时生成（约 1 分钟），之后每单直接复用'
+            : (bgmList.length ? '' : '　·　仓库里还没有音频，去「个人仓库」传一首 mp3 就能选')}
         </div>
         <div className="flex items-center gap-2">
           <select value={bgm}
@@ -2831,7 +2835,12 @@ function VfDailyDoneCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) 
     if (!userId) { setLocalMsg('这个按钮只在**客户端**里有效（网页版没有本地仓库）'); return }
     setLocalMsg('正在镜像页面与图到本地…')
     // 先把**页面 + 它引用的每张图**镜像到本地（同一文件夹），再用系统默认程序打开
-    const names = [nm, ...(Array.isArray(vj?.imgNames) ? vj.imgNames.map((x: any) => String(x)) : [])].filter(Boolean)
+    /* ★VF_MIRROR_MP4_V1（2026-10-27 用户「mp4 还是不能镜像到本地，只下了 html」）：
+       出片的 mp4 现在**沿用 html 的编号**（`gen_x.html` ⇒ `gen_x.mp4`）⇒ 这里直接由 html 名推出来，
+       不需要后端额外下发。视频还没出片时这个文件不存在 ⇒ storageMirror 会失败，但下面 try/catch
+       逐条吞掉，不影响 html 镜像。 */
+    const _mp4 = nm.replace(/\.[^.]+$/, '') + '.mp4'
+    const names = [nm, _mp4, ...(Array.isArray(vj?.imgNames) ? vj.imgNames.map((x: any) => String(x)) : [])].filter(Boolean)
     for (const x of names) {
       try { await (window as any).electronAPI?.storageMirror?.(`/api/storage/file?userId=${userId}&name=${encodeURIComponent(x)}`) } catch { /* 单张失败不打断 */ }
     }
@@ -2895,7 +2904,10 @@ function VfDailyDoneCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) 
   //   单文件版不镜像（几 MB 的 data: 内嵌件，判读/同步都累赘）。
   useEffect(() => {
     if (!userId) return
-    const names = [String(vj?.plainName || ''), ...(Array.isArray(vj?.imgNames) ? vj.imgNames.map((x: any) => String(x)) : [])]
+    /* ★VF_MIRROR_MP4_V1：自动镜像也带上成品视频（同名不同后缀，由 html 名推出来）。
+       未出片时它不存在 ⇒ 那一条镜像失败即可，不影响 html。 */
+    const _pn = String(vj?.plainName || '')
+    const names = [_pn, _pn ? _pn.replace(/\.[^.]+$/, '') + '.mp4' : '', ...(Array.isArray(vj?.imgNames) ? vj.imgNames.map((x: any) => String(x)) : [])]
       .filter(Boolean)
     names.forEach((nm) => {
       const sig = 'daily:' + nm + ':' + (vj?.plainName || '')

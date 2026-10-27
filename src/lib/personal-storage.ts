@@ -53,6 +53,10 @@ export interface SaveToRepoOptions {
    *  **与原始素材各自计数**（两个序号空间，互不占号），前端按前缀分组显示。
    *  为什么用文件名前缀而不是子目录 `_gen/`：见 `src/lib/repo-naming.ts` 文件头（读/删/镜像三处都禁 `/`）。 */
   gen?: boolean
+  /** ★VF_PREFER_NAME_V1：期望的文件名（如 `gen_20261026_024.mp4`）。
+   *  没被占用就用它 ⇒ 同一单的 html 与 mp4 **同号**；
+   *  已占用则自动退回自增命名（绝不覆盖）。不传 = 老行为。 */
+  preferName?: string
 }
 
 /**
@@ -98,6 +102,21 @@ export async function saveToPersonalRepo(opts: SaveToRepoOptions): Promise<{ nam
   //   （原逻辑 existing.length+1：001、003 在、002 被删时会撞 003）。
   // ★VF_NAMESEQ_V1 的"取最大 +1、不复用空号"与"命名规范外兜底 count+1"，已**整体搬进** repo-naming.nextSeq
   //   ★VF_REPOSPLIT_V1：序号与命名统一走纯函数（同类计数、gen 独立序号空间）
+  /* ★VF_PREFER_NAME_V1（2026-10-27 用户「mp4 编号和 html 不一致，一单一号才不迷惑」）：
+     允许调用方**指定文件名**（例如出片时复用 html 的编号 `gen_xxx.mp4`）。
+     · 只在"这个名字还没被占用"时采用；已占用则**照旧走自增**（绝不覆盖别人的文件）；
+     · 不传这个参数时行为**一字不变**（其它线零影响）。 */
+  const prefer = String(opts.preferName || '').trim()
+  if (/^[A-Za-z0-9._-]{1,120}\.[A-Za-z0-9]{1,8}$/.test(prefer) && !prefer.includes('..')) {
+    try {
+      if (!(await objectExists(`storage/${uid}/${prefer}`))) {
+        const key0 = `storage/${uid}/${prefer}`
+        await putObject(key0, buffer, mime, { forbidOverwrite: true })
+        return { name: prefer }
+      }
+    } catch { /* 落到下面的自增命名 */ }
+  }
+
   todaySeq = nextSeq(existing.map((o) => String(o.name || '')), { datePrefix, gen })
   // ★VF_NAMESEQ_V2：落盘**之前**再做一次存在性校验（并发两人同时上传、命名规范外的遗留都能兜住）
   let name = buildRepoName({ datePrefix, seq: todaySeq, ext, gen })

@@ -398,7 +398,14 @@ export async function startDailyFilm(
       // ③ 入库 + 24h 签名直链（前端 `<video src>` 直接用）
       const mp4Buf = fs.readFileSync(mp4)
       push('[入库] ' + (mp4Buf.length / 1024 / 1024).toFixed(1) + ' MB mp4')
-      const saved = await saveToPersonalRepo({ userId: uid, buffer: mp4Buf, ext: 'mp4', mime: 'video/mp4', gen: true })
+      /* ★VF_SAME_NO_V1（2026-10-27 用户「020.html → 021.mp4 会让人以为错乱，一单一号才不迷惑」）：
+       mp4 **沿用 html 的编号**（`gen_20261026_024.html` ⇒ `gen_20261026_024.mp4`）。
+       这么做还有个好处：前端镜像时**不用后端下发名字**，直接由 html 名推出来就能下视频。
+       若该名字已被占用（同号 mp4 早就存在）⇒ saveToPersonalRepo 自动退回自增命名，不会覆盖。 */
+    const _preferMp4 = String(htmlName || '').replace(/\.[^.]+$/, '') + '.mp4'
+    const saved = await saveToPersonalRepo({
+      userId: uid, buffer: mp4Buf, ext: 'mp4', mime: 'video/mp4', gen: true, preferName: _preferMp4,
+    })
       const { signedUrl } = await import('@/lib/oss')
       const url = await signedUrl(`storage/${uid}/${saved.name}`, 24 * 3600)
       t.status = 'done'
