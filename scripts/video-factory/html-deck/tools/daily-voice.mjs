@@ -243,11 +243,80 @@ const srtTime = (t) => {
   const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000), s = Math.floor((ms % 60000) / 1000), x = ms % 1000
   return pad2(h) + ':' + pad2(m) + ':' + pad2(s) + ',' + String(x).padStart(3, '0')
 }
+/* ★VF_SUB_WRAP_V1（2026-10-27 用户「字幕支持双排，就是怕它写长了」）：
+   背景：口播字数**放开了**（通顺优先，不再硬卡 22 字）⇒ 长句会变多 ⇒ 字幕必须能优雅换行。
+   病灶：原来整句原样塞进 SRT，交给 libass **按宽度硬折** ⇒ 会把词劈开
+        （「铜锅里的清汤一滚，老北」/「京味道就出来了」）。
+   现口径：**写 SRT 时先按标点断行**（逗号、顿号、分号、句号、问叹优先），断不了才按字数硬切；
+          每排约 **14 字**（按 FontSize=10 ⇒ 实际 44px、可用宽 645px 算出来的）；
+          **最多 3 排**（字幕在距底 320px，3 排约 200px 高，不会压到画面主体）。
+   ⚠️ 只影响"字幕怎么排"，不动 TTS、不动时长、不动画面。 */
+const NL = String.fromCharCode(10)
+const SUB_MAX_CHARS = 16   // 每排字数上限（≈ 645px / 44px，中文标点占半角，实际能到 15~16）
+const SUB_MAX_LINES = 3    // 最多几排
+const BREAK_CHARS = '，、；：:'
+/**
+ * 字幕断行：**先按标点切块，再贪心合并到每排 ≤16 字**。
+ * 实测对比（见 temp/_daily/test-wrap.mjs）：
+ *   · "吃到后半场，" + "来一杯酸奶把嘴里的油润收住。"（6+15）⇒ **两排，断在逗号**✅
+ *   · "锅一开白汽升起来，" + "几个人边涮肉边聊天，" + "谁都不愿意先放下筷子。"（9+10+11）⇒ **三排，每排都断在逗号**✅
+ * 为什么不用"按均分硬切"：均分会把"酸奶"劈成"酸 / 奶"（实测过，很难看）。
+ * 只有**整块本身超过 16 字**（没有标点）时才按字数硬切。
+ */
+function wrapSubtitle(text) {
+  const s = String(text || '').trim()
+  if (!s) return s
+  if (s.length <= SUB_MAX_CHARS) return s
+  // ① 按标点切块（标点留在块尾；句末的 。！？ 已在最后，不单独切）
+  const parts = []
+  let cur = ''
+  for (const ch of s) {
+    cur += ch
+    if (BREAK_CHARS.indexOf(ch) >= 0) { parts.push(cur); cur = '' }
+  }
+  if (cur) parts.push(cur)
+  // ② 贪心合并
+  const lines = []
+  let line = ''
+  for (const p of parts) {
+    if ((line + p).length <= SUB_MAX_CHARS) { line += p; continue }
+    if (line) { lines.push(line); line = '' }
+    let rest = p
+    while (rest.length > SUB_MAX_CHARS) { lines.push(rest.slice(0, SUB_MAX_CHARS)); rest = rest.slice(SUB_MAX_CHARS) }
+    line = rest
+  }
+  if (line) lines.push(line)
+  // ③ 超过 3 排：把尾巴并到最后一行（libass 会再折，总比 5 排好看）
+  if (lines.length > SUB_MAX_LINES) {
+    const head = lines.slice(0, SUB_MAX_LINES - 1)
+    head.push(lines.slice(SUB_MAX_LINES - 1).join(''))
+    return head.join(NL)
+  }
+  // ④ 末排只剩 1~3 字（"孤字"）时，从上一排挪几个字下来，避免一行只有两个字
+  if (lines.length > 1 && lines[lines.length - 1].length < 4) {
+    const last = lines.pop()
+    const prev = lines.pop()
+    const move = Math.min(3, prev.length - 4)
+    if (move > 0) {
+      lines.push(prev.slice(0, prev.length - move))
+      lines.push(prev.slice(prev.length - move) + last)
+    } else {
+      lines.push(prev)
+      lines.push(last)
+    }
+  }
+  return lines.join(NL)
+}
+
 const srtRows = []
+let wrappedN = 0
 timed.forEach((t) => {
   if (!t.text || !t.audio) return
-  srtRows.push({ n: srtRows.length + 1, from: tl[t.i].start, to: +(tl[t.i].start + t.audio).toFixed(2), text: t.text })
+  const wrapped = wrapSubtitle(t.text)
+  if (wrapped.indexOf(NL) >= 0) wrappedN++
+  srtRows.push({ n: srtRows.length + 1, from: tl[t.i].start, to: +(tl[t.i].start + t.audio).toFixed(2), text: wrapped })
 })
+if (wrappedN) console.log('   字幕换行：' + wrappedN + '/' + srtRows.length + ' 条折成多排（按标点断，每排约 ' + SUB_MAX_CHARS + ' 字）')
 fs.writeFileSync(path.join(build, 'subs.srt'),
   srtRows.map((s) => s.n + String.fromCharCode(10) + srtTime(s.from) + ' --> ' + srtTime(s.to)
     + String.fromCharCode(10) + s.text + String.fromCharCode(10)).join(String.fromCharCode(10)), 'utf8')
