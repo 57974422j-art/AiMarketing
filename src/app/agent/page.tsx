@@ -2920,11 +2920,12 @@ function VfDailyDoneCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) 
     <div className="mb-2 p-3 rounded-xl border border-emerald-500/30 bg-emerald-500/[0.06]">
       <div className="text-xs text-emerald-300 mb-1">📄 日报落地页 · {String(vj?.hint || '第 3 步 / 共 3 步 · 已生成并交付')}</div>
       {/* ★V16：**两份文件分别标名** —— 用户实测「下载后分不清哪份是单文件版」导致以为丢图 */}
+      {/* ★VF_CARD_NAME_V1（2026-10-27 用户实测「单文件版：gen_xxx.html ｜ 文件：gen_xxx.html」）：
+          配图版不再生成后，`name` 和 `plainName` 指向**同一个文件** ⇒ 原来那行会把同名文件说两遍。
+          现在只说一次，并说明"图已内嵌、镜像只下这一个"，再加一句"视频与它同号"。 */}
       <div className="text-[11px] text-gray-100 mb-1">
-        ✅ 单文件版：{String(vj?.name || '')}
-        {vj?.plainName
-          ? <span className="text-gray-500">　｜　文件：{String(vj.plainName)}（图已内嵌，客户端镜像时只下这一个文件）</span>
-          : null}
+        ✅ 单文件版：{String(vj?.name || vj?.plainName || '')}
+        <span className="text-gray-500">（图已内嵌，客户端镜像只下这一个文件；成品视频与它同名，后缀 .mp4）</span>
       </div>
       <div className="text-[10px] text-gray-400 mb-2">{String(vj?.facts || '')}</div>
       {vj?.imgMsg ? <div className="text-[10px] text-emerald-300/80 mb-2">{String(vj.imgMsg)}</div> : null}
@@ -4430,6 +4431,16 @@ function AgentPageInner() {
           clearInterval(iv)
           handledDailyFilms.current.add(tid)
           _markHandled(tid)   // ★VF_FILMTASK_HANDLED_PERSIST_V1：落盘，刷新后不再重复处理
+          /* ★VF_MIRROR_MP4_V2（2026-10-27 用户实测「HTML 镜像下来了，视频一直没有」）：
+             病灶：交付卡上的镜像 useEffect 只在**收片那一刻**跑一次，而那时 mp4 **还没渲染出来**
+                  ⇒ 镜像 mp4 必然 404（被 catch 吞掉）⇒ 之后 effect 不再跑（依赖 plainName 没变）
+                  ⇒ **视频永远镜像不到**。
+             现口径：**出片完成这一刻**（拿到 `t.repoName`）再补一次镜像 ⇒ 视频才真的落到本地仓库。
+             `repoName` 就是 mp4 文件名（与 html 同号，见 ★VF_SAME_NO_V1）。 */
+          try {
+            const _mp4 = String((t as any).repoName || '').trim()
+            if (_mp4) (window as any).electronAPI?.storageMirror?.(`/api/storage/file?name=${encodeURIComponent(_mp4)}&persist=1`)
+          } catch { /* 镜像失败不影响出片 */ }
           if (!stopped) {
             setMessages(prev => {
               /* ★VF_FILMDONE_DEDUP_V1（2026-10-19 用户实测「我编辑文字，你回 2 个视频给我」）：
