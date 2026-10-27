@@ -257,7 +257,12 @@ export default function StoragePage() {
 
         {/* 操作栏 */}
         <div className="flex items-center justify-between mb-6">
-          <input ref={fileRef} type="file" accept="image/*,video/*" className="hidden" onChange={upload} />
+          {/* ★VF_UPLOAD_AUDIO_V1（2026-10-27 用户「个人仓库不支持上传 BGM 那种格式，看不见」）：
+              病灶：这里写死 `accept="image/*,video/*"` ⇒ 文件选择框里 **mp3/wav 直接是灰的**，
+                  用户以为"仓库不支持上传音乐"。
+                  但后端 `ALLOWED_EXT` 里**一直有** mp3/m4a/wav/aac，mime 也配好了 ⇒ 纯粹是前端没放开。
+              现口径：加上 `audio/*`（配乐可以直接传、可以直接选）。 */}
+          <input ref={fileRef} type="file" accept="image/*,video/*,audio/*" className="hidden" onChange={upload} />
           <div className="flex items-center gap-3">
             <button onClick={() => fileRef.current?.click()} className="btn-primary text-sm">+ 上传素材</button>
             {/* ★VF_LOCAL_BACKUP_V1（P1③）：一键把个人仓库的素材镜像到本机本地仓库（防误删） */}
@@ -406,7 +411,8 @@ export default function StoragePage() {
                   ) : /\.(jpg|jpeg|png|gif|webp)$/i.test(f.name) ? (
                     <img src={`/api/storage/file?userId=${userId}&name=${encodeURIComponent(f.name)}`} alt={f.name} loading="lazy" className="w-full h-full object-cover" />
                   ) : (
-                    <span className="text-2xl">📄</span>
+                    /* ★VF_UPLOAD_AUDIO_V1：音频给个 🎵，其它给 📄 —— 否则仓库里全是同一个图标分不清 */
+                    <span className="text-2xl">{/\.(mp3|m4a|wav|aac)$/i.test(f.name) ? '🎵' : '📄'}</span>
                   )}
                 </div>
                 {/* ★VF_HTMLVIEW_V1（2026-10-13 用户实测「个人仓库也打不开」）：.html 走**站内预览页**
