@@ -1517,15 +1517,28 @@ export async function dashscopeFunctionCall(
   // 2026-09-05: 有图/自由模式 → qwen3-max（多模态看图 + 工具）；无图 → qwen3.8-flash（快）
   const hasImg = messages.some((m) => Array.isArray(m.content) && m.content.some((b: any) => b?.type === 'image_url'))
   const useVL = forceVL || hasImg
-  // ★VF_MODELSWITCH_V1：用户显式选了 brain 模型就用它；没选 = 现状（有图 qwen3-max / 无图 qwen3.8-flash）
+  // ★VF_MODELSWITCH_V1：用户显式选了 brain 模型就用它；没选 = 现状
   // ★VF_TEXTHEAL_V1：这个名字若撞过"本账号不存在"，直接用换好的那个（换过就记住，不再白撞）
-  const primaryModelRaw = model || (useVL ? 'qwen3-max' : 'qwen3.8-flash')
+  /* ★VF_VLMODEL_FIX_V1（2026-10-28 用户实测「off 档报 AI 返回空内容，还花了 2 毛」）：
+     病灶：带图默认写死 `qwen3-max`，但**这个账号的 183 个模型里没有 qwen3-max**
+          （实测列出：只有 qwen3.7-max / qwen3.8-max 这类纯文本旗舰）
+          ⇒ 每次带图都 `HTTP 404 Model not exist` ⇒ 返回空 ⇒ 一路降级到底 ⇒ 用户看到"AI 返回空内容"，
+            而钱已经花了（请求确实发出去了）。
+     现口径：默认改成 **`qwen3-vl-plus`** —— 账号里**实际存在**的专用视觉理解模型，
+          最贴"看图写页面"这个任务。可用 `DASHSCOPE_VL_MODEL` 环境变量覆盖，
+          以后换账号/换模型**不用改代码**。
+     ⚠️ 顺带说明：日志里那句 `[qwen3.8]` 是历史遗留标签（这段原本只服务 qwen3.8-flash），
+        与实际模型无关 —— 已改成打印真实模型名，免得再误导（这次就是被它带偏的）。 */
+  const _vlDefault = String(process.env.DASHSCOPE_VL_MODEL || 'qwen3-vl-plus')
+  const primaryModelRaw = model || (useVL ? _vlDefault : 'qwen3.8-flash')
   const primaryModel = chatModelFix.get(primaryModelRaw) || primaryModelRaw
   try {
     // ① 主模型（百炼 OpenAI 兼容——支持 function calling）
     const qwBody: any = { model: primaryModel, messages, max_tokens: maxTokens, temperature, stream: false }
     // ★VF_DAILY_V43：**只在调用方明确要求时**关思考（不传 ⇒ 一字不改，其它调用方行为不变）
-    if (noThink) qwBody.enable_thinking = false
+    /* ★VF_VLMODEL_FIX_V1：**多模态模型不传 enable_thinking** —— qwen3-vl-plus 这类不支持该开关，
+       传了会被拒（404/400）⇒ 白白花钱还拿不到内容。只在纯文本模型上用它。 */
+    if (noThink && !useVL) qwBody.enable_thinking = false
     if (tools.length > 0) { qwBody.tools = tools.map((t: any) => ({ type: 'function', function: { name: t.name, description: t.description || '', parameters: t.parameters || {} } })); qwBody.tool_choice = 'auto' }
     const qwRes = await fetchJSON('https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions', {
       method: 'POST', body: JSON.stringify(qwBody),
@@ -1535,7 +1548,7 @@ export async function dashscopeFunctionCall(
     }).catch((eQw: any) => {
       // ★VF_TEXTHEAL_V1：主模型若"在本账号不存在" ⇒ 记账 ⇒ 下一次进来直接用替代名（不再白撞）
       noteDeadModel(primaryModel, eQw)
-      console.error('[qwen3.8] 调用异常:', eQw?.message || eQw); return null
+      console.error('[' + primaryModel + '] 调用异常:', eQw?.message || eQw); return null
     })
     const qwChoice = qwRes?.choices?.[0]
     const qwMsg = qwChoice?.message
@@ -1556,11 +1569,11 @@ export async function dashscopeFunctionCall(
         reasoningChars: String(qwMsg?.reasoning_content || '').length,
       }
     }
-    console.error('[qwen3.8] 返回**空内容**（finish=' + String(qwChoice?.finish_reason || '?')
+    console.error('[' + primaryModel + '] 返回**空内容**（finish=' + String(qwChoice?.finish_reason || '?')
       + '，思考 ' + String((qwMsg as any)?.reasoning_content || '').length + ' 字）⇒ 继续走兜底链：'
       + JSON.stringify(qwRes || {}).slice(0, 150))
-    console.error('[qwen3.8] 无有效响应，走 V4 兜底:', JSON.stringify(qwRes || {}).slice(0, 150))
-  } catch (eQw2) { console.error('[qwen3.8] 异常走 V4 兜底:', eQw2?.message || eQw2) }
+    console.error('[' + primaryModel + '] 无有效响应，走 V4 兜底:', JSON.stringify(qwRes || {}).slice(0, 150))
+  } catch (eQw2) { console.error('[' + primaryModel + '] 异常走 V4 兜底:', eQw2?.message || eQw2) }
   if (dsKey) {
     try {
       const dsBody: any = { model: 'deepseek-v4-flash', messages, max_tokens: maxTokens, temperature, stream: false }
