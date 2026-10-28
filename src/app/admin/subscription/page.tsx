@@ -88,13 +88,23 @@ export default function SubscriptionAdminPage() {
   const doGrant = async (u: any, action: 'plan' | 'points') => {
     const isPlan = action === 'plan'
     const payload: any = { userId: u.id, action }
+    /* ★VF_GRANT_UX_V1（2026-10-28 用户实测「点了加点数，点数还是 0，日志里一条请求都没有」）：
+       病灶：按钮在**每一行右边**，而"点数"输入框在**页面顶部** ⇒ 用户直接点行内按钮、
+            输入框是空的 ⇒ 前端静默 return（只闪一秒 toast）⇒ 看起来像"点了没反应"。
+       现口径：**缺参数时不再静默退出** —— 在卡片上留红字说明是哪一项没填，并把焦点送到那个输入框。
+             （这比弹一个输入框更好：用户能一次给多个用户批量用同一个点数。） */
+    const needFocus = (id: string, text: string) => {
+      setGrantMsg({ ok: false, text })
+      showToast(text, 'error')
+      try { (document.getElementById(id) as HTMLInputElement | null)?.focus() } catch { /* ignore */ }
+    }
     if (isPlan) {
-      if (!grantPlanId) { showToast('先选一个套餐', 'error'); return }
+      if (!grantPlanId) { needFocus('grant-plan', '先在上方「套餐」里选一个，再点这一行的开/续时长'); return }
       payload.planId = Number(grantPlanId)
       if (grantDays !== '') payload.days = Number(grantDays)
       payload.reason = '后台手动开通' + (grantReason ? '：' + grantReason : '')
     } else {
-      if (!grantPoints || !Number(grantPoints)) { showToast('填一个点数（负数=扣）', 'error'); return }
+      if (!grantPoints || !Number(grantPoints)) { needFocus('grant-points', '先在上方「加点数」框里填数字（例如 5000），再点这一行'); return }
       payload.points = Number(grantPoints)
       payload.reason = '后台手动加点' + (grantReason ? '：' + grantReason : '')
     }
@@ -240,7 +250,7 @@ export default function SubscriptionAdminPage() {
               <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
                 <div>
                   <label className="text-[10px] text-gray-400 block mb-1">套餐</label>
-                  <select value={grantPlanId} onChange={(e) => setGrantPlanId(e.target.value)}
+                  <select id="grant-plan" value={grantPlanId} onChange={(e) => setGrantPlanId(e.target.value)}
                     className="w-full px-2 py-2 rounded-lg bg-black/30 border border-white/10 text-xs text-gray-100">
                     <option value="">（选套餐）</option>
                     {grantPlans.map((p: any) => (
@@ -255,7 +265,7 @@ export default function SubscriptionAdminPage() {
                 </div>
                 <div>
                   <label className="text-[10px] text-gray-400 block mb-1">加点数（负数=扣）</label>
-                  <input value={grantPoints} onChange={(e) => setGrantPoints(e.target.value)} placeholder="例如 5000"
+                  <input id="grant-points" value={grantPoints} onChange={(e) => setGrantPoints(e.target.value)} placeholder="例如 5000"
                     className="w-full px-2 py-2 rounded-lg bg-black/30 border border-white/10 text-xs text-gray-100" />
                 </div>
                 <div>
@@ -314,13 +324,20 @@ export default function SubscriptionAdminPage() {
                         </div>
                       </div>
                       <div className="flex gap-2 ml-auto">
+                        {/* ★VF_GRANT_UX_V1：按钮上直接写出"会用哪一档"，避免点了却没填参数 */}
                         <button onClick={() => doGrant(u, 'plan')} disabled={!!grantBusy}
-                          className="px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px]">
-                          {grantBusy === u.id + 'plan' ? '处理中…' : '📅 开/续时长'}
+                          title={grantPlanId ? '按上方所选套餐开通/续费' + (grantDays ? '（+' + grantDays + ' 天）' : '') : '请先在上方选套餐'}
+                          className={'px-3 py-1.5 rounded-lg border text-[11px] ' + (grantPlanId
+                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+                            : 'bg-white/[0.04] text-gray-500 border-white/10')}>
+                          {grantBusy === u.id + 'plan' ? '处理中…' : '📅 开/续时长' + (grantPlanId ? '' : '（先选套餐）')}
                         </button>
                         <button onClick={() => doGrant(u, 'points')} disabled={!!grantBusy}
-                          className="px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px]">
-                          {grantBusy === u.id + 'points' ? '处理中…' : '💎 加点数'}
+                          title={grantPoints ? '将调整 ' + grantPoints + ' 点' : '请先在上方填点数'}
+                          className={'px-3 py-1.5 rounded-lg border text-[11px] ' + (grantPoints
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                            : 'bg-white/[0.04] text-gray-500 border-white/10')}>
+                          {grantBusy === u.id + 'points' ? '处理中…' : '💎 加点数' + (grantPoints ? ' ' + grantPoints : '（先填点数）')}
                         </button>
                       </div>
                     </div>
