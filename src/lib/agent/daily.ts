@@ -520,6 +520,37 @@ export async function aiPlanSegments(picks: DailyPick[], topic: string, lastThem
 /* ★VF_DAIDESIGN_V20：170s → **240s** —— 看图之后单轮变慢（17 张图 + 1.8 万字），
    170s 会把"本来能写完的一轮"掐断；配合"只跑 1 轮"仍稳在 600s 内（240+60+余量≈340s）。 */
 const DESIGN_TIMEOUT_MS = 240000
+/**
+ * ★VF_IMGSHRINK_V2（2026-10-28）：**ffmpeg 兜底缩图** —— sharp 装不上时用它。
+ *
+ * 为什么必须有它：AI 看图那一步把 17 张**手机原图**（单张最大 6.67MB）直接 base64 塞进请求，
+ *   实测请求体 **86.3MB** ⇒ 中间层（CDN/WAF/nginx）截断 ⇒ 客户端 `fetch failed`，
+ *   而服务端**已经算完 token 并扣费** ⇒ 用户看到"失败还扣钱"，且每次都回落 qwen。
+ * 缩到长边 512 后单张约 30~50KB、17 张约 0.8MB ⇒ 体积差 100 倍。
+ * ⚠️ 只影响"喂给 AI 看的那一份"，成品页面里嵌的仍是原图（清晰度不受影响）。
+ */
+async function shrinkByFfmpeg(buf: Buffer, maxEdge: number): Promise<Buffer | null> {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'isr-'))
+  const inP = path.join(dir, 'in.img')
+  const outP = path.join(dir, 'out.jpg')
+  try {
+    fs.writeFileSync(inP, buf)
+    const r = spawnSync('ffmpeg', [
+      '-y', '-v', 'error', '-i', inP,
+      '-vf', 'scale=min(' + maxEdge + ',iw):min(' + maxEdge + ',ih):force_original_aspect_ratio=decrease',
+      '-q:v', '5',            // ≈ jpeg q80，够 AI 认内容
+      outP,
+    ], { timeout: 25000 })
+    if (r.status !== 0 || !fs.existsSync(outP)) return null
+    const out = fs.readFileSync(outP)
+    return out && out.length ? out : null
+  } catch {
+    return null
+  } finally {
+    try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* ignore */ }
+  }
+}
+
 export async function aiDesignPage(
   picks: DailyPick[], topic: string,
   /* ★VF_DAIDESIGN_V2b（2026-10-18 用户实测「网络连接失败」→ 服务器 nginx `proxy_read_timeout 600s`）：
@@ -553,7 +584,16 @@ export async function aiDesignPage(
   try {
     const { getObject } = await import('@/lib/oss')
     let sharpMod: any = null
-    try { sharpMod = (await import('sharp')).default } catch { /* 没有 sharp 就不缩，直接原图 base64 */ }
+    try { sharpMod = (await import('sharp')).default } catch { /* 见下面的 ffmpeg 兜底 */ }
+    /* ★VF_IMGSHRINK_V2（2026-10-28 用户实测「deepseek 失败还扣钱、3 次全回落 qwen」）：
+       实测根因：**17 张手机原图 base64 后请求体 86.3MB**（单张最大 6.67MB）
+       ⇒ 请求发得上去、服务端算完 token、**响应传不回来** ⇒ 我们这边 `fetch failed`、deepseek 那边已扣费。
+       而代码里本来有压缩，但**只走 sharp 一条路**：`sharp` 没装 ⇒ 静默跳过 ⇒ 直接发原图（连日志都没有）。
+       现口径：**sharp 不可用时改用 ffmpeg 兜底压缩**（服务器一定有 ffmpeg），并在日志里写明走的是哪条路。
+       目标：单张 512px/q70 ⇒ 30~50KB ⇒ 17 张约 0.8MB（原来 86MB，差 100 倍）。 */
+    if (!sharpMod) {
+      try { console.log('[AI设计] sharp 不可用 ⇒ 改用 ffmpeg 缩图（否则请求体可达 80MB+，会被中间层截断）') } catch { /* ignore */ }
+    }
     /* ★VF_SILENT_FIX_V1（2026-10-23 审计发现"静默失败太安静，出问题无从排查"）：
        原来这两处都是**空 catch**：
          · 某张图取不到 ⇒ `continue`，**不记录是哪张**（最后只剩一句笼统的"取图失败"）；
@@ -578,12 +618,33 @@ export async function aiDesignPage(
               + Math.round(b.length / 1024) + 'KB（请求体会变大）：' + String(e?.message || e).slice(0, 90))
           } catch { /* ignore */ }
         }
+      } else {
+        /* ★VF_IMGSHRINK_V2：sharp 不可用 ⇒ ffmpeg 兜底（原图 6MB ⇒ 512px/q70 约 40KB） */
+        try {
+          const shrunk = await shrinkByFfmpeg(b, 512)
+          if (shrunk && shrunk.length) buf = shrunk
+          else { shrinkFail++ }
+        } catch (e: any) {
+          shrinkFail++
+          try {
+            console.error('[AI设计] 第 ' + String((p as any).n || '?') + ' 张 ffmpeg 缩图失败，改用原图 '
+              + Math.round(b.length / 1024) + 'KB：' + String(e?.message || e).slice(0, 90))
+          } catch { /* ignore */ }
+        }
       }
       imgParts.push({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + buf.toString('base64') } })
     }
     if (missPick.length) {
       try { console.error('[AI设计] 有 ' + missPick.length + ' 张图取不到（第 ' + missPick.join('、') + ' 张）—— 这些图不会出现在页面里') } catch { /* ignore */ }
     }
+    /* ★VF_IMGSHRINK_V2：**把请求体大小打进日志** —— 这个数不写出来，就永远没人知道自己在发 86MB。
+       健康值：17 张 512px/q80 ≈ 0.8MB；超过 8MB 就该警惕，超过 25MB 基本必被截断。 */
+    try {
+      const _bytes = imgParts.reduce((a: number, x: any) => a + String(x?.image_url?.url || '').length, 0)
+      const _mb = _bytes / 1048576
+      console.log('[AI设计] 送图 ' + imgParts.length + ' 张 · 请求体约 ' + _mb.toFixed(2) + ' MB'
+        + (_mb > 25 ? '  ⚠️ 过大，可能被中间层截断（会导致 fetch failed 且仍扣费）' : (_mb > 8 ? '  ⚠️ 偏大' : '  ✅')))
+    } catch { /* ignore */ }
     if (shrinkFail) {
       try { console.error('[AI设计] 共 ' + shrinkFail + ' 张缩图失败，请求体可能过大（有超时风险）') } catch { /* ignore */ }
     }
