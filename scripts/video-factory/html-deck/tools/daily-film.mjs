@@ -68,7 +68,12 @@ const htmlMB = (() => {
     return 7
   }
 })()
-const autoWorkers = htmlMB > 8 ? '1' : (htmlMB > 4 ? '2' : '3')
+/* ★VF_RENDER_LIMIT_V1（2026-10-28 用户「FF 限制只用 1 核，但点一次出片全站卡」）：
+   原来小页面给 **3 个 worker** ⇒ 4 核机器上 3 个 Chromium 并行 = **吃满 CPU**，
+   Web 服务被饿死（用户体感：点一次出片，其他页面卡住）。
+   ⇒ 上限压到 **2**（配合外层 `taskset -c 0,1` 限核，最多占 2 核）。
+   ⚠️ 代价：小页面渲染会慢一点（3→2 worker 约慢 20~30%），但**站点不会卡死**。 */
+const autoWorkers = htmlMB > 8 ? '1' : (htmlMB > 4 ? '2' : '2')
 const workers = String(opt('workers', autoWorkers))
 const skipCheck = argv.includes('--skip-check')
 
@@ -145,7 +150,10 @@ if (extRefs.length) {
       if (buf.length > 1.2 * 1024 * 1024) {
         const tmpOut = path.join(outDir, '.inline-' + path.basename(name).replace(/\.[^.]+$/, '') + '.jpg')
         try {
-          execFileSync('ffmpeg', ['-y', '-v', 'error', '-i', p, '-vf', 'scale=720:-2', '-q:v', '6', tmpOut], { timeout: 30000 })
+          /* ★VF_RENDER_LIMIT_V1：**加 `-threads 1`** —— 这里只是缩图，不需要多线程，
+       但 ffmpeg 默认会用满所有核 ⇒ 17 张图连续缩会短时吃满 4 核（用户体感"卡一下"）。
+       缩图是 IO 型，单线程足够。 */
+    execFileSync('ffmpeg', ['-y', '-v', 'error', '-threads', '1', '-i', p, '-vf', 'scale=720:-2', '-threads', '1', '-q:v', '6', tmpOut], { timeout: 30000 })
           if (fs.existsSync(tmpOut) && fs.statSync(tmpOut).size > 1024) { buf = fs.readFileSync(tmpOut); scaled++ }
         } catch { /* 压失败就用原图 */ }
       }

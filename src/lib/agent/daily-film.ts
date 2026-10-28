@@ -16,7 +16,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 // ★VF_ROOT_V1 口径：`vfRootDir()` = 项目根（standalone 下 cwd 是 .next/standalone，拼 cwd 会指到残缺的 scripts/）
 import { vfRootDir, vfStorageRoot } from './video-material'
 import os from 'node:os'
@@ -82,12 +82,72 @@ export function findRunningDailyFilm(uid: number | string): DailyFilmTask | null
   return null
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   ★VF_RENDER_LIMIT_V1（2026-10-28 用户「FF 现在限制只用 1 核，但现在应该就是排队模式，帮我复查」
+                        ⇒ 复查结论：**ffmpeg 限了 1 核 + 全局串行，但渲染（Chromium）没限、也没排队**）
+   ──────────────────────────────────────────────────────────────────────────
+   病灶：出片走 `spawn node daily-film.mjs` ⇒ 里面起 hyperframes（无头 Chromium 逐帧截图）
+        · 没人给它 `nice`、没人给它限核 ⇒ 4 核机器**被它吃满**（用户现象：点一次出片，全站卡）
+        · 也没有全局闸门 ⇒ 两个人同时点 = 两个 Chromium ⇒ 互相拖死（每个都变 2 倍时间）
+   现口径：
+        ① **限核**：Linux 用 `taskset -c 0,1`（2 核）+ `nice -n 10` ⇒ 留 2 核给 Web 服务；
+           ⚠️ `taskset` 只有 Linux/部分发行版有 ⇒ 先探测一次，没有就只加 `nice`（不会因此失败）
+        ② **全局闸门**：同时最多 **2 个**渲染任务，第 3 个**排队等待**（不失败），
+           并在日志里说明"前面还有 N 单" ⇒ 用户能看到是在排队，不是卡死
+        ③ **不改变**"同一 html 重复出片复用现有任务"的幂等语义（见 getTask）
+   为什么上限取 2：4 核 16G，单个 Chromium 约 1~2 核 + 500MB
+        ⇒ 2 个是"能并行且不互相拖死"的安全值；内存不是瓶颈（16G 够 10 个）
+   ══════════════════════════════════════════════════════════════════════════ */
+const RENDER_MAX_CONCURRENT = Math.max(1, Math.min(2, Number(process.env.RENDER_MAX_CONCURRENT || 2)))
+let _renderBusy = 0
+const _renderWaiters: Array<() => void> = []
+/** 拿一个渲染槽位：满了就排队（等到有人释放） */
+function acquireRenderSlot(onWait?: (ahead: number) => void): Promise<void> {
+  if (_renderBusy < RENDER_MAX_CONCURRENT) { _renderBusy++; return Promise.resolve() }
+  const ahead = _renderWaiters.length + 1
+  try { onWait?.(ahead) } catch { /* ignore */ }
+  return new Promise<void>((res) => {
+    _renderWaiters.push(() => { _renderBusy++; res() })
+  })
+}
+function releaseRenderSlot(): void {
+  _renderBusy = Math.max(0, _renderBusy - 1)
+  const next = _renderWaiters.shift()
+  if (next) setImmediate(next)
+}
+
+/** `taskset` 是否可用（只探测一次；探测失败就退回只加 nice） */
+let _hasTaskset: boolean | null = null
+function canTaskset(): boolean {
+  if (_hasTaskset !== null) return _hasTaskset
+  try {
+    if (process.platform !== 'linux') { _hasTaskset = false; return false }
+    const r = spawnSync('taskset', ['--version'], { timeout: 3000 })
+    _hasTaskset = r.status === 0
+  } catch { _hasTaskset = false }
+  return _hasTaskset
+}
+
 /** 跑子进程、收集输出（异步，不阻塞事件循环；超时强杀） */
-function runTool(cmd: string, args: string[], timeoutMs: number): Promise<{ code: number; out: string }> {
+function runTool(cmd: string, args: string[], timeoutMs: number, label?: string): Promise<{ code: number; out: string }> {
   return new Promise((resolve) => {
     const t0 = Date.now()
     let out = ''
-    const p = spawn(cmd, args, { cwd: process.cwd(), env: process.env })
+    /* ★VF_RENDER_LIMIT_V1：限 2 核 + 低优先级 —— 让 Web 服务不被渲染饿死 */
+    let realCmd = cmd
+    let realArgs = args
+    if (canTaskset()) {
+      realCmd = 'taskset'
+      realArgs = ['-c', '0,1', 'nice', '-n', '10', cmd, ...args]
+    } else if (process.platform !== 'win32') {
+      realCmd = 'nice'
+      realArgs = ['-n', '10', cmd, ...args]
+    }
+    try {
+      console.log('[出片] 启动渲染' + (label ? '（' + label + '）' : '') + '：' + realCmd + ' ' + realArgs.slice(0, 4).join(' ')
+        + ' ｜ 并发 ' + (_renderBusy + 1) + '/' + RENDER_MAX_CONCURRENT)
+    } catch { /* ignore */ }
+    const p = spawn(realCmd, realArgs, { cwd: process.cwd(), env: process.env })
     const timer = setTimeout(() => { try { p.kill('SIGKILL') } catch { /* ignore */ } }, timeoutMs)
     const onChunk = (b: Buffer) => {
       out += String(b)
@@ -367,8 +427,19 @@ export async function startDailyFilm(
         const _asp2 = String((opts as any)?.aspect || '') === '16:9' ? '16:9' : '9:16'
         args.push('--w', _asp2 === '16:9' ? '1280' : '720', '--h', _asp2 === '16:9' ? '720' : '1280')
       }
-      // 配音比无声多花 TTS 的时间 ⇒ 上限给到 60 分钟（前端轮询本身是 30 分钟超时，够）
-      const r = await runTool(process.execPath, args, 60 * 60 * 1000)
+      /* ★VF_RENDER_LIMIT_V1：**先拿渲染槽位**（满了就排队等，不失败）
+         —— 4 核机器同时最多 2 个 Chromium，第 3 个在这里等，日志里说明前面还有几单。 */
+      await acquireRenderSlot((ahead) => {
+        push('[排队] 前面还有 ' + ahead + ' 单在渲染，等它们跑完就轮到这一单（不会失败，只是稍等）')
+        try { console.log('[出片] 排队中：前面还有 ' + ahead + ' 单') } catch { /* ignore */ }
+      })
+      let r: { code: number; out: string }
+      try {
+        // 配音比无声多花 TTS 的时间 ⇒ 上限给到 60 分钟（前端轮询本身是 30 分钟超时，够）
+        r = await runTool(process.execPath, args, 60 * 60 * 1000, String(htmlName))
+      } finally {
+        releaseRenderSlot()   // ★必须释放，否则第 2 单永远排队
+      }
       String(r.out || '').split('\n').filter((l) => l.trim()).slice(-12).forEach(push)
       // ★VF_DAILYFILM_V5（2026-10-15 用户实测「渲染跑了 332s 却判失败、报错还是空的」）：
       //   产物路径**优先从文件读** —— 工具会把 mp4 绝对路径写进 `<outDir>/FINAL_MP4.txt`。
