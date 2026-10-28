@@ -82,32 +82,32 @@ export async function GET(request: NextRequest) {
       select: { id: true, name: true, durationMonths: true, price: true, monthlyTokens: true },
     })
     const now = Date.now()
-    return NextResponse.json({
-      success: true,
-      data: {
-        plans,
-        users: users.map((u) => {
-          const act = u.subscriptions.find((s) => s.endDate.getTime() > now) || null
-          /* 套餐自带的**月额度**：`monthlyTokens` 手填优先，否则 价格(分)/月数（1 点≈1 分） */
-          const p = act?.plan as any
-          const planQuota = p
-            ? (p.monthlyTokens !== null && p.monthlyTokens !== undefined
-              ? Number(p.monthlyTokens)
-              : (Number(p.price) > 0 ? Math.round(Number(p.price) / Math.max(1, Number(p.durationMonths) || 1)) : 500))
-            : 0
-          return {
-            id: u.id, username: u.username, name: u.name, email: u.email, role: u.role,
-            pointBalance: u.pointBalance, createdAt: u.createdAt,
-            planName: p?.name || null,
-            planId: act?.planId || null,
-            planQuota,                       // ★VF_GRANT_QUOTA_V1：套餐自带月额度（≠ 点卡余额）
-            endDate: act ? act.endDate : null,
-            daysLeft: act ? Math.max(0, Math.ceil((act.endDate.getTime() - now) / 86400000)) : 0,
-            payMethod: act?.paymentMethod || null,
-          }
-        }),
-      },
-    })
+    /* ★VF_GRANT_WALLET_V1（2026-10-28 用户「我有 16003 点，为什么后台显示 0」）：
+       病灶：后台只读了 `User.pointBalance`（**只算点卡那一笔**），
+            而用户端「16003 点」是 `getTokenWallet().remaining` = **套餐剩余 + 点卡余额**。
+            ⇒ 同一个用户，前台说有余额、后台说 0 ⇒ 看着像数据坏了。
+       现口径：**直接复用 `getTokenWallet`**（全平台唯一算法）⇒ 后台与前台永远一致，
+            并把两笔分开列出来（套餐剩多少 / 点卡多少）方便对账。 */
+    const { getTokenWallet } = await import('@/lib/token-wallet')
+    const usersOut = await Promise.all(users.map(async (u) => {
+      const act = u.subscriptions.find((s) => s.endDate.getTime() > now) || null
+      let w: any = null
+      try { w = await getTokenWallet(u.id) } catch { /* 单个失败不影响整页 */ }
+      return {
+        id: u.id, username: u.username, name: u.name, email: u.email, role: u.role,
+        createdAt: u.createdAt,
+        planName: act?.plan?.name || w?.planName || null,
+        planId: act?.planId || null,
+        planQuota: Number(w?.allowance || 0),          // 本期套餐总额度
+        subRemaining: Number(w?.subRemaining || 0),    // 套餐本期还剩
+        pointBalance: Number(w?.pointBalance ?? u.pointBalance),  // 点卡永久余额
+        remaining: Number(w?.remaining || 0),          // **总可用**（= 套餐剩 + 点卡）← 用户在个人中心看到的数
+        endDate: act ? act.endDate : null,
+        daysLeft: act ? Math.max(0, Math.ceil((act.endDate.getTime() - now) / 86400000)) : 0,
+        payMethod: act?.paymentMethod || null,
+      }
+    }))
+    return NextResponse.json({ success: true, data: { plans, users: usersOut } })
   } catch (e: any) {
     return NextResponse.json({ success: false, message: String(e?.message || e) }, { status: 500 })
   }

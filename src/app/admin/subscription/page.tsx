@@ -309,18 +309,17 @@ export default function SubscriptionAdminPage() {
                           套餐：<b className={u.planName ? 'text-emerald-300' : 'text-gray-500'}>{u.planName || '无'}</b>
                           {u.endDate && <span className="text-gray-500 ml-1">（{String(u.endDate).slice(0, 10)} 到期，剩 {u.daysLeft} 天）</span>}
                         </div>
-                        {/* ★VF_GRANT_QUOTA_V1（2026-10-28 用户「年卡月卡季卡周卡自带点数的」）：
-                            两笔钱必须分开显示，否则"开了年卡却显示点数 0"会让人以为没生效：
-                              · 套餐月额度 = 套餐自带（按月刷新，不累积）
-                              · 点卡余额   = 永久点数（我在这里加的就是它，不清零） */}
+                        {/* ★VF_GRANT_WALLET_V1（2026-10-28 用户「我有 16003 点，为什么显示 0」）：
+                            三行分开写，避免再被误读：
+                              ① 可用点数 = 用户在个人中心看到的那个数（套餐剩 + 点卡）  ← 最重要，放第一
+                              ② 套餐本期剩余（会随用量下降、按月重置）
+                              ③ 点卡余额（永久；"加点数"加的是这里） */}
                         <div className="text-[11px] text-gray-300">
-                          套餐额度：<b className="text-sky-300">{u.planQuota ? u.planQuota.toLocaleString() : '—'}</b>
-                          <span className="text-gray-500 ml-1">点/月（随套餐，按月刷新）</span>
+                          可用点数：<b className="text-emerald-300 text-[13px]">{(u.remaining || 0).toLocaleString()}</b>
+                          <span className="text-gray-500 ml-1">点（套餐剩 {(u.subRemaining || 0).toLocaleString()} + 点卡 {(u.pointBalance || 0).toLocaleString()}）</span>
                         </div>
-                        <div className="text-[11px] text-gray-300">
-                          点卡余额：<b className="text-amber-300">{(u.pointBalance || 0).toLocaleString()}</b>
-                          <span className="text-gray-500 ml-1">点（永久，不按月清零）</span>
-                          {u.payMethod && <span className="text-gray-500 ml-1">· 来源 {u.payMethod}</span>}
+                        <div className="text-[10px] text-gray-500">
+                          本期套餐额度 {(u.planQuota || 0).toLocaleString()} 点{u.payMethod ? ' · 来源 ' + u.payMethod : ''}
                         </div>
                       </div>
                       <div className="flex gap-2 ml-auto">
