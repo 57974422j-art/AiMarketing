@@ -558,7 +558,13 @@ async function shrinkByFfmpeg(buf: Buffer, maxEdge: number): Promise<Buffer | nu
     fs.writeFileSync(inP, buf)
     const r = spawnSync('ffmpeg', [
       '-y', '-v', 'error', '-i', inP,
-      '-vf', 'scale=min(' + maxEdge + ',iw):min(' + maxEdge + ',ih):force_original_aspect_ratio=decrease',
+      /* ★VF_IMGSHRINK_V2b（2026-10-28 实测「共 17 张缩图失败」）：**这里原来写错了**。
+         错法：`scale=min(512,iw):min(512,ih):force_original_aspect_ratio=decrease`
+              ⇒ ffmpeg 的 filter 参数里**逗号必须转义**（`min(512\,iw)`），
+                没转义会被当成"两个 filter 的分隔符" ⇒ 解析失败 ⇒ **每一张都失败**。
+         正确：用 `scale=W:H:force_original_aspect_ratio=decrease`（内置等比缩放，不需要 min()），
+              效果一样：长边缩到 512，短边等比。 */
+      '-vf', 'scale=' + maxEdge + ':' + maxEdge + ':force_original_aspect_ratio=decrease',
       '-q:v', '5',            // ≈ jpeg q80，够 AI 认内容
       outP,
     ], { timeout: 25000 })
