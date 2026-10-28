@@ -46,6 +46,8 @@ export default function SubscriptionAdminPage() {
   const [grantDays, setGrantDays] = useState('')
   const [grantPoints, setGrantPoints] = useState('')
   const [grantReason, setGrantReason] = useState('')
+  /* ★VF_GRANT_MSG_V1：操作结果**留在页面上**（toast 一闪而过，用户回头看不到失败原因） */
+  const [grantMsg, setGrantMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   useEffect(() => { if (!authLoading) setAuthorized(user?.role === 'admin') }, [authLoading, user])
   useEffect(() => { if (authorized) loadPlans() }, [authorized])
@@ -97,12 +99,24 @@ export default function SubscriptionAdminPage() {
       payload.reason = '后台手动加点' + (grantReason ? '：' + grantReason : '')
     }
     setGrantBusy(u.id + action)
+    setGrantMsg(null)
     try {
       const r = await fetch('/api/admin/user-grant', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       const d = await r.json()
-      if (d.success) { showToast(d.message || '已发放', 'success'); loadGrant(grantKw) }
-      else showToast(d.message || '失败', 'error')
-    } catch { showToast('失败', 'error') }
+      if (d.success) {
+        showToast(d.message || '已发放', 'success')
+        setGrantMsg({ ok: true, text: (u.name || u.username) + '：' + (d.message || '已发放') })
+        loadGrant(grantKw)
+      } else {
+        const msg = String(d.message || ('HTTP ' + r.status))
+        showToast(msg, 'error')
+        setGrantMsg({ ok: false, text: (u.name || u.username) + '：' + msg })
+      }
+    } catch (e: any) {
+      const msg = String((e && e.message) || e)
+      showToast('失败', 'error')
+      setGrantMsg({ ok: false, text: '请求异常：' + msg })
+    }
     setGrantBusy('')
   }
 
@@ -253,6 +267,14 @@ export default function SubscriptionAdminPage() {
               <p className="text-[10px] text-gray-500 mt-2">
                 续费**同一套餐**会在原到期日上累加（不会多开一条）；<b>加点数会写一条流水</b>（`manual`，0 元）。
               </p>
+              {/* ★VF_GRANT_MSG_V1：上一次操作的结果（失败时把原因留在这儿，不用回头翻 toast） */}
+              {grantMsg && (
+                <div className={'mt-2 px-3 py-2 rounded-lg text-[11px] ' + (grantMsg.ok
+                  ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-200'
+                  : 'bg-rose-500/15 border border-rose-500/30 text-rose-200')}>
+                  {grantMsg.ok ? '✅ ' : '❌ '}{grantMsg.text}
+                </div>
+              )}
             </div>
 
             {/* 用户列表 */}
@@ -277,9 +299,18 @@ export default function SubscriptionAdminPage() {
                           套餐：<b className={u.planName ? 'text-emerald-300' : 'text-gray-500'}>{u.planName || '无'}</b>
                           {u.endDate && <span className="text-gray-500 ml-1">（{String(u.endDate).slice(0, 10)} 到期，剩 {u.daysLeft} 天）</span>}
                         </div>
+                        {/* ★VF_GRANT_QUOTA_V1（2026-10-28 用户「年卡月卡季卡周卡自带点数的」）：
+                            两笔钱必须分开显示，否则"开了年卡却显示点数 0"会让人以为没生效：
+                              · 套餐月额度 = 套餐自带（按月刷新，不累积）
+                              · 点卡余额   = 永久点数（我在这里加的就是它，不清零） */}
                         <div className="text-[11px] text-gray-300">
-                          点数：<b className="text-amber-300">{u.pointBalance || 0}</b>
-                          {u.payMethod && <span className="text-gray-500 ml-1">（来源 {u.payMethod}）</span>}
+                          套餐额度：<b className="text-sky-300">{u.planQuota ? u.planQuota.toLocaleString() : '—'}</b>
+                          <span className="text-gray-500 ml-1">点/月（随套餐，按月刷新）</span>
+                        </div>
+                        <div className="text-[11px] text-gray-300">
+                          点卡余额：<b className="text-amber-300">{(u.pointBalance || 0).toLocaleString()}</b>
+                          <span className="text-gray-500 ml-1">点（永久，不按月清零）</span>
+                          {u.payMethod && <span className="text-gray-500 ml-1">· 来源 {u.payMethod}</span>}
                         </div>
                       </div>
                       <div className="flex gap-2 ml-auto">

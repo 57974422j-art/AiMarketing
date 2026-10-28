@@ -65,7 +65,14 @@ export async function GET(request: NextRequest) {
           where: { status: 'active' },
           orderBy: { endDate: 'desc' },
           take: 2,
-          select: { id: true, planId: true, startDate: true, endDate: true, paymentMethod: true, plan: { select: { name: true, durationMonths: true, price: true } } },
+          select: {
+            id: true, planId: true, startDate: true, endDate: true, paymentMethod: true,
+            /* ★VF_GRANT_QUOTA_V1（2026-10-28 用户「年卡月卡季卡周卡自带点数的」）：
+               套餐自带的是**月额度**（按套餐价格/月数折算，1 点≈1 分；存库的 `monthlyTokens` 优先），
+               和 `User.pointBalance`（点卡永久余额）是**两回事** ⇒ 页面上必须分开显示，
+               否则用户会以为"我开的是年卡，为什么点数显示 0"。 */
+            plan: { select: { name: true, durationMonths: true, price: true, monthlyTokens: true } },
+          },
         },
       },
     })
@@ -81,11 +88,19 @@ export async function GET(request: NextRequest) {
         plans,
         users: users.map((u) => {
           const act = u.subscriptions.find((s) => s.endDate.getTime() > now) || null
+          /* 套餐自带的**月额度**：`monthlyTokens` 手填优先，否则 价格(分)/月数（1 点≈1 分） */
+          const p = act?.plan as any
+          const planQuota = p
+            ? (p.monthlyTokens !== null && p.monthlyTokens !== undefined
+              ? Number(p.monthlyTokens)
+              : (Number(p.price) > 0 ? Math.round(Number(p.price) / Math.max(1, Number(p.durationMonths) || 1)) : 500))
+            : 0
           return {
             id: u.id, username: u.username, name: u.name, email: u.email, role: u.role,
             pointBalance: u.pointBalance, createdAt: u.createdAt,
-            planName: act?.plan?.name || null,
+            planName: p?.name || null,
             planId: act?.planId || null,
+            planQuota,                       // ★VF_GRANT_QUOTA_V1：套餐自带月额度（≠ 点卡余额）
             endDate: act ? act.endDate : null,
             daysLeft: act ? Math.max(0, Math.ceil((act.endDate.getTime() - now) / 86400000)) : 0,
             payMethod: act?.paymentMethod || null,
@@ -189,7 +204,11 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: false, message: '未知操作：' + action }, { status: 400 })
   } catch (e: any) {
-    return NextResponse.json({ success: false, message: '操作失败：' + String(e?.message || e).slice(0, 160) }, { status: 500 })
+    /* ★VF_GRANT_LOG_V1（2026-10-28 用户实测「加点数所有人都是 0，日志里还查不到」）：
+       原来这里只把错误塞进 JSON 返回，**不打日志** ⇒ pm2 logs 里一片空白，只能猜。
+       现在把完整 stack 打出来，以后任何一次失败都能一眼定位。 */
+    try { console.error('[user-grant] 失败 action=' + action + ' userId=' + userId, e) } catch { /* ignore */ }
+    return NextResponse.json({ success: false, message: '操作失败：' + String(e?.message || e).slice(0, 200) }, { status: 500 })
   }
 }
 
