@@ -81,7 +81,22 @@ let html = fs.readFileSync(abs, 'utf8')
    `<section id="s1" class="sec" ...>`（id 在前）⇒ 误判"这不是日报落地页"（实测第二轮就撞到）。
    ⚠️ 这是同一轮里第 4 处"只认我们自己的产物写法"：打包(SEC_RE)/clip 注入/root 属性/这里。
    凡是"自由输入"的入口，判据都不该假设属性顺序。 */
-if (!/<section[^>]*\bclass="[^"]*\bsec\b/.test(html)) { console.log('stage=html ✗ 这不是日报落地页（没找到 .sec 段）'); process.exit(1) }
+/* ★VF_NO_SEC_DIAG_V1（2026-10-28 用户实测「AI 这轮没排出合格页面，原因是没找到 .sec 段」）：
+   这句报错**只说了结论，没说它到底收到了什么** ⇒ 每次都得回去翻 trace 才能定位。
+   实测那次真相是"AI 只写了 1157 字就被截断"，跟"没按契约写"完全是两件事。
+   现在把**收到的内容前 300 字**一起打出来（去 base64、去换行），一眼能分清：
+     · 只有一两句话 ⇒ **输出被截断**
+     · 是一整页但没 section ⇒ **没按契约写**
+   同时兼容几种常见别名（sec/scene/slide/page），少一次误判。 */
+if (!/<section[^>]*\bclass="[^"]*\bsec\b/.test(html)) {
+  const _alias = /<section[^>]*\bclass="[^"]*\b(scene|slide|page|frame)\b/i.exec(html)
+  const _snippet = String(html).replace(/data:[^"')]{200,}/g, 'base64…').replace(/\s+/g, ' ').trim().slice(0, 300)
+  console.log('stage=html ✗ 这不是日报落地页（没找到 .sec 段）· 收到 ' + html.length + ' 字')
+  if (_alias) console.log('   ⚠️ 它用了 class="' + _alias[1] + '"（不是 sec）⇒ 没按契约写')
+  else if (html.length < 20000) console.log('   ⚠️ 内容过短（正常 5MB 以上）⇒ **AI 输出被截断**，不是它没按契约写；重试通常就好')
+  console.log('   前 300 字：' + (_snippet || '（空）'))
+  process.exit(1)
+}
 /* ★VF_DAILY_V39（2026-10-16 **本地复现后**改）：
    原来这里**明确拒绝**"配图版"（注释理由：*服务端本来就能出单文件版*）。
    但本地复现证明那条理由已经不成立 —— **单文件版（7MB 就够）会让浏览器在 `page.goto` 阶段直接崩**

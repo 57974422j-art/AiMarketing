@@ -755,8 +755,13 @@ export async function aiDesignPage(
       )
       txt = String(res?.content || '')
       used = 'qwen(回落·带图)'
+      /* ★VF_TRUNC_DIAG_V1（2026-10-28 用户实测「AI 这轮没排出合格页面，原因是没找到 .sec 段」）：
+         真相不是"它没按契约写"，而是**它只写了 1157 字就被截断**（正常 2.4 万字）
+         ⇒ 打包器拿到的是一千字的空壳，当然找不到 `.sec` ⇒ 报出的原因完全误导人。
+         现在把 `finishReason` 打出来：`length` = 额度截断，`stop` = 模型自己说完了（那才是真的没按契约）。 */
       diag = 'deepseek 失败(' + String(eDs?.message || eDs).slice(0, 80) + ') ⇒ 回落百炼 · 模型 '
         + String((res as any)?.model || '?') + ' · 图 ' + imgParts.length + ' 张'
+        + ' · finish ' + String((res as any)?.finishReason || '?')
         + ' · 输出 ' + txt.length + ' 字 · prompt ' + prompt.length + ' 字'
       /* ★VF_TRACE_FALLBACK_V1（2026-10-27 用户「AI 回执是灰色的，点不开」）：
          病灶：回执（prompt + 思考两个 txt）**只在 deepseek 成功那条路里落盘** ⇒
@@ -786,6 +791,17 @@ export async function aiDesignPage(
     return { ok: false, error: String(e?.message || e).slice(0, 200), captions: summary, vlErr, diag }
   }
   if (!txt.trim()) return { ok: false, error: 'AI 返回空内容', captions: summary, vlErr, diag }
+  /* ★VF_TRUNC_GUARD_V1（2026-10-28）：**输出明显过短 ⇒ 直接判"被截断"并说清**。
+     实测事故：回落百炼只吐 1157 字（正常 2.4 万字）⇒ 后面报"没找到 .sec 段" ⇒ 完全误导，
+     让人以为是"它没按契约写"，实际是"它没写完"。
+     阈值取 8000 字：完整页面实测 1.5~2.4 万字，低于 8000 基本不可能含完整 N 段。
+     ⇒ 返回 ok:false 让外层重试（重试往往就好了，因为这是偶发）。 */
+  if (txt.length < 8000) {
+    return {
+      ok: false, captions: summary, vlErr, diag,
+      error: 'AI 输出被截断（只 ' + txt.length + ' 字，正常 1.5~2.4 万字；' + diag + '）——这是模型偶发，重试通常就好',
+    }
+  }
 
   // ③ 提 HTML（AI 可能包 markdown 围栏）
   /* ★VF_DAIDESIGN_V3b：**提取兜底** —— 原来只认 `<!DOCTYPE … </html>` 完整闭合，
