@@ -529,6 +529,27 @@ const DESIGN_TIMEOUT_MS = 240000
  * 缩到长边 512 后单张约 30~50KB、17 张约 0.8MB ⇒ 体积差 100 倍。
  * ⚠️ 只影响"喂给 AI 看的那一份"，成品页面里嵌的仍是原图（清晰度不受影响）。
  */
+/**
+ * ★VF_NETERR_V1（2026-10-28 用户「图片不大也失败了，你方向不对」）：
+ * **把网络错误的真身挖出来**。`fetch failed` 只是 Node 的外层包装，真正原因在 `err.cause`：
+ *   ENOTFOUND/DNS      ⇒ DNS 解析不了
+ *   ECONNRESET         ⇒ 连接被对端/中间设备重置（**大请求体最常见**）
+ *   ETIMEDOUT / UND_ERR_CONNECT_TIMEOUT ⇒ 连不上
+ *   UND_ERR_SOCKET / socket hang up     ⇒ 半路断开
+ *   EPIPE / ECONNABORTED               ⇒ 写请求体时被中断
+ * 不把这个 code 打出来，就只能看到 "fetch failed"，永远分不清是哪种。
+ */
+function netErrDetail(e: any): string {
+  const msg = String(e?.message || e).slice(0, 120)
+  const c = e?.cause || {}
+  const code = String(c?.code || c?.errno || '')
+  const cmsg = String(c?.message || '').slice(0, 100)
+  const parts = [msg]
+  if (code) parts.push('code=' + code)
+  if (cmsg && cmsg !== msg) parts.push('cause=' + cmsg)
+  return parts.join(' | ')
+}
+
 async function shrinkByFfmpeg(buf: Buffer, maxEdge: number): Promise<Buffer | null> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'isr-'))
   const inP = path.join(dir, 'in.img')
@@ -696,7 +717,11 @@ export async function aiDesignPage(
           } catch { /* ignore */ }
         }
       }
-    } catch { /* 分镜表失败 ⇒ 走一步到位老路径 */ }
+    } catch (eSb: any) {
+      /* ★VF_NETERR_V1：这里原来是**完全静默**的 catch ⇒ 分镜表失败（含网络失败）根本看不见，
+         会误以为是"AI 没写分镜表"。现在把真身打出来。失败仍然不判死（走一步到位老路径）。 */
+      try { console.error('[AI设计·分镜] 失败（走一步到位老路径）：' + netErrDetail(eSb)) } catch { /* ignore */ }
+    }
   }
 
   // ② 让 AI 出整页 HTML（关思考 + 大额度 + 长超时，与方案档同口径）
@@ -820,7 +845,9 @@ export async function aiDesignPage(
          真相不是"它没按契约写"，而是**它只写了 1157 字就被截断**（正常 2.4 万字）
          ⇒ 打包器拿到的是一千字的空壳，当然找不到 `.sec` ⇒ 报出的原因完全误导人。
          现在把 `finishReason` 打出来：`length` = 额度截断，`stop` = 模型自己说完了（那才是真的没按契约）。 */
-      diag = 'deepseek 失败(' + String(eDs?.message || eDs).slice(0, 80) + ') ⇒ 回落百炼 · 模型 '
+      /* ★VF_NETERR_V1：`fetch failed` 只是外壳，真正的 code（ECONNRESET / ENOTFOUND / …）在 cause 里 */
+      try { console.error('[AI设计] deepseek 调用失败：' + netErrDetail(eDs)) } catch { /* ignore */ }
+      diag = 'deepseek 失败(' + netErrDetail(eDs) + ') ⇒ 回落百炼 · 模型 '
         + String((res as any)?.model || '?') + ' · 图 ' + imgParts.length + ' 张'
         + ' · finish ' + String((res as any)?.finishReason || '?')
         + ' · 输出 ' + txt.length + ' 字 · prompt ' + prompt.length + ' 字'
