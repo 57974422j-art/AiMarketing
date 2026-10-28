@@ -1963,6 +1963,36 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
     ctx.log?.(uid, '[日报落地页] AI 自由设计：未过闸门 ⇒ 不回落模板，直接报错 ｜ '
       + String(lastErr || '（无）').replace(/\s*\n+\s*/g, ' ｜ ').slice(0, 800))
   } catch { /* ignore */ }
+  /* ★VF_FAILDUMP_V1（2026-10-28 用户「前台失败 4 次，服务器一条记录都没有」）：
+     病灶：失败只 `console.error` 进 pm2 日志，而 **pm2 delete/restart 会把日志清空**
+          （实测：部署后 out.log 只剩 20 字节）⇒ 事后完全无法复盘，只能猜。
+     现口径：**每次最终失败落一份 JSON** 到 `temp/daily-fail/<时间>-<uid>.json`，
+          含阶段、错误全文、素材清单、段数、设置档位 ⇒ 日志清了也查得到。
+     只写文件，不改任何行为。 */
+  try {
+    const dir = path.join(vfRootDir() || process.cwd(), 'temp', 'daily-fail')
+    fs.mkdirSync(dir, { recursive: true })
+    const ts = new Date().toISOString().replace(/[:.]/g, '-')
+    const dump = {
+      at: new Date().toISOString(),
+      uid,
+      stage: 'design',                       // design / gate / pack
+      lastErr: String(lastErr || '').slice(0, 4000),
+      failNote: String(failNote || '').slice(0, 1000),
+      picks: picks.map((x: any) => String(x?.n || '') + ':' + String(x?.name || '')).slice(0, 30),
+      pickCount: picks.length,
+      segCount: Array.isArray(d?.plan?.segments) ? d.plan.segments.length : 0,
+      tier: String((d as any)?.promptTier || ''),
+      thinkMode: String((d as any)?.thinkMode || ''),
+      sellingPoints: String((d as any)?.sellingPoints || '').slice(0, 300),
+      aspect: String((d as any)?.aspect || ''),
+      voiceChars: Array.isArray(d?.plan?.segments)
+        ? d.plan.segments.map((s: any) => String(s?.voice || '').length).slice(0, 40) : [],
+      node: process.version,
+    }
+    fs.writeFileSync(path.join(dir, ts + '-' + uid + '.json'), JSON.stringify(dump, null, 2), 'utf8')
+    try { console.error('[日报落地页] 失败已落盘：temp/daily-fail/' + ts + '-' + uid + '.json') } catch { /* ignore */ }
+  } catch { /* 落盘失败不影响报错 */ }
   d.step = 'pick'
   try { await saveDailyDraft(ctx.prisma, uid, d) } catch { /* ignore */ }
   return '⚠️ AI 这轮没排出合格的页面。\n'
