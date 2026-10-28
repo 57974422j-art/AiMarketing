@@ -462,12 +462,26 @@ export function aiPrompt(n: number, topic: string, opts?: { lastTheme?: string; 
      ② 再让它照着**自己刚写的**分镜表排版、做动效、画图形。
    为什么这样能解决：单独一次"只写文案"的调用，等于把它从"排版压力"里解放出来；
    且分镜表是**它自己写的** ⇒ 完全符合"AI 自己规划文案自己排版"。 */
-export function aiStoryboardPrompt(n: number, topic: string, opts?: { tone?: string; allowNoImgEnds?: boolean }): string {
+export function aiStoryboardPrompt(n: number, topic: string, opts?: { tone?: string; allowNoImgEnds?: boolean; sellingPoints?: string }): string {
   const lo = Math.max(6, Math.round(n * 0.6))
   const hi = n + 4
   return [
     '你是短视频分镜师。下面有 ' + n + ' 张实拍照片（与 HTML 同目录，1.jpg ~ ' + n + '.jpg）。',
     (topic ? '这条短片的主题/背景：' + topic : '主题请你根据照片内容自己判断。'),
+    /* ★VF_SELLPOINT_V1b（2026-10-28 用户「文案类型和今日卖点应该是联动的，卖点就是主题参考和诉求」）：
+       病灶：卖点原来只传给了"出页面"那一步 ⇒ **画面字围绕卖点、口播却完全不知道**
+            （`aiStoryboardPrompt` 只收到 tone）⇒ 两条文案各说各的，联动就是断的。
+       现口径：这一步（**写画面字 + 口播的地方**）也发卖点，并明确"口播至少要落到 1 条"。
+       仍然守三条：不要求逐字、不要求每段都提、**没给价格绝不许编**。 */
+    ...(String(opts?.sellingPoints || '').trim() ? [
+      '',
+      '【今日卖点 · 用户给的，这是这条片子的诉求】',
+      '· 用户原话：「' + String(opts?.sellingPoints || '').trim().slice(0, 400) + '」',
+      '· **title / line / voice 都要围绕它写**，但**不要求逐字照抄、也不要求每段都提**；',
+      '· **口播（voice）至少要有 1 段落到其中一条卖点上**（不然用户说的诉求就白说了）；',
+      '· **这些是用户真实的活动，照说即可，不算编造**；',
+      '· ⚠️ **只用上面出现过的数字和价格**：他没写价格就**绝对不许写**（不写"XX 元"、"XX 折"、"人均 XX"）。',
+    ] : []),
     '',
     '**这一步只做一件事：写分镜表。不要写 HTML、不要考虑排版。**',
     '',
