@@ -3167,6 +3167,9 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
   /* ★VF_THINK_MODE_V1（2026-10-28 用户「整体吐一条要 10 分钟，需要思考档位开关」）：
      open（默认，deepseek 思考全开 ~200s）/ save（加思考清单，降无效推演 ~130s）/ off（走百炼关思考 ~70s）。 */
   const [thinkMode, setThinkMode] = useState<string>(String(vj?.thinkMode || 'open'))
+  /* ★VF_SELLPOINT_V1：今日卖点/话术（独立字段，留空 = 完全不影响） */
+  const [sellingPoints, setSellingPoints] = useState<string>(String(vj?.sellingPoints || ''))
+  const [spOpen, setSpOpen] = useState<boolean>(false)
   const [userRules, setUserRules] = useState<string>(() => {
     const saved = String(vj?.userRules || '').trim()
     return saved || rulesFor(String(vj?.aspect || '9:16'))
@@ -3446,6 +3449,38 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
             </div>
           </div>
 
+          {/* ★VF_SELLPOINT_V1（2026-10-28 用户「这里加一个编辑，能填营销话术，比如『天天有特价，今天半价牛肉系列…』」）：
+              这是"老板知道自己今天卖什么、但不会写文案"的正解。
+              三条口径：留空 = 完全不影响；没给价格绝不编；卖点多时让它用代码画一屏价目板。
+              ⚠️ 独立字段，**不塞进 userRules**（那会让"设计偏好"整块作废，误伤排版）。 */}
+          <div className={'rounded-xl border px-3 py-2 mb-2 ' + (sellingPoints.trim()
+            ? 'border-amber-500/30 bg-amber-500/[0.06]' : 'border-white/10 bg-black/20')}>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] text-gray-300">今日卖点 / 话术</span>
+              <button type="button" onClick={() => setSpOpen((v) => !v)}
+                className={'text-[10px] px-2 py-0.5 rounded border ' + (sellingPoints.trim()
+                  ? 'border-amber-400/40 text-amber-200 hover:bg-amber-500/15'
+                  : 'border-white/15 text-gray-300 hover:bg-white/[0.08]')}>
+                {spOpen ? '收起' : (sellingPoints.trim() ? '✎ 编辑（已填 ' + sellingPoints.trim().length + ' 字）' : '✎ 编辑')}
+              </button>
+            </div>
+            {spOpen ? (
+              <>
+                <textarea value={sellingPoints} onChange={(e) => setSellingPoints(e.target.value.slice(0, 600))}
+                  rows={3} placeholder="例如：天天有特价，今天半价牛肉系列、红烧牛腱、红烧牛肉火锅，卤牛肉，牛排一律半价"
+                  className="w-full px-2 py-1.5 rounded-lg bg-black/40 border border-white/10 text-[11px] text-gray-100 resize-y" />
+                <div className="text-[9px] text-gray-500 mt-1">
+                  留空 = 不影响（AI 照常看图写）；填了就**围绕它组织文案**，卖点多时它会用代码画一屏价目板
+                  <span className="text-amber-400/70">　⚠️ 没写价格它不会自己编价格</span>
+                </div>
+              </>
+            ) : (sellingPoints.trim() ? (
+              <div className="text-[10px] text-gray-400 line-clamp-2">{sellingPoints.trim().slice(0, 80)}…</div>
+            ) : (
+              <div className="text-[9px] text-gray-600">不填 = 按素材自己判断（不影响出片）</div>
+            ))}
+          </div>
+
           {/* ★VF_NOIMG_ENDS_V1：首末段允许不用实拍图（纯排版：大字/色块/图形） */}
           <label className={'flex items-start gap-2 mb-2 px-3 py-2 rounded-xl border cursor-pointer ' + (noImgEnds
             ? 'border-emerald-400/40 bg-emerald-500/10' : 'border-white/10 bg-black/20 hover:bg-white/[0.04]')}>
@@ -3614,6 +3649,7 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
               names: sel, plateRatio, aspect,
               rulesOn: useRules, userRules: useRules ? userRules : '',
               tone, noImgEnds, tier, thinkMode,
+              sellingPoints: sellingPoints.trim(),
             })
           }}
             disabled={!sel.length}

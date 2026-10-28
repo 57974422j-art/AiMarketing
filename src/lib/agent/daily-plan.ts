@@ -556,7 +556,7 @@ export function aiDesignPrompt(
      tier = 'strict'（默认，全开）/ 'loose'（关审美补丁）/ 'free'（只留技术+内容底线）。
      ★VF_THINK_MODE_V1（2026-10-28）：thinkMode = 'open' / 'save' / 'off'，
        'save' 时加一段「思考清单」（给方向、明确规则不用自检），降低无效推演。 */
-  opts?: { failNote?: string; segs?: any[]; plateRatio?: number; userRules?: string; aspect?: string; tone?: string; allowNoImgEnds?: boolean; tier?: string; thinkMode?: string },
+  opts?: { failNote?: string; segs?: any[]; plateRatio?: number; userRules?: string; aspect?: string; tone?: string; allowNoImgEnds?: boolean; tier?: string; thinkMode?: string; sellingPoints?: string },
 ): string {
   const fail = String(opts?.failNote || '').trim()
   /* ★VF_AIDESIGN_TWOSTEP_STORY_V1：`segs` 是**AI 自己上一步写的分镜表**（不是用户的方案卡）⇒ 照它排版。 */
@@ -929,6 +929,27 @@ export function aiDesignPrompt(
       '· ① 这批素材什么气质（光/色/主体在哪）② 全片一个视觉方向 ③ 每段用哪张图 + 什么手法；',
       '· **上面所有契约都是硬性的，照写就行，不需要逐条推演「我这样算不算满足」**；',
       '· 想清这三件事就直接写代码，**不要反复权衡同一件事**（那只会拖慢，不会让片子更好）。',
+      '',
+    ] : []),
+    /* ★VF_SELLPOINT_V1（2026-10-28 用户「这里加个编辑，能填营销话术，比如『天天有特价，今天半价牛肉系列…』」）：
+       用户给的**今日卖点**，是这条片子的核心思想。四条硬口径（全部来自用户原话）：
+        ① **留空 = 一个字都不加**（这段整段不发，和现在完全一致）；
+        ② 不要求逐字、也不要求每段都提 —— **围绕它组织文案**即可；
+        ③ **只出现用户原话里的数字和价格**：他没写价格就绝对不编（不写"XX 元/XX 折/人均"），
+           原有"不许编造"继续有效，唯一例外是"用户明确给出的"；
+        ④ 卖点 ≥3 条时**优先用代码画一屏「价目板」**（纯排版：网格+大字+细线，一条一行），
+           分几屏、放第几段由模型自己定；**不许把已有照片段改成价目板**，
+           照片段该用图还是用图、主体不许被压住；加屏后**总时长仍 ≤60 秒**（压别的段，不是靠超时）。 */
+    ...(String(opts?.sellingPoints || '').trim() ? [
+      '【今日卖点 · 用户给的，这是这条片子的核心】',
+      '· 用户原话：「' + String(opts?.sellingPoints || '').trim().slice(0, 400) + '」',
+      '· **文案围绕它组织**，不要求逐字照抄、也不要求每段都提；',
+      '· **这些是用户真实的活动，照说即可，不算编造**（我们"不许编造价格"不适用于它们）；',
+      '· ⚠️ **只用上面出现过的数字和价格**：他没写价格就**绝对不许写**（不写"XX 元"、"XX 折"、"人均 XX"）；',
+      '· 卖点 ≥3 条 ⇒ **优先用代码画一屏「价目板」**（纯排版：网格 + 大字 + 细线，一条一行，不用照片），',
+      '  分几屏、放第几段由你按节奏定；',
+      '· ⚠️ **不许把已有照片段改成价目板**：照片段该用图还用图，主体不许被压住；',
+      '  加这一屏后**总时长仍要 ≤60 秒**（压短别的段，不要靠超时解决）。',
       '',
     ] : []),
     '【篇幅 · 只保证"不注水、不超时"】',

@@ -288,6 +288,9 @@ async function dailyMatCard(uid: number | string, d: DailyDraft): Promise<string
     noImgEnds: (d as any).allowNoImgEnds === true,
     // ★VF_PROMPT_TIER_V1：三档开关的回填
     tier: String((d as any).promptTier || 'strict'),
+    // ★VF_SELLPOINT_V1：今日卖点/话术的回填（刷新后还在，不用重填）
+    sellingPoints: String((d as any).sellingPoints || ''),
+    thinkMode: String((d as any).thinkMode || 'open'),
     aspect: String((d as any).aspect || '9:16'),
     images,
     names: Array.isArray(d.names) ? d.names : [],
@@ -524,7 +527,7 @@ export async function aiDesignPage(
      否则请求会在网关被掐断，前端只看到"网络连接失败"（用户遇到的就是这个）。
      **不传 = 240s（逐字保持现状）**。 */
   /* ★VF_PLATE_RATIO_V1：`plateRatio` 0~100（默认 60 ⇒ 界面 6.0:4.0），透传给 aiDesignPrompt。 */
-  opts?: { failNote?: string; timeoutMs?: number; plateRatio?: number; userRules?: string; aspect?: string; tone?: string; allowNoImgEnds?: boolean; tier?: string; thinkMode?: string },
+  opts?: { failNote?: string; timeoutMs?: number; plateRatio?: number; userRules?: string; aspect?: string; tone?: string; allowNoImgEnds?: boolean; tier?: string; thinkMode?: string; sellingPoints?: string },
   /* ★VF_STORY_TWOCOPY_V1：把分镜表（含每段的 `voice`）一起返回 ——
      调用方可以直接用它填口播，**不用再调一次 AI 重写**。 */
 ): Promise<{ ok: boolean; html?: string; error?: string; captions?: string; vlErr?: string; diag?: string; segs?: any[]; tracePrompt?: string; traceThink?: string }> {
@@ -642,7 +645,7 @@ export async function aiDesignPage(
   const _isLandscape = String(opts?.aspect || '') === '16:9'
   const prompt = _isLandscape
     ? aiDesignPromptLite(n, topic, { segs: storySegs, userRules: opts?.userRules, plateRatio: opts?.plateRatio })
-    : aiDesignPrompt(n, topic, { failNote: opts?.failNote, segs: storySegs, plateRatio: opts?.plateRatio, userRules: opts?.userRules, aspect: opts?.aspect, thinkMode: opts?.thinkMode, tone: opts?.tone, allowNoImgEnds: opts?.allowNoImgEnds, tier: opts?.tier })
+    : aiDesignPrompt(n, topic, { failNote: opts?.failNote, segs: storySegs, plateRatio: opts?.plateRatio, userRules: opts?.userRules, aspect: opts?.aspect, thinkMode: opts?.thinkMode, sellingPoints: opts?.sellingPoints, tone: opts?.tone, allowNoImgEnds: opts?.allowNoImgEnds, tier: opts?.tier })
     + (summary ? '\n\n【素材实拍内容（视觉模型逐张读出，写文案必须据此，不许编造）】\n' + summary : '')
   let txt = ''
   let diag = ''
@@ -1701,6 +1704,7 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
       allowNoImgEnds: (d as any).allowNoImgEnds === true,
       tier: String((d as any).promptTier || 'strict'),
       thinkMode: String((d as any).thinkMode || 'open'),   // ★VF_THINK_MODE_V1
+      sellingPoints: String((d as any).sellingPoints || ''),   // ★VF_SELLPOINT_V1
     })
     try {
       // ★VF_DAIDESIGN_V20：加**耗时**（用户反复问"到底多久"，没这个数字只能猜）
@@ -2441,6 +2445,15 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
        open = 现在（deepseek 思考全开）/ save = 加「思考清单」（降无效推演）/ off = 走百炼并关思考（最快）。 */
     const _tm = String((f as any)?.thinkMode || '')
     ;(d as any).thinkMode = (_tm === 'save' || _tm === 'off') ? _tm : 'open'
+    /* ★VF_SELLPOINT_V1（2026-10-28 用户「这里加一个编辑，能填营销话术，比如『天天有特价，今天半价牛肉系列…』」）：
+       用户给的**今日卖点 / 话术**，是这条片子的"核心思想"。
+       三条硬口径（用户原话）：
+        ① **留空 = 完全不影响**（提示词整段不加，和现在一模一样）；
+        ② **只出现在这里的东西才可说**：没写价格就绝对不编价格（原有"不许编造"继续有效，
+           唯一例外是"用户明确给出的"）；
+        ③ 卖点 ≥3 条时**优先用代码画一屏价目板**，分几屏/放第几段由模型自己定。
+       注意：**不能塞进 `userRules`** —— 那个一有内容就会让"（设计偏好）整块作废"，会误伤排版。 */
+    ;(d as any).sellingPoints = String((f as any)?.sellingPoints || '').trim().slice(0, 600)
     ;(d as any).aspect = String((f as any)?.aspect || '') === '16:9' ? '16:9' : '9:16'
     d.names = picked
     d.source = { kind: 'repo' }
