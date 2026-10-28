@@ -524,7 +524,7 @@ export async function aiDesignPage(
      否则请求会在网关被掐断，前端只看到"网络连接失败"（用户遇到的就是这个）。
      **不传 = 240s（逐字保持现状）**。 */
   /* ★VF_PLATE_RATIO_V1：`plateRatio` 0~100（默认 60 ⇒ 界面 6.0:4.0），透传给 aiDesignPrompt。 */
-  opts?: { failNote?: string; timeoutMs?: number; plateRatio?: number; userRules?: string; aspect?: string; tone?: string; allowNoImgEnds?: boolean; tier?: string },
+  opts?: { failNote?: string; timeoutMs?: number; plateRatio?: number; userRules?: string; aspect?: string; tone?: string; allowNoImgEnds?: boolean; tier?: string; thinkMode?: string },
   /* ★VF_STORY_TWOCOPY_V1：把分镜表（含每段的 `voice`）一起返回 ——
      调用方可以直接用它填口播，**不用再调一次 AI 重写**。 */
 ): Promise<{ ok: boolean; html?: string; error?: string; captions?: string; vlErr?: string; diag?: string; segs?: any[]; tracePrompt?: string; traceThink?: string }> {
@@ -642,7 +642,7 @@ export async function aiDesignPage(
   const _isLandscape = String(opts?.aspect || '') === '16:9'
   const prompt = _isLandscape
     ? aiDesignPromptLite(n, topic, { segs: storySegs, userRules: opts?.userRules, plateRatio: opts?.plateRatio })
-    : aiDesignPrompt(n, topic, { failNote: opts?.failNote, segs: storySegs, plateRatio: opts?.plateRatio, userRules: opts?.userRules, aspect: opts?.aspect, tone: opts?.tone, allowNoImgEnds: opts?.allowNoImgEnds, tier: opts?.tier })
+    : aiDesignPrompt(n, topic, { failNote: opts?.failNote, segs: storySegs, plateRatio: opts?.plateRatio, userRules: opts?.userRules, aspect: opts?.aspect, thinkMode: opts?.thinkMode, tone: opts?.tone, allowNoImgEnds: opts?.allowNoImgEnds, tier: opts?.tier })
     + (summary ? '\n\n【素材实拍内容（视觉模型逐张读出，写文案必须据此，不许编造）】\n' + summary : '')
   let txt = ''
   let diag = ''
@@ -654,7 +654,13 @@ export async function aiDesignPage(
        ⇒ 压字/对比度这类"低级错误"频发（实测 3 轮全挂）。
        保底：deepseek 失败（无 key / 报错 / 空内容）**自动回落百炼 qwen**，不让整条线挂掉。 */
     let used = ''
+    /* ★VF_THINK_MODE_V1（2026-10-28 用户「需要思考档位开关，现在整体吐一条要 10 分钟」）：
+       三档 open（默认，deepseek 思考全开）/ save（deepseek + 提示词里"想三件事就写代码"）/ off（走百炼并关思考）。
+       为什么 off 不硬改 deepseek 的思考参数：那个参数名在各版本不一致，赌错会整条挂；
+       而百炼那条路**已有 noThink**（实测快 12 倍、正文还更长）⇒ 直接导过去最稳。 */
+    const thinkMode = String(opts?.thinkMode || 'open')
     try {
+      if (thinkMode === 'off') throw new Error('用户选择关闭思考（走百炼 noThink）')
       const dsKey = process.env.DEEPSEEK_API_KEY
         || (() => { try { const c = fs.readFileSync(path.join(process.cwd(), '.env.local'), 'utf-8'); const m = c.match(/^DEEPSEEK_API_KEY=(.+)$/m); return m ? m[1].trim().replace(/^["']|["']$/g, '') : '' } catch { return '' } })()
       if (!dsKey) throw new Error('没有 DEEPSEEK_API_KEY')
@@ -1694,6 +1700,7 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
       tone: String((d as any).tone || 'auto'),
       allowNoImgEnds: (d as any).allowNoImgEnds === true,
       tier: String((d as any).promptTier || 'strict'),
+      thinkMode: String((d as any).thinkMode || 'open'),   // ★VF_THINK_MODE_V1
     })
     try {
       // ★VF_DAIDESIGN_V20：加**耗时**（用户反复问"到底多久"，没这个数字只能猜）
@@ -2430,6 +2437,10 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
        三档：strict（全开·默认）/ loose（关掉审美补丁）/ free（只留技术+内容底线）。 */
     const _tier = String((f as any)?.tier || '')
     ;(d as any).promptTier = (_tier === 'loose' || _tier === 'free') ? _tier : 'strict'
+    /* ★VF_THINK_MODE_V1（2026-10-28 用户「整体吐一条要 10 分钟，需要思考档位开关」）：
+       open = 现在（deepseek 思考全开）/ save = 加「思考清单」（降无效推演）/ off = 走百炼并关思考（最快）。 */
+    const _tm = String((f as any)?.thinkMode || '')
+    ;(d as any).thinkMode = (_tm === 'save' || _tm === 'off') ? _tm : 'open'
     ;(d as any).aspect = String((f as any)?.aspect || '') === '16:9' ? '16:9' : '9:16'
     d.names = picked
     d.source = { kind: 'repo' }

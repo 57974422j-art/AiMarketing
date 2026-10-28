@@ -2167,7 +2167,43 @@ function VfDailyVoiceCard({ vj, onSend }: { vj: any; onSend: (m: string) => void
   }
   /* ★VF_DAILY_BGM_V1：配乐（可选）。候选 = 个人仓库里的音频（服务端下发 `bgmList`）。
      空 = 不配乐（和以前一样）。音量是 dB（-18 是"压低但不闷"的常见档）。 */
-  const bgmList: any[] = Array.isArray(vj?.bgmList) ? vj.bgmList : []
+  const serverBgm: any[] = Array.isArray(vj?.bgmList) ? vj.bgmList : []
+  /* ★VF_BGM_LIVE_V1（2026-10-28 用户实测「仓库传了 3 首音乐，卡片里还是看不到」）：
+     病灶：`bgmList` 是**进第 3 步那一刻**服务端塞进 JSON 的静态快照。
+          之后你再往仓库传音频，这张卡不会刷新 ⇒ 下拉里永远是旧的空列表。
+          （后端实测没问题：`listRepoAudio` 能把那 3 首 wav 全列出来。）
+     现口径：**卡片挂载时自己去拉一次仓库列表**，只挑音频，和快照合并去重。
+          ⇒ 传完音频**不用重走一遍流程**，回到这张卡就能选到。
+      失败不影响卡片（用快照兜底）。 */
+  const [liveBgm, setLiveBgm] = useState<any[]>([])
+  useEffect(() => {
+    let dead = false
+    ;(async () => {
+      try {
+        /* 这个接口靠 cookie 鉴权（服务端用 auth.userId），query 参数会被忽略 ⇒ 不用传 userId */
+        const r = await fetch('/api/storage/files', { credentials: 'include', cache: 'no-store' })
+        const j = await r.json().catch(() => null)
+        const files = Array.isArray(j?.data?.files) ? j.data.files : (Array.isArray(j?.files) ? j.files : [])
+        const audio = files
+          .filter((f: any) => /\.(mp3|m4a|wav|aac)$/i.test(String(f?.name || '')))
+          .map((f: any) => ({ name: String(f.name), mb: Math.round((Number(f.size) || 0) / 1048576 * 10) / 10 }))
+        if (!dead && audio.length) setLiveBgm(audio)
+      } catch { /* 用快照兜底 */ }
+    })()
+    return () => { dead = true }
+  }, [vj?.userId])
+  // 合并：先实时（最新在前），再服务端快照，按名字去重
+  const bgmList: any[] = (() => {
+    const seen = new Set<string>()
+    const out: any[] = []
+    for (const x of [...liveBgm, ...serverBgm]) {
+      const n = String(x?.name || '')
+      if (!n || seen.has(n)) continue
+      seen.add(n)
+      out.push(x)
+    }
+    return out
+  })()
   const [bgm, setBgm] = useState<string>(() => {
     try { return localStorage.getItem(lsKey + ':bgm') || String(vj?.bgmPick || '') } catch { return String(vj?.bgmPick || '') }
   })
@@ -3128,6 +3164,9 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
   const [useRules, setUseRules] = useState<boolean>(vj?.rulesOn !== false)   // 外层勾选框（默认勾）
   /* ★VF_PROMPT_TIER_V1：设计约束三档（strict 全开 / loose 关审美补丁 / free 只留技术+内容底线） */
   const [tier, setTier] = useState<string>(String(vj?.tier || 'strict'))
+  /* ★VF_THINK_MODE_V1（2026-10-28 用户「整体吐一条要 10 分钟，需要思考档位开关」）：
+     open（默认，deepseek 思考全开 ~200s）/ save（加思考清单，降无效推演 ~130s）/ off（走百炼关思考 ~70s）。 */
+  const [thinkMode, setThinkMode] = useState<string>(String(vj?.thinkMode || 'open'))
   const [userRules, setUserRules] = useState<string>(() => {
     const saved = String(vj?.userRules || '').trim()
     return saved || rulesFor(String(vj?.aspect || '9:16'))
@@ -3458,6 +3497,47 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
             </div>
           </div>
 
+          {/* ★VF_THINK_MODE_V1（2026-10-28 用户「整体吐一条要 10 分钟，需要思考档位开关；
+              不让它思考肯定不行，只是不要跑偏」）：
+              · 开 = 现在（deepseek 思考全开，实测 200s 上下、思考 8 万字）
+              · 省 = 加「思考清单」+ 明确"规则不用自检"（降无效推演，预计 130s）
+              · 关 = 直接走百炼并关思考（实测快 12 倍，但排版质量可能降）
+              ⚠️ 只在日报线显示：HTML 成片线有自己的节奏，不共用这个语义。 */}
+          {String(vj?.title || '').includes('日报') ? (
+            <div className="rounded-xl border border-sky-500/25 bg-black/20 px-3 py-2 mb-2">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] text-gray-300">思考档位</span>
+                <span className="text-[11px] text-sky-300 font-medium">
+                  {thinkMode === 'off' ? '关（最快）' : thinkMode === 'save' ? '省（推荐）' : '开（默认）'}
+                </span>
+              </div>
+              <div className="flex gap-1.5">
+                {[
+                  { v: 'open', t: '开', d: '现在的默认：思考全开，约 3~4 分钟' },
+                  { v: 'save', t: '省', d: '给思考清单，少绕弯子，约 2 分钟' },
+                  { v: 'off', t: '关', d: '不思考直接写，最快，排版可能变差' },
+                ].map((o) => {
+                  const on = thinkMode === o.v
+                  return (
+                    <button key={o.v} type="button" onClick={() => setThinkMode(o.v)} title={o.d}
+                      className={'flex-1 px-2 py-1.5 rounded-lg text-[11px] border transition ' + (on
+                        ? 'border-sky-400/70 bg-sky-500/20 text-sky-50'
+                        : 'border-white/10 text-gray-400 hover:border-white/25 hover:text-gray-200')}>
+                      {on ? '● ' : ''}{o.t}
+                    </button>
+                  )
+                })}
+              </div>
+              <div className="text-[9px] text-gray-600 mt-1">
+                {thinkMode === 'off'
+                  ? '不思考、直接写 ⇒ 最快，但版式和文字质量会明显下降；急用时才选'
+                  : thinkMode === 'save'
+                    ? '保留思考，但给它一个清单（素材气质→视觉方向→每段手法）并明确「规则不用逐条自检」⇒ 少空转'
+                    : '思考全开：它会把契约反复推演一遍，慢但更稳（实测思考 8 万字 ≈ 200 秒）'}
+              </div>
+            </div>
+          ) : null}
+
           {/* ★VF_RULES_ASPECT_V2（2026-10-25 用户「外面直接给我一个框，打钩使用、不打钩不使用；点横屏显示横屏的，点竖屏显示竖屏的」）：
               · **勾选框在外层**（折叠时就看得见）⇒ 一眼知道这单到底用没用；
               · 不勾 ⇒ 提交空串 ⇒ 提示词**整段不加**（也不会触发"设计偏作废"）；
@@ -3533,7 +3613,7 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
             next('mat', {
               names: sel, plateRatio, aspect,
               rulesOn: useRules, userRules: useRules ? userRules : '',
-              tone, noImgEnds, tier,
+              tone, noImgEnds, tier, thinkMode,
             })
           }}
             disabled={!sel.length}

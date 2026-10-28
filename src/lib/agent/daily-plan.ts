@@ -553,8 +553,10 @@ export function aiDesignPrompt(
      口径：**追加在契约之后**，作为"用户本次的附加要求"——**只覆盖观感类**（字号/留白/遮罩/顺序），
            **不得违反上面的硬契约**（必须有正文、不许元叙述、时长上限这些改不动）。 */
   /* ★VF_PROMPT_TIER_V1（2026-10-26 用户「加开关让它变化再大一点」）：
-     tier = 'strict'（默认，全开）/ 'loose'（关审美补丁）/ 'free'（只留技术+内容底线）。 */
-  opts?: { failNote?: string; segs?: any[]; plateRatio?: number; userRules?: string; aspect?: string; tone?: string; allowNoImgEnds?: boolean; tier?: string },
+     tier = 'strict'（默认，全开）/ 'loose'（关审美补丁）/ 'free'（只留技术+内容底线）。
+     ★VF_THINK_MODE_V1（2026-10-28）：thinkMode = 'open' / 'save' / 'off'，
+       'save' 时加一段「思考清单」（给方向、明确规则不用自检），降低无效推演。 */
+  opts?: { failNote?: string; segs?: any[]; plateRatio?: number; userRules?: string; aspect?: string; tone?: string; allowNoImgEnds?: boolean; tier?: string; thinkMode?: string },
 ): string {
   const fail = String(opts?.failNote || '').trim()
   /* ★VF_AIDESIGN_TWOSTEP_STORY_V1：`segs` 是**AI 自己上一步写的分镜表**（不是用户的方案卡）⇒ 照它排版。 */
@@ -918,6 +920,17 @@ export function aiDesignPrompt(
     '· **相邻两段动法不同**（上一段淡入，这段就推近、揭除、或字从侧面进来）；',
     '· 宁可动效简单但**持续在动**，也不要一整段定住不动（那是 PPT 不是视频）。',
     '',
+    /* ★VF_THINK_MODE_V1（2026-10-28 用户「思考给它思考，只是不要跑偏、不要瞎想」）：
+       save 档插一段「思考清单」—— **不限制字数**，只给方向 + 明确"规则不用自检"。
+       依据（从真实回执里看到的）：8 万字思考里一大半在反复验证规则
+       （「副题 22~30px 到底指哪一行？」它自己推演了 5~6 轮），那不是设计，是空转。 */
+    ...(String(opts?.thinkMode || '') === 'save' ? [
+      '【思考 · 想这三件事就动手（不要逐条自检）】',
+      '· ① 这批素材什么气质（光/色/主体在哪）② 全片一个视觉方向 ③ 每段用哪张图 + 什么手法；',
+      '· **上面所有契约都是硬性的，照写就行，不需要逐条推演「我这样算不算满足」**；',
+      '· 想清这三件事就直接写代码，**不要反复权衡同一件事**（那只会拖慢，不会让片子更好）。',
+      '',
+    ] : []),
     '【篇幅 · 只保证"不注水、不超时"】',
     '· **段数由内容决定**（有多少话要说就分多少段，宁少不空），**每段只讲一件事**；',
     '· **总时长 ≤ 60 秒**（硬上限）；**节奏自己定** —— 该快切就快切、该长镜就长镜，**不要每段一样长**（全片均速最难看）；',

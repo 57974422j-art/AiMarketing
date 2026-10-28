@@ -305,7 +305,13 @@ html = html.replace('</body>', '<script>\n'
   + 'window.__timelines = window.__timelines || {};\n'
   + 'window.__timelines["main"] = {\n'
   + '  seek: function (t) { try { window.__seek(t) } catch (e) { /* 忽略 */ } },\n'
-  + '  duration: function () { return ' + total + '; },\n'
+  /* ★VF_TAIL_HOLD_V1c（2026-10-28 用户实测「还是最后没留 1 秒，忽然就结束了」）：
+     病灶：V1b 只把 **HTML 根上的 data-duration** 改成了 total+1，
+          但这里的 `duration()` 仍然返回 `total` ⇒ **引擎按它渲染** ⇒ 那 1 秒根本没渲出来。
+          （典型"同一件事两处实现"的分叉：改了 A 忘了 B。）
+     现口径：**两处都要 total + TAIL_HOLD**，并在下面加一致性自检 —— 不一致直接报错，
+            不再静默渲染（免得下次又只改一半）。 */
+  + '  duration: function () { return ' + (total + TAIL_HOLD) + '; },\n'
   + '  pause: function () {}, play: function () {}\n'
   + '};\n</script>\n</body>')
 
@@ -367,6 +373,23 @@ fs.writeFileSync(path.join(outDir, 'hyperframes.json'), JSON.stringify({
 }, null, 2), 'utf8')
 console.log('① 打包 OK：' + secs.length + ' 段 · ' + total + 's · ' + outDir
   + (loopFallback ? '（已给旧产物打抖动兜底补丁）' : ''))
+/* ★VF_TAIL_HOLD_V1c 自检（2026-10-28）：**两处时长必须一致** ——
+   root 上的 `data-duration` 与 JS 里 `__timelines.main.duration()`。
+   上一次就是因为只改了前者、没改后者，用户看到的"结尾 1 秒"一直没生效。
+   现在不一致就**直接报错**，不再静默渲染（宁可打包失败，也不要交付一条少 1 秒的片子）。 */
+{
+  const _mRoot = /data-composition-id="main"[^>]*data-duration="([\d.]+)"/.exec(html)
+    || /data-duration="([\d.]+)"[^>]*data-composition-id="main"/.exec(html)
+  const _mFn = /duration:\s*function\s*\(\)\s*\{\s*return\s+([\d.]+)/.exec(html)
+  const _root = _mRoot ? Number(_mRoot[1]) : 0
+  const _fn = _mFn ? Number(_mFn[1]) : 0
+  if (_root && _fn && Math.abs(_root - _fn) > 0.01) {
+    console.log('stage=check ✗ 时长自检不一致：root data-duration=' + _root + 's 但 duration()=' + _fn + 's'
+      + '（改一处忘一处 ⇒ 渲染会按较短的来，结尾那 1 秒会丢）')
+    process.exit(1)
+  }
+  if (_root || _fn) console.log('   时长自检：root ' + _root + 's · duration() ' + _fn + 's ✅')
+}
 
 // ── ③ 两道闸门 ────────────────────────────────────────────────────────────────
 if (!skipCheck) {
