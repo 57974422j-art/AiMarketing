@@ -699,6 +699,11 @@ export async function aiDesignPage(
           body: JSON.stringify({
             model: 'deepseek-flash',
             messages: [{ role: 'user', content: [{ type: 'text', text: sbText }, ...imgParts] }],
+            /* ★VF_DEEPSEEK_ONLY_V1：分镜表这步同样**给足额度 + 按档位关思考**。
+               原来只传 temperature ⇒ 默认输出上限小 ⇒ 思考一吃就 `finish=length` ⇒
+               拿不到分镜表 ⇒ 退回"一步到位"老路径（那正是文案又变成图注的原因之一）。 */
+            ...(String(opts?.thinkMode || 'open') === 'open' ? {} : { thinking: { type: 'disabled' } }),
+            max_tokens: 16384,
             temperature: 0.8,
           }),
           signal: AbortSignal.timeout(150000),
@@ -756,7 +761,10 @@ export async function aiDesignPage(
        而百炼那条路**已有 noThink**（实测快 12 倍、正文还更长）⇒ 直接导过去最稳。 */
     const thinkMode = String(opts?.thinkMode || 'open')
     try {
-      if (thinkMode === 'off') throw new Error('用户选择关闭思考（走百炼 noThink）')
+      /* ★VF_DEEPSEEK_ONLY_V1：**off 档不再"跳过 deepseek 去走 qwen"** ——
+         那是上一版的错误设计：qwen 挂了又会落回 deepseek 兜底链（还不认 noThink）
+         ⇒ 思考全开烧 8 万字 ⇒ 正文空 ⇒ 用户"关思考反而思考了 8 万"。
+         现在 off / save 都**留在 deepseek**，只是把 `thinking:{type:'disabled'}` 传下去（实测唯一有效）。 */
       const dsKey = process.env.DEEPSEEK_API_KEY
         || (() => { try { const c = fs.readFileSync(path.join(process.cwd(), '.env.local'), 'utf-8'); const m = c.match(/^DEEPSEEK_API_KEY=(.+)$/m); return m ? m[1].trim().replace(/^["']|["']$/g, '') : '' } catch { return '' } })()
       if (!dsKey) throw new Error('没有 DEEPSEEK_API_KEY')
@@ -777,11 +785,17 @@ export async function aiDesignPage(
               : prompt,
           }],
           /* ★VF_DAIDESIGN_V3c（2026-10-18 用户定案「**max_tokens 取消这个不限制**」）：
-             **不再传 `max_tokens`** —— 之前 16000/32000 都是拍脑袋，结果 16000 那版每轮都被截断
-             （思考先吃额度、正文要 1.5~2 万字 ⇒ 缺 `</html>` ⇒ 3 轮全挂）。
-             现口径：交给模型自己的默认输出上限（deepseek 会按模型能力给到最大），
-             **超时仍由 `AbortSignal.timeout(budget)` 兜住**，不会无限等。
-             ⚠️ 百炼那条回落路径保持原样（`PLAN_MAX_TOKENS` 32000），它本来就够用。 */
+             原来不传 ⇒ 交给模型默认。**但 2026-10-28 实测证明这是错的**：
+               deepseek-flash 默认输出上限只有 8K 左右，而它**思考就要 8 万字**
+               ⇒ 思考吃光额度 ⇒ `finish_reason=length` ⇒ **正文一个字都不吐**
+               ⇒ 一路降级到底 ⇒ 用户看到"AI 返回空内容"，钱照扣。
+             现口径：**明确给足 `max_tokens`**（实测 65536 被接受），
+              并用 `thinking:{type:'disabled'}` 在需要时真正关掉思考（见下面 thinkMode）。
+             ⚠️ 不再依赖"模型默认"——默认值是不可见的，出了事只能猜。 */
+          ...(String(opts?.thinkMode || 'open') === 'open'
+            ? {}                                             // 开着思考：让它想，额度够
+            : { thinking: { type: 'disabled' } }),           // 省/关：实测唯一有效的关思考写法
+          max_tokens: 65536,
           temperature: 0.8,
           stream: false,
         }),
@@ -833,58 +847,61 @@ export async function aiDesignPage(
         + ' · 思考 ' + _think.length + ' 字'
         + ' · 输出 ' + txt.length + ' 字 · prompt ' + prompt.length + ' 字'
     } catch (eDs: any) {
-      /* ★VF_FALLBACK_VL_V1（2026-10-27 用户实测「我给的素材是猫，它做出来是火锅」）：
-         病灶：deepseek 挂了会回落百炼，但**回落那条路只传了文字提示词，一张图都没带**
-              ⇒ 模型看不到素材，只能照着提示词里的示例瞎猜 ⇒ **素材是猫，它写成火锅**。
-         为什么之前没人发现：`ai-providers.ts` 里 `hasImg` 是靠 messages 里有没有
-              `{type:'image_url'}` 判断的，纯文本 ⇒ 用 `qwen3.8-flash`（**不看图**）。
-         现口径：**把已经准备好的 `imgParts`（17 张图 base64）一起传过去**
-              ⇒ `hasImg` 自动为真 ⇒ 走 `qwen3-max`（多模态，真的看图）。
-         ⚠️ 仍然 `noThink=true`：回落是兜底，要的是快（关思考实测快 12 倍）。 */
-      const res = await dashscopeFunctionCall(
-        [{ role: 'user', content: [...imgParts, { type: 'text', text: prompt }] }],
-        [], PLAN_MAX_TOKENS, 0.8, false, undefined, budget, true,
-      )
-      txt = String(res?.content || '')
-      used = 'qwen(回落·带图)'
-      /* ★VF_TRUNC_DIAG_V1（2026-10-28 用户实测「AI 这轮没排出合格页面，原因是没找到 .sec 段」）：
-         真相不是"它没按契约写"，而是**它只写了 1157 字就被截断**（正常 2.4 万字）
-         ⇒ 打包器拿到的是一千字的空壳，当然找不到 `.sec` ⇒ 报出的原因完全误导人。
-         现在把 `finishReason` 打出来：`length` = 额度截断，`stop` = 模型自己说完了（那才是真的没按契约）。 */
-      /* ★VF_NETERR_V1：`fetch failed` 只是外壳，真正的 code（ECONNRESET / ENOTFOUND / …）在 cause 里 */
-      try { console.error('[AI设计] deepseek 调用失败：' + netErrDetail(eDs)) } catch { /* ignore */ }
-      diag = 'deepseek 失败(' + netErrDetail(eDs) + ') ⇒ 回落百炼 · 模型 '
-        + String((res as any)?.model || '?') + ' · 图 ' + imgParts.length + ' 张'
-        + ' · finish ' + String((res as any)?.finishReason || '?')
-        + ' · 输出 ' + txt.length + ' 字 · prompt ' + prompt.length + ' 字'
-      /* ★VF_TRACE_FALLBACK_V1（2026-10-27 用户「AI 回执是灰色的，点不开」）：
-         病灶：回执（prompt + 思考两个 txt）**只在 deepseek 成功那条路里落盘** ⇒
-              deepseek 一挂、回落百炼 ⇒ **什么都没存** ⇒ 草稿 `trace` 空 ⇒ 前端按钮 disabled。
-         现口径：**回落也要落**（这条兜底恰恰是最需要看回执的时候 —— 模型都没看图，更要知道它收到了什么）。
-         ⚠️ 百炼这条没有 `reasoning_content`，所以"思考"那份里放**输出正文**（有 prompt 就能对照）。
-         ⚠️ 只记录，不改任何行为。 */
+      /* ★VF_DEEPSEEK_ONLY_V1（2026-10-28 用户定案「全部都用 DEEPSEEK，不要什么 qwen 兜底，
+         失败就失败了。失败要吐原因，还有钱花，不允许稀里糊涂」）：
+         病灶（三条叠加，实测证据齐全）：
+           ① `off` 档本意是"关思考省钱"，但它 throw 之后进的就是 qwen 回落路，
+              而 qwen 又 404（`qwen3-max` 在这个账号不存在）⇒ 于是**又落回 deepseek 兜底链**，
+              那条链**不认 noThink** ⇒ **思考全开、烧掉 8 万字** ⇒ `finish=length` ⇒ 正文空。
+              ⇒ 用户看到"关思考反而思考 8 万"，钱花了什么都没吐出来。
+           ② 回落还会调另一家模型 ⇒ **两边花钱**。
+           ③ 失败只说"AI 返回空内容"，**没有任何可定位信息**。
+         现口径（用户明确要求）：
+           · **只用 deepseek-flash 一家**，不再回落任何别的模型；
+           · 失败就**直接把原因吐出来**（网络错误码 / HTTP 状态 / finish_reason / token 用量）；
+           · 回执**照样落盘**（失败时更需要看它收到了什么）。
+         ⚠️ 结果可预期：deepseek 真挂了这一单就失败，只能手动重试 —— 这是用户接受的取舍。 */
+      const _detail = netErrDetail(eDs)
+      try { console.error('[AI设计] deepseek 失败（不再回落）：' + _detail) } catch { /* ignore */ }
+      /* 回执落盘：失败时也要留下现场 */
       try {
         const _dir = path.join(vfRootDir() || process.cwd(), 'temp', 'aidesign-think')
         fs.mkdirSync(_dir, { recursive: true })
         const _ts = new Date().toISOString().replace(/[:.]/g, '-')
         const _pf = _ts + '-prompt.txt'
         fs.writeFileSync(path.join(_dir, _pf),
-          '【发给 AI 的完整提示词 · 回落百炼 · ' + prompt.length + ' 字 · 图 ' + imgParts.length + ' 张】\n\n' + prompt, 'utf8')
+          '【发给 AI 的完整提示词 · 失败单 · ' + prompt.length + ' 字 · 图 ' + imgParts.length + ' 张】\n\n' + prompt, 'utf8')
         tracePrompt = _pf
         const _tf = _ts + '.txt'
         fs.writeFileSync(path.join(_dir, _tf),
-          '【回落百炼（deepseek 失败）· 无思考内容 · 输出 ' + txt.length + ' 字】\n' + txt, 'utf8')
+          '【失败 · 未取到输出】\n' + _detail, 'utf8')
         traceThink = _tf
-        console.log('[AI设计] 回落路径回执已存 ' + _tf + ' · prompt ' + _pf)
+        console.log('[AI设计] 失败回执已存 ' + _tf + ' · prompt ' + _pf)
       } catch (eT: any) {
-        try { console.error('[AI设计] 回落回执落盘失败：' + String(eT?.message || eT).slice(0, 100)) } catch { /* ignore */ }
+        try { console.error('[AI设计] 失败回执落盘失败：' + String(eT?.message || eT).slice(0, 100)) } catch { /* ignore */ }
+      }
+      /* 不再回落 ⇒ 直接把原因交给上层（它会把这句话原样显示给用户） */
+      diag = '[' + used + '] ' + _detail
+      return {
+        ok: false, captions: summary, vlErr, diag, tracePrompt, traceThink,
+        error: 'DeepSeek 调用失败：' + _detail
+          + '（本单只使用 deepseek-flash，不回落其它模型；可直接点重试）',
       }
     }
     diag = '[' + used + '] ' + diag
   } catch (e: any) {
     return { ok: false, error: String(e?.message || e).slice(0, 200), captions: summary, vlErr, diag }
   }
-  if (!txt.trim()) return { ok: false, error: 'AI 返回空内容', captions: summary, vlErr, diag }
+  /* ★VF_DEEPSEEK_ONLY_V1（2026-10-28 用户「失败要吐原因还有钱花，不允许稀里糊涂」）：
+     `AI 返回空内容` 这句话什么信息都没有。现在把 `diag` 里的 finish / 思考字数 / 输出字数
+     一起吐给用户 —— 一眼能分清是"额度被思考吃光"（finish=length）还是"模型真没写"（finish=stop）。 */
+  if (!txt.trim()) {
+    return {
+      ok: false, captions: summary, vlErr, diag, tracePrompt, traceThink,
+      error: 'DeepSeek 返回空内容（' + String(diag || '无诊断') + '）——'
+        + '如果 finish=length，说明思考把输出额度吃光；可直接重试或把思考档位改到「关」',
+    }
+  }
   /* ★VF_TRUNC_GUARD_V1（2026-10-28）：**输出明显过短 ⇒ 直接判"被截断"并说清**。
      实测事故：回落百炼只吐 1157 字（正常 2.4 万字）⇒ 后面报"没找到 .sec 段" ⇒ 完全误导，
      让人以为是"它没按契约写"，实际是"它没写完"。
