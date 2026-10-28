@@ -36,6 +36,16 @@ export default function SubscriptionAdminPage() {
   const [editing, setEditing] = useState<Plan | null>(null)
   const [form, setForm] = useState<Partial<Plan>>({})
   const [loading, setLoading] = useState(true)
+  /* ★VF_ADMIN_GRANT_V1：给用户开卡/加点（users tab） */
+  const [grantUsers, setGrantUsers] = useState<any[]>([])
+  const [grantPlans, setGrantPlans] = useState<any[]>([])
+  const [grantLoading, setGrantLoading] = useState(false)
+  const [grantBusy, setGrantBusy] = useState('')
+  const [grantKw, setGrantKw] = useState('')
+  const [grantPlanId, setGrantPlanId] = useState('')
+  const [grantDays, setGrantDays] = useState('')
+  const [grantPoints, setGrantPoints] = useState('')
+  const [grantReason, setGrantReason] = useState('')
 
   useEffect(() => { if (!authLoading) setAuthorized(user?.role === 'admin') }, [authLoading, user])
   useEffect(() => { if (authorized) loadPlans() }, [authorized])
@@ -56,6 +66,44 @@ export default function SubscriptionAdminPage() {
       const d = await r.json()
       if (d.success) setStats(d.data)
     } catch {}
+  }
+
+  /* ★VF_ADMIN_GRANT_V1（2026-10-28 用户「后台给用户加时间点数年卡，我找了没找到」
+                      + 「以前都是让你们给我命令加时间，太烦了」）：
+     把 `users` tab 真正做出来 —— 查用户 → 看当前套餐/余额 → 加天数 / 加点数。
+     后端：`/api/admin/user-grant`（续费是**在 endDate 上累加**，加点数**必造流水**）。 */
+  const loadGrant = async (kw?: string) => {
+    setGrantLoading(true)
+    try {
+      const r = await fetch('/api/admin/user-grant' + (kw ? '?q=' + encodeURIComponent(kw) : ''), { credentials: 'include' })
+      const d = await r.json()
+      if (d.success) { setGrantUsers(d.data.users || []); setGrantPlans(d.data.plans || []) }
+      else showToast(d.message || '查询失败', 'error')
+    } catch { showToast('查询失败', 'error') }
+    setGrantLoading(false)
+  }
+
+  const doGrant = async (u: any, action: 'plan' | 'points') => {
+    const isPlan = action === 'plan'
+    const payload: any = { userId: u.id, action }
+    if (isPlan) {
+      if (!grantPlanId) { showToast('先选一个套餐', 'error'); return }
+      payload.planId = Number(grantPlanId)
+      if (grantDays !== '') payload.days = Number(grantDays)
+      payload.reason = '后台手动开通' + (grantReason ? '：' + grantReason : '')
+    } else {
+      if (!grantPoints || !Number(grantPoints)) { showToast('填一个点数（负数=扣）', 'error'); return }
+      payload.points = Number(grantPoints)
+      payload.reason = '后台手动加点' + (grantReason ? '：' + grantReason : '')
+    }
+    setGrantBusy(u.id + action)
+    try {
+      const r = await fetch('/api/admin/user-grant', { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      const d = await r.json()
+      if (d.success) { showToast(d.message || '已发放', 'success'); loadGrant(grantKw) }
+      else showToast(d.message || '失败', 'error')
+    } catch { showToast('失败', 'error') }
+    setGrantBusy('')
   }
 
   const savePlan = async () => {
@@ -116,6 +164,8 @@ export default function SubscriptionAdminPage() {
           <div className="flex gap-2">
             <button onClick={() => { setTab('plans'); loadPlans() }} className={`px-3 py-1.5 rounded-lg text-xs ${tab === 'plans' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'bg-white/5 text-gray-400'}`}>📦 套餐</button>
             <button onClick={() => { setTab('usage'); loadStats() }} className={`px-3 py-1.5 rounded-lg text-xs ${tab === 'usage' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-white/5 text-gray-400'}`}>📊 用量</button>
+            {/* ★VF_ADMIN_GRANT_V1：这个 tab 以前只在 useState 里定义、**页面里没渲染**（空壳）⇒ 现在补上 */}
+            <button onClick={() => { setTab('users'); loadGrant() }} className={`px-3 py-1.5 rounded-lg text-xs ${tab === 'users' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-white/5 text-gray-400'}`}>🎁 给用户开卡/加点</button>
           </div>
         </div>
 
@@ -153,6 +203,100 @@ export default function SubscriptionAdminPage() {
                 </table>
               </div>
             ) : <p className="text-gray-500 text-xs">加载中...</p>}
+          </div>
+        )}
+
+        {tab === 'users' && (
+          <div className="space-y-4">
+            {/* 搜索 + 发放参数 */}
+            <div className="card-glass p-4">
+              <div className="flex flex-wrap items-end gap-2 mb-3">
+                <div className="flex-1 min-w-[200px]">
+                  <label className="text-[10px] text-gray-400 block mb-1">搜用户（ID / 用户名 / 邮箱 / 姓名，留空看最近 20 个）</label>
+                  <input value={grantKw} onChange={(e) => setGrantKw(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') loadGrant(grantKw.trim()) }}
+                    placeholder="例如：1 或 admin"
+                    className="w-full px-3 py-2 rounded-lg bg-black/30 border border-white/10 text-sm text-gray-100" />
+                </div>
+                <button onClick={() => loadGrant(grantKw.trim())} disabled={grantLoading}
+                  className="px-4 py-2 rounded-lg bg-blue-500/20 text-blue-300 border border-blue-500/30 text-xs">
+                  {grantLoading ? '查询中…' : '🔍 查询'}
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">套餐</label>
+                  <select value={grantPlanId} onChange={(e) => setGrantPlanId(e.target.value)}
+                    className="w-full px-2 py-2 rounded-lg bg-black/30 border border-white/10 text-xs text-gray-100">
+                    <option value="">（选套餐）</option>
+                    {grantPlans.map((p: any) => (
+                      <option key={p.id} value={p.id}>{p.name}（{p.durationMonths} 个月）</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">加多少天（留空=按套餐月数）</label>
+                  <input value={grantDays} onChange={(e) => setGrantDays(e.target.value)} placeholder="例如 30 / 365"
+                    className="w-full px-2 py-2 rounded-lg bg-black/30 border border-white/10 text-xs text-gray-100" />
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">加点数（负数=扣）</label>
+                  <input value={grantPoints} onChange={(e) => setGrantPoints(e.target.value)} placeholder="例如 5000"
+                    className="w-full px-2 py-2 rounded-lg bg-black/30 border border-white/10 text-xs text-gray-100" />
+                </div>
+                <div>
+                  <label className="text-[10px] text-gray-400 block mb-1">备注（写进流水，方便对账）</label>
+                  <input value={grantReason} onChange={(e) => setGrantReason(e.target.value)} placeholder="例如 老客户补偿"
+                    className="w-full px-2 py-2 rounded-lg bg-black/30 border border-white/10 text-xs text-gray-100" />
+                </div>
+              </div>
+              <p className="text-[10px] text-gray-500 mt-2">
+                续费**同一套餐**会在原到期日上累加（不会多开一条）；<b>加点数会写一条流水</b>（`manual`，0 元）。
+              </p>
+            </div>
+
+            {/* 用户列表 */}
+            <div className="card-glass p-4">
+              <h3 className="text-sm text-white mb-3">🎁 用户权益（{grantUsers.length}）</h3>
+              {grantUsers.length === 0 ? (
+                <p className="text-gray-500 text-xs">（还没有查询结果 —— 点上面的「🔍 查询」）</p>
+              ) : (
+                <div className="space-y-2">
+                  {grantUsers.map((u: any) => (
+                    <div key={u.id} className="flex flex-wrap items-center gap-3 p-3 rounded-lg bg-white/[0.03] border border-white/10">
+                      <div className="min-w-[180px]">
+                        <div className="text-sm text-gray-100">
+                          {u.name || u.username}
+                          <span className="text-gray-500 text-[10px] ml-2">#{u.id} · {u.username}</span>
+                          {u.role === 'admin' && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300">管理员</span>}
+                        </div>
+                        <div className="text-[10px] text-gray-500">{u.email || '（无邮箱）'}</div>
+                      </div>
+                      <div className="min-w-[200px]">
+                        <div className="text-[11px] text-gray-300">
+                          套餐：<b className={u.planName ? 'text-emerald-300' : 'text-gray-500'}>{u.planName || '无'}</b>
+                          {u.endDate && <span className="text-gray-500 ml-1">（{String(u.endDate).slice(0, 10)} 到期，剩 {u.daysLeft} 天）</span>}
+                        </div>
+                        <div className="text-[11px] text-gray-300">
+                          点数：<b className="text-amber-300">{u.pointBalance || 0}</b>
+                          {u.payMethod && <span className="text-gray-500 ml-1">（来源 {u.payMethod}）</span>}
+                        </div>
+                      </div>
+                      <div className="flex gap-2 ml-auto">
+                        <button onClick={() => doGrant(u, 'plan')} disabled={!!grantBusy}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[11px]">
+                          {grantBusy === u.id + 'plan' ? '处理中…' : '📅 开/续时长'}
+                        </button>
+                        <button onClick={() => doGrant(u, 'points')} disabled={!!grantBusy}
+                          className="px-3 py-1.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[11px]">
+                          {grantBusy === u.id + 'points' ? '处理中…' : '💎 加点数'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
