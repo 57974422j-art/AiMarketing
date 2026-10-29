@@ -523,9 +523,23 @@ export async function dhAdvance(ctx: { prisma: any; uid: number }, taskId: strin
     return { ok: true, state: 'done', videoUrl: d.videoUrl, repoName: d.repoName }
   }
 
-  const q = await wanS2vQuery(String(d.taskId))
-  if (!q) return { ok: true, state: 'running', waited: Math.round((Date.now() - Number(d.startedAt || Date.now())) / 1000) }
   const waited = Math.round((Date.now() - Number(d.startedAt || Date.now())) / 1000)
+  const q = await wanS2vQuery(String(d.taskId))
+  if (!q) {
+    /* ★VF_DH_QUERYFAIL_V1（2026-10-29 用户真机）：**查不到 ≠ 还在跑**。
+       实测：云端 `end_time` 是提交后 **9 秒**就 FAILED，可卡片一路"生成中"转到 510 秒 ——
+       因为查询一旦抛异常（null），这里无条件回 running，用户被蒙在鼓里。
+       现口径：确实查不到时，**15 分钟后如实报"查不到状态"**（并给出 taskId），
+       而不是让卡片继续装"正在生成"。 */
+    if (waited > 15 * 60) {
+      return {
+        ok: true, state: 'failed',
+        message: `查不到云端任务状态（已等 ${Math.round(waited / 60)} 分钟）。taskId=${d.taskId}\n`
+          + '这个号**先别取消**，把它发给开发者 —— 可能云端已经出片了，只是查询接口异常。',
+      }
+    }
+    return { ok: true, state: 'running', waited }
+  }
 
   if (q.status === 'SUCCEEDED' && q.videoUrl) {
     // 入库（幂等）：先落个人仓库，再签名给前端播（仓库私有；直链会过期）

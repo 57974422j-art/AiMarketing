@@ -223,6 +223,20 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
 
+### 2026-10-29：数字人「整单 FAILED」+「失败还一直转圈」（`VF_DH_AUDIO_MIME_V1` / `VF_DH_QUERYFAIL_V1`，✅ 已修）
+
+- **症状**：第 3 步「生成中」转了 510 秒；云端实际 `FAILED`（提交后 **9 秒**），`code:InvalidURL`，
+  `message:"File type is not supported. Allowed types are: .wav, .mp3."`。
+- **定因（两条，互相掩护）**：
+  1. `lib/oss.ts::uploadOSS` **从不设 `Content-Type`**（只设 ACL）⇒ Buffer 上传默认 `application/octet-stream`
+     ⇒ 云端按"文件类型不支持"拒单。**探针为何能成**：探针脚本显式传了 `mime:'audio/mpeg'` —— 与产品代码不是同一条上传路径。
+  2. `dh.ts::dhAdvance` 的 `if (!q) return running` —— **查不到 ≠ 还在跑**，查询异常就永久装"生成中"。
+- **改法**：uploadOSS 按扩展名给 Content-Type（mp3/wav/m4a/aac/ogg/mp4/webm/jpg/png/webp/gif）；查询拿不到且已等 >15 分钟
+  ⇒ 如实报"查不到云端任务状态"并给 taskId（提示先别取消）。
+- **顺带确认**：这次四步全绿（照片 12 张 / **检测 1.1s** / 配音 61 字 2.5s / 提交 0.6s）⇒ `VF_DH_DETECT_V2` 已生效；
+  失败按约定**不扣点**，草稿退回 `dh_copy`（照片/文案保留，卡片「改一下再生成」可续）。
+- **闸门**：`temp/_repo/test.mjs` ⑭ 3 条。**读数**：`tsc 90 = 基线` · 回归 **108/4**。
+
 ### 2026-10-29：数字人「这张照片不能用」= detect 端点写错（`VF_DH_DETECT_V2`，✅ 已修 + 5 条断言）
 
 - **症状**：第 2 步提交即回「这张照片不能用 / HTTP 400 `url error`」+ 一句"仅适用于华北2·北京"⇒ 让人以为是照片或地域问题。

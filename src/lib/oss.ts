@@ -156,9 +156,22 @@ export async function listAllObjects(prefix: string, hardCap = 5000): Promise<Ar
  */
 export async function uploadOSS(src: Buffer | string, ext: string, dir = 'dh'): Promise<string> {
   const oss = await getOSSClient()
-  const key = `${dir}/${Date.now()}_${Math.random().toString(36).substring(2, 6)}.${ext}`
+  const e = String(ext || '').replace(/^\./, '').toLowerCase()
+  const key = `${dir}/${Date.now()}_${Math.random().toString(36).substring(2, 6)}.${e}`
+  /* ★VF_DH_AUDIO_MIME_V1（2026-10-29 用户真机：数字人 100% FAILED，`code:InvalidURL`）
+     病灶：这里**从来没设 Content-Type**（只设了 ACL）⇒ ali-oss 收 Buffer 时默认发
+       `application/octet-stream` ⇒ 阿里云 wan2.2-s2v 直接判
+       「File type is not supported. Allowed types are: .wav, .mp3.」**整单失败**（提交 9 秒后就 FAILED）。
+     探针里之所以能成功，是因为手写的脚本显式传了 `mime:'audio/mpeg'` —— 正式代码没传。
+     现口径：按扩展名给 Content-Type（**必须显式传，别指望 OSS 自己猜**）。 */
+  const MIME: Record<string, string> = {
+    mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', aac: 'audio/aac', ogg: 'audio/ogg',
+    mp4: 'video/mp4', webm: 'video/webm',
+    jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif',
+  }
+  const mime = MIME[e] || 'application/octet-stream'
   // 传本地路径（string）或 buffer 都行 —— ali-oss 的 put 两种都吃
-  await oss.put(key, src as any, { headers: { 'x-oss-object-acl': 'public-read' } })
+  await oss.put(key, src as any, { mime, headers: { 'x-oss-object-acl': 'public-read' } })
   return `https://${process.env.OSS_BUCKET}.${process.env.OSS_REGION || 'oss-cn-hangzhou'}.aliyuncs.com/${key}`
 }
 

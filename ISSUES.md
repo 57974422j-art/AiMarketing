@@ -1,5 +1,38 @@
 > 最后更新：2026-10-27 ｜ 维护规则见 `AGENTS.md` 硬规则第 2 条（每次实质操作后同步三份文档）
 
+## ✅ 已解决（2026-10-29 · 数字人「整单 FAILED」+「失败后卡片一直转圈」）→ `VF_DH_AUDIO_MIME_V1` / `VF_DH_QUERYFAIL_V1`
+
+**症状**：数字人第 3 步「生成中」一路转到 **510 秒**；查云端才知道
+
+```json
+"task_status":"FAILED", "submit_time":"12:36:46", "end_time":"12:36:55",
+"code":"InvalidURL", "message":"File type is not supported. Allowed types are: .wav, .mp3."
+```
+
+即**提交后 9 秒就失败了**，但卡片毫不知情。
+
+**定因（两条，互相掩护）**
+
+1. **`lib/oss.ts::uploadOSS` 从不设 `Content-Type`** —— 那行只设了 `x-oss-object-acl: public-read`。
+   ali-oss 收 Buffer 时默认发 `application/octet-stream` ⇒ 云端按"文件类型不支持"直接拒单。
+   ⚠️ **为什么我前面的探针能成功**：探针脚本里显式写了 `mime:'audio/mpeg'`，
+   而**产品代码没写** —— 探针和产品不是同一条上传路径，这是我上一轮该核对而没核对的。
+2. **`dh.ts::dhAdvance` 的 `if (!q) return { state:'running' }`** —— **查不到 ≠ 还在跑**。
+   查询一旦抛异常就永久装"生成中"，于是云端 9 秒前就失败、卡片转了 510 秒（用户被蒙在鼓里）。
+
+**改法**
+- `uploadOSS` 按扩展名显式给 Content-Type（mp3/wav/m4a/aac/ogg/mp4/webm/jpg/png/webp/gif，未知才 octet-stream），ACL 不变。
+- 查询拿不到 **且已等 >15 分钟** ⇒ 如实回 `state:'failed'` + `taskId`（提示"先别取消，发给开发者"），不再无限转圈。
+
+**顺带确认（好消息）**：用户这次的步骤流四步全绿 —— 读仓库照片 12 张 / **检查照片 1.1s** / 合成配音 61 字 2.5s / 提交生成 0.6s
+⇒ 上一轮 `VF_DH_DETECT_V2` 确实生效了（detect 真的通了）。且**失败不扣点**，草稿退回 `dh_copy`，
+照片和文案都留着，卡片上的「改一下再生成」可以直接续这一单。
+
+**机器闸门（第 ⑭ 节，3 条）**：uploadOSS 必须显式给 mime · 仍保持 public-read · 查不到状态不许永久 running。
+**读数**：`tsc 90 = 基线` · 回归 **108 通过 / 4 失败**（4 条既有失败）。
+
+**⏳ 待部署实测**：重点数「开始生成」⇒ 云端不应再报 `File type not supported`，应真正进入排队/生成。
+
 ## ✅ 已解决（2026-10-29 · 数字人「这张照片不能用」= detect 端点写错，从上线起就没生效过）→ `VF_DH_DETECT_V2`
 
 **症状**：数字人第 2 步一提交就回「**这张照片不能用**，没有扣点、也没有提交。原因：HTTP 400 `InvalidParameter` / `url error, please check url！`」，
