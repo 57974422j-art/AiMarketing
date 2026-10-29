@@ -114,8 +114,12 @@ const logOf = (ctx: DhCtx) => (m: string) => { try { ctx.log?.(ctx.uid, m) } cat
 
 /* ==================== ② 草稿（SystemConfig 里自己一份） ==================== */
 const DRAFT_KEY = (uid: number | string) => 'dh_draft_' + String(uid)
-/** 草稿多久算过期（30 分钟）：出片 2~6 分钟，30 分钟足够"回来看一眼"；再久就当新的一单 */
-const DRAFT_TTL = 30 * 60 * 1000
+/** 草稿多久算过期。
+ *  ★VF_DH_TTL_V1（2026-10-29 用户实测「我录音 10 秒点结束，回我『这单已结束』」）：
+ *    原来 **30 分钟** —— 从"最后一次保存"算。但真实使用是：选完照片 → 停在文案卡想文案 / 去部署 / 去处理别的事 →
+ *    回来录音（还要 10~20 秒）⇒ 很容易越过 30 分钟，而越界后**任何卡片按钮都只会回"这一单已经结束了"**，
+ *    用户以为坏了。草稿只是一段 JSON（无成本）⇒ 放宽到 **2 小时**，仍保留 TTL 防"刷出几天前的单"。 */
+const DRAFT_TTL = 2 * 60 * 60 * 1000
 
 export async function loadDhDraft(prisma: any, uid: number | string): Promise<DhDraft | null> {
   try {
@@ -354,7 +358,13 @@ export async function handleDhLine(ctx: DhCtx): Promise<string | null> {
       if (String(f.at || '') === 'enroll') {
         const name = String(f.name || '').trim()
         if (!name) return '数字人：没收到音频文件名。重新上传一段 10~20 秒的朗读音频。'
-        if (!d0) return '这一单已经结束了。说「数字人」重开一张。'
+        if (!d0) {
+          /* ★VF_DH_TTL_V1：草稿过期/被清 ≠ 录音白录 —— 文件已经进个人仓库了，必须说清楚，避免用户重录一遍 */
+          log('[DH] enroll 收到声音样本，但草稿不存在或已过期（TTL 2h）')
+          return `数字人：这一单的草稿已经过期（**超过 2 小时没动会作废**）。\n`
+            + `好消息：**你刚才那段录音已经在个人仓库里了（${name}），不用重录**。\n`
+            + '先说「数字人」重开一单 → 选好照片 → 在文案卡点「⬆️ 或上传一段录音」把它选上就行。'
+        }
         const key = `storage/${uid}/${name}`
         let exists = false
         try { exists = await objectExists(key) } catch { exists = false }
