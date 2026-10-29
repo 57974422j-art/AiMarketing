@@ -1050,60 +1050,61 @@ async function dashscopeQueryVideoTask(taskId: string): Promise<{ taskId: string
  * <=20s 直接 wan2.2-s2v；>20s FFmpeg 切段 → 每段生成 → concat 拼接
  */
 /**
- * ★VF_DH_DETECT_V1（2026-10-27 数字人独立线）：**照片合规把关（同步接口）**
+ * ★VF_DH_DETECT_V2（2026-10-29 服务器探针定位：**端点写错，这条从来没生效过**）
  *
- * 官方 `wan2.2-s2v-detect` 是**同步**接口 ⇒ **不能带 `X-DashScope-Async` 头**
- *   （旧实现给它带了，等于告诉服务端"异步建任务"，于是拿不到 `results` / 拿不到人脸的 bbox）。
- * 返回分三种，**调用方必须分清**（照片不合规 ≠ 接口/地域出错，话术完全不同）：
- *   · `ok:true`                      → 通过，带上 face/ext bbox 给提交用
- *   · `ok:false, kind:'reject'`     → 图里没人脸 / 侧脸太远 ⇒ **拦住，不扣点不提交**
- *   · `ok:false, kind:'error'`      → 接口/鉴权/地域问题（wan2.2-s2v **仅华北2（北京）** 可用）
+ * 病灶（三条铁证，全是用户真机跑出来的）：
+ *   · 同一条公网图片 URL，`wan2.2-s2v` **提交成功**（拿到 task_id）⇒ Key / 地域 / 图片 / OSS 全都正常；
+ *   · detect 无论换图、压到 1080 宽、换成不存在的 example.com、**甚至不给 image_url**，全都回同一个
+ *     `InvalidParameter: url error`；
+ *   · 假模型名 `wan2.2-s2v-detect-nope` 却先回 `Model not exist.` ⇒ 模型校验在前 ⇒ 真模型名是合法的。
+ *   ⇒ 我们把 detect 打到了 `…/image2video/video-synthesis/`（那是**提交**的端点），而官方 detect 是另一个端点：
+ *     `POST …/api/v1/services/aigc/image2video/face-detect`。
+ *     打到 video-synthesis 上，服务端在找它自己的入参（还缺 audio_url）⇒ 只能回一句 "url error" ——
+ *     所以之前那句"这张照片不能用"是**假报错**，与照片、与地域都无关。
+ *
+ * 官方口径（help.aliyun.com/zh/model-studio/wan-s2v-detect-api，2026-10 现行）：
+ *   请求 = `{ model:'wan2.2-s2v-detect', input:{ image_url } }` —— **只有这两个字段，没有 parameters**
+ *   响应 = `{ output:{ check_pass:boolean, humanoid:boolean }, usage:{ image_count:1 } }`
+ *   ⚠️ **不返回人脸框**（没有 face_bbox/ext_bbox）⇒ 提交时也不要再传 bbox（官方 input 只有 image_url/audio_url）
+ *   ⚠️ 判据必须**两项都看**：`check_pass` = 图片合规（格式/尺寸 400~7000px）；
+ *      `humanoid` = 确实是人物照。实测：一张火锅图 ⇒ `check_pass:true, humanoid:false`
+ *      —— 只看 check_pass 会把"没有人的图"放过去，到提交才失败。
+ * 返回分三种，**调用方必须分清**（照片不合规 ≠ 接口出错，话术完全不同）：
+ *   · `ok:true`                      → 通过
+ *   · `ok:false, kind:'reject'`     → 图片不合规 / 没有人像 ⇒ **拦住，不扣点不提交**
+ *   · `ok:false, kind:'error'`      → 接口/鉴权/网络问题（wan2.2-s2v **仅华北2（北京）** 可用）
  */
 export async function wanS2vDetect(imageUrl: string): Promise<{
   ok: boolean
   kind?: 'reject' | 'error'
+  /** 官方 face-detect **不再返回人脸框**；保留字段只为兼容旧调用点（恒为 undefined） */
   face?: number[]
   ext?: number[]
   reason?: string
 }> {
   const key = getDashScopeKey()
   if (!key) return { ok: false, kind: 'error', reason: '未配置 DASHSCOPE_API_KEY' }
-  const judge = (out: any): { ok: boolean; kind?: 'reject' | 'error'; face?: number[]; ext?: number[]; reason?: string } => {
-    const rr = out?.results?.[0]
-    if (!rr) return { ok: false, kind: 'reject', reason: '接口没有返回检测结果（这张图多半不是单人正脸）' }
-    const face = rr.face_bbox || rr.face_bboxes?.[0]
-    const ext = rr.ext_bbox || rr.ext_bboxes?.[0]
-    // `pass` 明说 false ⇒ 不合规；说了 true 或有 bbox ⇒ 通过
-    if (rr.pass === false) return { ok: false, kind: 'reject', reason: String(rr.message || rr.reason || '照片未通过人脸检测') }
-    if (rr.pass === true || face) return { ok: true, face, ext }
-    return { ok: false, kind: 'reject', reason: '没检测到可用的人脸' }
+  const judge = (out: any): { ok: boolean; kind?: 'reject' | 'error'; reason?: string } => {
+    if (!out || typeof out !== 'object') return { ok: false, kind: 'error', reason: '检测接口没有返回内容' }
+    // ① 图片本身合规吗（格式/尺寸）
+    if (out.check_pass !== true) {
+      return { ok: false, kind: 'reject', reason: '图片不合规（要求 jpg/png/bmp/webp，宽高都在 400~7000px 之间）' }
+    }
+    // ② 图里真有人吗 —— 这一项才是"能不能做数字人"，与 check_pass 无关
+    if (out.humanoid !== true) {
+      return { ok: false, kind: 'reject', reason: '没检测到人像 —— 这张看起来不是人物照（数字人要单人 · 正面 · 露脸 · 别太远）' }
+    }
+    return { ok: true }
   }
   try {
-    const det = await fetchJSON(`${DH_BASE}/video-synthesis/`, {
+    const det = await fetchJSON(`${DH_BASE}/face-detect`, {
       method: 'POST',
-      // ★不带 X-DashScope-Async —— 这是同步接口
+      // ★不带 X-DashScope-Async —— 这是**同步**接口
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-      body: JSON.stringify({ model: 'wan2.2-s2v-detect', input: { image_url: imageUrl }, parameters: { resolution: 480 } }),
+      // ★只有 model + input.image_url，**不能带 parameters**（官方无此字段）
+      body: JSON.stringify({ model: 'wan2.2-s2v-detect', input: { image_url: imageUrl } }),
       timeoutMs: 60000,
     } as any)
-    // 万一服务端仍按异步返回（只有 task_id）→ 短轮询一次把它等回来，避免把"能过"判成"不过"
-    const tid = det?.output?.task_id
-    if (tid && !det?.output?.results) {
-      for (let i = 0; i < 10; i++) {
-        await new Promise((r) => setTimeout(r, 1500))
-        try {
-          const q = await fetchJSON(`https://dashscope.aliyuncs.com/api/v1/tasks/${tid}`, {
-            headers: { 'Authorization': `Bearer ${key}` },
-          }, 0)
-          const st = q?.output?.task_status
-          if (st === 'SUCCEEDED') return judge(q.output)
-          if (st === 'FAILED' || st === 'CANCELED') {
-            return { ok: false, kind: 'reject', reason: String(q?.output?.message || q?.output?.code || '检测任务失败') }
-          }
-        } catch { /* 继续等 */ }
-      }
-      return { ok: false, kind: 'error', reason: '照片检测超时（可稍后重试）' }
-    }
     return judge(det?.output)
   } catch (e: any) {
     const msg = String(e?.message || e)

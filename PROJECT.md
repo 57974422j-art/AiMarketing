@@ -223,6 +223,19 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
 
+### 2026-10-29：数字人「这张照片不能用」= detect 端点写错（`VF_DH_DETECT_V2`，✅ 已修 + 5 条断言）
+
+- **症状**：第 2 步提交即回「这张照片不能用 / HTTP 400 `url error`」+ 一句"仅适用于华北2·北京"⇒ 让人以为是照片或地域问题。
+- **真机探针（用户执行）**：签名 URL 直取 200/4MB；换 public-read 干净直链仍报错；压到 1080/124KB 仍报错；
+  假模型名回 `Model not exist.`（⇒ 模型名合法）；**不给 image_url 也是同一个 `url error`**（⇒ 没读这个字段）；
+  **同一图同一 URL 用 `wan2.2-s2v` 提交成功拿到 task_id**（⇒ Key/地域/OSS/图全正常）。
+- **定因（官方文档）**：detect 端点是 `…/image2video/**face-detect**`，我们打到 `…/video-synthesis/`（提交的端点，还缺 audio_url）；
+  官方 detect 也**没有 `parameters` 字段**，返回是 `output.check_pass` + `output.humanoid`，**不返回人脸框**。
+- **改法**：端点 `/face-detect`、body 只留 `{model, input.image_url}`、判据改 **`check_pass && humanoid`**
+  （火锅图实测 `check_pass:true, humanoid:false`，只看前者会放过无人的图）、提交不再传 `bbox`。
+- **闸门**：`temp/_repo/test.mjs` ⑬ 5 条（端点/不许回退 video-synthesis/不许带 parameters/判据两项/不传 bbox）。
+- **读数**：`tsc 90 = 基线` · 回归 **105/4**（4 条既有失败）。
+
 ### 2026-10-27：数字人「没出卡、AI 跑去翻仓库」（`VF_DH_DUP_V1`，✅ 已修 + 3 条断言）
 
 - **症状**：标准模式说「帮我生成一个数字人口播」→ 没有数字人卡，主 AI 执行 `list_personal_files` 回"个人仓库找到10个文件"。

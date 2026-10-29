@@ -463,9 +463,11 @@ async function submitDh(ctx: DhCtx, d: DhDraft | null, f: any): Promise<string> 
 
   // ⑥ 提交任务（已自己检测过 ⇒ skipDetect，省一次检测的钱与时间）
   const _tSub = Date.now()
-  const taskId = await wanS2vSubmit(photoUrl, audioUrl, {
-    resolution: res, skipDetect: true, bbox: { face: det.face, ext: det.ext },
-  })
+  // ★VF_DH_DETECT_V2（2026-10-29）：官方 face-detect **不返回人脸框**（只有 check_pass / humanoid），
+  //   而提交接口的 input 也只认 `image_url` / `audio_url` ⇒ 不再传 bbox。
+  //   （原来传的 `{face:det.face, ext:det.ext}` 恒为 undefined，纯属"看起来传了其实没传"。）
+  //   detect 只当**把关**用：过了就走提交，没过就拦住不扣点。
+  const taskId = await wanS2vSubmit(photoUrl, audioUrl, { resolution: res, skipDetect: true })
   if (!taskId) {
     ctx.step?.('提交失败')
     log('[DH] 提交任务失败（wan2.2-s2v 返回空 task_id）')
