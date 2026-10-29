@@ -88,7 +88,17 @@ export const STD_COMMANDS: StdCommand[] = [
   // ── 单步（现成、可用；批2 收窄为"只给这一个工具"）──────────────────────
   { id: 'copy',     text: '帮我写一个小红书文案',      kind: 'tool',    note: '工具 generate_copy（平台=小红书）' },
   { id: 'poster',   text: '帮我生成一张产品海报',      kind: 'tool',    note: '工具 generate_image（会先搜公共模板）' },
-  { id: 'digital',  text: '帮我生成一个数字人口播',    kind: 'tool',    note: '工具 digital_human_speak' },
+  // ★VF_DH_DUP_V1（2026-10-27 用户实测「说『帮我生成一个数字人口播』没出卡，AI 跑去翻仓库」）：
+  //   **这里原来还有一条** `{ id:'digital', text:'帮我生成一个数字人口播', kind:'tool' }` ——
+  //   而 `matchStdCommand` 是【按数组顺序、先比 text 再比 alias】：
+  //     · 本行在上（老），`dh`（`{id:'dh', text:'数字人', kind:'machine', alias:[…,'帮我生成一个数字人口播']}`）在下；
+  //     · ⇒ 这句话永远先命中老的 `digital`（kind:'tool'）⇒ `stdEnterMachine` 不置位
+  //       ⇒ `skipModelStep1=false` ⇒ **AI 那一步照跑**，而 `stdCmdOwned(['dh'])` 又为 false
+  //       ⇒ 数字人分派被让位 ⇒ AI 自己去 `list_personal_files` 翻仓库找照片，回一句"个人仓库找到 N 个文件"。
+  //   `VF_DH_BTN_V1` 当初只是**把它加成 dh 的 alias**，没删这条 ⇒ 同一句话两处登记，先到先赢。
+  //   现口径：**删掉这条老命令**（数字人已整条迁到 `dh` 状态机；`digital_human_speak` 工具本身保留，
+  //   自由模式/其它路径仍可调）。前端那个按钮文字没改，仍然通过 `dh` 的 alias 命中本线。
+  //   ⚠️ 教训：**同一句话只许登记一次**（机器闸门：`temp/_repo/test.mjs` 会扫全表 text + alias 去重）。
   // ── ★VF_FILMLINE_V1（2026-10-08，用户定案）：新的制作模式（第 8 条线）──
   //   用户原话：「新的制作模式我怎么在 AGENT 页测试」+「我们现在所有做的都是标准模式下状态机激发的，
   //   自由模式现在就是一个纯空壳」⇒ **必须登记进本表**，否则标准模式把它当"非命令"直接锁死

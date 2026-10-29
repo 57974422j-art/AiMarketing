@@ -223,6 +223,20 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
 
+### 2026-10-27：数字人「没出卡、AI 跑去翻仓库」（`VF_DH_DUP_V1`，✅ 已修 + 3 条断言）
+
+- **症状**：标准模式说「帮我生成一个数字人口播」→ 没有数字人卡，主 AI 执行 `list_personal_files` 回"个人仓库找到10个文件"。
+- **定因**：命令表里**同一句话登记了两次**。老的 `{id:'digital', text:'帮我生成一个数字人口播', kind:'tool'}` 排在
+  `dh`（`{text:'数字人', kind:'machine', alias:[…,这句]}`）**前面**，而 `matchStdCommand` 按数组顺序**先比 text 再比 alias**
+  ⇒ 永远命中 `tool` 类 ⇒ `stdEnterMachine` 不置位（`route.ts:3539`）⇒ `skipModelStep1=false`（AI 那步照跑）
+  + `stdCmdOwned(['dh'])` 为 false（数字人分派让位）⇒ AI 自己去翻仓库找照片。
+  （`VF_DH_BTN_V1` 当初只把它加成 alias，没删老命令。）
+- **改法**：删掉老 `digital` 命令（`digital_human_speak` 工具保留；前端按钮文字不动，仍走 dh 的 alias）。
+- **闸门**：`temp/_repo/test.mjs` ⑫ 扫 `STD_COMMANDS` 的 **text + alias 全表去重** + 该句只能是 dh 的 alias + dh 必须是 machine。
+- **读数**：`tsc 90 = 基线` · 回归 **100/4**（4 条为既有失败）。
+- **排查记录（免得下次再绕）**：我先误判"服务器是旧代码"，被实测证伪（`.next/server` 有 `VF_DH_FORM`、`BUILD_ID 13:44 < 测试 14:59`）；
+  另外用户那条 pm2 grep 里 `$$…$$` 被 shell 换成 PID ⇒ 空输出是命令写坏，不是证据。
+
 ### 2026-10-27：设置卡「只改设置」不再整单重来（`VF_FORMAPPLY_V1`，✅ 已修 + 6 条断言 + tsc 基线）
 
 - **症状**：分镜确认卡（`step='script'`）已出来，点「⚙ 设置」只换音色 → **又看图、又写文案、又排分镜**（烧点 + 等十几秒）。
