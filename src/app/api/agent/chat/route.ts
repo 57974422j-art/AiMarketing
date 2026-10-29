@@ -70,6 +70,9 @@ import { ANTI_AI_PROMPT, sanitizeAntiAiShots, pickDesignFields, lockUserTheme, s
 // ★VF_FORMAPPLY_V1（2026-10-27 用户实测「只想改个音色 → 整单重来」）：
 //   设置卡表单（VF_FORM:{…}）→ 草稿的字段解析只有**一份**实现，起草阶段与分镜卡阶段共用（零漂移）。
 import { applyVfFormFields } from '@/lib/agent/vf/vf-form'
+// ★VF_DH_VOICE_V2（2026-10-29）：数字人文案卡要列**官方 48 音色里的 hot 那批**（Cherry/Ethan/Kai…，
+//   带 gender 才能在卡上标"男/女"）。上面那份 VF_VOICE_BASE 是老命名（龙小淳…），只留给图片成片线，不动它。
+import { TTS_VOICES } from '@/lib/agent/vf/tts-voices'
 // ★VF_MOTIONPPT_WIRE_V1（2026-09-30）：把「长镜必须有动效」的档位接进【图片成片线】的分镜提示词
 //   （与「视频混剪」线共用 anti-ai.ts 里同一份常量，两条线的字段说明与硬规矩逐字一致），
 //   并在 genVideoShots 出口跑服务端兜底 ensurePersistentMotion（AI 忘写时给 title/end 长镜补 grow）。
@@ -4525,8 +4528,11 @@ PUBLISH_DRAFT.delete(uidW)
               userMessage,
               auth,
               // ★VF_DH_VOICE_V1（2026-10-29 用户实测「男的数字人配女声」）：卡片要让人选配音。
-              //   音色白名单**只有一份**（vf/tts-voices 的 48 个），这里把营销常用的那批注入本线。
-              voiceList: VF_VOICE_BASE,
+              // ★VF_DH_VOICE_V2（2026-10-29 用户截图反馈「怎么还是龙小淳这些老名字」）：
+              //   这里原来注入的是上面那份**老清单** `VF_VOICE_BASE`（longxiaochun/龙小淳…），
+              //   而官方 48 个音色在 `TTS_VOICES`（Cherry/Ethan/Kai…，带 gender）—— 两者是两套命名。
+              //   数字人这条线（新建的）直接给**官方 hot 那批**（默认 Ethan 男声也在里面）。
+              voiceList: TTS_VOICES.filter((v) => v.hot).map((v) => ({ id: v.id, name: v.name, gender: v.gender })),
               log: (u: number | string, m: string) => { try { vfLog(u, m) } catch { /* ignore */ } },
               step: (label: string, extra?: { tool?: string; since?: number; args?: string }) =>
                 pushStep(label, { tool: 'dh', forOrder: true, ...(extra || {}) }),

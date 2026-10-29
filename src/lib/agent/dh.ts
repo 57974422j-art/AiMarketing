@@ -258,8 +258,10 @@ function copyCard(d: DhDraft, photoUrl: string, note?: string, voiceList?: any[]
   /** ★VF_DH_VOICE_V1：卡片上要选的音色（只给营销常用的一批，避免 48 个把卡片撑爆） */
   const voices = ((voiceList && voiceList.length ? voiceList : [{ id: DH_DEFAULT_VOICE, name: '晨煦', gender: '男' }]) as any[])
     .filter((v) => v && v.id)
-    .slice(0, 16)
     .map((v) => ({ id: String(v.id), name: String(v.name || v.id), gender: String(v.gender || '') }))
+    // ★VF_DH_VOICE_V2：男声排前面 —— 数字人多数是男性形象，先看到男声省一次找
+    .sort((a, b) => (a.gender === b.gender ? 0 : a.gender === '男' ? -1 : 1))
+    .slice(0, 16)
   return 'VF_JSON:' + JSON.stringify({
     step: 'dh_copy',
     dhLine: true,
