@@ -194,8 +194,13 @@ export default function VfDhCard({ vj, onSend }: { vj: any; onSend: (msg: string
   )
 }
 
-/* ── 上传一张照片（只有这一处上传；本线只要**一张**）────────────────────────────── */
-function UploadOne({ onDone }: { onDone: (name: string) => void }) {
+/* ── 上传一个文件（照片 / 声音样本共用；本线只要**一个**）──────────────────────────── */
+function UploadOne({ onDone, accept = 'image/*', label = '⬆️ 上传一张照片' }: {
+  onDone: (name: string) => void
+  /** ★VF_DH_VOICE_V1：声音样本要放开音频类型 */
+  accept?: string
+  label?: string
+}) {
   const ref = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
@@ -230,8 +235,8 @@ function UploadOne({ onDone }: { onDone: (name: string) => void }) {
       <button
         onClick={() => { if (!busy) ref.current?.click() }}
         className={BTN + ' ' + (busy ? BTN_IDLE : BTN_ON)}
-      >{busy ? '⏳ 上传中…' : '⬆️ 上传一张照片'}</button>
-      <input ref={ref} type="file" accept="image/*" className="hidden"
+      >{busy ? '⏳ 上传中…' : label}</button>
+      <input ref={ref} type="file" accept={accept} className="hidden"
         onChange={(e: any) => { doUpload(e.target.files); e.target.value = '' }} />
       {err ? <span className="text-[10px] text-red-400 ml-2">{err}</span> : null}
     </div>
@@ -242,6 +247,11 @@ function UploadOne({ onDone }: { onDone: (name: string) => void }) {
 function CopyForm({ vj, onSend }: { vj: any; onSend: (msg: string) => void }) {
   const [script, setScript] = useState<string>(String(vj?.script || ''))
   const [res, setRes] = useState<'480P' | '720P'>(String(vj?.res || '') === '720P' ? '720P' : '480P')
+  /* ★VF_DH_VOICE_V1（2026-10-29 用户实测「男的数字人配了女声」）：配音选择。
+     默认值由服务端下发（现在是男声 Ethan），选项也由服务端下发（白名单只在 vf/tts-voices 一处）。 */
+  const [voice, setVoice] = useState<string>(String(vj?.voice || 'Ethan'))
+  const voices = (Array.isArray(vj?.voices) ? vj.voices : []) as Array<{ id: string; name: string; gender: string }>
+  const hasClone = !!vj?.clone?.voiceId
 
   const cps = Number(vj?.cps) || 4
   const prices = (vj?.prices || { '480P': 50, '720P': 90 }) as Record<string, number>
@@ -269,6 +279,33 @@ function CopyForm({ vj, onSend }: { vj: any; onSend: (msg: string) => void }) {
           >← 换一张</button>
         </div>
       </div>
+
+      {/* ★VF_DH_VOICE_V1：配音（原来整张卡没有这一块 ⇒ 永远吃默认女声，用户实测「男的数字人配女声」） */}
+      <div className="text-[10px] text-gray-400 mb-1">配音（按照片性别选）</div>
+      <div className="flex flex-wrap gap-1.5 mb-2 max-h-[92px] overflow-y-auto pr-1">
+        {hasClone ? (
+          <button onClick={() => setVoice('clone')} title={String(vj?.clone?.model || '')}
+            className={BTN + ' ' + (voice === 'clone' ? BTN_ON : BTN_IDLE)}>
+            🎤 我的音色（克隆）
+          </button>
+        ) : null}
+        {voices.map((v) => (
+          <button key={v.id} onClick={() => setVoice(v.id)} title={v.id}
+            className={BTN + ' ' + (voice === v.id ? BTN_ON : BTN_IDLE)}>
+            {v.gender ? v.gender + ' · ' : ''}{v.name}
+          </button>
+        ))}
+      </div>
+      {!hasClone ? (
+        <div className="mb-2">
+          <UploadOne
+            accept="audio/*,.wav,.mp3,.m4a"
+            label="⬆️ 上传我的声音（10~20 秒朗读，克隆专属音色）"
+            onDone={(name) => onSend('VF_DH_FORM:' + JSON.stringify({ at: 'enroll', name }))}
+          />
+          <div className="text-[9px] text-gray-600 mt-1">建音色免费（合成才计费）；样本要求：单人、清晰、别带 BGM。</div>
+        </div>
+      ) : null}
 
       <div className="text-[10px] text-gray-400 mb-1">文案（要念出来的话）</div>
       <textarea
@@ -302,7 +339,7 @@ function CopyForm({ vj, onSend }: { vj: any; onSend: (msg: string) => void }) {
       <div className="flex items-center gap-2 mt-3">
         <button
           disabled={n < 4 || tooLong}
-          onClick={() => onSend('VF_DH_FORM:' + JSON.stringify({ at: 'copy', script, res }))}
+          onClick={() => onSend('VF_DH_FORM:' + JSON.stringify({ at: 'copy', script, res, voice }))}
           className={'px-4 py-1.5 rounded-lg text-sm font-medium ' + ((n < 4 || tooLong)
             ? 'bg-white/[0.06] text-gray-500 cursor-not-allowed'
             : 'bg-cyan-500/70 hover:bg-cyan-500 text-white')}

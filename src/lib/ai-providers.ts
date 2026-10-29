@@ -2897,60 +2897,123 @@ export async function isAIConfigured(): Promise<boolean> {
   return !!(process.env.DASHSCOPE_API_KEY || process.env.VOLCANO_API_KEY || process.env.SILICONFLOW_API_KEY);
 }
 
-// ===================== CosyVoice 声音克隆 =====================
-
+// ===================== 声音复刻 / 声音克隆（voice-enrollment） =====================
+/* ★VF_DH_CLONE_V1（2026-10-29 **服务器实测通过**后重写；旧实现 4 处字段与官方不符 ⇒ 这条链路从来没跑通过）：
+   官方（help.aliyun.com/zh/model-studio/cosyvoice-clone-api）：
+     · 建音色  POST {base}/customization
+              { model:'voice-enrollment', input:{ action:'create_voice', target_model, prefix, audio:<公网URL> } }
+        ⚠️ 参考音频字段是 **`audio`**，不是 `url`；
+        ⚠️ `target_model` 不能是 `cosyvoice-v1`（已不在支持列表）→ 可选 cosyvoice-v2/v3*、qwen-audio-3.x-tts-*；
+     · **必须轮询部署** 同一端点 { action:'query_voice', voice_id } 直到 output.status === 'OK'
+        （旧实现没有这步 ⇒ 刚建好就合成，音色其实还没就绪）；
+     · 合成   POST {base}/SpeechSynthesizer
+              { model:<必须等于建音色时的 target_model>, input:{ text, voice:<voice_id>, format:'wav', sample_rate:24000 } }
+        ⚠️ 端点不是 `/synthesis`；返回是 `output.audio.url`（旧代码读 `output.audio_url`）。
+   实测（2026-10-29 用户服务器，三个 target_model 全部通过）：
+     qwen-audio-3.1-tts-flash / cosyvoice-v2 / qwen-audio-3.0-tts-flash → create 200 → query_voice=OK → 合成 200 → WAV。
+   默认选 **qwen-audio-3.1-tts-flash**：比 3.0 新一档，且与我们现有 qwen3-tts-flash 同族（音色风格更接近）。
+*/
 const COSY_BASE = 'https://dashscope.aliyuncs.com/api/v1/services/audio/tts'
+export const DH_CLONE_MODEL = 'qwen-audio-3.1-tts-flash'
 
-/** 注册声音：上传10-20秒音频 → 返回 voice_id */
-async function dashscopeVoiceEnroll(audioUrl: string, prefix = ''): Promise<{ voiceId: string } | null> {
+/** 从 voice_id 前缀反推 target_model（voiceId 形如 `qwen-audio-3.1-tts-flash-<prefix>-<hash>`） */
+export function modelOfVoiceId(voiceId: string): string {
+  const v = String(voiceId || '')
+  if (/^qwen-audio-[\d.]+-(?:tts|realtime)-(?:flash|plus)-/.test(v)) {
+    return v.replace(/^(qwen-audio-[\d.]+-(?:tts|realtime)-(?:flash|plus))-.*$/, '$1')
+  }
+  if (/^cosyvoice-v[\d.]+/.test(v)) return v.replace(/^(cosyvoice-v[\d.]+(?:-(?:flash|plus))?)-.*$/, '$1')
+  return DH_CLONE_MODEL
+}
+
+/** 建音色 + 等部署就绪。返回 voiceId 与它绑定的 target_model（合成时必须原样传回）。 */
+async function dashscopeVoiceEnroll(
+  audioUrl: string, prefix = '', targetModel = DH_CLONE_MODEL,
+): Promise<{ voiceId: string; model: string } | null> {
   const key = getDashScopeKey()
   if (!key) return null
+  const post = (body: any) => fetchJSON(`${COSY_BASE}/customization`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+    body: JSON.stringify(body),
+  })
   try {
-    const body = {
+    console.log('[声音复刻] create_voice, model=', targetModel, 'audio=', audioUrl.substring(0, 80))
+    const data = await post({
       model: 'voice-enrollment',
-      input: { action: 'create_voice', target_model: 'cosyvoice-v1', prefix: prefix || `dh_${Date.now()}`, url: audioUrl },
-    }
-    console.log('[CosyVoice] 注册声音, audio_url:', audioUrl.substring(0, 80))
-    const data = await fetchJSON(`${COSY_BASE}/customization`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-      body: JSON.stringify(body),
+      input: {
+        action: 'create_voice',
+        target_model: targetModel,
+        prefix: prefix || `dh${Date.now().toString().slice(-6)}`,
+        audio: audioUrl,                       // ★官方字段名是 audio（旧代码写成 url ⇒ 必然失败）
+      },
     })
-    const voiceId = data?.output?.voice_id || data?.output?.result?.voice_id
-    if (!voiceId) { console.error('[CosyVoice] 注册失败:', JSON.stringify(data).substring(0, 300)); return null }
-    console.log('[CosyVoice] 注册成功, voiceId:', voiceId)
-    return { voiceId }
-  } catch (e) { console.error('[CosyVoice] 注册异常:', e); return null }
+    const voiceId = String(data?.output?.voice_id || '')
+    if (!voiceId) {
+      console.error('[声音复刻] 创建失败:', JSON.stringify(data).substring(0, 300))
+      return null
+    }
+    // ★必须等部署就绪：DEPLOYING → 继续等；OK → 可用（官方示例 30s 上限）
+    let status = ''
+    for (let i = 0; i < 20; i++) {
+      const q = await post({ model: 'voice-enrollment', input: { action: 'query_voice', voice_id: voiceId } })
+      status = String(q?.output?.status || '')
+      if (status === 'OK') break
+      if (status && status !== 'DEPLOYING') {
+        console.error('[声音复刻] 部署状态异常:', status, JSON.stringify(q).substring(0, 200))
+        return null
+      }
+      await new Promise((r) => setTimeout(r, 1500))
+    }
+    if (status !== 'OK') { console.error('[声音复刻] 部署超时，最后状态:', status); return null }
+    console.log('[声音复刻] 就绪 voiceId=', voiceId)
+    return { voiceId, model: targetModel }
+  } catch (e: any) { console.error('[声音复刻] 异常:', String(e?.message || e).slice(0, 200)); return null }
 }
 
-/** 用克隆的声音合成文字→音频（返回音频URL） */
-async function dashscopeVoiceSynthesize(voiceId: string, text: string, ): Promise<{ audioUrl: string } | null> {
+/** 用克隆音色合成 → 直接返回音频字节（WAV）。数字人线要的是字节（再上传 OSS 给 s2v 拉）。 */
+export async function voiceCloneAudio(
+  voiceId: string, text: string, model?: string,
+): Promise<ArrayBuffer | null> {
   const key = getDashScopeKey()
-  if (!key) return null
+  if (!key || !voiceId || !text) return null
+  const tm = model || modelOfVoiceId(voiceId)
   try {
-    const body = {
-      model: 'cosyvoice-v1',
-      input: { text },
-      parameters: { voice: voiceId, format: 'mp3' },
-    }
-    console.log('[CosyVoice] 语音合成, voiceId:', voiceId, 'textLen:', text.length)
-    const data = await fetchJSON(`${COSY_BASE}/synthesis`, {
+    const data = await fetchJSON(`${COSY_BASE}/SpeechSynthesizer`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-      body: JSON.stringify(body),
+      body: JSON.stringify({
+        model: tm,
+        input: { text, voice: voiceId, format: 'wav', sample_rate: 24000 },
+      }),
     })
-    // 返回可能是直接音频 URL 或需要再查询
-    const audioUrl = data?.output?.audio_url || data?.output?.url || data?.output?.result?.audio_url
-    if (!audioUrl) { console.error('[CosyVoice] 合成失败:', JSON.stringify(data).substring(0, 300)); return null }
-    console.log('[CosyVoice] 合成成功, urlLen:', audioUrl.length)
+    const url = String(data?.output?.audio?.url || data?.output?.audio_url || '')
+    if (!url) { console.error('[声音复刻] 合成无 url:', JSON.stringify(data).substring(0, 300)); return null }
+    const r = await fetch(url, { signal: AbortSignal.timeout(60000) })
+    if (!r.ok) { console.error('[声音复刻] 音频下载失败 HTTP', r.status); return null }
+    const buf = await r.arrayBuffer()
+    console.log('[声音复刻] 合成成功', Math.round(buf.byteLength / 1024), 'KB, model=', tm)
+    return buf
+  } catch (e: any) { console.error('[声音复刻] 合成异常:', String(e?.message || e).slice(0, 200)); return null }
+}
+
+export async function enrollVoice(audioUrl: string, prefix?: string, targetModel?: string) {
+  return dashscopeVoiceEnroll(audioUrl, prefix, targetModel)
+}
+
+/** 兼容旧调用（老数字人页面用）：返回音频 URL */
+export async function synthesizeVoiceTTS(voiceId: string, text: string, model?: string) {
+  const key = getDashScopeKey()
+  if (!key || !voiceId || !text) return null
+  const tm = model || modelOfVoiceId(voiceId)
+  try {
+    const data = await fetchJSON(`${COSY_BASE}/SpeechSynthesizer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({ model: tm, input: { text, voice: voiceId, format: 'wav', sample_rate: 24000 } }),
+    })
+    const audioUrl = String(data?.output?.audio?.url || '')
+    if (!audioUrl) { console.error('[声音复刻] 合成失败:', JSON.stringify(data).substring(0, 300)); return null }
     return { audioUrl }
-  } catch (e) { console.error('[CosyVoice] 合成异常:', e); return null }
-}
-
-export async function enrollVoice(audioUrl: string, prefix?: string) {
-  return dashscopeVoiceEnroll(audioUrl, prefix)
-}
-
-export async function synthesizeVoiceTTS(voiceId: string, text: string) {
-  return dashscopeVoiceSynthesize(voiceId, text)
+  } catch (e: any) { console.error('[声音复刻] 合成异常:', String(e?.message || e).slice(0, 200)); return null }
 }

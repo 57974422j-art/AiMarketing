@@ -29,7 +29,9 @@
 import { listRepoMaterials } from '@/lib/agent/video-material'
 import { signedUrl, objectExists, uploadOSS } from '@/lib/oss'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
-import { textToSpeech, wanS2vDetect, wanS2vSubmit, wanS2vQuery } from '@/lib/ai-providers'
+// ★VF_DH_CLONE_V1（2026-10-29）：多接两个「声音复刻」能力 —— `enrollVoice` 建音色、`voiceCloneAudio` 用它念文案。
+//   两者都走 ai-providers 里**实测通过**的那一套（官方 audio/query_voice/SpeechSynthesizer 字段）。
+import { textToSpeech, wanS2vDetect, wanS2vSubmit, wanS2vQuery, enrollVoice, voiceCloneAudio, DH_CLONE_MODEL } from '@/lib/ai-providers'
 import { checkTokens, spendTokens, dhCostOf, DH_POINTS_PER_SEC } from '@/lib/token-wallet'
 
 /* ==================== ① 常量（口径只在这里写一次） ==================== */
@@ -51,6 +53,14 @@ export interface DhDraft {
   photo?: string
   /** 文案（要念出来的话） */
   script?: string
+  /* ★VF_DH_VOICE_V1（2026-10-29 用户实测「男的数字人配了女声」）：配音选择。
+     `voice` = 百炼预设音色 id（Cherry/Ethan/Kai…，白名单在 vf/tts-voices）或 **'clone'**（用克隆音色）。
+     原来这条线调 `textToSpeech(script)` 不传 speaker ⇒ 永远吃默认女声（zh_female_vv_uranus_bigtts→diana）。 */
+  voice?: string
+  /** 克隆音色 ID（`voice==='clone'` 时使用；由「上传 10~20 秒本人朗读」那一步建出来） */
+  cloneVoiceId?: string
+  /** 克隆音色绑定的 target_model（合成时必须原样传，官方要求"音色不能跨模型"） */
+  cloneModel?: string
   /** 分辨率（默认 480P；720P 价格翻倍，必须明示） */
   res?: '480P' | '720P'
   /** 提交出去的任务号（wan2.2-s2v 的 task_id） */
@@ -84,7 +94,14 @@ export interface DhCtx {
   log?: (uid: number | string, msg: string) => void
   /** ★VF_TASK_TRACE_V1：执行步骤上报（右侧通用面板用）；可选，没注入就静默跳过 */
   step?: (label: string, extra?: { tool?: string; since?: number; args?: string }) => void
+  /** ★VF_DH_VOICE_V1：可配音色（route.ts 传 `VF_VOICE_BASE`）；没注入就退回只给默认男声一项 */
+  voiceList?: any[]
 }
+
+/** ★VF_DH_VOICE_V1：默认音色 = **男声 Ethan（晨煦）**。
+ *  为什么改默认：用户实测上传男性人像，出来是女声 —— 原来 `textToSpeech` 的默认是 `zh_female_vv_uranus_bigtts`（女）。
+ *  为什么不按照片自动判断性别：我们没有人脸性别识别能力，硬猜会再错一次 ⇒ 给默认男声 + 卡上可改。 */
+const DH_DEFAULT_VOICE = 'Ethan'
 
 const logOf = (ctx: DhCtx) => (m: string) => { try { ctx.log?.(ctx.uid, m) } catch { /* ignore */ } }
 
@@ -223,10 +240,15 @@ function photoCard(d: DhDraft, images: Array<{ name: string; url: string }>, not
 }
 
 /** 第 2 步：贴文案（前端按 `cps` / `perSec` 自己算"约 N 秒 · 预计 N 点"，**口径由服务端下发**） */
-function copyCard(d: DhDraft, photoUrl: string, note?: string): string {
+function copyCard(d: DhDraft, photoUrl: string, note?: string, voiceList?: any[]): string {
   const res = d.res === '720P' ? '720P' : '480P'
   const script = String(d.script || '')
   const sec = dhSecOf(script)
+  /** ★VF_DH_VOICE_V1：卡片上要选的音色（只给营销常用的一批，避免 48 个把卡片撑爆） */
+  const voices = ((voiceList && voiceList.length ? voiceList : [{ id: DH_DEFAULT_VOICE, name: '晨煦', gender: '男' }]) as any[])
+    .filter((v) => v && v.id)
+    .slice(0, 16)
+    .map((v) => ({ id: String(v.id), name: String(v.name || v.id), gender: String(v.gender || '') }))
   return 'VF_JSON:' + JSON.stringify({
     step: 'dh_copy',
     dhLine: true,
@@ -241,8 +263,14 @@ function copyCard(d: DhDraft, photoUrl: string, note?: string): string {
     prices: DH_POINTS_PER_SEC,
     maxChars: DH_MAX_CHARS,
     maxSec: DH_MAX_SEC,
+    // ★VF_DH_VOICE_V1：配音选择（原来没有这个字段 ⇒ 永远默认女声，用户实测"男的数字人配女声"）
+    voice: String(d.voice || DH_DEFAULT_VOICE),
+    voices,
+    // 已经克隆过音色 ⇒ 卡片上可以直接选「我的音色」
+    clone: d.cloneVoiceId ? { voiceId: String(d.cloneVoiceId), model: String(d.cloneModel || DH_CLONE_MODEL) } : null,
+    cloneModel: DH_CLONE_MODEL,
     note: note || '',
-    hint: '把要念的话贴进来（' + DH_MIN_CHARS + '~' + DH_MAX_CHARS + ' 字）。默认 480P；720P 更清晰但单价翻倍。',
+    hint: '把要念的话贴进来（' + DH_MIN_CHARS + '~' + DH_MAX_CHARS + ' 字）。**按照片性别选配音**（男/女都在下面）；默认 480P，720P 更清晰但单价翻倍。',
   })
 }
 
@@ -311,7 +339,38 @@ export async function handleDhLine(ctx: DhCtx): Promise<string | null> {
         let url = ''
         try { url = await signedUrl(key, 3600) } catch { url = '' }
         log(`[DH] 选好照片 ${name} → 贴文案`)
-        return copyCard(d0, url)
+        return copyCard(d0, url, undefined, ctx.voiceList)
+      }
+
+      // ③c ★VF_DH_VOICE_V1（2026-10-29 用户定案）：**上传 10~20 秒本人朗读 → 克隆专属音色**。
+      //   建音色免费、合成才按模型计费；建完必须等部署就绪（enrollVoice 内部已轮询 query_voice）。
+      if (String(f.at || '') === 'enroll') {
+        const name = String(f.name || '').trim()
+        if (!name) return '数字人：没收到音频文件名。重新上传一段 10~20 秒的朗读音频。'
+        if (!d0) return '这一单已经结束了。说「数字人」重开一张。'
+        const key = `storage/${uid}/${name}`
+        let exists = false
+        try { exists = await objectExists(key) } catch { exists = false }
+        if (!exists) return `数字人：仓库里找不到这段音频（${name}）。重新上传一次。`
+        let voiceSampleUrl = ''
+        try { voiceSampleUrl = await signedUrl(key, 3600) } catch { voiceSampleUrl = '' }
+        if (!voiceSampleUrl) return '数字人：音频地址签名失败，稍后重试一次。'
+        ctx.step?.('克隆音色（10~20 秒样本）')
+        const en = await enrollVoice(voiceSampleUrl, `dh${uid}`, DH_CLONE_MODEL)
+        if (!en?.voiceId) {
+          log('[DH] 声音复刻失败（没拿到 voiceId）')
+          return '数字人：**声音克隆失败**，这次不扣点。\n'
+            + '常见原因：① 样本不是 10~20 秒的**连续清晰人声**（有 BGM/噪声/多人说话都不行）；② 账号未开通「声音复刻」。\n'
+            + '换一段再传一次；也可以先用预设音色（卡片下面那排）。'
+        }
+        d0.cloneVoiceId = en.voiceId
+        d0.cloneModel = en.model
+        d0.voice = 'clone'
+        await saveDhDraft(ctx.prisma, uid, d0)
+        let url2 = ''
+        try { url2 = await signedUrl(`storage/${uid}/${d0.photo}`, 3600) } catch { url2 = '' }
+        log(`[DH] 音色克隆成功 ${en.voiceId}（model=${en.model}）`)
+        return copyCard(d0, url2, `✅ 已克隆你的声音（${en.model}）—— 下面选「🎤 我的音色」就用它的嗓音念。`, ctx.voiceList)
       }
 
       // ③b 回去换照片（文案保留 —— 用户常是"这张不合适，换一张同样的话"）
@@ -374,7 +433,7 @@ export async function stateCardOf(ctx: DhCtx, d: DhDraft): Promise<string> {
   if (d.step === 'dh_copy') {
     let url = ''
     try { url = d.photo ? await signedUrl(`storage/${ctx.uid}/${d.photo}`, 3600) : '' } catch { url = '' }
-    return copyCard(d, url)
+    return copyCard(d, url, undefined, ctx.voiceList)
   }
   const images = d.images?.length ? d.images : await pickImages(Number(ctx.uid) || 0)
   return photoCard(d, images)
@@ -462,15 +521,30 @@ async function submitDh(ctx: DhCtx, d: DhDraft | null, f: any): Promise<string> 
   ctx.step?.('检查照片（人脸）', { since: _tDet })
 
   // ④ 配音（TTS → mp3 字节）
+  // ★VF_DH_VOICE_V1（2026-10-29 用户实测「男的数字人配了女声」）：**必须把音色传下去** ——
+  //   原来这里调 `textToSpeech(script)` 不带 speaker ⇒ 永远吃默认女声。
+  //   `voice==='clone'` ⇒ 走声音复刻（SpeechSynthesizer + 克隆音色，WAV）；否则走预设音色（qwen3-tts-flash）。
+  const voice = String(f.voice || d.voice || DH_DEFAULT_VOICE)
   const _tTts = Date.now()
   let audioBuf: ArrayBuffer | null = null
-  try { audioBuf = await textToSpeech(script) } catch (e: any) { log('[DH] TTS 异常: ' + String(e?.message || e).slice(0, 120)) }
+  if (voice === 'clone') {
+    if (!d.cloneVoiceId) {
+      return '数字人：你选了「我的音色」，但这一单还没克隆过 —— 先在卡片上**上传一段 10~20 秒的本人朗读**，再生成。'
+    }
+    try { audioBuf = await voiceCloneAudio(d.cloneVoiceId, script, d.cloneModel || DH_CLONE_MODEL) } catch (e: any) { log('[DH] 克隆音色合成异常: ' + String(e?.message || e).slice(0, 120)) }
+  } else {
+    try { audioBuf = await textToSpeech(script, voice) } catch (e: any) { log('[DH] TTS 异常: ' + String(e?.message || e).slice(0, 120)) }
+  }
   if (!audioBuf || audioBuf.byteLength <= 100) {
     ctx.step?.('配音失败')
     await saveDhDraft(ctx.prisma, uid, d)
-    return '数字人：**配音没合出来**（TTS 失败），没有扣点、也没有提交。稍后重试一次；连续失败请检查百炼/硅基的 Key。'
+    return `数字人：**配音没合出来**（${voice === 'clone' ? '克隆音色' : '预设音色 ' + voice}），没有扣点、也没有提交。\n`
+      + (voice === 'clone'
+        ? '换一个预设音色试试，或重新上传一段更清晰的 10~20 秒朗读。'
+        : '稍后重试一次；连续失败请检查百炼/硅基的 Key。')
   }
-  ctx.step?.(`合成配音 ${n} 字`, { since: _tTts })
+  d.voice = voice
+  ctx.step?.(`合成配音 ${n} 字 · ${voice === 'clone' ? '我的音色' : voice}`, { since: _tTts })
 
   // ⑤ 音频要一个**公网可拉**的地址（wan2.2-s2v 在阿里云侧拉，读不到我们的私有对象）
   // ★VF_DH_AUDIOEXT_V1（2026-10-29 两次真机 FAILED 后定位）：**别再写死 'mp3'**。

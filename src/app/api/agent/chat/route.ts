@@ -4524,6 +4524,9 @@ PUBLISH_DRAFT.delete(uidW)
               uid: uidVF2,
               userMessage,
               auth,
+              // ★VF_DH_VOICE_V1（2026-10-29 用户实测「男的数字人配女声」）：卡片要让人选配音。
+              //   音色白名单**只有一份**（vf/tts-voices 的 48 个），这里把营销常用的那批注入本线。
+              voiceList: VF_VOICE_BASE,
               log: (u: number | string, m: string) => { try { vfLog(u, m) } catch { /* ignore */ } },
               step: (label: string, extra?: { tool?: string; since?: number; args?: string }) =>
                 pushStep(label, { tool: 'dh', forOrder: true, ...(extra || {}) }),

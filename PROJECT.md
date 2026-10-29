@@ -223,6 +223,17 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
 
+### 2026-10-29：数字人可选配音 + 声音复刻接通（`VF_DH_VOICE_V1` / `VF_DH_CLONE_V1`，✅ 已改）
+
+- **症状**：男性人像出片是女声；卡片没有配音选择。
+- **定因**：`textToSpeech(script)` 不传 speaker ⇒ 默认 `zh_female_vv_uranus_bigtts`（女）；`copyCard` 无 `voice` 字段。
+- **克隆"写一半"的真相**：4 处字段与官方不符（`input.url`→`input.audio`；`cosyvoice-v1` 已下线；缺 `query_voice` 轮询；
+  合成端点应为 `/SpeechSynthesizer`、返回 `output.audio.url`）⇒ 从未跑通。
+- **先实测后改**（用户要求）：服务器自检 ✅ 男声预设可用；✅ 三个 target_model 全部 create→OK→合成 WAV。
+- **改法**：ai-providers 重写复刻三件套 + `voiceCloneAudio()`；dh 草稿加 voice/clone*、默认男声 Ethan、
+  新增 `VF_DH_FORM:{at:'enroll'}` 克隆入口、submit 按 voice 分支；VfDhCard 加音色条 + 克隆上传。
+- **闸门**：⑰ 11 条。**读数**：`tsc 90 = 基线` · 回归 **127/4**。
+
 ### 2026-10-29：数字人「永远生成中」的根因 —— 结果解析（`VF_DH_RESULT_PARSE_V1`，✅ 已修）
 
 - **铁证**：同一时刻两条命令对照 —— 云端 `output.task_status=SUCCEEDED` + `results.video_url`（14:12:37 就出片，

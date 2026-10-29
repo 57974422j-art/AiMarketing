@@ -1,5 +1,38 @@
 > 最后更新：2026-10-27 ｜ 维护规则见 `AGENTS.md` 硬规则第 2 条（每次实质操作后同步三份文档）
 
+## ✅ 已解决（2026-10-29 · 数字人「男的数字人配女声」+ 声音克隆从未跑通）→ `VF_DH_VOICE_V1` / `VF_DH_CLONE_V1`
+
+**症状**：上传男性人像，出片却是女声；卡片上**没有任何配音选择**。
+
+**定因**
+1. `submitDh` 调 `textToSpeech(script)` **不传 speaker** ⇒ 吃默认 `zh_female_vv_uranus_bigtts` → CosyVoice `diana`（女）；
+2. `copyCard` 载荷没有 `voice`，`VfDhCard` 也没有音色 UI ⇒ 用户**无从选择**。
+
+**顺带查清"克隆写一半"**：`dashscopeVoiceEnroll` / `dashscopeVoiceSynthesize` 有 4 处与官方不符 ——
+`input.url`（应 **`input.audio`**）、`target_model:'cosyvoice-v1'`（已下线）、**缺 `query_voice` 部署轮询**、
+合成端点写成 `/audio/tts/synthesis`（应 **`/audio/tts/SpeechSynthesizer`**，返回 `output.audio.url`）⇒ 这条链路**从未成功过**。
+
+**先实测后改（用户明确要求）**，服务器自检结果：
+- `qwen3-tts-flash` + **Ethan（男声）** → HTTP 200，返回 `output.audio.url` ✅
+- 克隆三个 `target_model`（`qwen-audio-3.1-tts-flash` / `cosyvoice-v2` / `qwen-audio-3.0-tts-flash`）
+  → create 200 → `query_voice` = **OK** → `SpeechSynthesizer` 200 → **WAV** ✅
+
+**改法**
+- `ai-providers`：按官方字段重写（`input.audio` / `DH_CLONE_MODEL='qwen-audio-3.1-tts-flash'` /
+  `query_voice` 轮询到 `OK` / `SpeechSynthesizer` + `output.audio.url`），新增 `voiceCloneAudio()`（直接回字节）
+  与 `modelOfVoiceId()`（voiceId 前缀反推模型，官方要求"音色不能跨模型"）。
+- `dh.ts`：草稿加 `voice/cloneVoiceId/cloneModel`；**默认男声 Ethan**；`copyCard` 下发 `voice/voices/clone`；
+  新增协议 `VF_DH_FORM:{at:'enroll',name}`（signedUrl → 建音色 → 存草稿 → 回文案卡）；
+  `submitDh` 分支：`'clone'` → `voiceCloneAudio`，否则 `textToSpeech(script, voice)`。
+- `VfDhCard`：文案卡加配音条（男女标注、最多 16 个）+「⬆️ 上传我的声音（10~20 秒朗读）」；
+  `UploadOne` 支持 `accept/label` 以复用音频上传。
+- `route.ts`：数字人分派注入 `voiceList: VF_VOICE_BASE`（白名单仍然只有 `vf/tts-voices` 一份）。
+
+**闸门**：⑰ 11 条。**读数**：`tsc 90 = 基线` · 回归 **127 通过 / 4 失败**。
+
+**⏳ 待部署实测**：① 文案卡出现「男 · 晨煦 / 男 · 月白 / 女 · 芊悦 …」② 选男声生成 ⇒ 男声
+③ 上传 10~20 秒朗读 ⇒ 卡上多「🎤 我的音色（克隆）」，选它生成即用你的嗓音（建音色免费，合成按模型计费）。
+
 ## ✅ 已解决（2026-10-29 · 数字人「永远生成中」= 结果解析把对象当数组）→ `VF_DH_RESULT_PARSE_V1`
 
 **铁证（同一时刻、两条命令，用户真机）**
