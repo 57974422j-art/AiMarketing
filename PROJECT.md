@@ -223,6 +223,16 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
 
+### 2026-10-29：数字人音频「类型不支持」的最终根因（`VF_DH_AUDIOEXT_V1`，✅ 已修）
+
+- **证据链**：`1be3b799`（补 `Content-Type: audio/mpeg`）部署后云端**仍**回 `InvalidURL: File type is not supported.
+  Allowed types are: .wav, .mp3.`，任务 `3b792524` 提交后 **1 秒** FAILED；而 `dashscopeTTS` 只是把阿里返回的音频
+  **原样字节**取回，`qwen3-tts-flash` 默认输出 **WAV**（同类产物前 16 字节 = `RIFF....WAVE`）。
+- **结论**：不是缺 header，是**扩展名与真实格式不符**（WAV 内容装成 `.mp3`）。
+- **改法**：`audioKindOf(buf)` 按字节头嗅探（RIFF→wav / ID3 或 0xFFEx→mp3 / OggS→ogg），上传用嗅探出的 ext+mime；
+  日志如实打「配音 N 字 → WAV（xxKB, audio/wav）」。
+- **闸门**：`temp/_repo/test.mjs` ⑮ 3 条。**读数**：`tsc 90 = 基线` · 回归 **111/4**。
+
 ### 2026-10-29：数字人「整单 FAILED」+「失败还一直转圈」（`VF_DH_AUDIO_MIME_V1` / `VF_DH_QUERYFAIL_V1`，✅ 已修）
 
 - **症状**：第 3 步「生成中」转了 510 秒；云端实际 `FAILED`（提交后 **9 秒**），`code:InvalidURL`，

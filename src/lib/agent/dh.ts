@@ -395,6 +395,25 @@ export function doneCard(d: DhDraft): string {
 }
 
 /**
+ * ★VF_DH_AUDIOEXT_V1（2026-10-29）：**按字节头判断音频真实格式**。
+ * 为什么必须这么做：`textToSpeech` 把阿里返回的音频原样字节拿回来，而 `qwen3-tts-flash`
+ *   **默认输出 WAV**（24k 单声道），我们却写死 `.mp3` + `audio/mpeg` ⇒ 云端口径不一致，
+ *   报 `InvalidURL: File type is not supported. Allowed types are: .wav, .mp3.`（提交后 1 秒 FAILED）。
+ * 兜底给 wav：裸 PCM 缺头时两种扩展名都不合法，但 wav 至少是 TTS 的主路径。
+ */
+function audioKindOf(buf: ArrayBuffer): { ext: 'wav' | 'mp3' | 'ogg'; mime: string } {
+  const n = Math.min(12, buf.byteLength)
+  const b = new Uint8Array(buf, 0, Math.max(0, n))
+  const s = Array.from(b).map((x) => String.fromCharCode(x)).join('')
+  if (s.startsWith('RIFF')) return { ext: 'wav', mime: 'audio/wav' }
+  if (s.startsWith('ID3')) return { ext: 'mp3', mime: 'audio/mpeg' }
+  if (s.startsWith('OggS')) return { ext: 'ogg', mime: 'audio/ogg' }
+  // MP3 帧同步字：11 个 1（0xFF 且高 3 位全 1）
+  if (b.length >= 2 && b[0] === 0xff && (b[1] & 0xe0) === 0xe0) return { ext: 'mp3', mime: 'audio/mpeg' }
+  return { ext: 'wav', mime: 'audio/wav' }
+}
+
+/**
  * 提交生成（唯一会花钱的一支）。顺序**固定**：
  *   ① 字数/时长护栏 → ② 点数校验 → ③ **detect 把关（不过就不扣点、不提交）**
  *   → ④ TTS 配音 → ⑤ 音频上传（拿公网可拉的地址）→ ⑥ 提交任务 → ⑦ **成功才扣点**
@@ -454,8 +473,17 @@ async function submitDh(ctx: DhCtx, d: DhDraft | null, f: any): Promise<string> 
   ctx.step?.(`合成配音 ${n} 字`, { since: _tTts })
 
   // ⑤ 音频要一个**公网可拉**的地址（wan2.2-s2v 在阿里云侧拉，读不到我们的私有对象）
-  let audioUrl = ''
-  try { audioUrl = await uploadOSS(Buffer.from(audioBuf), 'mp3', 'dh') } catch { audioUrl = '' }
+  // ★VF_DH_AUDIOEXT_V1（2026-10-29 两次真机 FAILED 后定位）：**别再写死 'mp3'**。
+  //   病灶：`dashscopeTTS` 是把阿里返回的音频**原样字节**拿回来，而 `qwen3-tts-flash` 默认输出 **WAV**
+  //   （OSS 上同类产物前 16 字节就是 `RIFF....WAVEfmt `）⇒ 我们却按 `.mp3` 命名 + 声明 `audio/mpeg`
+  //   ⇒ 内容和声明不一致，云端判「File type is not supported. Allowed types are: .wav, .mp3.」，**提交后 1 秒就 FAILED**。
+  //   现口径：**看字节头决定扩展名**（RIFF→wav / ID3 或 0xFFEx→mp3 / OggS→ogg），再交给 uploadOSS 配对应 mime。
+  const _ak = audioKindOf(audioBuf)
+  const audioUrl0 = await (async () => {
+    try { return await uploadOSS(Buffer.from(audioBuf), _ak.ext, 'dh') } catch { return '' }
+  })()
+  const audioUrl = audioUrl0
+  log(`[DH] 配音 ${n} 字 → ${_ak.ext.toUpperCase()}（${Math.round(audioBuf.byteLength / 1024)}KB，Content-Type ${_ak.mime}）`)
   if (!audioUrl) {
     await saveDhDraft(ctx.prisma, uid, d)
     return '数字人：配音上传失败（拿不到公网地址），没有扣点、也没有提交。稍后重试一次。'

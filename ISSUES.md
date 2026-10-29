@@ -1,5 +1,27 @@
 > 最后更新：2026-10-27 ｜ 维护规则见 `AGENTS.md` 硬规则第 2 条（每次实质操作后同步三份文档）
 
+## ✅ 已解决（2026-10-29 · 数字人音频「File type is not supported」的**最终根因**）→ `VF_DH_AUDIOEXT_V1`
+
+**为什么前一轮没修好**：上一轮只补了 `Content-Type: audio/mpeg`（`VF_DH_AUDIO_MIME_V1`），但云端还是拒 ——
+说明问题不在 header，而在**扩展名与真实格式不符**。
+
+**证据（三条，全是真机）**
+1. `1be3b799` 部署后（`BUILD_ID 13:18:52`，`grep -rl "audio/mpeg" .next/server` 命中 3 个 chunk），
+   任务 `3b792524` 仍然 `InvalidURL: File type is not supported. Allowed types are: .wav, .mp3.`，
+   提交后 **1 秒** FAILED（不是排队、不是超时）。
+2. `dashscopeTTS` 的实现 = 把阿里返回的音频 **原样字节** 取回（`digAudioUrl` → fetch → arrayBuffer），
+   而 `qwen3-tts-flash` **默认输出 WAV**。
+3. OSS 上同类产物前 16 字节 = `52 49 46 46 … 57 41 56 45` = `RIFF....WAVE` —— 确凿是 WAV。
+
+**改法**：新增 `audioKindOf(buf)` 按**字节头**嗅探真实格式（`RIFF`→wav / `ID3` 或帧同步 `0xFFEx`→mp3 / `OggS`→ogg，
+兜底 wav），上传时用嗅探出的扩展名 + 对应 mime；日志如实打「配音 N 字 → WAV（xxKB, audio/wav）」。
+
+**机器闸门（第 ⑮ 节，3 条）**：必须先嗅探再上传 · 三种头都要覆盖 · 不许再写死 `'mp3'`。
+
+**读数**：`tsc 90 = 基线` · 回归 **111 通过 / 4 失败**（4 条既有失败）。
+
+**⏳ 待部署实测**：重跑一单，这次 OSS 上应是 `dh/xxx.wav` + `audio/wav`，云端不应再报类型不支持。
+
 ## ✅ 已解决（2026-10-29 · 数字人「整单 FAILED」+「失败后卡片一直转圈」）→ `VF_DH_AUDIO_MIME_V1` / `VF_DH_QUERYFAIL_V1`
 
 **症状**：数字人第 3 步「生成中」一路转到 **510 秒**；查云端才知道
