@@ -143,6 +143,31 @@ export async function saveDhDraft(prisma: any, uid: number | string, d: DhDraft)
   } catch (e: any) { console.error('[DH] 存草稿失败:', e?.message || e) }
 }
 
+/* ── ★VF_DH_VOICE_KEEP_V1：克隆音色**按用户**存一份（与"这一单"的草稿分开）──
+   为什么必须分开存：克隆音色是用户资产（建一次要录一段），而「数字人」命令 = 重来会清掉整条草稿
+   ⇒ 原来每开新单都得重录、重建一次，用户实测"我刚克隆完，下一单又没了"。 */
+const VOICE_KEY = (uid: number | string) => 'dh_voice_' + String(uid)
+
+export async function loadUserVoice(prisma: any, uid: number | string): Promise<{ voiceId: string; model: string } | null> {
+  try {
+    const row = await prisma.systemConfig.findUnique({ where: { key: VOICE_KEY(uid) } })
+    if (!row?.value) return null
+    const j = JSON.parse(row.value)
+    return j?.voiceId ? { voiceId: String(j.voiceId), model: String(j.model || DH_CLONE_MODEL) } : null
+  } catch { return null }
+}
+
+async function saveUserVoice(prisma: any, uid: number | string, v: { voiceId: string; model: string }): Promise<void> {
+  try {
+    const value = JSON.stringify({ ...v, savedAt: Date.now() })
+    await prisma.systemConfig.upsert({
+      where: { key: VOICE_KEY(uid) },
+      create: { key: VOICE_KEY(uid), value, label: '数字人克隆音色', description: '用户的声音复刻音色（自动，勿手改）' },
+      update: { value },
+    })
+  } catch (e: any) { console.error('[DH] 存克隆音色失败:', e?.message || e) }
+}
+
 export async function clearDhDraft(prisma: any, uid: number | string): Promise<void> {
   /* ★VF_DH_KEEP_V1（2026-10-27）：清草稿之前，**如果这一单还在云端跑，先把"任务指针"另存一份**。
      为什么必须有：标准模式是「任何命令 = 重来」，点一下别的命令就会走 `stdClearAllDrafts` →
@@ -395,6 +420,8 @@ export async function handleDhLine(ctx: DhCtx): Promise<string | null> {
         d0.cloneModel = en.model
         d0.voice = 'clone'
         await saveDhDraft(ctx.prisma, uid, d0)
+        // ★VF_DH_VOICE_KEEP_V1：同时存成"用户级音色"，重开单也还在（否则每单都要重录）
+        await saveUserVoice(ctx.prisma, uid, { voiceId: en.voiceId, model: en.model })
         let url2 = ''
         try { url2 = await signedUrl(`storage/${uid}/${d0.photo}`, 3600) } catch { url2 = '' }
         log(`[DH] 音色克隆成功 ${en.voiceId}（model=${en.model}）`)
@@ -441,6 +468,18 @@ export async function handleDhLine(ctx: DhCtx): Promise<string | null> {
     const _tImg = Date.now()
     const images = await pickImages(uid)
     const d: DhDraft = { step: 'dh_photo', images, savedAt: Date.now() }
+    /* ★VF_DH_VOICE_KEEP_V1（2026-10-29 用户实测「用克隆声音出的还是 AI 女声」排查时发现）：
+       克隆音色原来只存在**这一单的草稿**里，而「数字人」命令 = 重来（会 clearDhDraft）⇒ 用户每开新单都得重录一遍。
+       现口径：克隆音色**按用户持久化**（`dh_voice_<uid>`），开新单自动带上，并把默认音色设成 clone。 */
+    {
+      const uv = await loadUserVoice(ctx.prisma, uid)
+      if (uv?.voiceId) {
+        d.cloneVoiceId = uv.voiceId
+        d.cloneModel = uv.model || DH_CLONE_MODEL
+        d.voice = 'clone'
+        log(`[DH] 已带上你的克隆音色 ${uv.voiceId.slice(0, 28)}…`)
+      }
+    }
     await saveDhDraft(ctx.prisma, uid, d)
     await dropLastTask(ctx.prisma, uid)   // ★VF_DH_KEEP_V1：新一单开始 ⇒ 旧的"任务指针"作废
     ctx.step?.(`读仓库照片 ${images.length} 张`, { since: _tImg })
@@ -458,7 +497,9 @@ export async function handleDhLine(ctx: DhCtx): Promise<string | null> {
 export async function stateCardOf(ctx: DhCtx, d: DhDraft): Promise<string> {
   if (d.step === 'dh_running') return runningCard(d)
   if (d.step === 'dh_done') return doneCard(d)
-  if (d.step === 'dh_copy') {
+  /* ★VF_DH_VOICE_KEEP_V1：出完片点「改一下再生成」时，**直接回文案卡**（照片还在），
+     不要退回选照片那一步 —— 用户的目的通常是"换个音色/改句文案再跑一次"。 */
+  if (d.step === 'dh_copy' || (d.step === 'dh_done' && d.photo)) {
     let url = ''
     try { url = d.photo ? await signedUrl(`storage/${ctx.uid}/${d.photo}`, 3600) : '' } catch { url = '' }
     return copyCard(d, url, undefined, ctx.voiceList)
