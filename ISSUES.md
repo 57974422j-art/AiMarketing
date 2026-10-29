@@ -1,5 +1,23 @@
 > 最后更新：2026-10-27 ｜ 维护规则见 `AGENTS.md` 硬规则第 2 条（每次实质操作后同步三份文档）
 
+## ✅ 已解决（2026-10-29 · 数字人「能直接录音吗」）→ `VF_DH_REC_V1`
+
+**问题**：克隆样本只能上传文件，用户要直接录音。
+
+**为什么不能只加个录音按钮**：浏览器 `MediaRecorder` 输出 **`audio/webm;codecs=opus`**，官方参考音频只收
+**WAV(16bit)/MP3/M4A 且 ≥16kHz** ⇒ 录完直接传必被拒（会再次表现为"克隆失败"）。
+
+**改法**
+- 前端 `VfDhCard` 新增 `RecordVoice`：`getUserMedia` + `MediaRecorder`（mime 候选 `audio/webm;codecs=opus` / `audio/webm` / `audio/mp4`），
+  录音计时、停止即上传 `/api/storage/files`、发 `VF_DH_FORM:{at:'enroll',name}`；**保留「⬆️ 或上传一段录音」兜底**。
+- 服务端 `dh.ts` 新增 `voiceSamplePublicUrl()`：样本下载 → **ffmpeg 转 16k 单声道 16-bit WAV**（`-ac 1 -ar 16000 -c:a pcm_s16le`）
+  → `uploadOSS(...,'wav','dh-voice')` 得 public-read 直链 → 建音色；**转码或上传失败自动回退原签名地址**，
+  并把结果写日志（`[DH] 声音样本 xxx（已转 16k WAV xxKB）`）。
+
+**⚠️ 前提**：`getUserMedia` 只在 **HTTPS 或 localhost** 可用；否则麦克风被浏览器拦，卡片会把错误指向"改用上传"。
+
+**闸门**：第 ⑱ 节 4 条。**读数**：`tsc 90 = 基线` · 回归 **131 通过 / 4 失败**。
+
 ## ✅ 已解决（2026-10-29 · 数字人「男的数字人配女声」+ 声音克隆从未跑通）→ `VF_DH_VOICE_V1` / `VF_DH_CLONE_V1`
 
 **症状**：上传男性人像，出片却是女声；卡片上**没有任何配音选择**。

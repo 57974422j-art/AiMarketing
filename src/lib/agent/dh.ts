@@ -28,6 +28,13 @@
  * ═══════════════════════════════════════════════════════════════════════════ */
 import { listRepoMaterials } from '@/lib/agent/video-material'
 import { signedUrl, objectExists, uploadOSS } from '@/lib/oss'
+// ★VF_DH_REC_V1（2026-10-29 用户「能直接录音吗」）：浏览器录音是 webm/opus，官方只收 WAV/MP3/M4A
+//   ⇒ 服务端用 ffmpeg 统一转 16k 单声道 WAV 再建音色（服务器已有 ffmpeg，见视频渲染那条链）。
+import { execFile } from 'child_process'
+import { promisify } from 'util'
+import { writeFile, readFile, unlink } from 'fs/promises'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { saveToPersonalRepo } from '@/lib/personal-storage'
 // ★VF_DH_CLONE_V1（2026-10-29）：多接两个「声音复刻」能力 —— `enrollVoice` 建音色、`voiceCloneAudio` 用它念文案。
 //   两者都走 ai-providers 里**实测通过**的那一套（官方 audio/query_voice/SpeechSynthesizer 字段）。
@@ -355,6 +362,15 @@ export async function handleDhLine(ctx: DhCtx): Promise<string | null> {
         let voiceSampleUrl = ''
         try { voiceSampleUrl = await signedUrl(key, 3600) } catch { voiceSampleUrl = '' }
         if (!voiceSampleUrl) return '数字人：音频地址签名失败，稍后重试一次。'
+        // ★VF_DH_REC_V1：浏览器录音是 webm/opus（官方不收）⇒ 统一转 16k WAV 再建音色
+        let _rawSample: Buffer | null = null
+        try {
+          const rs = await fetch(voiceSampleUrl)
+          if (rs.ok) _rawSample = Buffer.from(await rs.arrayBuffer())
+        } catch { /* 下载失败 → 回退用原地址 */ }
+        const _sample = await voiceSamplePublicUrl(_rawSample, voiceSampleUrl)
+        voiceSampleUrl = _sample.url
+        log(`[DH] 声音样本 ${name} ${_sample.note}`)
         ctx.step?.('克隆音色（10~20 秒样本）')
         const en = await enrollVoice(voiceSampleUrl, `dh${uid}`, DH_CLONE_MODEL)
         if (!en?.voiceId) {
@@ -451,6 +467,35 @@ export function doneCard(d: DhDraft): string {
     res: d.res || '480P',
     hint: '成片已存进个人仓库（不会过期）。想再来一条就点下面。',
   })
+}
+
+const execFileAsync = promisify(execFile)
+
+/** ★VF_DH_REC_V1（2026-10-29 用户「能直接录音吗」）：把**任意**音频样本（webm/opus / mp3 / m4a / wav）
+ *  统一转成 **16k 单声道 16-bit WAV** 并传成 public-read 直链，再拿去建音色。
+ *  为什么必须转：浏览器 MediaRecorder 出来的是 `audio/webm;codecs=opus`，而官方只收 WAV/MP3/M4A（≥16kHz）
+ *  ⇒ 不转就会被判"参考音频格式不支持"。转码失败则回退原签名地址（用户上传 wav/mp3 时通常本来就合规）。 */
+async function voiceSamplePublicUrl(rawBuf: Buffer | null, signed: string): Promise<{ url: string; note: string }> {
+  if (!rawBuf || rawBuf.length < 1024) return { url: signed, note: '（样本读取失败，直接用原地址）' }
+  const stamp = `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+  const inp = join(tmpdir(), `dhv_${stamp}.bin`)
+  const out = join(tmpdir(), `dhv_${stamp}.wav`)
+  try {
+    await writeFile(inp, rawBuf)
+    // -ac 1 单声道 / -ar 16000（≥16kHz 满足官方下限）/ pcm_s16le = 16-bit WAV
+    await execFileAsync('ffmpeg', ['-y', '-i', inp, '-ac', '1', '-ar', '16000', '-c:a', 'pcm_s16le', out], { timeout: 60000 })
+    const wav = await readFile(out)
+    if (wav.length < 1024) return { url: signed, note: '（转码产物过小，回退原文件）' }
+    const up = await uploadOSS(wav, 'wav', 'dh-voice')
+    return up
+      ? { url: up, note: `（已转 16k WAV ${Math.round(wav.length / 1024)}KB）` }
+      : { url: signed, note: '（转码上传失败，回退原文件）' }
+  } catch {
+    return { url: signed, note: '（ffmpeg 转码失败，回退原文件）' }
+  } finally {
+    try { await unlink(inp) } catch { /* ignore */ }
+    try { await unlink(out) } catch { /* ignore */ }
+  }
 }
 
 /**

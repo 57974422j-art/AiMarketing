@@ -243,6 +243,75 @@ function UploadOne({ onDone, accept = 'image/*', label = '⬆️ 上传一张照
   )
 }
 
+/* ── ★VF_DH_REC_V1（2026-10-29 用户「能直接录音吗」）：浏览器直接录音 ─────────────────────
+   录出来是 webm/opus，**服务端会统一转 16k WAV 再建音色**（官方只收 WAV/MP3/M4A）。
+   ⚠️ getUserMedia 要求 HTTPS（或 localhost）；打不开时下面还有"上传音频"兜底。 */
+function RecordVoice({ onDone }: { onDone: (name: string) => void }) {
+  const [state, setState] = useState<'idle' | 'rec' | 'busy'>('idle')
+  const [sec, setSec] = useState(0)
+  const [err, setErr] = useState('')
+  const recRef = useRef<MediaRecorder | null>(null)
+  const chunks = useRef<Blob[]>([])
+  const timer = useRef<any>(null)
+
+  const upload = async (blob: Blob, ext: string) => {
+    setState('busy')
+    try {
+      const fd = new FormData()
+      fd.append('file', new File([blob], `voice_${Date.now()}.${ext}`, { type: blob.type || 'audio/webm' }))
+      const r = await fetch('/api/storage/files', { method: 'POST', body: fd, credentials: 'include' })
+      const j = await r.json().catch(() => null)
+      if (j?.success) onDone(String(j?.data?.name || ''))
+      else setErr(String(j?.message || '上传失败'))
+    } catch (e: any) { setErr(String(e?.message || e).slice(0, 80)) }
+    finally { setState('idle') }
+  }
+
+  const start = async () => {
+    setErr('')
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const cands = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4']
+      const mime = cands.find((m) => (window as any).MediaRecorder?.isTypeSupported?.(m)) || ''
+      const mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
+      chunks.current = []
+      mr.ondataavailable = (e: any) => { if (e.data?.size) chunks.current.push(e.data) }
+      mr.onstop = () => {
+        try { stream.getTracks().forEach((t) => t.stop()) } catch { /* ignore */ }
+        const type = mr.mimeType || mime || 'audio/webm'
+        upload(new Blob(chunks.current, { type }), type.includes('mp4') ? 'm4a' : 'webm')
+      }
+      mr.start()
+      recRef.current = mr
+      setState('rec')
+      setSec(0)
+      timer.current = setInterval(() => setSec((s) => s + 1), 1000)
+    } catch (e: any) {
+      setErr('麦克风打不开：' + String(e?.message || e).slice(0, 60) + '（页面需 HTTPS；也可以用下面的「上传音频」）')
+    }
+  }
+  const stop = () => {
+    clearInterval(timer.current)
+    try { recRef.current?.stop() } catch { /* ignore */ }
+    recRef.current = null
+  }
+  useEffect(() => () => { clearInterval(timer.current); try { recRef.current?.stop() } catch { /* ignore */ } }, [])
+
+  return (
+    <div>
+      {state === 'rec' ? (
+        <button onClick={stop} className={BTN + ' ' + BTN_ON}>⏹ 停止（已录 {sec} 秒）</button>
+      ) : (
+        <button onClick={start} disabled={state === 'busy'} className={BTN + ' ' + (state === 'busy' ? BTN_IDLE : BTN_ON)}>
+          {state === 'busy' ? '⏳ 上传中…' : '🎙 直接录音（10~20 秒，推荐）'}
+        </button>
+      )}
+      <span className="text-[9px] text-gray-600 ml-2">照着念一段话即可，10~20 秒最好</span>
+      {err ? <div className="text-[10px] text-red-400 mt-1">{err}</div> : null}
+    </div>
+  )
+}
+
 /* ── 贴文案（报价口径全部来自服务端下发的 cps / perSec，卡片不自己写死）──────────────── */
 function CopyForm({ vj, onSend }: { vj: any; onSend: (msg: string) => void }) {
   const [script, setScript] = useState<string>(String(vj?.script || ''))
@@ -298,12 +367,15 @@ function CopyForm({ vj, onSend }: { vj: any; onSend: (msg: string) => void }) {
       </div>
       {!hasClone ? (
         <div className="mb-2">
+          <div className="mb-1">
+            <RecordVoice onDone={(name) => onSend('VF_DH_FORM:' + JSON.stringify({ at: 'enroll', name }))} />
+          </div>
           <UploadOne
             accept="audio/*,.wav,.mp3,.m4a"
-            label="⬆️ 上传我的声音（10~20 秒朗读，克隆专属音色）"
+            label="⬆️ 或上传一段录音（wav/mp3/m4a）"
             onDone={(name) => onSend('VF_DH_FORM:' + JSON.stringify({ at: 'enroll', name }))}
           />
-          <div className="text-[9px] text-gray-600 mt-1">建音色免费（合成才计费）；样本要求：单人、清晰、别带 BGM。</div>
+          <div className="text-[9px] text-gray-600 mt-1">建音色免费（合成才计费）；样本要求：单人、清晰、别带 BGM。录音会自动转成 WAV。</div>
         </div>
       ) : null}
 
