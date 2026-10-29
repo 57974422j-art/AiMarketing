@@ -1158,15 +1158,32 @@ export async function wanS2vSubmit(
 // 查询 wan2.2-s2v 任务（异步轮询用）——返回 video_url 或状态
 // ★VF_DH_S2V_FIX_V1：多回一个 `reason`（失败原因）—— 数字人线要**如实告诉用户为什么失败**，
 //   原来只回 status/videoUrl ⇒ 前端只能看到"失败"三个字，排查只能上服务器。
-export async function wanS2vQuery(taskId: string): Promise<{ status: string; videoUrl?: string; reason?: string } | null> {
+/* ★VF_DH_RESULT_PARSE_V1（2026-10-29 真机铁证，这条让数字人**从来没成功过**）：
+   病灶：这里按**数组**取 `output.results[0].url`，而 wan2.2-s2v 的查询返回 `output.results` 是**对象**：
+     {"output":{"task_id":"489db189-…","task_status":"SUCCEEDED",
+                "results":{"video_url":"http://…mp4?…"}},"usage":{"duration":11.81,…}}
+   ⇒ `results[0]` 恒为 undefined ⇒ `videoUrl` 恒空 ⇒ 上层 `if (status==='SUCCEEDED' && videoUrl)` 永远不成立
+   ⇒ 卡片永远"生成中"（用户实测：云端 14:12:37 就 SUCCEEDED，14:26 我们还在 running 979 秒）。
+   同因还解释了另一单："云端 9 秒 FAILED，我们转 17 分钟" —— 失败/成功**都认不出来**。
+   现口径：三种形态全兼容（`output.video_url` / `output.results.video_url`(对象) / `output.results[0].url`(数组)），
+   并把 `usage.duration`（实际秒数）一并回传，便于对账"报价 vs 实扣"。
+*/
+export async function wanS2vQuery(taskId: string): Promise<{ status: string; videoUrl?: string; reason?: string; durationSec?: number } | null> {
   const key = getDashScopeKey()
   if (!key) return null
   try {
     const q = await fetchJSON(`https://dashscope.aliyuncs.com/api/v1/tasks/${taskId}`, { headers: { 'Authorization': `Bearer ${key}` } })
     const st = q?.output?.task_status || q?.status || 'unknown'
-    const url = q?.output?.video_url || q?.output?.results?.[0]?.url || ''
-    const reason = String(q?.output?.message || q?.output?.code || q?.message || '').slice(0, 200)
-    return { status: st, videoUrl: url || undefined, reason: reason || undefined }
+    const _res = q?.output?.results
+    const _r0 = Array.isArray(_res) ? _res[0] : _res            // 对象 / 数组 都接住
+    const url = q?.output?.video_url || _r0?.video_url || _r0?.url || ''
+    const reason = String(q?.output?.message || q?.output?.code || _r0?.message || q?.message || '').slice(0, 200)
+    const durationSec = Number(q?.usage?.duration) || 0
+    if (st === 'SUCCEEDED' && !url) {
+      // 成功却拿不到地址 = 解析或接口形态变了 ⇒ 必须留证据（否则又是一次"无声空转"）
+      console.error('[数字人] SUCCEEDED 但没解析到 video_url，原始返回:', JSON.stringify(q).slice(0, 400))
+    }
+    return { status: st, videoUrl: url || undefined, reason: reason || undefined, durationSec: durationSec || undefined }
   } catch (e) { console.error('[数字人] wan 查询异常:', e?.message || e); return null }
 }
 

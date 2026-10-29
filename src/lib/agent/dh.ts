@@ -569,6 +569,19 @@ export async function dhAdvance(ctx: { prisma: any; uid: number }, taskId: strin
     return { ok: true, state: 'running', waited }
   }
 
+  // ★VF_DH_RESULT_PARSE_V1（2026-10-29）：成功但**没解析到地址**时不许再装 running ——
+  //   原来这里只有一个条件 `SUCCEEDED && q.videoUrl`，videoUrl 恒空（results 是对象、我们按数组取）
+  //   ⇒ 掉到末尾 `return running`，用户等到 979 秒还在转（云端 2 分钟就出片了）。
+  if (q.status === 'SUCCEEDED' && !q.videoUrl) {
+    // ⚠️ dhAdvance 的 ctx 没有 log 注入（只有 prisma/uid），这里直接用 console ⇒ pm2 logs 里可见
+    console.log('[DH] ❌ SUCCEEDED 但没有 video_url（解析/接口形态变了）→ 如实报错，不再空转')
+    return {
+      ok: true, state: 'failed',
+      message: `云端**已经生成了**（${q.durationSec ? q.durationSec + ' 秒' : '已完成'}），但我们没拿到视频地址（解析问题）。\n`
+        + `taskId=${d.taskId}\n这个号**先别取消**，片子还在云端 24 小时内可取，把它发给开发者。`,
+    }
+  }
+
   if (q.status === 'SUCCEEDED' && q.videoUrl) {
     // 入库（幂等）：先落个人仓库，再签名给前端播（仓库私有；直链会过期）
     let repoName = String(d.repoName || '')
@@ -594,6 +607,7 @@ export async function dhAdvance(ctx: { prisma: any; uid: number }, taskId: strin
     }
     const next: DhDraft = { ...d, step: 'dh_done', videoUrl: playUrl, repoName, charged: true, savedAt: Date.now() }
     await persist(next)
+    console.log(`[DH] ✅ 出片完成（云端实际 ${q.durationSec ? q.durationSec + ' 秒 · ' : ''}已入库 ${repoName || '(仅直链)'}）`)
     return { ok: true, state: 'done', videoUrl: playUrl, repoName }
   }
 

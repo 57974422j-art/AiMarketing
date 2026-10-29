@@ -223,6 +223,18 @@ i18n：zh/en 双语（translations.ts + context.tsx，默认 zh）
 
 ## 六、当前进度与待办（做到哪里 / 哪些没执行）
 
+### 2026-10-29：数字人「永远生成中」的根因 —— 结果解析（`VF_DH_RESULT_PARSE_V1`，✅ 已修）
+
+- **铁证**：同一时刻两条命令对照 —— 云端 `output.task_status=SUCCEEDED` + `results.video_url`（14:12:37 就出片，
+  `duration 11.81s / 512*640 / 480P`），我们的 `[DH-POLL] state=running waited=979`（14:26）。
+- **定因**：`wanS2vQuery` 按**数组**取 `results[0].url`，而官方 `results` 是**对象** ⇒ `videoUrl` 恒空
+  ⇒ `dhAdvance` 的 `SUCCEEDED && q.videoUrl` 永不成立 ⇒ 掉到 `return running`。
+  同因也解释了「云端 9 秒 FAILED、我们转 17 分钟」。
+- **改法**：三种形态全兼容（`output.video_url` / `results.video_url` / `results[0].url`）+ 回传 `usage.duration` +
+  成功却解析不到地址时 `console.error` 打原始返回；`dhAdvance` 增加 `SUCCEEDED && !videoUrl` 分支（如实报错带 taskId）；
+  完成日志带云端实际时长（对账：报 15s 扣 1500，实际 11.81s）。
+- **闸门**：⑯ 5 条。**读数**：`tsc 90 = 基线` · 回归 **116/4**。
+
 ### 2026-10-29：数字人音频「类型不支持」的最终根因（`VF_DH_AUDIOEXT_V1`，✅ 已修）
 
 - **证据链**：`1be3b799`（补 `Content-Type: audio/mpeg`）部署后云端**仍**回 `InvalidURL: File type is not supported.

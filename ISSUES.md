@@ -1,5 +1,41 @@
 > 最后更新：2026-10-27 ｜ 维护规则见 `AGENTS.md` 硬规则第 2 条（每次实质操作后同步三份文档）
 
+## ✅ 已解决（2026-10-29 · 数字人「永远生成中」= 结果解析把对象当数组）→ `VF_DH_RESULT_PARSE_V1`
+
+**铁证（同一时刻、两条命令，用户真机）**
+
+| 来源 | 返回 |
+|---|---|
+| 云端单任务查询 | `"task_status":"SUCCEEDED"`，`"results":{"video_url":"http://…mp4?…"}`，`"usage":{"duration":11.81,"size":"512*640","SR":480}`，`end_time 14:12:37` |
+| 我们的轮询 | `[DH-POLL] 489db189 ok=true state=running waited=979`（14:26）|
+
+即：**云端 2 分钟就出片了**，我们 16 分钟后还在"生成中"。
+
+**定因**：`wanS2vQuery` 写的是
+
+```ts
+const url = q?.output?.video_url || q?.output?.results?.[0]?.url || ''
+```
+
+而官方 `output.results` 是**对象**（`{video_url:"…"}`），`results[0]` 恒 `undefined` ⇒ `videoUrl` 恒空
+⇒ `dhAdvance` 的 `if (q.status === 'SUCCEEDED' && q.videoUrl)` 永不成立 ⇒ 掉到末尾 `return { state:'running' }`。
+**同一处解析也解释了另一单**「云端 9 秒就 FAILED、我们转了 17 分钟」—— 成功/失败都认不出，只能一直 running。
+
+**改法（3 处）**
+1. `wanS2vQuery` 三种形态全兼容：`output.video_url` / `output.results.video_url`（对象）/ `output.results[0].url`（数组）；
+   并把 `usage.duration`（实际秒数）一起回传。
+2. **成功却解析不到地址时 `console.error` 打原始返回** —— 这类"无声空转"必须留证据。
+3. `dhAdvance` 新增 `SUCCEEDED && !videoUrl` 分支：如实回"云端已生成、但我们没拿到地址"+ taskId（提示先别取消），
+   不再继续装 running；出片完成日志带上云端实际时长（对账：这单报 15 秒扣 1500，云端实际 11.81 秒）。
+
+**机器闸门（第 ⑯ 节，5 条）**：兼容 `Array.isArray(_res)` · 认识 `_r0?.video_url` · 成功无地址必须有 `console.error` ·
+`dhAdvance` 必须有 `SUCCEEDED && !q.videoUrl` 分支 · 完成日志必须带实际时长。
+
+**读数**：`tsc 90 = 基线`（中途误用 `log()` 多出 2 个错误，已改回 `console`）· 回归 **116 通过 / 4 失败**。
+
+**⏳ 部署后**：**已经出片的那一单（taskId `489db189-1f09-4f2a-91b4-29bdc0eef0ae`）刷新页面应自动取回**
+（下载 → 存个人仓库 → 扣点 → 完成卡），**不用重做**；`video_url` 24 小时内有效，别拖、也别点「取消这一单」（会清掉指针）。
+
 ## ✅ 已解决（2026-10-29 · 数字人音频「File type is not supported」的**最终根因**）→ `VF_DH_AUDIOEXT_V1`
 
 **为什么前一轮没修好**：上一轮只补了 `Content-Type: audio/mpeg`（`VF_DH_AUDIO_MIME_V1`），但云端还是拒 ——
