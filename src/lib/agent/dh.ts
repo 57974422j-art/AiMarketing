@@ -655,6 +655,8 @@ export interface DhPollResult {
   videoUrl?: string
   repoName?: string
   message?: string
+  /** ★VF_DH_TASKID_V1：云端原话状态（RUNNING/PENDING/SUCCEEDED/…）—— 只用于日志，让"云端慢"与"我们读错"一眼可分 */
+  cloud?: string
 }
 
 /**
@@ -667,12 +669,21 @@ export async function dhAdvance(ctx: { prisma: any; uid: number }, taskId: strin
   /* ★VF_DH_KEEP_V1：草稿被"命令=重来"清掉时，靠 `dh_last_task_<uid>` 这一份指针把在跑的任务接回来
      （否则用户点一下别的命令 = 云端那条视频彻底没了，钱白花）。 */
   let fromSnap = false
-  if (!d?.taskId || (taskId && String(d.taskId) !== String(taskId))) {
+  /* ★VF_DH_TASKID_V1（2026-10-29 用户真机三方对照，这条让"已出片"取不回来）：
+     现场：草稿里的任务 `5d85df89` 云端 **SUCCEEDED**（17.38s 出片），可卡片轮询的是**上一单** `cf47f9df`；
+     老逻辑 `if (taskId !== d.taskId) return '任务号对不上'` 把"草稿才是最新一单"这条事实挡掉
+     ⇒ 旧卡片永远等一个旧任务，新任务的结果永远没人取。
+     现口径：**草稿（或快照）里的 taskId 才是真源**。卡片带来的 taskId 只当"它自己以为在问哪一单"，
+     对不上就按最新的查并把差异写日志（不再直接返回"对不上"）。
+     ⚠️ 仍然安全：d 只来自**本用户自己的**草稿/快照，别人拿自己的号也只能读到自己的。 */
+  if (!d?.taskId) {
     const s = await loadLastTask(ctx.prisma, uid)
-    if (s && String(s.taskId) === String(taskId)) { d = s; fromSnap = true }
+    if (s?.taskId) { d = s; fromSnap = true }
   }
   if (!d?.taskId) return { ok: false, message: '这一单已经结束了（草稿已清）。' }
-  if (taskId && String(taskId) !== String(d.taskId)) return { ok: false, message: '任务号对不上（不是这一单）。' }
+  if (taskId && String(taskId) !== String(d.taskId)) {
+    console.log(`[DH] 卡片任务号 ${String(taskId).slice(0, 8)} ≠ 最新一单 ${String(d.taskId).slice(0, 8)} → 以最新一单为准`)
+  }
   const persist = async (n: DhDraft) => { if (fromSnap) await saveLastTask(ctx.prisma, uid, n); else await saveDhDraft(ctx.prisma, uid, n) }
 
   // 已交付 ⇒ 直接回 done（刷新页面后卡片要能立刻显示成片）
@@ -750,5 +761,6 @@ export async function dhAdvance(ctx: { prisma: any; uid: number }, taskId: strin
     return { ok: true, state: 'failed', message: `云端生成失败：${why}\n**这次不扣点**。照片和文案都留着，改一下再点生成。` }
   }
 
-  return { ok: true, state: 'running', waited }
+  // ★VF_DH_TASKID_V1：把云端原话带上（日志里 `cloud=RUNNING` 一眼区分"云端慢"与"我们读错"）
+  return { ok: true, state: 'running', waited, cloud: q.status }
 }

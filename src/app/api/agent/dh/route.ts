@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
          · 日志里**没有** DH-POLL ⇒ 前端压根没轮询（taskId 没传到卡片 / 组件没进 running 分支）；
          · 有 DH-POLL 但 state 一直是 running ⇒ 是我们查询侧没拿到终态。
        每单 6 秒一条、只在有任务时出现，量很小，留着比"加一次临时打印再删"划算。 */
-    try { console.log(`[DH-POLL] ${String(taskId).slice(0, 8)} ok=${(r as any)?.ok} state=${(r as any)?.state || '-'} waited=${(r as any)?.waited ?? '-'}`) } catch { /* ignore */ }
+    try { console.log(`[DH-POLL] ${String(taskId).slice(0, 8)} ok=${(r as any)?.ok} cloud=${(r as any)?.cloud || '-'} state=${(r as any)?.state || '-'} waited=${(r as any)?.waited ?? '-'}`) } catch { /* ignore */ }
     return NextResponse.json(r)
   } catch (e: any) {
     return NextResponse.json({ ok: false, message: '查进度失败：' + String(e?.message || e).slice(0, 160) }, { status: 200 })
