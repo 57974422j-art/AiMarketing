@@ -94,43 +94,60 @@ function inlineImages(html: string, b64ByName: Record<string, string>): { html: 
   return { html: out, n }
 }
 
-/** 默认分镜（用户没给分镜表时，按素材数量均分） */
+/**
+ * 默认分镜：**12 段**（阶段 0 要求 10~16 段，总时长 40~60 秒）
+ *
+ * 为什么不能只有 6 段：6 段 × 3 秒 = 18 秒 ⇒ 太短，而且每段要撑 3 秒但内容少 ⇒ 画面单薄。
+ * 现在按「钩子 → 细节 ×8 → 场景 → 收尾」的结构铺 12 段，素材均分到中间各段。
+ * 素材少时**不靠重复图**，而是让某些段变成「文字主导段」（imgs 为空，靠版式和图形撑）。
+ */
 function defaultSegs(n: number, noImgEnds: boolean): LabSeg[] {
+  const TARGET = 12
   const pool = Array.from({ length: n }, (_, i) => i + 1)
-  const mid = pool.slice(0, Math.max(0, n - (noImgEnds ? 2 : 0)))
-  const per = Math.max(1, Math.ceil(mid.length / 4))
-  const chunks: number[][] = []
-  for (let i = 0; i < mid.length; i += per) chunks.push(mid.slice(i, i + per))
 
-  const titles = [
-    ['一锅老汤', '煮了二十三年'],
-    ['鲜切现涮', '红白分明'],
-    ['炭火铜锅', '热气不散'],
-    ['今晚就来', '老地方见'],
-    ['慢慢吃', '不着急'],
-    ['再来一锅', '还是这个味'],
-  ]
-  const bodies = [
-    '锅里的汤从早滚到晚，一天也没凉过。',
-    '肉切得薄厚均匀，红白纹路看得清清楚楚。',
-    '炭火烧得旺，铜锅边上一圈热气。',
-    '门口灯还亮着，推门进去就有位置。',
-    '吃到一半，汤还滚着，人也不想走。',
-    '锅底还是那个味，来的人都认这个。',
+  /* 首末段不用图 ⇒ 从中间段里扣掉；中间段数 = TARGET - 2 */
+  const midCount = noImgEnds ? TARGET - 2 : TARGET
+  /* 把素材均分到中间各段（每段 1~2 张；素材不够时有些段为空 = 文字主导段） */
+  const chunks: number[][] = Array.from({ length: midCount }, () => [])
+  pool.forEach((img, i) => {
+    chunks[i % midCount].push(img)
+  })
+  /* 每段最多 2 张（超过的往后推给空段） */
+  const overflow: number[] = []
+  chunks.forEach((c) => { while (c.length > 2) overflow.push(c.pop()!) })
+  chunks.forEach((c) => { if (!c.length && overflow.length) c.push(overflow.pop()!) })
+
+  /* 12 段的骨架：钩子 / 细节 ×8 / 场景 / 收尾 */
+  const T: Array<[string, string, string]> = [
+    ['一锅老汤', '煮了二十三年', '炭火把铜锅烧热，老北京的夜晚就有了滋味。'],
+    ['清汤见底', '葱枣提鲜', '葱段、红枣、海带，在清汤里慢慢打转。'],
+    ['鲜切牛肉', '红润紧实', '牛肉切得薄厚均匀，红白纹路看得清清楚楚。'],
+    ['肥牛如花', '红白相间', '肥牛卷摊开像朵花，下锅一烫就卷了边。'],
+    ['黑毛肚脆', '七上八下', '黑毛肚片片带刺，在滚汤里打个滚就捞。'],
+    ['手打虾滑', '冰碗保鲜', '虾肉打成滑，窝在冰上，颗颗透着粉白。'],
+    ['麻辣龙虾', '红亮入味', '小龙虾裹着红油，堆得碗里冒了尖。'],
+    ['响铃酥脆', '一咬掉渣', '炸过的腐皮卷，外皮起泡，咬开一声脆。'],
+    ['红薯甜糯', '解辣小食', '红薯条炸得金黄，蘸点酱，甜里带咸。'],
+    ['小锅各涮', '热闹不拘', '一桌人各守一口小铜锅，边涮边聊。'],
+    ['满桌硬菜', '招待朋友', '转盘一转，肉、虾、毛肚轮着下锅。'],
+    ['今晚就来', '老地方见', '别等周末了，今晚就约一桌热乎的。'],
   ]
 
   const segs: LabSeg[] = []
+  let ci = 0
   if (noImgEnds) {
-    segs.push({ t1: titles[0][0], t2: titles[0][1], body: bodies[0], imgs: [] })
+    segs.push({ t1: T[0][0], t2: T[0][1], body: T[0][2], imgs: [] })
+    ci = 1
   }
-  chunks.forEach((c, i) => {
-    const t = titles[(i + 1) % titles.length]
-    segs.push({ t1: t[0], t2: t[1], body: bodies[(i + 1) % bodies.length], imgs: c })
-  })
+  for (let i = 0; i < midCount; i++) {
+    const t = T[ci % T.length]
+    ci++
+    segs.push({ t1: t[0], t2: t[1], body: t[2], imgs: chunks[i] || [] })
+  }
   if (noImgEnds) {
     segs.push({ t1: '今晚就来', t2: '老地方见', body: '别等周末了，今晚就约一桌热乎的。', imgs: [] })
   }
-  return segs.slice(0, 12)
+  return segs.slice(0, 16)
 }
 
 export async function POST(request: NextRequest) {
