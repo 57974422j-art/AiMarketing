@@ -177,6 +177,8 @@ export async function POST(request: NextRequest) {
        区别只在提示词里有没有"思考清单"—— lab 这边两者等价，都关。 */
     thinkMode: ['open', 'save', 'off'].includes(String(body?.thinkMode || '')) ? String(body.thinkMode) : 'save',
     userRules: String(body?.userRules || '').slice(0, 2000),
+    /* ★手法卡模式：'a' 25 张细手法 / 'b' 12 张段落类型 / '' 不给卡 */
+    cardMode: ['a', 'b'].includes(String(body?.cardMode || '')) ? String(body.cardMode) : 'b',
   }
 
   /* ── 取素材：读仓库（只读，不写） ── */

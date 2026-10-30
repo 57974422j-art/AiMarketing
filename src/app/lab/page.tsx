@@ -45,6 +45,9 @@ export default function LabPage() {
   const [rulesOpen, setRulesOpen] = useState(false)
   /* 高级设置默认收起来 —— 用户只选素材 + 点出片 */
   const [advOpen, setAdvOpen] = useState(false)
+  /* ★手法卡模式（本轮要测的核心）：'a' 25 张细手法 / 'b' 12 张段落类型 / '' 不给卡。
+     ⚠️ 放在**主区域**（不进高级设置），因为这是这一轮唯一要对比的东西。 */
+  const [cardMode, setCardMode] = useState('b')
 
   /* 读仓库素材（用 **lab 自己的接口**，双鉴权兜底，不依赖 middleware 注入的头） */
   useEffect(() => {
@@ -79,7 +82,7 @@ export default function LabPage() {
         credentials: 'include',
         body: JSON.stringify({
           names: picked, sellingPoints, tone, thinkMode,
-          designStyle, drawMode, tier, plateRatio, noImgEnds, aspect, userRules,
+          designStyle, drawMode, tier, plateRatio, noImgEnds, aspect, userRules, cardMode,
         }),
       })
       const j = await r.json()
@@ -279,6 +282,37 @@ export default function LabPage() {
                   </div>
                 )
               })}
+            </div>
+
+            {/* ★LAB_CARDS：手法卡模式（本轮唯一要对比的开关，所以放在主区域） */}
+            <div style={{
+              marginBottom: 10, padding: '8px 9px', borderRadius: 8,
+              border: '1px solid rgba(169,139,255,.3)', background: 'rgba(169,139,255,.055)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={{ fontSize: 10, color: '#D9CBFF' }}>手法卡模式</span>
+                <span style={{ fontSize: 9, color: '#4C5765' }}>
+                  {cardMode === 'a' ? '25 张细手法' : cardMode === 'b' ? '12 张段落类型' : '不给卡'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[['', '不给卡'], ['a', 'A 细手法'], ['b', 'B 段落类型']].map(([v, t]) => (
+                  <button key={v || 'off'} onClick={() => setCardMode(v)}
+                    style={{
+                      flex: 1, fontSize: 10, padding: '6px 0', borderRadius: 5, cursor: 'pointer',
+                      border: cardMode === v ? '1px solid #A98BFF' : '1px solid #242C38',
+                      background: cardMode === v ? 'rgba(169,139,255,.2)' : '#0B0F14',
+                      color: cardMode === v ? '#E6DCFF' : '#7A8798',
+                    }}>{t}</button>
+                ))}
+              </div>
+              <div style={{ fontSize: 8.5, color: '#4C5765', marginTop: 5, lineHeight: 1.6 }}>
+                {cardMode === 'a'
+                  ? '25 张手法（出血大字/跨图标题/竖排/超大数字…），模型每段自己挑一张'
+                  : cardMode === 'b'
+                    ? '12 张段落类型（钩子/主图/细节/数据/情绪/金句/落版），先定节奏再挑手法'
+                    : '完全自由发挥（最不稳定，用来对照）'}
+              </div>
             </div>
 
             {/* ★LAB_DEFAULT_V1：**主按钮提前** —— 用户只选素材就能出片，不用先滚过 10 个控件 */}
