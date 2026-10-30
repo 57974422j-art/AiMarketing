@@ -33,15 +33,21 @@ export default function LabPage() {
   const [plateRatio, setPlateRatio] = useState(6)
   const [noImgEnds, setNoImgEnds] = useState(false)
 
-  /* 读仓库素材（只读） */
+  /* 读仓库素材（用 **lab 自己的接口**，双鉴权兜底，不依赖 middleware 注入的头） */
   useEffect(() => {
     (async () => {
       try {
-        const r = await fetch('/api/storage/files', { credentials: 'include' })
+        const r = await fetch('/api/lab/files', { credentials: 'include', cache: 'no-store' })
         const j = await r.json()
-        const all: Item[] = Array.isArray(j?.data) ? j.data : (j?.data?.items || [])
-        setItems(all.filter((x) => /\.(jpg|jpeg|png|webp)$/i.test(x.name)).slice(0, 60))
-      } catch { /* ignore */ }
+        if (!j?.success) {
+          setErr('读素材失败：' + String(j?.message || ('HTTP ' + r.status))
+            + (j?.diag ? '（header=' + String(j.diag.hasXUserId) + ' cookie=' + String(j.diag.hasCookie) + '）' : ''))
+          return
+        }
+        setItems(Array.isArray(j.data) ? j.data : [])
+      } catch (e: any) {
+        setErr('读素材异常：' + String(e?.message || e))
+      }
     })()
   }, [])
 

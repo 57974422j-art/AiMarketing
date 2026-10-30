@@ -14,7 +14,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import fs from 'node:fs'
 import path from 'node:path'
-import { getAuthFromHeaders } from '@/lib/api-auth'
+import { getAuthFromHeaders, getAuthFromCookie } from '@/lib/api-auth'
 import { buildLabPrompt, type LabSeg, type LabForm } from '@/lib/lab/prompt'
 
 export const maxDuration = 900
@@ -103,7 +103,10 @@ function defaultSegs(n: number, noImgEnds: boolean): LabSeg[] {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = getAuthFromHeaders(request)
+  /* ★LAB_DAILY_V1：**两种鉴权都试** —— middleware 正常会给 `X-User-Id`，
+     但如果它因为任何原因没注入（白名单 / 路径未匹配 / 部署差异），会误报"未登录"。
+     ⇒ 先读 header，拿不到再直接解析登录 cookie。 */
+  const auth = getAuthFromHeaders(request) || getAuthFromCookie(request)
   if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
 
   let body: any = {}
