@@ -521,7 +521,14 @@ export async function aiPlanSegments(picks: DailyPick[], topic: string, lastThem
    配合总预算 420s / 2 轮 ⇒ 最坏 460s，不会再撞 nginx 600s。 */
 /* ★VF_DAIDESIGN_V20：170s → **240s** —— 看图之后单轮变慢（17 张图 + 1.8 万字），
    170s 会把"本来能写完的一轮"掐断；配合"只跑 1 轮"仍稳在 600s 内（240+60+余量≈340s）。 */
-const DESIGN_TIMEOUT_MS = 240000
+/* ★VF_TIMEOUT_X2_V1（2026-10-30 用户实测「strict+open+swiss+focus 跑了 295s 还没跑完」
+                      + 用户定案「全部提高 2 倍，我要的是效果，其它不管。就是再长它也要给我反馈」）：
+   病灶：加了「视觉风格 6 条 + 强化绘制 10 条」之后提示词长了约 1.5 倍 ⇒ 思考+输出都变慢，
+        295 秒仍没跑完 ⇒ 直接超时（分镜表那步才 60 秒，说明慢在"出页面"）。
+   现口径：**整体翻倍到 480 秒**，并把上限同步提到 600 秒（nginx 与前端都已是 600s/660s，不会先断）。
+   ⚠️ 慢就慢，但**必须给反馈**（见 catch 里的超时文案：明确写出「跑了 N 秒」）。
+   ⚠️ 后续如果还想更快，正确的方向是**精简提示词**（风格/画法各压到 4 条），不是继续加时间。 */
+const DESIGN_TIMEOUT_MS = 480000
 /**
  * ★VF_IMGSHRINK_V2（2026-10-28）：**ffmpeg 兜底缩图** —— sharp 装不上时用它。
  *
@@ -751,6 +758,10 @@ export async function aiDesignPage(
   let diag = ''
   try {
     const budget = Math.max(60000, Number(opts?.timeoutMs) || DESIGN_TIMEOUT_MS)
+    /* ★VF_TIMEOUT_FEEDBACK_V1（2026-10-30 用户「就是再长它也要给我反馈」）：
+       记下这一步几点开始，失败时才能说清"跑了多少秒、上限是多少"
+       —— 之前只写 "The operation was aborted due to timeout"，看不出跑了多久、也不知道上限。 */
+    const _tAiStart = Date.now()
     /* ★VF_DAIDESIGN_V3（2026-10-18 用户「换 deepseek 试试」→ 服务器实测账号里只有
        `deepseek-flash` / `deepseek-v4-pro` 两个（**没有 v4.1 / 1017**）⇒ 用其中最强的 `deepseek-v4-pro`）：
        为什么要换：AI 自由页要一次写 2 万字 HTML，`qwen3.8-flash` 是**小模型**，空间坐标算不准
@@ -883,11 +894,20 @@ export async function aiDesignPage(
         try { console.error('[AI设计] 失败回执落盘失败：' + String(eT?.message || eT).slice(0, 100)) } catch { /* ignore */ }
       }
       /* 不再回落 ⇒ 直接把原因交给上层（它会把这句话原样显示给用户） */
-      diag = '[' + used + '] ' + _detail
+      /* ★VF_TIMEOUT_FEEDBACK_V1（2026-10-30 用户「就是再长它也要给我反馈」）：
+         超时和"真失败"必须分开说，而且都要带**实际跑了多久 / 上限多少** —— 不然用户只知道"失败了"。 */
+      const _elapsed = Math.round((Date.now() - _tAiStart) / 1000)
+      const _isTimeout = /aborted|timeout|timed out/i.test(_detail)
+      const _tail = '（跑了 ' + _elapsed + ' 秒 · 上限 ' + Math.round(budget / 1000) + ' 秒 · '
+        + '本单只用 deepseek-flash，不回落其它模型）'
+      diag = '[' + used + '] ' + _detail + ' · 耗时 ' + _elapsed + 's'
       return {
         ok: false, captions: summary, vlErr, diag, tracePrompt, traceThink,
-        error: 'DeepSeek 调用失败：' + _detail
-          + '（本单只使用 deepseek-flash，不回落其它模型；可直接点重试）',
+        error: (_isTimeout
+          ? 'DeepSeek 超时：模型在 ' + Math.round(budget / 1000) + ' 秒内没写完'
+            + '（通常是提示词太重：风格/绘制/契约叠太多，或素材图太大）'
+          : 'DeepSeek 调用失败：' + _detail)
+          + _tail + '；可直接点重试，或先把「思考档位」改成「省」「强化绘制」关掉再试',
       }
     }
     diag = '[' + used + '] ' + diag
@@ -1811,7 +1831,13 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
        2 × (生成 ~190s + 闸门 ~60s) ≈ 500s，再加取图/缩图 ⇒ 直接 504。
      现口径：**只跑 1 轮**（看图后第 1 轮质量已足够；前几次第 2 轮从来没救回来过）
              ⇒ 最坏 240(生成) + 60(闸门) + 40(余量) = **340s**，稳在 600s 内。 */
-  const BUDGET_MS = 420000
+  /* ★VF_TIMEOUT_X2_V1（2026-10-30 用户定案「全部提高 2 倍，我要的是效果，其它不管」）：
+     420s → **840s**（总预算）。
+     为什么必须一起改：下面 `left - 160000` 是从这个总预算里扣的 ——
+     如果只把 AI 单轮提到 480s，而总预算还是 420s，那 `left-160` 会把 AI 压到 **200s**（比原来还少）。
+     ⚠️ 840s 意味着 **nginx 的 proxy_read_timeout 必须 ≥ 900s**，前端等待上限 ≥ 960s，
+        否则会"后端还在跑、前端已报超时"（这个坑我们踩过）。 */
+  const BUDGET_MS = 840000
   for (let attempt = 1; attempt <= 1; attempt++) {
     const _tRound = Date.now()   // ★VF_DAIDESIGN_V20：本轮计时（日志里打耗时）
     const left = BUDGET_MS - (Date.now() - T0)
@@ -1826,7 +1852,9 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
     // ★VF_PLATE_RATIO_V1：全图比例（素材卡上选的，默认 60）
     const design = await aiDesignPage(picks, topic, {
       failNote,
-      timeoutMs: Math.min(DESIGN_TIMEOUT_MS, left - 80000),
+      /* ★VF_TIMEOUT_X2_V1：留给后续（打包/内嵌图）的时间也翻倍（80s → 160s），
+         否则 AI 拿到 480s 之后立刻会把后面的步骤挤没。 */
+      timeoutMs: Math.max(120000, Math.min(DESIGN_TIMEOUT_MS, left - 160000)),
       plateRatio: Number.isFinite(Number((d as any).plateRatio)) ? Number((d as any).plateRatio) : 60,
       userRules: String((d as any).userRules || '').slice(0, 800),
       aspect: String((d as any).aspect || '9:16'),

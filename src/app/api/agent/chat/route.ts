@@ -3124,7 +3124,14 @@ export async function DELETE(request: NextRequest) {
   } catch { return NextResponse.json({ ok: false }) }
 }
 
-export const maxDuration = 300 // 2026-09-01: 一次全做封面硬等（300s）——防请求超时
+/* ★VF_TIMEOUT_X2_V1（2026-10-30 用户定案「全部提高 2 倍，我要的是效果，其它不管」）：
+   300 → **600 秒**。配合 `daily.ts` 里 `DESIGN_TIMEOUT_MS = 480000`：
+     · AI 那步最多 480s（原来 240s）
+     · 留给打包/内嵌图 160s
+     · 合计 640s 上限，实际卡在 600s ⇒ **AI 实测可拿到约 440s**
+   ⚠️ 前提：nginx 的 `proxy_read_timeout` 必须 ≥ 600s（部署脚本里已配 600s，但要实测确认），
+      前端等待上限也要 ≥ 660s。三处不同步 ⇒ 会出现"后端还在跑、前端已经报超时"。 */
+export const maxDuration = 900
 
 export async function POST(request: NextRequest) {
   const auth = getAuthFromHeaders(request)

@@ -5989,7 +5989,11 @@ function AgentPageInner() {
         method: 'POST', credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(660000), // 2026-09-18: 后端 H3 轮询上限 600s（Turbo 实测 101s）+入库 —— 前端必须大于后端，否则后端还在等、前端先断
+        /* ★VF_TIMEOUT_X2_V1（2026-10-30 用户定案「全部提高 2 倍」）：
+         660s → **960s**。后端预算已提到 840s（`BUDGET_MS`），前端必须更大，
+         否则"后端还在跑、前端先断"（这个坑踩过：用户以为失败，其实后端做完了）。
+         ⚠️ nginx 的 `proxy_read_timeout` 也要 ≥ 900s，否则网关先断。 */
+      signal: AbortSignal.timeout(960000),
       })
       const data = await res.json()
       if (data.success) {
