@@ -93,14 +93,18 @@ export default function LabPage() {
   }
 
   /**
-   * ★分区自检 —— 在浏览器里跑，读 iframe 的真实渲染尺寸。
+   * ★自检 V2（2026-10-30 阶段0）—— 跟着提示词的「自检六条」一起改。
    *
-   * 检测三件事（就是提示词里那三条铁律）：
-   *   ① 文字元素的 [top, top+height] 是否整段落在 0~480 或 1040~1220
-   *   ② 图 / 图形是否整段落在 480~1040
-   *   ③ 文字元素之间、文字与图之间有没有实际重叠
+   * ⚠️ 上一版还在查「应在 480~1040」那种硬分区，但提示词里**硬分区已经删掉了**
+   *    （用户定案「鸡肋，影响设计」）⇒ 于是它把**正常排布**（452~1002）误报成越界。
+   *    检查器和约束必须同步，否则自检会变成噪音。
    *
-   * 为什么必须在前端跑：CSS 的最终位置只有浏览器算得准，服务端静态分析不可靠。
+   * 现在查的是"结果"，不是"位置"：
+   *   ① 文字包围盒之间不许相交（≥8px 间距）
+   *   ② 文字与图/图形主体不许相交（≥24px）
+   *   ③ 任何元素 top+高度 ≤ 画布高 − 40（**不许靠裁切藏住**）
+   *   ④ 同屏可见元素 8~14 个（少了空、多了挤）
+   *   ⑤ 纵向用满：最底下沿 ≥ 画布高 − 120，最顶上沿 ≤ 100
    */
   function runZoneCheck() {
     const doc = iframeRef.current?.contentDocument
@@ -109,58 +113,72 @@ export default function LabPage() {
     if (!secs.length) { setCheck({ ok: false, problems: ['没找到 .sec 段'] }); return }
 
     const problems: string[] = []
-    const TOP_END = 480
-    const MID_END = 1040
-    const BOT_START = 1040
-    const BOT_END = 1220
+    const notes: string[] = []
+
+    type Box = { tag: string; top: number; bottom: number; l: number; r: number; txt?: string }
+    const texts: Box[] = []
+    const objs: Box[] = []
+    let totalVisible = 0
+    let canvasH = 1280
 
     secs.forEach((sec, si) => {
       const base = sec.getBoundingClientRect()
-      /* 该段内的所有可见元素 */
+      canvasH = Math.round(base.height) || canvasH
       const nodes = Array.from(sec.querySelectorAll('*')) as HTMLElement[]
-      const texts: Array<{ tag: string; top: number; bottom: number; l: number; r: number; txt: string }> = []
-      const objs: Array<{ tag: string; top: number; bottom: number; l: number; r: number }> = []
+      const sTexts: Box[] = []
+      const sObjs: Box[] = []
+      let visibleN = 0
 
       for (const el of nodes) {
         const r = el.getBoundingClientRect()
         if (r.width < 4 || r.height < 4) continue
         const cs = doc.defaultView!.getComputedStyle(el)
         if (cs.visibility === 'hidden' || cs.display === 'none' || Number(cs.opacity) < 0.05) continue
+        /* 背景层/遮罩不算"元素预算" */
+        const isMask = /gradient|rgba\(0,\s*0,\s*0/.test(cs.backgroundImage) && !cs.backgroundImage.includes('data:image')
+        if (!isMask) visibleN++
 
-        const top = Math.round(r.top - base.top)
-        const bottom = Math.round(r.bottom - base.top)
-        const isImg = el.tagName === 'IMG' || cs.backgroundImage.indexOf('data:image') >= 0
-          || cs.backgroundImage.indexOf('url(') >= 0
+        const box: Box = {
+          tag: el.tagName.toLowerCase() + (el.className ? '.' + String(el.className).split(' ')[0] : ''),
+          top: Math.round(r.top - base.top),
+          bottom: Math.round(r.bottom - base.top),
+          l: Math.round(r.left - base.left),
+          r: Math.round(r.right - base.left),
+        }
+        const isImg = el.tagName === 'IMG'
+          || cs.backgroundImage.indexOf('data:image') >= 0
+          || (cs.backgroundImage.indexOf('url(') >= 0 && cs.backgroundImage.indexOf('data:') >= 0)
         const ownText = Array.from(el.childNodes).some((n) => n.nodeType === 3 && (n.textContent || '').trim().length > 0)
 
-        if (isImg) {
-          objs.push({ tag: el.tagName.toLowerCase() + (el.className ? '.' + String(el.className).split(' ')[0] : ''), top, bottom, l: Math.round(r.left - base.left), r: Math.round(r.right - base.left) })
-        } else if (ownText) {
-          texts.push({ tag: el.tagName.toLowerCase(), top, bottom, l: Math.round(r.left - base.left), r: Math.round(r.right - base.left), txt: (el.textContent || '').trim().slice(0, 10) })
+        if (isImg) sObjs.push(box)
+        else if (ownText) { box.txt = (el.textContent || '').trim().slice(0, 10); sTexts.push(box) }
+      }
+
+      totalVisible += visibleN
+
+      /* ③ 不许靠裁切藏住越界 */
+      for (const o of sObjs) {
+        if (o.bottom > canvasH - 40 + 8) {
+          problems.push('段' + (si + 1) + ' 图/图形 ' + o.tag + ' 下沿 ' + o.bottom
+            + 'px 超出画布（上限 ' + (canvasH - 40) + 'px）⇒ 会被裁掉下半截')
         }
       }
 
-      /* ① 文字越界（允许在 0~480 或 1040~1220；中间区域放文字算越界） */
-      for (const t of texts) {
-        const inTop = t.bottom <= TOP_END + 8
-        const inBot = t.top >= BOT_START - 8 && t.bottom <= BOT_END + 60
-        if (!inTop && !inBot) {
-          problems.push('段' + (si + 1) + ' 文字「' + t.txt + '」位置 ' + t.top + '~' + t.bottom
-            + ' 越界（应在 0~480 或 1040~1220）')
+      /* ① 文字 × 文字 */
+      for (let i = 0; i < sTexts.length; i++) {
+        for (let j = i + 1; j < sTexts.length; j++) {
+          const a = sTexts[i], b = sTexts[j]
+          const ox = Math.min(a.r, b.r) - Math.max(a.l, b.l)
+          const oy = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)
+          if (ox > 6 && oy > 6) {
+            problems.push('段' + (si + 1) + ' **文字叠文字**：「' + a.txt + '」压住「' + b.txt + '」')
+          }
         }
       }
 
-      /* ② 主体越界（应在 480~1040） */
-      for (const o of objs) {
-        if (o.top < MID_END && o.bottom > TOP_END && (o.top < 460 || o.bottom > 1060)) {
-          problems.push('段' + (si + 1) + ' 主体 ' + o.tag + ' 位置 ' + o.top + '~' + o.bottom
-            + ' 越界（应在 480~1040）')
-        }
-      }
-
-      /* ③ 文字压主体 / 文字互相压 */
-      for (const t of texts) {
-        for (const o of objs) {
+      /* ② 文字 × 主体 */
+      for (const t of sTexts) {
+        for (const o of sObjs) {
           const ox = Math.min(t.r, o.r) - Math.max(t.l, o.l)
           const oy = Math.min(t.bottom, o.bottom) - Math.max(t.top, o.top)
           if (ox > 6 && oy > 6) {
@@ -169,19 +187,36 @@ export default function LabPage() {
           }
         }
       }
-      for (let i = 0; i < texts.length; i++) {
-        for (let j = i + 1; j < texts.length; j++) {
-          const a = texts[i], b = texts[j]
-          const ox = Math.min(a.r, b.r) - Math.max(a.l, b.l)
-          const oy = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)
-          if (ox > 6 && oy > 6) {
-            problems.push('段' + (si + 1) + ' **文字叠文字**：「' + a.txt + '」压住「' + b.txt + '」')
-          }
+
+      /* ④ 元素预算 */
+      if (visibleN < 8) problems.push('段' + (si + 1) + ' 元素只有 ' + visibleN + ' 个（少于 8 ⇒ 画面会空）')
+      if (visibleN > 16) notes.push('段' + (si + 1) + ' 元素 ' + visibleN + ' 个（多于 16 ⇒ 偏挤）')
+
+      /* ⑤ 纵向用满 */
+      const all = [...sTexts, ...sObjs]
+      if (all.length) {
+        const topMost = Math.min(...all.map((b) => b.top))
+        const botMost = Math.max(...all.map((b) => b.bottom))
+        if (topMost > 100) {
+          problems.push('段' + (si + 1) + ' 最上元素上沿在 ' + topMost
+            + 'px（应 ≤100）⇒ 顶部空了一大块')
+        }
+        if (botMost < canvasH - 120) {
+          problems.push('段' + (si + 1) + ' 最下元素下沿只到 ' + botMost
+            + 'px / ' + canvasH + '（应 ≥' + (canvasH - 120) + '）⇒ 底部空了一大块')
         }
       }
     })
 
-    setCheck({ ok: problems.length === 0, problems })
+    texts.push(...[])
+    objs.push(...[])
+    const head = '共 ' + secs.length + ' 段 · 可见元素 ' + totalVisible + ' 个'
+    setCheck({
+      ok: problems.length === 0,
+      problems,
+      notes,
+      head,
+    })
   }
 
   return (
@@ -530,13 +565,21 @@ export default function LabPage() {
                     border: '1px solid ' + (check.ok ? 'rgba(62,207,142,.3)' : 'rgba(232,90,90,.3)'),
                     fontSize: 10.5, lineHeight: 1.85, color: check.ok ? '#B6F2D6' : '#FFC9C9',
                   }}>
-                    <b>{check.ok ? '✅ 全部分区合格' : '❌ 发现 ' + check.problems.length + ' 处越界/重叠'}</b>
+                    <b>{check.ok ? '✅ 六条自检全过' : '❌ 发现 ' + check.problems.length + ' 处问题'}</b>
+                    {!!check.head && <span style={{ color: '#7A8798', marginLeft: 8 }}>{check.head}</span>}
                     {check.problems.length > 0 && (
                       <div style={{ marginTop: 6, color: '#FFB4B4' }}>
-                        {check.problems.slice(0, 12).map((p: string, i: number) => (
+                        {check.problems.slice(0, 14).map((p: string, i: number) => (
                           <div key={i}>· {p}</div>
                         ))}
-                        {check.problems.length > 12 && <div>… 还有 {check.problems.length - 12} 处</div>}
+                        {check.problems.length > 14 && <div>… 还有 {check.problems.length - 14} 处</div>}
+                      </div>
+                    )}
+                    {!!check.notes?.length && (
+                      <div style={{ marginTop: 6, color: '#F6DCA8' }}>
+                        {check.notes.slice(0, 6).map((p: string, i: number) => (
+                          <div key={i}>◦ {p}</div>
+                        ))}
                       </div>
                     )}
                   </div>
