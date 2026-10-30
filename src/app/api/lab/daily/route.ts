@@ -152,6 +152,11 @@ export async function POST(request: NextRequest) {
     drawMode: String(body?.drawMode || ''),
     tier: String(body?.tier || 'strict'),
     noImgEnds: !!body?.noImgEnds,
+    /* ★与成品线同一套三档：open 开 / save 省 / off 关。
+       save 和 off 都用 `thinking:{type:'disabled'}`（实测唯一有效的关思考写法），
+       区别只在提示词里有没有"思考清单"—— lab 这边两者等价，都关。 */
+    thinkMode: ['open', 'save', 'off'].includes(String(body?.thinkMode || '')) ? String(body.thinkMode) : 'save',
+    userRules: String(body?.userRules || '').slice(0, 2000),
   }
 
   /* ── 取素材：读仓库（只读，不写） ── */
@@ -207,6 +212,9 @@ export async function POST(request: NextRequest) {
   const payload = JSON.stringify({
     model: 'deepseek-flash',
     messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, ...imgParts] }],
+    /* ★关思考：实测唯一有效的写法是 `thinking:{type:'disabled'}`（另外几个参数名都是假的）。
+       开档不传；省/关都关。 */
+    ...(form.thinkMode === 'open' ? {} : { thinking: { type: 'disabled' } }),
     max_tokens: 65536,
     temperature: 0.8,
     stream: false,

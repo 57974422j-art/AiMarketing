@@ -44,23 +44,38 @@ export type LabForm = {
   noImgEnds?: boolean
   /** 素材文件名（用于提示词里点名，如 1.jpg~17.jpg） */
   imgCount?: number
+  /** 思考档位：open 开 / save 省 / off 关（关 = 传 thinking:{type:'disabled'}） */
+  thinkMode?: string
+  /** 用户补充要求（留空 = 用默认 6 条） */
+  userRules?: string
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
    一、分区硬约束 —— 这是本线最重要的部分
    ══════════════════════════════════════════════════════════════════════════ */
-const ZONE_RULES = `【分区硬约束 · 违反即返工（这条优先于下面所有风格偏好）】
-画布高 1280px，**必须切成三个互不侵占的横带**：
+/** 按画布高度算出三条横带的像素边界（竖屏 1280 / 横屏 720 都适用） */
+function zoneBands(h: number) {
+  return {
+    topEnd: Math.round(h * 0.375),      // 上区 0 ~ 37.5%
+    midEnd: Math.round(h * 0.8125),     // 中区 37.5% ~ 81.25%
+    botEnd: Math.round(h * 0.953),      // 下区 81.25% ~ 95.3%
+  }
+}
 
-  ╷ 上区  y =   0 ~ 480   ← **只许放文字**（主标题 / 副标题 / 标签）
-  ╷ 中区  y = 480 ~ 1040  ← **只许放视觉主体**（照片 / 代码画的物体）
-  ╷ 下区  y =1040 ~ 1220  ← **只许放小字**（一句话正文 / 页脚三小字）
+function zoneRules(h: number) {
+  const b = zoneBands(h)
+  return `【分区硬约束 · 违反即返工（这条优先于下面所有风格偏好）】
+画布高 ${h}px，**必须切成三个互不侵占的横带**：
+
+  ╷ 上区  y =       0 ~ ${b.topEnd}   ← **只许放文字**（主标题 / 副标题 / 标签）
+  ╷ 中区  y = ${b.topEnd} ~ ${b.midEnd}  ← **只许放视觉主体**（照片 / 代码画的物体）
+  ╷ 下区  y = ${b.midEnd} ~ ${b.botEnd}  ← **只许放小字**（一句话正文 / 页脚三小字）
 
 三条铁律：
-  ① **任何元素不许跨区**。文字的 top 必须 < 480 且 top+实际高度 也要 < 480；
-     主体（图 / 图形）的 top 必须 ≥ 480，且 top+高度 ≤ 1040。
+  ① **任何元素不许跨区**。文字的 top 必须 < ${b.topEnd} 且 top+实际高度 也要 < ${b.topEnd}；
+     主体（图 / 图形）的 top 必须 ≥ ${b.topEnd}，且 top+高度 ≤ ${b.midEnd}。
   ② **视觉主体不许压到文字**。哪怕它很好看、哪怕留白变大 —— **宁可主体小一点、挪一点**。
-     绝对定位的图形（circle / 锅 / 卡片）**必须**写在 y=480~1040 之间，
+     绝对定位的图形（circle / 锅 / 卡片）**必须**写在 y=${b.topEnd}~${b.midEnd} 之间，
      不许用 \`top:50%\` / \`margin-top:-125px\` 这种"居中"写法 —— 那一定会压到上区文字。
   ③ **下区只放正文和小字**，字号 ≤ 18px，不许放大标题。
 
@@ -68,9 +83,10 @@ const ZONE_RULES = `【分区硬约束 · 违反即返工（这条优先于下�
      ⇒ 所以用**具体坐标范围**卡死，不靠自觉。
 
 自检（写完自己算一遍，不通过就重写）：
-  · 把每个含文字的元素拿出来，算它的 [top, top+height] 区间 —— **必须整段落在 0~480 或 1040~1220**
-  · 把每个图 / 图形拿出来，算它的区间 —— **必须整段落在 480~1040**
+  · 把每个含文字的元素拿出来，算它的 [top, top+height] 区间 —— **必须整段落在 0~${b.topEnd} 或 ${b.midEnd}~${b.botEnd}**
+  · 把每个图 / 图形拿出来，算它的区间 —— **必须整段落在 ${b.topEnd}~${b.midEnd}**
   · 只要有一个越界 ⇒ 布局不合格`
+}
 
 /* ══════════════════════════════════════════════════════════════════════════
    二、六种视觉风格（只给参数，不锁版式）
@@ -334,7 +350,7 @@ export function buildLabPrompt(segs: LabSeg[], f: LabForm): string {
 
   /* ★ 分区硬约束 —— 放最显眼的位置（风格后面再强调一次） */
   parts.push('')
-  parts.push(ZONE_RULES)
+  parts.push(zoneRules(H))
 
   /* 动效 */
   parts.push('')
@@ -355,6 +371,14 @@ export function buildLabPrompt(segs: LabSeg[], f: LabForm): string {
 
   parts.push('')
   parts.push('【输出】只输出一个完整 HTML 文件（<!DOCTYPE html> 到 </html>），CSS/JS 全部内联；不要解释、不要 markdown 围栏。')
+
+  /* 用户补充要求（和成品线同一套：有就原样贴，没有就用默认 6 条） */
+  const ur = String(f.userRules || '').trim()
+  if (ur) {
+    parts.push('')
+    parts.push('【用户本次的附加要求 —— **优先于上面所有（设计偏好）**，但**不得违反分区硬约束与输出契约**】')
+    parts.push(ur)
+  }
 
   return parts.join('\n')
 }

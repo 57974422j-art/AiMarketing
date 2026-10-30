@@ -26,14 +26,18 @@ export default function LabPage() {
   const [check, setCheck] = useState<any>(null)
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
 
-  /* 表单 */
-  const [sellingPoints, setSellingPoints] = useState('')
-  const [tone, setTone] = useState('auto')
-  const [designStyle, setDesignStyle] = useState('')
-  const [drawMode, setDrawMode] = useState('')
-  const [tier, setTier] = useState('strict')
-  const [plateRatio, setPlateRatio] = useState(6)
-  const [noImgEnds, setNoImgEnds] = useState(false)
+  /* 表单（★对照成品线的卡片设计：10 个控件一个不少） */
+  const [aspect, setAspect] = useState('9:16')       // ① 画幅（第 0 层）
+  const [sellingPoints, setSellingPoints] = useState('')  // ② 今日卖点（内容，优先）
+  const [tone, setTone] = useState('auto')                 // ③ 文案类型（形式）
+  const [thinkMode, setThinkMode] = useState('save')       // ④ 思考档位（开/省/关）
+  const [plateRatio, setPlateRatio] = useState(6)          // ⑤ 大图/多图
+  const [designStyle, setDesignStyle] = useState('')       // ⑥ 视觉风格
+  const [drawMode, setDrawMode] = useState('')             // ⑦ 强化绘制
+  const [tier, setTier] = useState('strict')               // ⑧ 设计约束
+  const [noImgEnds, setNoImgEnds] = useState(false)        // ⑨ 头尾不用素材
+  const [userRules, setUserRules] = useState('')           // ⑩ 补充要求
+  const [rulesOpen, setRulesOpen] = useState(false)
 
   /* 读仓库素材（用 **lab 自己的接口**，双鉴权兜底，不依赖 middleware 注入的头） */
   useEffect(() => {
@@ -67,8 +71,8 @@ export default function LabPage() {
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
-          names: picked, sellingPoints, tone,
-          designStyle, drawMode, tier, plateRatio, noImgEnds, aspect: '9:16',
+          names: picked, sellingPoints, tone, thinkMode,
+          designStyle, drawMode, tier, plateRatio, noImgEnds, aspect, userRules,
         }),
       })
       const j = await r.json()
@@ -235,6 +239,35 @@ export default function LabPage() {
               })}
             </div>
 
+            {/* ★第 0 层：画幅（点错后果最严重 —— 横屏走另一套精简提示词） */}
+            <div style={{
+              marginBottom: 10, padding: '8px 9px', borderRadius: 8,
+              border: '1px solid rgba(232,90,90,.32)', background: 'rgba(232,90,90,.055)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                <span style={{ fontSize: 10, color: '#FF9B9B' }}>画幅（点错就白做）</span>
+                <span style={{ fontSize: 9, color: '#4C5765' }}>
+                  {aspect === '9:16' ? '竖屏 720×1280' : '横屏 1280×720'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[['9:16', '竖屏 9:16'], ['16:9', '横屏 16:9']].map(([v, t]) => (
+                  <button key={v} onClick={() => setAspect(v)}
+                    style={{
+                      flex: 1, fontSize: 10, padding: '6px 0', borderRadius: 5, cursor: 'pointer',
+                      border: aspect === v ? '1px solid #E85A5A' : '1px solid #242C38',
+                      background: aspect === v ? 'rgba(232,90,90,.18)' : '#0B0F14',
+                      color: aspect === v ? '#FFC9C9' : '#7A8798',
+                    }}>{t}</button>
+                ))}
+              </div>
+              {aspect === '16:9' && (
+                <div style={{ fontSize: 8.5, color: '#F6DCA8', marginTop: 5, lineHeight: 1.6 }}>
+                  ⚠️ 横屏时提示词会按 1280×720 重写，分区约束的比例也随之变化
+                </div>
+              )}
+            </div>
+
             {/* ① 卖点（内容，优先） */}
             <div style={{ marginBottom: 10 }}>
               <div style={{ fontSize: 10, color: '#7A8798', marginBottom: 5 }}>
@@ -265,6 +298,32 @@ export default function LabPage() {
                       color: tone === v ? '#CFE4FF' : '#7A8798',
                     }}>{t}</button>
                 ))}
+              </div>
+            </div>
+
+            {/* ②′ 思考档位（性能相关，成品线也有这一项） */}
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                <span style={{ fontSize: 10, color: '#7A8798' }}>思考档位</span>
+                <span style={{ fontSize: 9, color: '#4C5765' }}>
+                  {thinkMode === 'open' ? '开（慢，思考全开）' : thinkMode === 'save' ? '省（关闭思考）' : '关（关闭思考）'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[['open', '开'], ['save', '省'], ['off', '关']].map(([v, t]) => (
+                  <button key={v} onClick={() => setThinkMode(v)}
+                    style={{
+                      flex: 1, fontSize: 10, padding: '6px 0', borderRadius: 5, cursor: 'pointer',
+                      border: thinkMode === v ? '1px solid #4A9EFF' : '1px solid #242C38',
+                      background: thinkMode === v ? 'rgba(74,158,255,.18)' : '#0B0F14',
+                      color: thinkMode === v ? '#CFE4FF' : '#7A8798',
+                    }}>{t}</button>
+                ))}
+              </div>
+              <div style={{ fontSize: 8.5, color: '#4C5765', marginTop: 4, lineHeight: 1.55 }}>
+                {thinkMode === 'open'
+                  ? '实测开档约 158s、输出反而少；省/关约 26~60s'
+                  : '传 thinking:{type:"disabled"}（实测唯一有效的关思考写法）'}
               </div>
             </div>
 
@@ -335,6 +394,34 @@ export default function LabPage() {
               <input type="checkbox" checked={noImgEnds} onChange={(e) => setNoImgEnds(e.target.checked)} />
               头尾可以不用素材
             </label>
+
+            {/* ⑩ 补充要求（折叠，留空 = 不注入） */}
+            <div style={{ marginBottom: 10 }}>
+              <button onClick={() => setRulesOpen(!rulesOpen)}
+                style={{
+                  width: '100%', fontSize: 10, padding: '6px 9px', borderRadius: 6, cursor: 'pointer',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  border: rulesOpen ? '1px solid rgba(62,207,142,.35)' : '1px solid #242C38',
+                  background: rulesOpen ? 'rgba(62,207,142,.06)' : '#0B0F14',
+                  color: rulesOpen ? '#B6F2D6' : '#7A8798',
+                }}>
+                <span>{rulesOpen ? '▼' : '▶'} 补充要求</span>
+                <span style={{ fontSize: 9, color: rulesOpen ? '#3ECF8E' : '#4C5765' }}>
+                  {userRules.trim() ? '已填 ' + userRules.trim().length + ' 字' : '未填'}
+                </span>
+              </button>
+              {rulesOpen && (
+                <div style={{ marginTop: 6 }}>
+                  <textarea value={userRules} onChange={(e) => setUserRules(e.target.value)}
+                    placeholder={'留空 = 不注入。填了就原样贴进提示词，优先于默认偏好。\n例：主标题尽量大（≥120px）；每段要有一句完整的话；底部不要留大块空白'}
+                    style={{
+                      width: '100%', minHeight: 78, fontSize: 10, padding: '7px 8px', borderRadius: 6,
+                      background: '#0B0F14', border: '1px solid #242C38', color: '#E8EDF4',
+                      resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.65, outline: 'none',
+                    }} />
+                </div>
+              )}
+            </div>
 
             <button onClick={gen} disabled={loading}
               style={{
