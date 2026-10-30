@@ -1030,8 +1030,31 @@ async function checkDesignPage(html: string, picks: DailyPick[], tag: string): P
     const script = path.join(vfRootDir(), 'scripts', 'video-factory', 'html-deck', 'tools', 'daily-film.mjs')
     const out = path.join(tmp, 'out')
     const r = await new Promise<{ code: number; text: string }>((resolve) => {
-      execFile('node', [script, f, '--outdir', out, '--check-only'], { timeout: 240000, maxBuffer: 8 * 1024 * 1024 },
-        (err, so, se) => resolve({ code: err ? 1 : 0, text: String(so || '') + '\n' + String(se || '') }))
+      /* ★VF_CHK_TIMEOUT_V1（2026-10-30 本地实测复现，铁证）：
+         病灶：13 段 + 瑞士风 + 绘制 ⇒ 页面 **11.52MB**（图 6MB + 字体 2.4MB + CSS 3MB），
+              `hyperframes check` 处理它 **跑了 250 秒还没完**（我手工把 timeout 设 300s，
+              结果是 `signal=SIGTERM · 用时 300s`，输出停在「② 用字闸门 OK」）。
+              而线上这里是 **240秒** ⇒ 每次都在 240 秒被 SIGTERM 杀掉 ⇒
+              **SIGTERM 不产生 stderr** ⇒ 用户只看到「check 异常退出（exit=1）」没有原因。
+              昨天那次 5.6MB 页面能过，是因为 5.6MB 约 100~150 秒；今天页面涨到 11.5MB 就顶破了。
+         ⚠️ 内存不是问题：实测机器 14G 总量、12G 可用，`free -h` 全程宽裕。
+         现口径：**240s → 400s**。
+         为什么是 400 而不是更大：AI 那步上限 480s，480+400=880s 仍在 `maxDuration=900s` 内；
+            再大就会顶破 Next 的 900s 上限（那会被网关掐断，比 413 更难查）。
+         ⚠️ 真正的解法是**给 check 减负**（`extractAssets` 补单引号扫描，让字体/图正常外置，
+            页面 11.5MB → 7MB ⇒ check 约 150s），timeout 提高只是先止血。 */
+      const _tChk = Date.now()
+      execFile('node', [script, f, '--outdir', out, '--check-only'], { timeout: 400000, maxBuffer: 8 * 1024 * 1024 },
+        (err: any, so: any, se: any) => {
+          /* ★VF_CHK_TIMEOUT_V1：**把 signal 和耗时一起记下来** ——
+             超时被杀时 stderr 是空的，如果不记录 signal，永远只能看到"exit=1 什么都没写"。 */
+          const _secs = Math.round((Date.now() - _tChk) / 1000)
+          const _sig = err && (err as any).signal ? String((err as any).signal) : ''
+          const _tail2 = _sig
+            ? '\n[SIGTERM/SIGKILL ⇒ **超时被杀**，不是页面有问题] 用时 ' + _secs + 's / 上限 400s'
+            : '\n[用时 ' + _secs + 's]'
+          resolve({ code: err ? 1 : 0, text: String(so || '') + '\n' + String(se || '') + _tail2 })
+        })
     })
     // ③ 摘出真正有用的行（✗ 开头的判据 + 四个阶段的结论），别把整段日志喂回去
     /* ★VF_AIDESIGN_SOFTGATE_V1b（2026-10-21 自审发现的两个漏洞，会导致"该拦的没拦"）：
