@@ -26,18 +26,25 @@ export default function LabPage() {
   const [check, setCheck] = useState<any>(null)
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
 
-  /* 表单（★对照成品线的卡片设计：10 个控件一个不少） */
-  const [aspect, setAspect] = useState('9:16')       // ① 画幅（第 0 层）
-  const [sellingPoints, setSellingPoints] = useState('')  // ② 今日卖点（内容，优先）
-  const [tone, setTone] = useState('auto')                 // ③ 文案类型（形式）
-  const [thinkMode, setThinkMode] = useState('save')       // ④ 思考档位（开/省/关）
-  const [plateRatio, setPlateRatio] = useState(6)          // ⑤ 大图/多图
-  const [designStyle, setDesignStyle] = useState('')       // ⑥ 视觉风格
-  const [drawMode, setDrawMode] = useState('')             // ⑦ 强化绘制
-  const [tier, setTier] = useState('strict')               // ⑧ 设计约束
-  const [noImgEnds, setNoImgEnds] = useState(false)        // ⑨ 头尾不用素材
-  const [userRules, setUserRules] = useState('')           // ⑩ 补充要求
+  /* 表单（★对照成品线的卡片设计：10 个控件一个不少）
+   *
+   * ★LAB_DEFAULT_V1（2026-10-30 用户定案「我只选素材，其它全默认档」）：
+   *   默认值就是"自动最优"，用户**不需要调任何东西**，选完图直接出片。
+   *   三个值按实测调整过（见每行理由），其余保持"不注入"（最干净、每单不重样）。
+   */
+  const [aspect, setAspect] = useState('9:16')       // ① 画幅：竖屏（主场景）
+  const [sellingPoints, setSellingPoints] = useState('')  // ② 卖点：空 = 不注入
+  const [tone, setTone] = useState('auto')                 // ③ 文案类型：自动（按素材判断）
+  const [thinkMode, setThinkMode] = useState('save')       // ④ 思考：省（实测 26s vs 158s，输出还更多）
+  const [plateRatio, setPlateRatio] = useState(6)          // ⑤ 大图/多图：6:4
+  const [designStyle, setDesignStyle] = useState('')       // ⑥ 风格：空 = 不注入（每单不重样）
+  const [drawMode, setDrawMode] = useState('some')         // ⑦ 绘制：**少量**（能画锅/杯子，又不让页面变重）
+  const [tier, setTier] = useState('loose')                // ⑧ 约束：**宽松**（严格档 14 条会和风格/绘制打架）
+  const [noImgEnds, setNoImgEnds] = useState(true)         // ⑨ 头尾不用素材：**勾**（首末段纯排版，减少对图依赖）
+  const [userRules, setUserRules] = useState('')           // ⑩ 补充要求：空 = 不额外加约束
   const [rulesOpen, setRulesOpen] = useState(false)
+  /* 高级设置默认收起来 —— 用户只选素材 + 点出片 */
+  const [advOpen, setAdvOpen] = useState(false)
 
   /* 读仓库素材（用 **lab 自己的接口**，双鉴权兜底，不依赖 middleware 注入的头） */
   useEffect(() => {
@@ -274,6 +281,33 @@ export default function LabPage() {
               })}
             </div>
 
+            {/* ★LAB_DEFAULT_V1：**主按钮提前** —— 用户只选素材就能出片，不用先滚过 10 个控件 */}
+            <button onClick={gen} disabled={loading}
+              style={{
+                width: '100%', padding: 12, borderRadius: 8, marginBottom: 10,
+                cursor: loading ? 'default' : 'pointer', fontSize: 12.5, fontWeight: 600, border: 'none',
+                background: loading ? '#2A3440' : 'linear-gradient(100deg,#3ECF8E,#4A9EFF)',
+                color: loading ? '#7A8798' : '#06110B',
+              }}>
+              {loading ? '生成中…（约 30~180 秒）' : '🎬 一键出片（不渲染 mp4）'}
+            </button>
+
+            {/* 高级设置开关 —— 默认收起，展开才看到 10 个控件 */}
+            <button onClick={() => setAdvOpen(!advOpen)}
+              style={{
+                width: '100%', padding: '7px 9px', borderRadius: 6, marginBottom: 10, cursor: 'pointer',
+                fontSize: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                border: advOpen ? '1px solid rgba(169,139,255,.35)' : '1px solid #242C38',
+                background: advOpen ? 'rgba(169,139,255,.07)' : '#0B0F14',
+                color: advOpen ? '#D9CBFF' : '#7A8798',
+              }}>
+              <span>{advOpen ? '▼' : '▶'} 高级设置（10 项）</span>
+              <span style={{ fontSize: 9, color: '#4C5765' }}>
+                {advOpen ? '可调' : '默认已最优，不用动'}
+              </span>
+            </button>
+
+            {advOpen && (<>
             {/* ★第 0 层：画幅（点错后果最严重 —— 横屏走另一套精简提示词） */}
             <div style={{
               marginBottom: 10, padding: '8px 9px', borderRadius: 8,
@@ -458,6 +492,8 @@ export default function LabPage() {
               )}
             </div>
 
+            </>)}
+
             <button onClick={gen} disabled={loading}
               style={{
                 width: '100%', padding: 11, borderRadius: 8, cursor: loading ? 'default' : 'pointer',
@@ -465,7 +501,7 @@ export default function LabPage() {
                 background: loading ? '#2A3440' : 'linear-gradient(100deg,#3ECF8E,#4A9EFF)',
                 color: loading ? '#7A8798' : '#06110B',
               }}>
-              {loading ? '生成中…（约 30~180 秒）' : '🎬 生成页面（不渲染 mp4）'}
+              {loading ? '生成中…（约 30~180 秒）' : '🎬 一键出片（不渲染 mp4）'}
             </button>
 
             {!!err && (

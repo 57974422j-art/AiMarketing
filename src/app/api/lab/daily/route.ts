@@ -166,9 +166,12 @@ export async function POST(request: NextRequest) {
     aspect: String(body?.aspect || '9:16'),
     plateRatio: Number(body?.plateRatio ?? 6),
     designStyle: String(body?.designStyle || ''),
-    drawMode: String(body?.drawMode || ''),
-    tier: String(body?.tier || 'strict'),
-    noImgEnds: !!body?.noImgEnds,
+    /* ★LAB_DEFAULT_V1：后端兜底值与前端的"自动最优"保持一致
+       （drawMode 少量 / tier 宽松 / noImgEnds 勾）——
+       否则前端不传时后端会给另一套，两边行为不一致。 */
+    drawMode: body?.drawMode === undefined ? 'some' : String(body?.drawMode || ''),
+    tier: String(body?.tier || 'loose'),
+    noImgEnds: body?.noImgEnds === undefined ? true : !!body?.noImgEnds,
     /* ★与成品线同一套三档：open 开 / save 省 / off 关。
        save 和 off 都用 `thinking:{type:'disabled'}`（实测唯一有效的关思考写法），
        区别只在提示词里有没有"思考清单"—— lab 这边两者等价，都关。 */
