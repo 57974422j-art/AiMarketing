@@ -209,6 +209,16 @@ export async function POST(request: NextRequest) {
     }, { status: 502 })
   }
 
+  /* ── 强制注入「预览模式」（不靠模型照抄；漏了就只能看第一屏） ── */
+  {
+    const { injectPreviewMode } = await import('@/lib/lab/preview')
+    const isLand = String(form.aspect || '') === '16:9'
+    const before = html.length
+    html = injectPreviewMode(html, isLand ? 1280 : 720, isLand ? 720 : 1280)
+    console.log('[LAB] preview guard 注入: ' + before + ' → ' + html.length + ' 字'
+      + ' · data-mode=' + (/data-mode="preview"/.test(html) ? 'preview' : '⚠️未注入'))
+  }
+
   /* ── 落盘（唯一写入点） ── */
   const outDir = labDir('out')
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)

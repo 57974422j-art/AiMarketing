@@ -185,7 +185,77 @@ const CONTRACT = `【输出契约 · 技术项，必须照抄】
    字体只用 \`--font-serif: "TXT-Serif", serif;\` 和 \`--font-sans: "TXT-Sans", sans-serif;\`
    （不要写 Noto Serif SC 这种真实家族名，渲染器会整份拉取爆内存）。
 5) 画布 ${'{W}'}×${'{H}'}；安全区左右 56px、上下 56px。
-6) 禁止：emoji 当图标、编造数据、写"第几帧/底片/构图/留白/光影"这类谈照片本身的话。`
+6) 禁止：emoji 当图标、编造数据、写"第几帧/底片/构图/留白/光影"这类谈照片本身的话。
+
+7) ⚠️⚠️ **必须带「预览模式」—— 否则浏览器打开只能看到第一屏（这条最容易漏）**
+
+   这个页面有**两种模式**：
+     · \`data-mode="film"\`  → 出片用，引擎逐帧调 \`__seek\`，**不自动播**
+     · \`data-mode="preview"\`（默认）→ 人看用，**所有段纵向铺开 + 可滚动**
+
+   ⇒ 你要写的是 **preview 作为默认**，并且把下面这段**原样照抄**进页面（放在 </head> 前和 </body> 前）：
+
+   \`\`\`
+   <html data-mode="preview" lang="zh-CN">
+   ...
+   <style id="ai-preview-guard">
+   :root{--daily-cw:${'{W}'}px;--daily-ch:${'{H}'}px}
+   html:not([data-mode="film"]),html:not([data-mode="film"]) body{height:auto!important;overflow-y:auto!important;background:#000}
+   html:not([data-mode="film"]) body>*{height:auto!important;max-height:none!important;overflow:visible!important}
+   html:not([data-mode="film"]) #stage{height:auto!important;overflow:visible!important}
+   html:not([data-mode="film"]) .sec{
+     display:flex!important;visibility:visible!important;position:relative!important;
+     inset:auto!important;left:auto!important;top:auto!important;
+     width:var(--daily-cw,${'{W}'}px)!important;height:var(--daily-ch,${'{H}'}px)!important;
+     overflow:hidden!important;opacity:1!important;margin:0 auto 12px
+   }
+   </style>
+   ...
+   <script id="ai-preview-guard-js">(function(){
+     var root=document.documentElement;
+     if(root.getAttribute("data-mode")==="film")return;
+     function boot(){
+       var secs=[].slice.call(document.querySelectorAll(".sec"));
+       if(!secs.length)return;
+       for(var i=0;i<secs.length;i++){
+         var s0=secs[i];
+         s0.style.visibility="visible";
+         if(window.getComputedStyle(s0).display==="none")s0.style.display="flex";
+         var a=s0.parentElement;
+         while(a&&a!==document.body){a.style.overflow="visible";a.style.height="auto";a.style.maxHeight="none";a=a.parentElement;}
+         if(a){a.style.overflowY="auto";a.style.height="auto";}
+       }
+       var t0=[],wasIn=[];
+       function tick(){
+         var vh=window.innerHeight||${'{H}'};
+         for(var i=0;i<secs.length;i++){
+           var s=secs[i],r=s.getBoundingClientRect();
+           var inView=(r.top<vh*0.85)&&(r.bottom>0);
+           if(inView&&!wasIn[i]){wasIn[i]=true;t0[i]=window.performance.now();}
+           if(!inView){wasIn[i]=false;t0[i]=null;}
+           var du=(+s.dataset.duration||3)*1000;
+           if(wasIn[i]&&t0[i]!=null){
+             var e=(window.performance.now()-t0[i])/du;
+             s.style.setProperty("--p",String(Math.min(1,Math.max(0,e))));
+           }
+         }
+         requestAnimationFrame(tick);
+       }
+       tick();
+     }
+     if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",boot);
+     else boot();
+   })();</script>
+   \`\`\`
+
+   **三条必须做对**：
+     ① \`<html data-mode="preview">\` 写在最外层；
+     ② preview guard 的 \`<style>\` 和 \`<script>\` **两个都要有**（只写 style 不会自动播，只写 script 排版会乱）；
+     ③ 每段必须**自带不透明背景**，且**整段 opacity 由 --p 控制**：
+        \`.sec{background:<底色>;opacity:clamp(0, calc(var(--p) * 20), 1)}\` 和 \`.sec:first-child{opacity:1}\`
+        （缺背景 ⇒ 段透明会叠字；缺整段 opacity ⇒ 后段把前段盖死，只看到最后一段）
+
+   ⇒ 判据：**在浏览器里打开，往下滚能逐段看完**。只能看到第一屏就是不合格。`
 
 /* ══════════════════════════════════════════════════════════════════════════
    六、组装提示词
