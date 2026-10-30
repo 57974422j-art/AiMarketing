@@ -3170,6 +3170,10 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
   /* ★VF_SELLPOINT_V1：今日卖点/话术（独立字段，留空 = 完全不影响） */
   const [sellingPoints, setSellingPoints] = useState<string>(String(vj?.sellingPoints || ''))
   const [spOpen, setSpOpen] = useState<boolean>(false)
+  /* ★VF_STYLE_LIB_V1（2026-10-30 用户「强化设计风格」）：视觉风格六选一，空 = 不指定（零影响）。
+     ★VF_DRAW_ABILITY_V1（同日「强化动画绘画：能画个锅、房子、杯子」）：空 = 关 / some = 少量点缀 / focus = 至少 1/3 段有绘制主体。 */
+  const [designStyle, setDesignStyle] = useState<string>(String(vj?.designStyle || ''))
+  const [drawMode, setDrawMode] = useState<string>(String(vj?.drawMode || ''))
   const [userRules, setUserRules] = useState<string>(() => {
     const saved = String(vj?.userRules || '').trim()
     return saved || rulesFor(String(vj?.aspect || '9:16'))
@@ -3481,6 +3485,77 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
             ))}
           </div>
 
+          {/* ★VF_STYLE_LIB_V1（2026-10-30 用户「强化设计风格」+「我们的 AI 理解风格吗」）：
+              病灶：提示词只有约束、零审美方向 ⇒ 几十单都长一个样。
+              每种风格注入的是**具体参数**（色值/字重/字距/对齐/动效类型），不是形容词。
+              不选 = 不注入（和现在一模一样）。只给方向，**不锁版式**。 */}
+          <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 mb-2">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[10px] text-gray-300">视觉风格</span>
+              <span className={'text-[10px] font-medium ' + (designStyle ? 'text-fuchsia-300' : 'text-gray-500')}>
+                {designStyle === 'warm' ? '暖纸宋体' : designStyle === 'swiss' ? '瑞士网格'
+                  : designStyle === 'morandi' ? '莫兰迪' : designStyle === 'press' ? '双色套印'
+                    : designStyle === 'neon' ? '深夜霓虹' : designStyle === 'mag' ? '杂志编辑' : '不指定'}
+              </span>
+            </div>
+            <div className="grid grid-cols-4 gap-1">
+              {[
+                { v: '', t: '不指定', d: '和现在一样（它自由发挥）' },
+                { v: 'warm', t: '暖纸', d: '朱红+宋体+竖排+印章（中式高端餐饮）' },
+                { v: 'swiss', t: '瑞士', d: '纯黑+荧光黄+左对齐+网格可见（设计感）' },
+                { v: 'morandi', t: '莫兰迪', d: '低饱和+大留白（甜品/花店）' },
+                { v: 'press', t: '套印', d: '双色+网点+粗框（烧烤/老字号）' },
+                { v: 'neon', t: '霓虹', d: '暗底+青粉辉光（夜宵/酒吧）' },
+                { v: 'mag', t: '杂志', d: '多栏+图注密集（探店长文）' },
+              ].map((o) => {
+                const on = designStyle === o.v
+                return (
+                  <button key={o.v || 'none'} type="button" onClick={() => setDesignStyle(o.v)} title={o.d}
+                    className={'px-1 py-1.5 rounded-lg text-[10px] border transition ' + (on
+                      ? 'border-fuchsia-400/70 bg-fuchsia-500/20 text-fuchsia-50'
+                      : 'border-white/10 text-gray-400 hover:border-white/25 hover:text-gray-200')}>
+                    {o.t}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="text-[9px] text-gray-600 mt-1">
+              {designStyle ? '注入这套风格的具体参数（配色/字体/对齐/动效），版式仍由它自己想' : '不指定 = 不注入任何风格（和现在完全一致）'}
+            </div>
+          </div>
+
+          {/* ★VF_DRAW_ABILITY_V1（2026-10-30 用户「强化动画绘画：能画个锅、房子、杯子」）：
+              病灶：提示词里**从来没告诉它可以画图形** ⇒ 只会"照片+文字排版"。
+              现在给"怎么画"的公式清单（锅/房子/杯子/碗/蒸汽/光晕）+ 要求"画出来要认得出来"。 */}
+          <div className="rounded-xl border border-white/10 bg-black/20 px-3 py-2 mb-2">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[10px] text-gray-300">强化绘制</span>
+              <span className={'text-[10px] font-medium ' + (drawMode ? 'text-cyan-300' : 'text-gray-500')}>
+                {drawMode === 'focus' ? '重点画（1/3 段）' : drawMode === 'some' ? '少量点缀' : '关'}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-1">
+              {[
+                { v: '', t: '关', d: '不引导它画图形（和现在一样）' },
+                { v: 'some', t: '少量', d: '部分段加一个代码画的实物（锅/杯子/房子）' },
+                { v: 'focus', t: '重点', d: '至少 1/3 段有绘制主体当视觉核心' },
+              ].map((o) => {
+                const on = drawMode === o.v
+                return (
+                  <button key={o.v || 'off'} type="button" onClick={() => setDrawMode(o.v)} title={o.d}
+                    className={'px-2 py-1.5 rounded-lg text-[10px] border transition ' + (on
+                      ? 'border-cyan-400/70 bg-cyan-500/20 text-cyan-50'
+                      : 'border-white/10 text-gray-400 hover:border-white/25 hover:text-gray-200')}>
+                    {o.t}
+                  </button>
+                )
+              })}
+            </div>
+            <div className="text-[9px] text-gray-600 mt-1">
+              {drawMode ? '会用纯 CSS 画锅/房子/杯子/碗/蒸汽，逐步出现（先轮廓再填充），画出来要认得出是什么' : '关 = 不引导（它自己偶尔也会画，但不受控）'}
+            </div>
+          </div>
+
           {/* ★VF_NOIMG_ENDS_V1：首末段允许不用实拍图（纯排版：大字/色块/图形） */}
           <label className={'flex items-start gap-2 mb-2 px-3 py-2 rounded-xl border cursor-pointer ' + (noImgEnds
             ? 'border-emerald-400/40 bg-emerald-500/10' : 'border-white/10 bg-black/20 hover:bg-white/[0.04]')}>
@@ -3649,6 +3724,7 @@ function VfFilmCard({ vj, onSend, userId }: { vj: any; onSend: (m: string) => vo
               names: sel, plateRatio, aspect,
               rulesOn: useRules, userRules: useRules ? userRules : '',
               tone, noImgEnds, tier, thinkMode,
+              designStyle, drawMode,   // ★VF_STYLE_LIB_V1 / ★VF_DRAW_ABILITY_V1
               sellingPoints: sellingPoints.trim(),
             })
           }}

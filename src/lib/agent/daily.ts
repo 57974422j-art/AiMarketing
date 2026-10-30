@@ -290,6 +290,8 @@ async function dailyMatCard(uid: number | string, d: DailyDraft): Promise<string
     tier: String((d as any).promptTier || 'strict'),
     // ★VF_SELLPOINT_V1：今日卖点/话术的回填（刷新后还在，不用重填）
     sellingPoints: String((d as any).sellingPoints || ''),
+    designStyle: String((d as any).designStyle || ''),   // ★VF_STYLE_LIB_V1
+    drawMode: String((d as any).drawMode || ''),         // ★VF_DRAW_ABILITY_V1
     thinkMode: String((d as any).thinkMode || 'open'),
     aspect: String((d as any).aspect || '9:16'),
     images,
@@ -585,7 +587,7 @@ export async function aiDesignPage(
      否则请求会在网关被掐断，前端只看到"网络连接失败"（用户遇到的就是这个）。
      **不传 = 240s（逐字保持现状）**。 */
   /* ★VF_PLATE_RATIO_V1：`plateRatio` 0~100（默认 60 ⇒ 界面 6.0:4.0），透传给 aiDesignPrompt。 */
-  opts?: { failNote?: string; timeoutMs?: number; plateRatio?: number; userRules?: string; aspect?: string; tone?: string; allowNoImgEnds?: boolean; tier?: string; thinkMode?: string; sellingPoints?: string },
+  opts?: { failNote?: string; timeoutMs?: number; plateRatio?: number; userRules?: string; aspect?: string; tone?: string; allowNoImgEnds?: boolean; tier?: string; thinkMode?: string; sellingPoints?: string; designStyle?: string; drawMode?: string },
   /* ★VF_STORY_TWOCOPY_V1：把分镜表（含每段的 `voice`）一起返回 ——
      调用方可以直接用它填口播，**不用再调一次 AI 重写**。 */
 ): Promise<{ ok: boolean; html?: string; error?: string; captions?: string; vlErr?: string; diag?: string; segs?: any[]; tracePrompt?: string; traceThink?: string }> {
@@ -743,7 +745,7 @@ export async function aiDesignPage(
   const _isLandscape = String(opts?.aspect || '') === '16:9'
   const prompt = _isLandscape
     ? aiDesignPromptLite(n, topic, { segs: storySegs, userRules: opts?.userRules, plateRatio: opts?.plateRatio })
-    : aiDesignPrompt(n, topic, { failNote: opts?.failNote, segs: storySegs, plateRatio: opts?.plateRatio, userRules: opts?.userRules, aspect: opts?.aspect, thinkMode: opts?.thinkMode, sellingPoints: opts?.sellingPoints, tone: opts?.tone, allowNoImgEnds: opts?.allowNoImgEnds, tier: opts?.tier })
+    : aiDesignPrompt(n, topic, { failNote: opts?.failNote, segs: storySegs, plateRatio: opts?.plateRatio, userRules: opts?.userRules, aspect: opts?.aspect, thinkMode: opts?.thinkMode, sellingPoints: opts?.sellingPoints, designStyle: opts?.designStyle, drawMode: opts?.drawMode, tone: opts?.tone, allowNoImgEnds: opts?.allowNoImgEnds, tier: opts?.tier })
     + (summary ? '\n\n【素材实拍内容（视觉模型逐张读出，写文案必须据此，不许编造）】\n' + summary : '')
   let txt = ''
   let diag = ''
@@ -1833,6 +1835,8 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
       tier: String((d as any).promptTier || 'strict'),
       thinkMode: String((d as any).thinkMode || 'open'),   // ★VF_THINK_MODE_V1
       sellingPoints: String((d as any).sellingPoints || ''),   // ★VF_SELLPOINT_V1
+      designStyle: String((d as any).designStyle || ''),        // ★VF_STYLE_LIB_V1
+      drawMode: String((d as any).drawMode || ''),              // ★VF_DRAW_ABILITY_V1
     })
     try {
       // ★VF_DAIDESIGN_V20：加**耗时**（用户反复问"到底多久"，没这个数字只能猜）
@@ -2612,6 +2616,16 @@ export async function handleDailyLine(ctx: DailyCtx): Promise<string | null> {
         ③ 卖点 ≥3 条时**优先用代码画一屏价目板**，分几屏/放第几段由模型自己定。
        注意：**不能塞进 `userRules`** —— 那个一有内容就会让"（设计偏好）整块作废"，会误伤排版。 */
     ;(d as any).sellingPoints = String((f as any)?.sellingPoints || '').trim().slice(0, 600)
+    /* ★VF_STYLE_LIB_V1（2026-10-30 用户「强化设计风格」+「我们的 AI 理解风格吗」）：
+       病灶：提示词只有约束、**零审美方向** ⇒ 几十单都长一个样（不是它不想变，是没被告知怎么变）。
+       现口径：`designStyle` 六选一（warm 暖纸宋体 / swiss 瑞士网格 / morandi 莫兰迪 /
+              press 双色套印 / neon 深夜霓虹 / mag 杂志编辑），空 = 不加（零影响）。 */
+    const _ds = String((f as any)?.designStyle || '')
+    ;(d as any).designStyle = ['warm', 'swiss', 'morandi', 'press', 'neon', 'mag'].indexOf(_ds) >= 0 ? _ds : ''
+    /* ★VF_DRAW_ABILITY_V1（2026-10-30 用户「加一个强化动画绘画：能画个锅、房子、杯子」）：
+       `drawMode`：'' 关 / 'some' 少量点缀 / 'focus' 至少 1/3 段有绘制主体。 */
+    const _dm = String((f as any)?.drawMode || '')
+    ;(d as any).drawMode = (_dm === 'some' || _dm === 'focus') ? _dm : ''
     ;(d as any).aspect = String((f as any)?.aspect || '') === '16:9' ? '16:9' : '9:16'
     d.names = picked
     d.source = { kind: 'repo' }
