@@ -26,6 +26,7 @@
  */
 
 import { renderCardsA } from './cards-a'
+import { renderCardsExtra } from './cards-extra'
 
 export type V2Form = {
   imgCount?: number
@@ -133,16 +134,24 @@ export function buildLabPromptV2(f: V2Form): string {
   · 字体只用两个**占位族名**：\`--font-serif: "TXT-Serif", serif\` / \`--font-sans: "TXT-Sans", sans-serif\`
     （真实字体我们后续注入，**不要写 Noto Sans SC 这类真名**）`)
 
-  /* ── 第四段：手法卡（可选） ── */
+  /* ── 第四段：手法库（可选） ── */
   if (String(f.cardMode || '') === 'a') {
     p.push('')
     p.push('【第 4 步 · 手法库（**每段挑一张**，不是遵守规则）】')
-    p.push('下面 25 张是**可以这么做**的手法，是许可不是命令：')
-    p.push('· 每段挑 1 张当主手法，可以再叠 1 张辅助')
-    p.push('· **相邻三段不许用同一张**')
-    p.push('· 你有更好的想法就用你的，这些只是"至少可以这么玩"')
+    p.push('下面是一个**武器库**，每张都是"可以这么做"的许可，不是命令：')
     p.push('')
+    p.push('**怎么用**：')
+    p.push('· 每段挑 **1 张主手法**（排版类），可以再叠 **1 张辅助**（打光/运镜）')
+    p.push('· 转场卡用在**段与段之间**，相邻两段换一种')
+    p.push('· **相邻三段不许用同一张主手法**')
+    p.push('· 运镜卡（C 系列）建议**每段都用一张** —— 它治"PPT 感"最有效')
+    p.push('· 你有更好的想法就用你的；这些只是"至少可以这么玩"')
+    p.push('')
+    p.push('════ 一、排版手法（25 张）════')
     p.push(renderCardsA())
+    p.push('')
+    p.push('════ 二、打光 / 转场 / 运镜 / 节奏（27 张）════')
+    p.push(renderCardsExtra(['light', 'transition', 'camera', 'rhythm']))
   }
 
   /* ── 第五段：技术契约（只留必要的，学 output(fixed)） ── */
