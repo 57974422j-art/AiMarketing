@@ -146,9 +146,28 @@ export async function POST(request: NextRequest) {
   const file = form.get('file') as File
   if (!file) return NextResponse.json({ success: false, message: '缺少文件' }, { status: 400 })
 
+  /* ★VF_UPLOAD_SHRINK_V1：**配额检查要用"压缩后"的大小**
+     —— 压缩能把 4MB 降到 1MB，若按原大小判配额，会出现"明明传得下却被拒"。
+     ⇒ 顺序改成：先压缩 → 再按实际写入的体积查配额。 */
+  let shrinkBuf: Buffer | null = null
+  let shrinkNote = ''
+  {
+    const _e = String((file.name.split('.').pop() || '')).toLowerCase()
+    if (['jpg', 'jpeg', 'png', 'webp'].includes(_e) && file.size > 500 * 1024) {
+      try {
+        const { shrinkImageOnUpload } = await import('@/lib/img-compress')
+        const buf0 = Buffer.from(await file.arrayBuffer())
+        const r = await shrinkImageOnUpload(buf0, _e)
+        shrinkBuf = r.buffer === buf0 ? null : r.buffer
+        shrinkNote = r.note
+      } catch { /* 压缩异常 ⇒ 走原图 */ }
+    }
+  }
+  const realSize = shrinkBuf ? shrinkBuf.length : file.size
+
   const used = await quotaUsed(auth.userId)
   // ★VF_QUOTA_V2：统一判定（已用 + 本次 > 450MB ⇒ 拒；统计失败也拒 ⇒ 不静默放行）
-  const quotaMsg = quotaCheck(used, file.size)
+  const quotaMsg = quotaCheck(used, realSize)
   if (quotaMsg) return NextResponse.json({ success: false, message: quotaMsg }, { status: 413 })
 
   // ★VF_UPLOADGUARD_V1（2026-10-10 用户服务器实测：仓库里躺着 `20261009_021.mp4` = **0 字节**，
@@ -180,11 +199,16 @@ export async function POST(request: NextRequest) {
   const mime = mimeMap[ext.toLowerCase()] || 'application/octet-stream'
 
   try {
-    const res = await saveToPersonalRepo({ userId: auth.userId, buffer, ext, mime })
+    /* ★VF_UPLOAD_SHRINK_V1：用上面**已经压好的**那份（`shrinkBuf`），不要在这里再压一次
+       —— 压两次会二次损失画质，也浪费时间。没压过就传原图。 */
+    const uploadBuf = shrinkBuf || buffer
+    if (shrinkNote) { try { console.log('[上传压缩] ' + file.name + '：' + shrinkNote) } catch { /* ignore */ } }
+    const res = await saveToPersonalRepo({ userId: auth.userId, buffer: uploadBuf, ext, mime })
     // 2026-08-26: 不再自动抽帧（用户要求：上传视频不切图；发视频时按需抽帧在 extract_video_frames 工具内）
     // ★2026-10-12 更正（这句注释曾把排查带偏）：`saveToPersonalRepo` **确实会**为视频抽一帧，
     //   但那一帧只作**列表缩略图**存到 `.thumbs/`（personal-storage.ts 视频分支），不返回给调用方当"分镜帧"。
-    return NextResponse.json({ success: true, data: { name: res.name, size: file.size, frames: [] } })
+    /* ★VF_UPLOAD_SHRINK_V1：返回**实际写入**的体积（压缩后），前端显示才准 */
+    return NextResponse.json({ success: true, data: { name: res.name, size: realSize, origSize: file.size, frames: [] } })
   } catch (e) {
     const message = e instanceof Error ? e.message : '保存失败'
     return NextResponse.json({ success: false, message }, { status: 413 })
