@@ -254,10 +254,12 @@ export async function POST(request: NextRequest) {
   }
 
   /* ── ① 内嵌图片（否则浏览器里全是碎图） ── */
+  let inlineN = 0
   {
     const before = html.length
     const r = inlineImages(html, b64ByName)
     html = r.html
+    inlineN = r.n
     console.log('[LAB] 内嵌图 ' + r.n + ' 处 · ' + Math.round(before / 1024) + 'KB → '
       + Math.round(html.length / 1024) + 'KB'
       + (r.n === 0 ? '  ⚠️ 一处都没匹配到（检查 HTML 里的图片引用写法）' : ''))
@@ -299,6 +301,25 @@ export async function POST(request: NextRequest) {
 
   const guessName = names[0] ? names[0].replace(/\.[^.]+$/, '') : 'asset'
 
+  /* ── ③ 落库到个人仓库（gen_ 前缀，占配额；失败不影响预览） ── */
+  let repoName = ''
+  let repoSaved = false
+  try {
+    const { saveToPersonalRepo } = await import('@/lib/personal-storage')
+    const saved = await saveToPersonalRepo({
+      userId: auth.userId,
+      buffer: Buffer.from(html, 'utf8'),
+      ext: 'html',
+      mime: 'text/html',
+      gen: true,                    // 系统生成物 ⇒ gen_日期_序号.html
+    })
+    repoName = saved.name
+    repoSaved = true
+    console.log('[LAB] 已落库: ' + repoName)
+  } catch (e: any) {
+    console.log('[LAB] 落库失败（不影响预览）: ' + String(e?.message || e).slice(0, 140))
+  }
+
   return NextResponse.json({
     success: true,
     data: {
@@ -313,6 +334,10 @@ export async function POST(request: NextRequest) {
       shrinkFail,
       promptKB: Math.round(prompt.length / 1024),
       guessName,
+      /* 落库结果：页面拿到后用 electronAPI 镜像到本地 */
+      repoName,
+      repoSaved,
+      inlineCount: inlineN,
     },
   })
 }

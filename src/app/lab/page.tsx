@@ -13,7 +13,7 @@
  *   ② 卖点排在文案类型之前（内容先于形式）
  *   ③ 元素逐步出现
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 type Item = { name: string; url: string; kind?: string }
 
@@ -23,6 +23,8 @@ export default function LabPage() {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<any>(null)
   const [err, setErr] = useState('')
+  const [check, setCheck] = useState<any>(null)
+  const iframeRef = useRef<HTMLIFrameElement | null>(null)
 
   /* 表单 */
   const [sellingPoints, setSellingPoints] = useState('')
@@ -57,7 +59,7 @@ export default function LabPage() {
 
   async function gen() {
     if (picked.length < 3) { setErr('至少选 3 张素材'); return }
-    setErr(''); setLoading(true); setResult(null)
+    setErr(''); setLoading(true); setResult(null); setCheck(null)
     const t0 = Date.now()
     try {
       const r = await fetch('/api/lab/daily', {
@@ -72,10 +74,110 @@ export default function LabPage() {
       const j = await r.json()
       if (!j?.success) { setErr(String(j?.message || '生成失败')); setLoading(false); return }
       setResult({ ...j.data, wall: Math.round((Date.now() - t0) / 1000) })
+
+      /* ★镜像到本地仓库（只在客户端里有效；网页版没有 electronAPI，跳过即可） */
+      try {
+        const api = (window as any).electronAPI
+        if (api?.storageMirror && j.data?.repoName) {
+          api.storageMirror('/api/storage/file?userId=' + '' + '&name=' + encodeURIComponent(j.data.repoName))
+        }
+      } catch { /* 网页端没有 electronAPI，正常 */ }
     } catch (e: any) {
       setErr('请求失败：' + String(e?.message || e))
     }
     setLoading(false)
+  }
+
+  /**
+   * ★分区自检 —— 在浏览器里跑，读 iframe 的真实渲染尺寸。
+   *
+   * 检测三件事（就是提示词里那三条铁律）：
+   *   ① 文字元素的 [top, top+height] 是否整段落在 0~480 或 1040~1220
+   *   ② 图 / 图形是否整段落在 480~1040
+   *   ③ 文字元素之间、文字与图之间有没有实际重叠
+   *
+   * 为什么必须在前端跑：CSS 的最终位置只有浏览器算得准，服务端静态分析不可靠。
+   */
+  function runZoneCheck() {
+    const doc = iframeRef.current?.contentDocument
+    if (!doc) { setCheck({ ok: false, problems: ['读不到 iframe（可能还没加载完）'] }); return }
+    const secs = Array.from(doc.querySelectorAll('.sec')) as HTMLElement[]
+    if (!secs.length) { setCheck({ ok: false, problems: ['没找到 .sec 段'] }); return }
+
+    const problems: string[] = []
+    const TOP_END = 480
+    const MID_END = 1040
+    const BOT_START = 1040
+    const BOT_END = 1220
+
+    secs.forEach((sec, si) => {
+      const base = sec.getBoundingClientRect()
+      /* 该段内的所有可见元素 */
+      const nodes = Array.from(sec.querySelectorAll('*')) as HTMLElement[]
+      const texts: Array<{ tag: string; top: number; bottom: number; l: number; r: number; txt: string }> = []
+      const objs: Array<{ tag: string; top: number; bottom: number; l: number; r: number }> = []
+
+      for (const el of nodes) {
+        const r = el.getBoundingClientRect()
+        if (r.width < 4 || r.height < 4) continue
+        const cs = doc.defaultView!.getComputedStyle(el)
+        if (cs.visibility === 'hidden' || cs.display === 'none' || Number(cs.opacity) < 0.05) continue
+
+        const top = Math.round(r.top - base.top)
+        const bottom = Math.round(r.bottom - base.top)
+        const isImg = el.tagName === 'IMG' || cs.backgroundImage.indexOf('data:image') >= 0
+          || cs.backgroundImage.indexOf('url(') >= 0
+        const ownText = Array.from(el.childNodes).some((n) => n.nodeType === 3 && (n.textContent || '').trim().length > 0)
+
+        if (isImg) {
+          objs.push({ tag: el.tagName.toLowerCase() + (el.className ? '.' + String(el.className).split(' ')[0] : ''), top, bottom, l: Math.round(r.left - base.left), r: Math.round(r.right - base.left) })
+        } else if (ownText) {
+          texts.push({ tag: el.tagName.toLowerCase(), top, bottom, l: Math.round(r.left - base.left), r: Math.round(r.right - base.left), txt: (el.textContent || '').trim().slice(0, 10) })
+        }
+      }
+
+      /* ① 文字越界（允许在 0~480 或 1040~1220；中间区域放文字算越界） */
+      for (const t of texts) {
+        const inTop = t.bottom <= TOP_END + 8
+        const inBot = t.top >= BOT_START - 8 && t.bottom <= BOT_END + 60
+        if (!inTop && !inBot) {
+          problems.push('段' + (si + 1) + ' 文字「' + t.txt + '」位置 ' + t.top + '~' + t.bottom
+            + ' 越界（应在 0~480 或 1040~1220）')
+        }
+      }
+
+      /* ② 主体越界（应在 480~1040） */
+      for (const o of objs) {
+        if (o.top < MID_END && o.bottom > TOP_END && (o.top < 460 || o.bottom > 1060)) {
+          problems.push('段' + (si + 1) + ' 主体 ' + o.tag + ' 位置 ' + o.top + '~' + o.bottom
+            + ' 越界（应在 480~1040）')
+        }
+      }
+
+      /* ③ 文字压主体 / 文字互相压 */
+      for (const t of texts) {
+        for (const o of objs) {
+          const ox = Math.min(t.r, o.r) - Math.max(t.l, o.l)
+          const oy = Math.min(t.bottom, o.bottom) - Math.max(t.top, o.top)
+          if (ox > 6 && oy > 6) {
+            problems.push('段' + (si + 1) + ' **文字压主体**：「' + t.txt + '」压住 ' + o.tag
+              + '（重叠 ' + Math.round(ox) + '×' + Math.round(oy) + 'px）')
+          }
+        }
+      }
+      for (let i = 0; i < texts.length; i++) {
+        for (let j = i + 1; j < texts.length; j++) {
+          const a = texts[i], b = texts[j]
+          const ox = Math.min(a.r, b.r) - Math.max(a.l, b.l)
+          const oy = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)
+          if (ox > 6 && oy > 6) {
+            problems.push('段' + (si + 1) + ' **文字叠文字**：「' + a.txt + '」压住「' + b.txt + '」')
+          }
+        }
+      }
+    })
+
+    setCheck({ ok: problems.length === 0, problems })
   }
 
   return (
@@ -321,8 +423,40 @@ export default function LabPage() {
                   </span>
                 </div>
 
+                {/* 分区自检（在浏览器里跑，能拿到真实渲染尺寸） */}
+                <div style={{ display: 'flex', gap: 8, marginBottom: 10, alignItems: 'center' }}>
+                  <button onClick={runZoneCheck}
+                    style={{
+                      fontSize: 11, padding: '7px 14px', borderRadius: 6, cursor: 'pointer',
+                      background: 'rgba(232,180,90,.14)', border: '1px solid rgba(232,180,90,.4)',
+                      color: '#F6DCA8',
+                    }}>🔍 分区自检（查图压字）</button>
+                  <span style={{ fontSize: 10, color: '#4C5765' }}>
+                    检测每段：文字是否在 0~480 · 主体是否在 480~1040 · 有没有互相重叠
+                  </span>
+                </div>
+
+                {!!check && (
+                  <div style={{
+                    marginBottom: 11, padding: '10px 12px', borderRadius: 8,
+                    background: check.ok ? 'rgba(62,207,142,.07)' : 'rgba(232,90,90,.07)',
+                    border: '1px solid ' + (check.ok ? 'rgba(62,207,142,.3)' : 'rgba(232,90,90,.3)'),
+                    fontSize: 10.5, lineHeight: 1.85, color: check.ok ? '#B6F2D6' : '#FFC9C9',
+                  }}>
+                    <b>{check.ok ? '✅ 全部分区合格' : '❌ 发现 ' + check.problems.length + ' 处越界/重叠'}</b>
+                    {check.problems.length > 0 && (
+                      <div style={{ marginTop: 6, color: '#FFB4B4' }}>
+                        {check.problems.slice(0, 12).map((p: string, i: number) => (
+                          <div key={i}>· {p}</div>
+                        ))}
+                        {check.problems.length > 12 && <div>… 还有 {check.problems.length - 12} 处</div>}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* 预览（preview 模式：纵向铺开，滚动看全） */}
-                <iframe src={result.url} title="lab-preview"
+                <iframe ref={iframeRef} src={result.url} title="lab-preview"
                   style={{
                     width: '100%', height: 900, border: '1px solid #242C38', borderRadius: 10,
                     background: '#000',
