@@ -45,9 +45,13 @@ export default function LabPage() {
   const [rulesOpen, setRulesOpen] = useState(false)
   /* 高级设置默认收起来 —— 用户只选素材 + 点出片 */
   const [advOpen, setAdvOpen] = useState(false)
-  /* ★手法卡模式（本轮要测的核心）：'a' 25 张细手法 / 'b' 12 张段落类型 / '' 不给卡。
-     ⚠️ 放在**主区域**（不进高级设置），因为这是这一轮唯一要对比的东西。 */
-  const [cardMode, setCardMode] = useState('b')
+  /* ★手法卡模式：'a' 25 张细手法 / '' 不给卡（只在 A 引擎里用） */
+  const [cardMode, setCardMode] = useState('a')
+  /* ★★ 引擎开关（2026-10-31 用户定案「两套完全独立，不要掺和」）：
+   *   'a' = 现在的 `/lab`（分镜表 + 设计原则 + 两条底线）
+   *   'b' = 纯仓库派（四段式 Style/节拍/签名特征 + 卡 + 自评，**不传分镜表**）
+   * ⚠️ 两套提示词**物理分开**（prompt.ts / prompt-v2.ts），改一个不影响另一个。 */
+  const [engine, setEngine] = useState('b')
 
   /* 读仓库素材（用 **lab 自己的接口**，双鉴权兜底，不依赖 middleware 注入的头） */
   useEffect(() => {
@@ -83,6 +87,7 @@ export default function LabPage() {
         body: JSON.stringify({
           names: picked, sellingPoints, tone, thinkMode,
           designStyle, drawMode, tier, plateRatio, noImgEnds, aspect, userRules, cardMode,
+          engine,
         }),
       })
       const j = await r.json()
@@ -284,7 +289,36 @@ export default function LabPage() {
               })}
             </div>
 
-            {/* ★LAB_CARDS：手法卡模式（本轮唯一要对比的开关，所以放在主区域） */}
+            {/* ★★ 引擎开关（A = 现在这套 / B = 纯仓库派，两套提示词物理隔离） */}
+            <div style={{
+              marginBottom: 10, padding: '9px 10px', borderRadius: 8,
+              border: '1px solid rgba(62,207,142,.35)', background: 'rgba(62,207,142,.06)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
+                <span style={{ fontSize: 10.5, color: '#B6F2D6', fontWeight: 600 }}>设计引擎</span>
+                <span style={{ fontSize: 9, color: '#4C5765' }}>
+                  {engine === 'a' ? 'A · 现在这套' : 'B · 纯仓库派'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[['a', 'A · 现在的'], ['b', 'B · 仓库派']].map(([v, t]) => (
+                  <button key={v} onClick={() => setEngine(v)}
+                    style={{
+                      flex: 1, fontSize: 10.5, padding: '7px 0', borderRadius: 5, cursor: 'pointer',
+                      border: engine === v ? '1px solid #3ECF8E' : '1px solid #242C38',
+                      background: engine === v ? 'rgba(62,207,142,.22)' : '#0B0F14',
+                      color: engine === v ? '#D6FBEA' : '#7A8798',
+                    }}>{t}</button>
+                ))}
+              </div>
+              <div style={{ fontSize: 8.5, color: '#4C5765', marginTop: 6, lineHeight: 1.7 }}>
+                {engine === 'a'
+                  ? 'A：分镜表（12 段固定）+ 设计原则 + 两条底线。和之前一样。'
+                  : 'B：**没有分镜表**（段数由模型自己定）+ 四段式（先定风格→定节拍→技术路线→签名特征）+ 手法卡 + 交付前自评。撞色、运镜、转场都在里面。'}
+              </div>
+            </div>
+
+            {/* ★LAB_CARDS：手法卡模式（只在 A 引擎生效；B 引擎内部自己管卡） */}
             <div style={{
               marginBottom: 10, padding: '8px 9px', borderRadius: 8,
               border: '1px solid rgba(169,139,255,.3)', background: 'rgba(169,139,255,.055)',

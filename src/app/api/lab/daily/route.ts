@@ -16,6 +16,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { getAuthFromHeaders, getAuthFromCookie } from '@/lib/api-auth'
 import { buildLabPrompt, type LabSeg, type LabForm } from '@/lib/lab/prompt'
+import { buildLabPromptV2 } from '@/lib/lab/prompt-v2'
 
 export const maxDuration = 900
 
@@ -215,17 +216,35 @@ export async function POST(request: NextRequest) {
   console.log('[LAB] 读图完成 ' + imgParts.length + ' 张 · 缩图失败 ' + shrinkFail + ' 张'
     + ' · 内嵌用 1024px')
 
-  /* ── 生成分镜（用户可选传入，否则默认） ── */
-  const segs: LabSeg[] = Array.isArray(body?.segs) && body.segs.length
-    ? body.segs.map((s: any) => ({
-      t1: String(s?.t1 || '').slice(0, 16),
-      t2: String(s?.t2 || '').slice(0, 18),
-      body: String(s?.body || '').slice(0, 60),
-      imgs: Array.isArray(s?.imgs) ? s.imgs.map(Number) : [],
-    }))
-    : defaultSegs(names.length, !!form.noImgEnds)
+  /* ── 两套引擎分发（★LAB_ENGINE_V2：用户要求物理隔离，不要掺和） ──
+   *   engine='a'（默认）⇒ 现在的 `/lab` 那套：分镜表 + 设计原则 + 两条底线
+   *   engine='b'         ⇒ 纯仓库派：四段式（Style/节拍/技术路线/签名特征）+ 卡 + 自评
+   *                        **不传分镜表**，段数由模型自己决定
+   */
+  const engine = String(body?.engine || 'a').toLowerCase() === 'b' ? 'b' : 'a'
 
-  const prompt = buildLabPrompt(segs, form)
+  /* ── 生成分镜（只有 A 引擎需要；B 引擎由模型自己决定段数） ── */
+  const segs: LabSeg[] = engine === 'b'
+    ? []
+    : (Array.isArray(body?.segs) && body.segs.length
+      ? body.segs.map((s: any) => ({
+        t1: String(s?.t1 || '').slice(0, 16),
+        t2: String(s?.t2 || '').slice(0, 18),
+        body: String(s?.body || '').slice(0, 60),
+        imgs: Array.isArray(s?.imgs) ? s.imgs.map(Number) : [],
+      }))
+      : defaultSegs(names.length, !!form.noImgEnds))
+
+  const prompt = engine === 'b'
+    ? buildLabPromptV2({
+      imgCount: imgParts.length,
+      maxSeconds: Number(body?.maxSeconds || 45),
+      aspect: form.aspect,
+      cardMode: String(body?.cardMode || ''),
+      selfReview: body?.selfReview !== false,
+      userRules: form.userRules,
+    })
+    : buildLabPrompt(segs, form)
 
   /* ── 调 deepseek（只用一个模型，不回落） ── */
   const key = String(process.env.DEEPSEEK_API_KEY || '').trim()
