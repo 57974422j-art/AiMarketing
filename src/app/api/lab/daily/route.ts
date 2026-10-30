@@ -1,0 +1,239 @@
+/**
+ * ★LAB_DAILY_V1 · 实验线接口（2026-10-30）
+ * =============================================================================
+ * ⚠️ 隔离承诺（用户明确要求）：
+ *   · **不进** `daily.ts` 的 handleDailyLine 状态机
+ *   · **不生成** photoCard / copyCard / doneCard 任何卡片
+ *   · **不改** 任何现有文件
+ *
+ * 允许复用（用户授权）：页面、仓库读图、AI 调用。
+ *
+ * 本接口只做一件事：**表单 → 提示词 → AI → 一个 HTML 文件**（不渲染 mp4）。
+ * 产物写 `temp/_lab/out/`，通过 `/api/lab/file?name=xxx` 取回。
+ */
+import { NextRequest, NextResponse } from 'next/server'
+import fs from 'node:fs'
+import path from 'node:path'
+import { getAuthFromHeaders } from '@/lib/api-auth'
+import { buildLabPrompt, type LabSeg, type LabForm } from '@/lib/lab/prompt'
+
+export const maxDuration = 900
+
+/** 实验线自己的产物目录（唯一写入点，删它不影响任何东西） */
+function labDir(sub: string): string {
+  const d = path.join(process.cwd(), 'temp', '_lab', sub)
+  fs.mkdirSync(d, { recursive: true })
+  return d
+}
+
+/** 读一张图 → base64（复用小图的思路：先缩到 512 再送，避免请求体过大） */
+async function readImgB64(key: string): Promise<string | null> {
+  try {
+    const { getObject } = await import('@/lib/oss')
+    const buf = await getObject(key)
+    if (!buf || !buf.length) return null
+    return buf.toString('base64')
+  } catch {
+    return null
+  }
+}
+
+/** 用 ffmpeg 把大图缩到 512（只影响送 AI 那份，不影响成品） */
+async function shrinkB64(b64: string): Promise<string> {
+  if (b64.length < 120 * 1024) return b64      // <90KB 原样
+  try {
+    const { spawnSync } = await import('node:child_process')
+    const os = await import('node:os')
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lab-'))
+    const inP = path.join(dir, 'i.bin')
+    const outP = path.join(dir, 'o.jpg')
+    try {
+      fs.writeFileSync(inP, Buffer.from(b64, 'base64'))
+      const r = spawnSync('ffmpeg', ['-y', '-v', 'error', '-threads', '1', '-i', inP,
+        '-vf', 'scale=512:512:force_original_aspect_ratio=decrease',
+        '-threads', '1', '-q:v', '5', outP], { timeout: 20000 })
+      if (r.status === 0 && fs.existsSync(outP)) {
+        const out = fs.readFileSync(outP)
+        if (out.length > 512) return out.toString('base64')
+      }
+    } finally {
+      try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* ignore */ }
+    }
+  } catch { /* 缩图失败就用原图 */ }
+  return b64
+}
+
+/** 默认分镜（用户没给分镜表时，按素材数量均分） */
+function defaultSegs(n: number, noImgEnds: boolean): LabSeg[] {
+  const pool = Array.from({ length: n }, (_, i) => i + 1)
+  const mid = pool.slice(0, Math.max(0, n - (noImgEnds ? 2 : 0)))
+  const per = Math.max(1, Math.ceil(mid.length / 4))
+  const chunks: number[][] = []
+  for (let i = 0; i < mid.length; i += per) chunks.push(mid.slice(i, i + per))
+
+  const titles = [
+    ['一锅老汤', '煮了二十三年'],
+    ['鲜切现涮', '红白分明'],
+    ['炭火铜锅', '热气不散'],
+    ['今晚就来', '老地方见'],
+    ['慢慢吃', '不着急'],
+    ['再来一锅', '还是这个味'],
+  ]
+  const bodies = [
+    '锅里的汤从早滚到晚，一天也没凉过。',
+    '肉切得薄厚均匀，红白纹路看得清清楚楚。',
+    '炭火烧得旺，铜锅边上一圈热气。',
+    '门口灯还亮着，推门进去就有位置。',
+    '吃到一半，汤还滚着，人也不想走。',
+    '锅底还是那个味，来的人都认这个。',
+  ]
+
+  const segs: LabSeg[] = []
+  if (noImgEnds) {
+    segs.push({ t1: titles[0][0], t2: titles[0][1], body: bodies[0], imgs: [] })
+  }
+  chunks.forEach((c, i) => {
+    const t = titles[(i + 1) % titles.length]
+    segs.push({ t1: t[0], t2: t[1], body: bodies[(i + 1) % bodies.length], imgs: c })
+  })
+  if (noImgEnds) {
+    segs.push({ t1: '今晚就来', t2: '老地方见', body: '别等周末了，今晚就约一桌热乎的。', imgs: [] })
+  }
+  return segs.slice(0, 12)
+}
+
+export async function POST(request: NextRequest) {
+  const auth = getAuthFromHeaders(request)
+  if (!auth) return NextResponse.json({ success: false, message: '请先登录' }, { status: 401 })
+
+  let body: any = {}
+  try { body = await request.json() } catch { /* ignore */ }
+
+  const form: LabForm = {
+    sellingPoints: String(body?.sellingPoints || ''),
+    tone: String(body?.tone || 'auto'),
+    aspect: String(body?.aspect || '9:16'),
+    plateRatio: Number(body?.plateRatio ?? 6),
+    designStyle: String(body?.designStyle || ''),
+    drawMode: String(body?.drawMode || ''),
+    tier: String(body?.tier || 'strict'),
+    noImgEnds: !!body?.noImgEnds,
+  }
+
+  /* ── 取素材：读仓库（只读，不写） ── */
+  const names: string[] = Array.isArray(body?.names) ? body.names.map(String) : []
+  if (!names.length) {
+    return NextResponse.json({ success: false, message: '请先选素材（names 为空）' }, { status: 400 })
+  }
+  form.imgCount = names.length
+
+  const t0 = Date.now()
+  const imgParts: any[] = []
+  let shrinkFail = 0
+  for (const nm of names) {
+    const raw = await readImgB64('storage/' + auth.userId + '/' + nm)
+    if (!raw) continue
+    const small = await shrinkB64(raw)
+    if (small === raw) shrinkFail++
+    imgParts.push({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + small } })
+  }
+  if (!imgParts.length) {
+    return NextResponse.json({ success: false, message: '素材一张都没读到' }, { status: 400 })
+  }
+
+  /* ── 生成分镜（用户可选传入，否则默认） ── */
+  const segs: LabSeg[] = Array.isArray(body?.segs) && body.segs.length
+    ? body.segs.map((s: any) => ({
+      t1: String(s?.t1 || '').slice(0, 16),
+      t2: String(s?.t2 || '').slice(0, 18),
+      body: String(s?.body || '').slice(0, 60),
+      imgs: Array.isArray(s?.imgs) ? s.imgs.map(Number) : [],
+    }))
+    : defaultSegs(names.length, !!form.noImgEnds)
+
+  const prompt = buildLabPrompt(segs, form)
+
+  /* ── 调 deepseek（只用一个模型，不回落） ── */
+  const key = String(process.env.DEEPSEEK_API_KEY || '').trim()
+  if (!key) return NextResponse.json({ success: false, message: '没有 DEEPSEEK_API_KEY' }, { status: 500 })
+
+  const payload = JSON.stringify({
+    model: 'deepseek-flash',
+    messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, ...imgParts] }],
+    max_tokens: 65536,
+    temperature: 0.8,
+    stream: false,
+  })
+  const mb = Buffer.byteLength(payload) / 1048576
+  console.log('[LAB] 送图 ' + imgParts.length + ' 张 · 请求体约 ' + mb.toFixed(2) + ' MB'
+    + ' · prompt ' + prompt.length + ' 字 · 分镜 ' + segs.length + ' 段')
+
+  let txt = ''
+  let diag = ''
+  try {
+    const r = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
+      body: payload,
+      signal: AbortSignal.timeout(600000),
+    })
+    const j: any = await r.json().catch(() => null)
+    txt = String(j?.choices?.[0]?.message?.content || '')
+    const rc = String(j?.choices?.[0]?.message?.reasoning_content || '')
+    diag = 'finish=' + String(j?.choices?.[0]?.finish_reason || '?')
+      + ' · 思考 ' + rc.length + ' 字 · 输出 ' + txt.length + ' 字'
+      + ' · in=' + String(j?.usage?.prompt_tokens || '?')
+      + ' out=' + String(j?.usage?.completion_tokens || '?')
+  } catch (e: any) {
+    const code = String(e?.cause?.code || '')
+    return NextResponse.json({
+      success: false,
+      message: 'DeepSeek 调用失败：' + String(e?.message || e).slice(0, 160) + (code ? ' | code=' + code : ''),
+    }, { status: 502 })
+  }
+
+  /* ── 提取 HTML ── */
+  const m = /```(?:html)?\s*([\s\S]*?)```/.exec(txt)
+  let html = (m ? m[1] : txt).trim()
+  const s = html.indexOf('<!DOCTYPE')
+  const e2 = html.lastIndexOf('</html>')
+  if (s >= 0 && e2 > s) html = html.slice(s, e2 + 7)
+
+  if (html.length < 8000) {
+    return NextResponse.json({
+      success: false,
+      message: 'AI 输出过短（' + html.length + ' 字，正常 1.5 万字以上）—— ' + diag,
+    }, { status: 502 })
+  }
+
+  /* ── 落盘（唯一写入点） ── */
+  const outDir = labDir('out')
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+  const name = 'lab-' + ts + '.html'
+  fs.writeFileSync(path.join(outDir, name), html, 'utf8')
+
+  /* 同时存一份 trace（方便回看提示词） */
+  const traceDir = labDir('trace')
+  fs.writeFileSync(path.join(traceDir, name.replace('.html', '-prompt.txt')), prompt, 'utf8')
+  fs.writeFileSync(path.join(traceDir, name.replace('.html', '-out.txt')),
+    '【' + diag + '】\n' + txt.slice(0, 2000), 'utf8')
+
+  const guessName = names[0] ? names[0].replace(/\.[^.]+$/, '') : 'asset'
+
+  return NextResponse.json({
+    success: true,
+    data: {
+      name,
+      url: '/api/lab/file?name=' + encodeURIComponent(name),
+      diag,
+      segs: segs.length,
+      imgs: imgParts.length,
+      bodyMB: Number(mb.toFixed(2)),
+      htmlKB: Math.round(html.length / 1024),
+      seconds: Math.round((Date.now() - t0) / 1000),
+      shrinkFail,
+      promptKB: Math.round(prompt.length / 1024),
+      guessName,
+    },
+  })
+}
