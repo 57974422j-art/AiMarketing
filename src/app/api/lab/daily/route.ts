@@ -38,9 +38,8 @@ async function readImgB64(key: string): Promise<string | null> {
   }
 }
 
-/** 用 ffmpeg 把大图缩到 512（只影响送 AI 那份，不影响成品） */
-async function shrinkB64(b64: string): Promise<string> {
-  if (b64.length < 120 * 1024) return b64      // <90KB 原样
+/** 用 ffmpeg 把图缩到指定长边（只影响送 AI / 内嵌那份，不改成品分辨率） */
+async function shrinkB64(b64: string, maxEdge: number, quality: number): Promise<string> {
   try {
     const { spawnSync } = await import('node:child_process')
     const os = await import('node:os')
@@ -49,18 +48,50 @@ async function shrinkB64(b64: string): Promise<string> {
     const outP = path.join(dir, 'o.jpg')
     try {
       fs.writeFileSync(inP, Buffer.from(b64, 'base64'))
+      /* ⚠️ 这里**不加 -q:v 以下的缩放参数**（不加 -vf scale 之外的东西）；
+         关键是 `scale=W:W:force_original_aspect_ratio=decrease` 这个写法必须对
+         （`min(512,iw)` 那种写法里逗号要转义，之前踩过 ⇒ 17 张全失败）。 */
       const r = spawnSync('ffmpeg', ['-y', '-v', 'error', '-threads', '1', '-i', inP,
-        '-vf', 'scale=512:512:force_original_aspect_ratio=decrease',
-        '-threads', '1', '-q:v', '5', outP], { timeout: 20000 })
+        '-vf', 'scale=' + maxEdge + ':' + maxEdge + ':force_original_aspect_ratio=decrease',
+        '-threads', '1', '-q:v', String(quality), outP], { timeout: 20000 })
       if (r.status === 0 && fs.existsSync(outP)) {
         const out = fs.readFileSync(outP)
-        if (out.length > 512) return out.toString('base64')
+        if (out.length > 512 && out.length < Buffer.from(b64, 'base64').length) {
+          return out.toString('base64')
+        }
       }
     } finally {
       try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* ignore */ }
     }
   } catch { /* 缩图失败就用原图 */ }
   return b64
+}
+
+/**
+ * ★把 HTML 里的 `1.jpg` / `url('2.jpg')` 换成 base64 内嵌。
+ *
+ * 为什么必须做：AI 生成的是相对路径引用，而我们**没有把图放进产物目录**
+ * ⇒ 浏览器里全是碎图。成品线是靠 `daily-film.mjs` 的内嵌那一步解决的，
+ * lab 没走那步，所以这里自己来。
+ *
+ * 用 **1024px / q4** 的版本内嵌（约 80~120KB/张 ⇒ 17 张约 1.5MB）：
+ *   · 比原图小得多（浏览器打开快）
+ *   · 比 512 清晰（能看出素材质量）
+ */
+function inlineImages(html: string, b64ByName: Record<string, string>): { html: string; n: number } {
+  let out = html
+  let n = 0
+  /* 匹配 `url("1.jpg")` / `url('1.jpg')` / `url(1.jpg)` / `src="1.jpg"` / `src='1.jpg'` */
+  const re = /(url\(\s*['"]?|src\s*=\s*['"])(?!data:)([0-9]{1,3}\.(?:jpg|jpeg|png|webp))/gi
+  out = out.replace(re, (m0, pre, name) => {
+    const b64 = b64ByName[name] || b64ByName[name.toLowerCase()]
+    if (!b64) return m0
+    n++
+    const ext = (String(name).split('.').pop() || '').toLowerCase()
+    const mime = ext === 'png' ? 'png' : ext === 'webp' ? 'webp' : 'jpeg'
+    return pre + 'data:image/' + mime + ';base64,' + b64
+  })
+  return { html: out, n }
 }
 
 /** 默认分镜（用户没给分镜表时，按素材数量均分） */
@@ -132,17 +163,30 @@ export async function POST(request: NextRequest) {
 
   const t0 = Date.now()
   const imgParts: any[] = []
+  /** 映射：`1.jpg` → 1024px 的 base64（内嵌进 HTML 用） */
+  const b64ByName: Record<string, string> = {}
   let shrinkFail = 0
   for (const nm of names) {
     const raw = await readImgB64('storage/' + auth.userId + '/' + nm)
     if (!raw) continue
-    const small = await shrinkB64(raw)
+    /* 送 AI 看：512px（省请求体） */
+    const small = await shrinkB64(raw, 512, 5)
     if (small === raw) shrinkFail++
     imgParts.push({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + small } })
+    /* 内嵌进 HTML：1024px（比 512 清晰，比原图小） */
+    const mid = await shrinkB64(raw, 1024, 4)
+    /* HTML 里可能是 `20261019_001.jpg` 也可能是 `1.jpg` —— 两种键都登记 */
+    const base = String(nm)
+    b64ByName[base] = mid
+    const idx = names.indexOf(nm) + 1
+    b64ByName[idx + '.jpg'] = mid
+    b64ByName[idx + '.jpeg'] = mid
   }
   if (!imgParts.length) {
     return NextResponse.json({ success: false, message: '素材一张都没读到' }, { status: 400 })
   }
+  console.log('[LAB] 读图完成 ' + imgParts.length + ' 张 · 缩图失败 ' + shrinkFail + ' 张'
+    + ' · 内嵌用 1024px')
 
   /* ── 生成分镜（用户可选传入，否则默认） ── */
   const segs: LabSeg[] = Array.isArray(body?.segs) && body.segs.length
@@ -209,7 +253,17 @@ export async function POST(request: NextRequest) {
     }, { status: 502 })
   }
 
-  /* ── 强制注入「预览模式」（不靠模型照抄；漏了就只能看第一屏） ── */
+  /* ── ① 内嵌图片（否则浏览器里全是碎图） ── */
+  {
+    const before = html.length
+    const r = inlineImages(html, b64ByName)
+    html = r.html
+    console.log('[LAB] 内嵌图 ' + r.n + ' 处 · ' + Math.round(before / 1024) + 'KB → '
+      + Math.round(html.length / 1024) + 'KB'
+      + (r.n === 0 ? '  ⚠️ 一处都没匹配到（检查 HTML 里的图片引用写法）' : ''))
+  }
+
+  /* ── ② 强制注入「预览模式」（不靠模型照抄；漏了就只能看第一屏） ── */
   {
     const { injectPreviewMode } = await import('@/lib/lab/preview')
     const isLand = String(form.aspect || '') === '16:9'
@@ -224,6 +278,18 @@ export async function POST(request: NextRequest) {
   const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
   const name = 'lab-' + ts + '.html'
   fs.writeFileSync(path.join(outDir, name), html, 'utf8')
+  /* ★存一份 meta（`1.jpg` 对应哪张原图）—— 以后想"重新内嵌历史文件"时需要它，
+     否则 HTML 里只有 `1.jpg` 这种序号，无法还原。 */
+  try {
+    fs.writeFileSync(path.join(outDir, name.replace('.html', '.meta.json')),
+      JSON.stringify({
+        at: new Date().toISOString(),
+        names,                                  // 顺序即 1.jpg / 2.jpg …
+        segs: segs.length,
+        form,
+        diag,
+      }, null, 2), 'utf8')
+  } catch { /* meta 失败不影响出页面 */ }
 
   /* 同时存一份 trace（方便回看提示词） */
   const traceDir = labDir('trace')
