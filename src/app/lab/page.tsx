@@ -52,6 +52,8 @@ export default function LabPage() {
    *   'b' = 纯仓库派（四段式 Style/节拍/签名特征 + 卡 + 自评，**不传分镜表**）
    * ⚠️ 两套提示词**物理分开**（prompt.ts / prompt-v2.ts），改一个不影响另一个。 */
   const [engine, setEngine] = useState('b')
+  /* ★第二轮自评返修（只对 B 引擎；费用翻倍，但质量更稳） */
+  const [selfReview, setSelfReview] = useState(true)
 
   /* 读仓库素材（用 **lab 自己的接口**，双鉴权兜底，不依赖 middleware 注入的头） */
   useEffect(() => {
@@ -87,7 +89,7 @@ export default function LabPage() {
         body: JSON.stringify({
           names: picked, sellingPoints, tone, thinkMode,
           designStyle, drawMode, tier, plateRatio, noImgEnds, aspect, userRules, cardMode,
-          engine,
+          engine, selfReview,
         }),
       })
       const j = await r.json()
@@ -317,6 +319,29 @@ export default function LabPage() {
                   : 'B：**没有分镜表**（段数由模型自己定）+ 四段式（先定风格→定节拍→技术路线→签名特征）+ 手法卡 + 交付前自评。撞色、运镜、转场都在里面。'}
               </div>
             </div>
+
+            {/* ★第二轮自评返修（只在 B 引擎可用） */}
+            {engine === 'b' && (
+              <div style={{
+                marginBottom: 10, padding: '8px 10px', borderRadius: 8, cursor: 'pointer',
+                border: selfReview ? '1px solid rgba(62,207,142,.35)' : '1px solid #242C38',
+                background: selfReview ? 'rgba(62,207,142,.06)' : '#0B0F14',
+              }} onClick={() => setSelfReview(!selfReview)}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 10, color: selfReview ? '#B6F2D6' : '#7A8798' }}>
+                    {selfReview ? '☑' : '☐'} 第二轮自评返修
+                  </span>
+                  <span style={{ fontSize: 9, color: selfReview ? '#3ECF8E' : '#4C5765' }}>
+                    {selfReview ? '开（费用 ×2，质量更稳）' : '关（只跑一次）'}
+                  </span>
+                </div>
+                <div style={{ fontSize: 8.5, color: '#4C5765', marginTop: 5, lineHeight: 1.6 }}>
+                  {selfReview
+                    ? '生成后把 HTML 发回去，让模型按 7 维度自评（风格保真/概念冲击/动效工艺/排版/质感/节奏/技术），≤5 分的项重写'
+                    : '只跑一次生成，最便宜但质量波动大'}
+                </div>
+              </div>
+            )}
 
             {/* ★LAB_CARDS：手法卡模式（只在 A 引擎生效；B 引擎内部自己管卡） */}
             <div style={{

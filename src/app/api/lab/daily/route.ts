@@ -266,20 +266,34 @@ export async function POST(request: NextRequest) {
 
   let txt = ''
   let diag = ''
-  try {
+  /* 抽成函数，供第二轮复用 */
+  const callDeepseek = async (payloadStr: string) => {
     const r = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
-      body: payload,
+      body: payloadStr,
       signal: AbortSignal.timeout(600000),
     })
     const j: any = await r.json().catch(() => null)
-    txt = String(j?.choices?.[0]?.message?.content || '')
-    const rc = String(j?.choices?.[0]?.message?.reasoning_content || '')
-    diag = 'finish=' + String(j?.choices?.[0]?.finish_reason || '?')
-      + ' · 思考 ' + rc.length + ' 字 · 输出 ' + txt.length + ' 字'
-      + ' · in=' + String(j?.usage?.prompt_tokens || '?')
-      + ' out=' + String(j?.usage?.completion_tokens || '?')
+    return {
+      txt: String(j?.choices?.[0]?.message?.content || ''),
+      finish: String(j?.choices?.[0]?.finish_reason || '?'),
+      thinkLen: String(j?.choices?.[0]?.message?.reasoning_content || '').length,
+      inTok: Number(j?.usage?.prompt_tokens || 0),
+      outTok: Number(j?.usage?.completion_tokens || 0),
+    }
+  }
+
+  let inTok = 0
+  let outTok = 0
+  try {
+    const r1 = await callDeepseek(payload)
+    txt = r1.txt
+    inTok += r1.inTok
+    outTok += r1.outTok
+    diag = 'finish=' + r1.finish
+      + ' · 思考 ' + r1.thinkLen + ' 字 · 输出 ' + txt.length + ' 字'
+      + ' · in=' + r1.inTok + ' out=' + r1.outTok
   } catch (e: any) {
     const code = String(e?.cause?.code || '')
     return NextResponse.json({
@@ -289,17 +303,64 @@ export async function POST(request: NextRequest) {
   }
 
   /* ── 提取 HTML ── */
-  const m = /```(?:html)?\s*([\s\S]*?)```/.exec(txt)
-  let html = (m ? m[1] : txt).trim()
-  const s = html.indexOf('<!DOCTYPE')
-  const e2 = html.lastIndexOf('</html>')
-  if (s >= 0 && e2 > s) html = html.slice(s, e2 + 7)
+  const extractHtml = (raw: string) => {
+    const m = /```(?:html)?\s*([\s\S]*?)```/.exec(raw)
+    let h = (m ? m[1] : raw).trim()
+    const s = h.indexOf('<!DOCTYPE')
+    const e2 = h.lastIndexOf('</html>')
+    if (s >= 0 && e2 > s) h = h.slice(s, e2 + 7)
+    return h
+  }
+  let html = extractHtml(txt)
 
   if (html.length < 8000) {
     return NextResponse.json({
       success: false,
       message: 'AI 输出过短（' + html.length + ' 字，正常 1.5 万字以上）—— ' + diag,
     }, { status: 502 })
+  }
+
+  /* ── ★第二轮：自评返修（只在 B 引擎 + 开启时） ──
+   *  第一次拿到 HTML 后，把它发回去让模型**先自评再重写**（一次调用做两件事）。
+   *  ⚠️ 费用翻倍（B 档约 3 分 → 6 分）；失败不影响第一版（保留原 HTML）。 */
+  let reviewNote = ''
+  const wantReview = engine === 'b' && body?.selfReview !== false
+  if (wantReview) {
+    try {
+      const { buildReviewPrompt } = await import('@/lib/lab/review')
+      const isLand2 = String(form.aspect || '') === '16:9'
+      const rp = buildReviewPrompt({
+        html,
+        W: isLand2 ? 1280 : 720,
+        H: isLand2 ? 720 : 1280,
+        maxSeconds: Number(body?.maxSeconds || 45),
+      })
+      console.log('[LAB] 第二轮自评返修开始 · 输入 ' + Math.round(rp.length / 1024) + 'KB')
+      const r2 = await callDeepseek(JSON.stringify({
+        model: 'deepseek-flash',
+        messages: [{ role: 'user', content: [{ type: 'text', text: rp }] }],
+        ...(form.thinkMode === 'open' ? {} : { thinking: { type: 'disabled' } }),
+        max_tokens: 65536,
+        temperature: 0.7,
+        stream: false,
+      }))
+      inTok += r2.inTok
+      outTok += r2.outTok
+      const h2 = extractHtml(r2.txt)
+      const len1 = html.length
+      if (h2.length > 8000 && h2.length > len1 * 0.5) {
+        html = h2
+        reviewNote = '第二轮已改进 · ' + Math.round(len1 / 1024) + 'KB → '
+          + Math.round(h2.length / 1024) + 'KB'
+        diag += ' ｜ 返修 finish=' + r2.finish
+      } else {
+        reviewNote = '第二轮输出异常（' + Math.round(h2.length / 1024) + 'KB），保留第一版'
+      }
+      console.log('[LAB] ' + reviewNote)
+    } catch (e: any) {
+      reviewNote = '第二轮失败（保留第一版）：' + String(e?.message || e).slice(0, 100)
+      console.log('[LAB] ' + reviewNote)
+    }
   }
 
   /* ── ① 内嵌图片（否则浏览器里全是碎图） ── */
@@ -387,6 +448,10 @@ export async function POST(request: NextRequest) {
       repoName,
       repoSaved,
       inlineCount: inlineN,
+      /* 第二轮返修结果（没跑就空字符串） */
+      reviewNote,
+      tokensIn: inTok,
+      tokensOut: outTok,
     },
   })
 }
