@@ -153,7 +153,9 @@ export async function POST(request: NextRequest) {
   let shrinkNote = ''
   {
     const _e = String((file.name.split('.').pop() || '')).toLowerCase()
-    if (['jpg', 'jpeg', 'png', 'webp'].includes(_e) && file.size > 500 * 1024) {
+    /* ★门槛与 `img-compress.ts` 的 `SHRINK_THRESHOLD` 保持一致（1MB）——
+       否则外层 500KB 就触发、内层又跳过，白读一遍内存。 */
+    if (['jpg', 'jpeg', 'png', 'webp'].includes(_e) && file.size > 1024 * 1024) {
       try {
         const { shrinkImageOnUpload } = await import('@/lib/img-compress')
         const buf0 = Buffer.from(await file.arrayBuffer())

@@ -355,11 +355,31 @@ const flat = (() => {
   const imgDir = path.join(outDir, 'images')
   const s = html
   let i = 0, out = '', nImg = 0, nFont = 0, bytes = 0
+  /* ★VF_FLAT_QUOTE_V1（2026-10-30 用户实测「check 异常退出，只外置 2 个」）：
+     病灶：原来只扫两种写法 —— `"data:`（双引号）和 `(data:`（url 无引号）。
+          **单引号 `'data:` 完全匹配不到**。
+          而内嵌那步（L138-162）是**原样保留 AI 写的引号**：
+            AI 写 `url('1.jpg')`  ⇒ 内嵌后 `url('data:...')`  ⇒ **单引号 ⇒ 外置漏掉**
+            AI 写 `url("1.jpg")`  ⇒ 内嵌后 `url("data:...")` ⇒ 双引号 ⇒ 能外置
+          ⇒ 于是同样 17 张图，有时页面 7MB（全部外置）、有时 11.5MB（只外置字体），
+            全看 AI 那单恰好用了哪种引号 —— **这是"偶发 check 超时"的真正来源**。
+     现口径：**四种写法全扫**（`"data:` / `'data:` / `(data:` / `( data:`），
+          谁先出现就用谁，收尾字符跟着配对（`"`/`'`/`)`）。
+     效果：单引号那批页面 11.5MB → 约 7MB ⇒ check 250s+ → 约 150s，渲染也能多给 worker。
+     ⚠️ 仍然全程 indexOf/slice，不用大正则（V34 就是大字符串+正则把 Node 撑爆的）。 */
+  const PROBES = [
+    { token: '"data:', end: '"' },
+    { token: "'data:", end: "'" },
+    { token: '(data:', end: ')' },
+    /* ⚠️ **不要**加 `( data:`（带空格）—— 下面 `uri.slice(5, comma)` 是按 `data:` 正好 5 字符算的，
+       带空格会错位一格，把 mime 解析成 `image/jpe` 之类。实际产物里也几乎不出现这种写法。 */
+  ]
   while (true) {
-    const a = s.indexOf('"data:', i)
-    const b = s.indexOf('(data:', i)
     let k = -1, quote = ''
-    if (a >= 0 && (b < 0 || a < b)) { k = a; quote = '"' } else if (b >= 0) { k = b; quote = ')' }
+    for (const pr of PROBES) {
+      const pos = s.indexOf(pr.token, i)
+      if (pos >= 0 && (k < 0 || pos < k)) { k = pos; quote = pr.end }
+    }
     if (k < 0) { out += s.slice(i); break }
     const end = s.indexOf(quote, k + 1)
     if (end < 0) { out += s.slice(i); break }
