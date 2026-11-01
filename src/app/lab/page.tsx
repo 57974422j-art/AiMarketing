@@ -50,6 +50,16 @@ export default function LabPage() {
   /* ★内容类型（阶段 2）：先定"这是什么内容"，只注入该类型的技法。
      空 = 不指定（AI 自己判断）。 */
   const [contentType, setContentType] = useState('')
+  /* ★6 个实验开关（2026-11-01 · 见 switches.ts）
+     默认：卖点式 / 大图 60% / 强制轮换 / 装饰中 / 收尾有图形 / 动效开 */
+  const [sw, setSw] = useState<Record<string, string>>({
+    copyMode: 'sell',
+    bigImg: '60',
+    visTypes: 'rotate',
+    decoDensity: 'mid',
+    endFrame: 'graphic',
+    motion: 'on',
+  })
   /* ★★ 引擎开关（2026-10-31 用户定案「两套完全独立，不要掺和」）：
    *   'a' = 现在的 `/lab`（分镜表 + 设计原则 + 两条底线）
    *   'b' = 纯仓库派（四段式 Style/节拍/签名特征 + 卡 + 自评，**不传分镜表**）
@@ -93,6 +103,7 @@ export default function LabPage() {
           names: picked, sellingPoints, tone, thinkMode,
           designStyle, drawMode, tier, plateRatio, noImgEnds, aspect, userRules, cardMode,
           engine, selfReview, contentType,
+          ...sw,
         }),
       })
       const j = await r.json()
@@ -294,32 +305,14 @@ export default function LabPage() {
               })}
             </div>
 
-            {/* ★★ 引擎开关（A = 现在这套 / B = 纯仓库派，两套提示词物理隔离） */}
+            {/* ★★ 引擎：**已固定为 B（仓库派）** —— A 版（12 段固定分镜表）已废弃 */}
             <div style={{
-              marginBottom: 10, padding: '9px 10px', borderRadius: 8,
-              border: '1px solid rgba(62,207,142,.35)', background: 'rgba(62,207,142,.06)',
+              marginBottom: 10, padding: '8px 10px', borderRadius: 8,
+              border: '1px solid rgba(62,207,142,.22)', background: 'rgba(62,207,142,.04)',
             }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
-                <span style={{ fontSize: 10.5, color: '#B6F2D6', fontWeight: 600 }}>设计引擎</span>
-                <span style={{ fontSize: 9, color: '#4C5765' }}>
-                  {engine === 'a' ? 'A · 现在这套' : 'B · 纯仓库派'}
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: 4 }}>
-                {[['a', 'A · 现在的'], ['b', 'B · 仓库派']].map(([v, t]) => (
-                  <button key={v} onClick={() => setEngine(v)}
-                    style={{
-                      flex: 1, fontSize: 10.5, padding: '7px 0', borderRadius: 5, cursor: 'pointer',
-                      border: engine === v ? '1px solid #3ECF8E' : '1px solid #242C38',
-                      background: engine === v ? 'rgba(62,207,142,.22)' : '#0B0F14',
-                      color: engine === v ? '#D6FBEA' : '#7A8798',
-                    }}>{t}</button>
-                ))}
-              </div>
-              <div style={{ fontSize: 8.5, color: '#4C5765', marginTop: 6, lineHeight: 1.7 }}>
-                {engine === 'a'
-                  ? 'A：分镜表（12 段固定）+ 设计原则 + 两条底线。和之前一样。'
-                  : 'B：**没有分镜表**（段数由模型自己定）+ 四段式（先定风格→定节拍→技术路线→签名特征）+ 手法卡 + 交付前自评。撞色、运镜、转场都在里面。'}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 10, color: '#8FD9B6' }}>引擎：B · 仓库派（A 已废弃）</span>
+                <span style={{ fontSize: 8.5, color: '#4C5765' }}>无分镜表 · 段数自定</span>
               </div>
             </div>
 
@@ -392,34 +385,46 @@ export default function LabPage() {
               </div>
             </div>
 
-            {/* ★LAB_CARDS：手法卡模式（只在 A 引擎生效；B 引擎内部自己管卡） */}
+            {/* ★★ 6 个实验开关（2026-11-01 用户定案）
+                手法卡模式已删（和"内容类型"冲突：一个给"给什么"，一个给"挑什么"） */}
             <div style={{
-              marginBottom: 10, padding: '8px 9px', borderRadius: 8,
+              marginBottom: 10, padding: '9px 10px', borderRadius: 8,
               border: '1px solid rgba(169,139,255,.3)', background: 'rgba(169,139,255,.055)',
             }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ fontSize: 10, color: '#D9CBFF' }}>手法卡模式</span>
-                <span style={{ fontSize: 9, color: '#4C5765' }}>
-                  {cardMode === 'a' ? '25 张细手法' : cardMode === 'b' ? '12 张段落类型' : '不给卡'}
-                </span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span style={{ fontSize: 10.5, color: '#D9CBFF', fontWeight: 600 }}>实验开关</span>
+                <span style={{ fontSize: 8.5, color: '#4C5765' }}>每次只改一个做对比</span>
               </div>
-              <div style={{ display: 'flex', gap: 4 }}>
-                {[['', '不给卡'], ['a', 'A 细手法'], ['b', 'B 段落类型']].map(([v, t]) => (
-                  <button key={v || 'off'} onClick={() => setCardMode(v)}
-                    style={{
-                      flex: 1, fontSize: 10, padding: '6px 0', borderRadius: 5, cursor: 'pointer',
-                      border: cardMode === v ? '1px solid #A98BFF' : '1px solid #242C38',
-                      background: cardMode === v ? 'rgba(169,139,255,.2)' : '#0B0F14',
-                      color: cardMode === v ? '#E6DCFF' : '#7A8798',
-                    }}>{t}</button>
-                ))}
-              </div>
-              <div style={{ fontSize: 8.5, color: '#4C5765', marginTop: 5, lineHeight: 1.6 }}>
-                {cardMode === 'a'
-                  ? '25 张手法（出血大字/跨图标题/竖排/超大数字…），模型每段自己挑一张'
-                  : cardMode === 'b'
-                    ? '12 张段落类型（钩子/主图/细节/数据/情绪/金句/落版），先定节奏再挑手法'
-                    : '完全自由发挥（最不稳定，用来对照）'}
+
+              {([
+                ['copyMode', '文案模式', [['desc', '说明'], ['sell', '卖点'], ['poem', '短句']]],
+                ['bigImg', '大图使用率', [['0', '0%'], ['30', '30%'], ['60', '60%'], ['100', '100%']]],
+                ['visTypes', '视觉类型', [['free', '自由'], ['rotate', '轮换'], ['musttype', '必有纯排版']]],
+                ['decoDensity', '装饰密度', [['low', '少'], ['mid', '中'], ['high', '多']]],
+                ['endFrame', '收尾帧', [['minimal', '极简'], ['graphic', '图形'], ['scene', '场景']]],
+                ['motion', '动效', [['off', '关'], ['on', '开']]],
+              ] as [string, string, string[][]][]).map(([key, label, opts]) => {
+                const val = String((sw as Record<string, string>)[key] ?? '')
+                return (
+                  <div key={key} style={{ marginBottom: 7 }}>
+                    <div style={{ fontSize: 9, color: '#7A8798', marginBottom: 4 }}>{label}</div>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {opts.map(([v, t]) => (
+                        <button key={v} onClick={() => setSw({ ...sw, [key]: v })}
+                          style={{
+                            flex: 1, fontSize: 9.5, padding: '5px 0', borderRadius: 5, cursor: 'pointer',
+                            border: val === v ? '1px solid #A98BFF' : '1px solid #242C38',
+                            background: val === v ? 'rgba(169,139,255,.22)' : '#0B0F14',
+                            color: val === v ? '#E6DCFF' : '#7A8798',
+                          }}>{t}</button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+
+              <div style={{ fontSize: 8.5, color: '#4C5765', marginTop: 6, lineHeight: 1.7 }}>
+                文案：说明=「葱段在清汤里打转」· 卖点=「一口清汤，喝得出 8 小时」· 短句=「清。见底。」
               </div>
             </div>
 

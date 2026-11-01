@@ -243,6 +243,13 @@ export async function POST(request: NextRequest) {
       cardMode: String(body?.cardMode || ''),
       /* ★内容类型（阶段 2）：food/product/knowledge/talking/promo/tutorial/brand/mood */
       contentType: String(body?.contentType || ''),
+      /* ★6 个实验开关（2026-11-01）：文案/大图率/视觉类型/装饰密度/收尾帧/动效 */
+      copyMode: String(body?.copyMode || 'sell'),
+      bigImg: String(body?.bigImg ?? '60'),
+      visTypes: String(body?.visTypes || 'rotate'),
+      decoDensity: String(body?.decoDensity || 'mid'),
+      endFrame: String(body?.endFrame || 'graphic'),
+      motion: String(body?.motion || 'on'),
       selfReview: body?.selfReview !== false,
       userRules: form.userRules,
     })

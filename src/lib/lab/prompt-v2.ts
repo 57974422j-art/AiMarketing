@@ -28,6 +28,8 @@
 import { renderCardsA } from './cards-a'
 import { renderCardsExtra } from './cards-extra'
 import { renderContentType } from './content-table'
+import { renderHardRules } from './hard-rules'
+import { renderSwitches } from './switches'
 
 export type V2Form = {
   imgCount?: number
@@ -38,6 +40,13 @@ export type V2Form = {
   /** ★内容类型 id：food / product / knowledge / talking / promo / tutorial / brand / mood
    *  选了之后只注入该类型的 3~5 条主技法 + 明确不用什么（治"只挑最简单的"）*/
   contentType?: string
+  /* ★实验开关（6 个，见 switches.ts）*/
+  copyMode?: string      // desc / sell / poem
+  bigImg?: string        // 0 / 30 / 60 / 100
+  visTypes?: string      // free / rotate / musttype
+  decoDensity?: string   // low / mid / high
+  endFrame?: string      // minimal / graphic / scene
+  motion?: string        // off / on
   /** 是否要求交付前自评 */
   selfReview?: boolean
   userRules?: string
@@ -117,6 +126,16 @@ export function buildLabPromptV2(f: V2Form): string {
 
   /* ── 第一段：定风格（四段式的 Style） ── */
   p.push('')
+  /* ★硬底线（2026-11-01）：图片/围边/贴纸/工具/三道闸 —— 不许违反，放最前面 */
+  p.push(renderHardRules())
+  p.push('')
+
+  /* ★6 个实验开关（2026-11-01）*/
+  const swBlock = renderSwitches(f as Record<string, unknown>)
+  if (swBlock) {
+    p.push(swBlock)
+    p.push('')
+  }
   /* ★内容类型（阶段 2 · 2026-11-01）：先定"这是什么内容"，再定"怎么做"。
      以前是"把 25 张卡全塞进去" ⇒ 它只挑最省事的；
      现在是"只给这一类的 3~5 条主技法 + 明确不用什么"。 */
