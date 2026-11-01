@@ -241,6 +241,8 @@ export async function POST(request: NextRequest) {
       maxSeconds: Number(body?.maxSeconds || 45),
       aspect: form.aspect,
       cardMode: String(body?.cardMode || ''),
+      /* ★内容类型（阶段 2）：food/product/knowledge/talking/promo/tutorial/brand/mood */
+      contentType: String(body?.contentType || ''),
       selfReview: body?.selfReview !== false,
       userRules: form.userRules,
     })

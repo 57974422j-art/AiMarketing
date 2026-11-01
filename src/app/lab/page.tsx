@@ -47,6 +47,9 @@ export default function LabPage() {
   const [advOpen, setAdvOpen] = useState(false)
   /* ★手法卡模式：'a' 25 张细手法 / '' 不给卡（只在 A 引擎里用） */
   const [cardMode, setCardMode] = useState('a')
+  /* ★内容类型（阶段 2）：先定"这是什么内容"，只注入该类型的技法。
+     空 = 不指定（AI 自己判断）。 */
+  const [contentType, setContentType] = useState('')
   /* ★★ 引擎开关（2026-10-31 用户定案「两套完全独立，不要掺和」）：
    *   'a' = 现在的 `/lab`（分镜表 + 设计原则 + 两条底线）
    *   'b' = 纯仓库派（四段式 Style/节拍/签名特征 + 卡 + 自评，**不传分镜表**）
@@ -89,7 +92,7 @@ export default function LabPage() {
         body: JSON.stringify({
           names: picked, sellingPoints, tone, thinkMode,
           designStyle, drawMode, tier, plateRatio, noImgEnds, aspect, userRules, cardMode,
-          engine, selfReview,
+          engine, selfReview, contentType,
         }),
       })
       const j = await r.json()
@@ -342,6 +345,52 @@ export default function LabPage() {
                 </div>
               </div>
             )}
+
+            {/* ★内容类型（阶段 2）：先定"这是什么内容" ⇒ 只注入该类型的技法 */}
+            <div style={{
+              marginBottom: 10, padding: '9px 10px', borderRadius: 8,
+              border: contentType ? '1px solid rgba(255,179,71,.4)' : '1px solid #242C38',
+              background: contentType ? 'rgba(255,179,71,.06)' : '#0B0F14',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
+                <span style={{ fontSize: 10.5, color: contentType ? '#FFD9A0' : '#7A8798', fontWeight: 600 }}>
+                  内容类型
+                </span>
+                <span style={{ fontSize: 9, color: '#4C5765' }}>
+                  {contentType
+                    ? ({ food: '餐饮探店', product: '产品科技', knowledge: '知识科普', talking: '老板口播', promo: '活动促销', tutorial: '教程演示', brand: '品牌落版', mood: '情绪空镜' } as any)[contentType]
+                    : '不指定（AI 自己判断）'}
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                {[
+                  ['', '不指定'],
+                  ['food', '餐饮探店'], ['product', '产品科技'],
+                  ['knowledge', '知识科普'], ['talking', '老板口播'],
+                  ['promo', '活动促销'], ['tutorial', '教程演示'],
+                  ['brand', '品牌落版'], ['mood', '情绪空镜'],
+                ].map(([v, t]) => (
+                  <button key={v || 'auto'} onClick={() => setContentType(v)}
+                    style={{
+                      fontSize: 10, padding: '5px 9px', borderRadius: 5, cursor: 'pointer',
+                      border: contentType === v ? '1px solid #FFB347' : '1px solid #242C38',
+                      background: contentType === v ? 'rgba(255,179,71,.22)' : '#0B0F14',
+                      color: contentType === v ? '#FFE9C8' : '#7A8798',
+                    }}>{t}</button>
+                ))}
+              </div>
+              <div style={{ fontSize: 8.5, color: '#4C5765', marginTop: 6, lineHeight: 1.7 }}>
+                {contentType === 'food' && '餐饮：食物特写必暖色（不压暗）+ 花字三层描边 + 贴纸化 + 超大数字 + 满幅诱惑图｜配色：暖素材配冷底'}
+                {contentType === 'product' && '产品：磨砂玻璃卡（1px内描边）+ 渐变镀铬字 + 爆炸视图 + 精确图表 + 一个 WOW 时刻｜配色：深底亮斑'}
+                {contentType === 'knowledge' && '科普：贴纸化照片（9px白边）+ 引线标签 + 精确图表 + 数字滚动 + 一条连续镜头｜配色：蓝灰克制'}
+                {contentType === 'talking' && '口播：数字人窗口（5种位置）+ 大字幕三层描边 + 关键句压屏｜配色：深底，人物区不加装饰'}
+                {contentType === 'promo' && '促销：超大数字 + 放射线条纹背景 + 胶囊徽章 + 印章 + 爆点帧｜配色：高饱和撞色'}
+                {contentType === 'tutorial' && '教程：步骤编号大字 + 高亮框箭头 + 分屏对照 + 进度条｜节奏：每步等长'}
+                {contentType === 'brand' && '落版：镀铬字/超大logo + 细线展开 + slogan｜收尾不加新元素'}
+                {contentType === 'mood' && '空镜：大图满幅 + 极简文字 + 慢推镜 + 颗粒暗角｜不加任何装饰'}
+                {!contentType && '不指定就不注入类型技法 —— 用来做对照（看"给了类型"到底有没有用）'}
+              </div>
+            </div>
 
             {/* ★LAB_CARDS：手法卡模式（只在 A 引擎生效；B 引擎内部自己管卡） */}
             <div style={{

@@ -27,6 +27,7 @@
 
 import { renderCardsA } from './cards-a'
 import { renderCardsExtra } from './cards-extra'
+import { renderContentType } from './content-table'
 
 export type V2Form = {
   imgCount?: number
@@ -34,6 +35,9 @@ export type V2Form = {
   aspect?: string
   /** 'a' = 给 25 张手法卡；'' = 不给卡（纯自由） */
   cardMode?: string
+  /** ★内容类型 id：food / product / knowledge / talking / promo / tutorial / brand / mood
+   *  选了之后只注入该类型的 3~5 条主技法 + 明确不用什么（治"只挑最简单的"）*/
+  contentType?: string
   /** 是否要求交付前自评 */
   selfReview?: boolean
   userRules?: string
@@ -113,6 +117,15 @@ export function buildLabPromptV2(f: V2Form): string {
 
   /* ── 第一段：定风格（四段式的 Style） ── */
   p.push('')
+  /* ★内容类型（阶段 2 · 2026-11-01）：先定"这是什么内容"，再定"怎么做"。
+     以前是"把 25 张卡全塞进去" ⇒ 它只挑最省事的；
+     现在是"只给这一类的 3~5 条主技法 + 明确不用什么"。 */
+  const ctBlock = renderContentType(f.contentType)
+  if (ctBlock) {
+    p.push(ctBlock)
+    p.push('')
+  }
+
   p.push('【第 1 步 · 先定风格（不要先想版面）】')
   p.push('看这批素材的气质（主体 / 光线 / 色彩 / 情绪），定一个**贯穿全片**的视觉方向。')
   p.push('然后按下面这张表把风格写出来 —— **写不出具体数字就是没想清楚**：')
