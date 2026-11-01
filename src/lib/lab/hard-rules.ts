@@ -117,7 +117,95 @@ const QUALITY_GATES = [
   '   判据：每段单独看，能不能说出"这段有哪 3 样装饰"',
 ].join('\n')
 
+/* ══════════════════════════════════════════════════════════════════════
+   ★★ 导演宣言（2026-11-01 · 用户指出 clean 被理解错了）
+   原文："A clean, template-looking result is a fail."
+   我原来把 clean 和 template 当成两件事，其实是一个意思：
+   **"干净得像模板" = 双重否定**
+   clean 在这里不是"整洁"，是"没有任何质感"（Adobe 默认预设那种）
+   ══════════════════════════════════════════════════════════════════════ */
+const DIRECTOR_STATEMENT = [
+  '【你是导演，不是执行器】',
+  '',
+  '你是这一部动态设计影片的**导演、动画设计师、工程师、声音设计师**。',
+  '',
+  '目标：这个风格**最经典、也最令人惊叹**的形式 —— 入围奖项 / 高端商业品质。',
+  '基准（你的对手）：Buck、ManvsMachine、Ordinary Folk、Giant Ant、',
+  '  Territory Studio、Apple keynote 动态设计、Pentagram 动态标识、',
+  '  Behance / Motionographer 顶级作品、抖音 B 站顶级设计师账号。',
+  '',
+  '⚠️ **"干净、像模板"的结果 = 不合格。**',
+  '   "干净"在这里不是"整洁"，是**没有任何质感**：',
+  '   没有颗粒、没有暗角、没有光晕、没有色偏、没有手作痕迹。',
+  '   ⇒ 这种"Adobe 默认预设"的干净，一眼就能看出"没有人碰过"。',
+  '',
+  '⇒ 判据：把成片给人看，对方说"挺干净的" ⇒ **失败**；',
+  '       对方问"这是谁做的" ⇒ **及格**。',
+].join('\n')
+
+/* ★★ 质感清单 —— 每个片子至少要有一样"脏" */
+const TEXTURE_RULES = [
+  '【质感 · 至少选一样"脏"的层次】',
+  '',
+  '原片没有一个是"干净"的，全都是"打磨过的脏"。逐个证据：',
+  '  · 03-isometric：带色暗角 mix(c, c*vec3(.78,.74,.95), .22) + 胶片颗粒 .022 + dither',
+  '  · 10-synthwave：VHS 扫描线 + RGB 偏移',
+  '  · 05-cel-boil：纸纹 multiply .13 + 线条每 1/12 秒抖动',
+  '  · 12-aurora-glass：3.5% 噪点（防 banding）',
+  '  · 04-3d-render：shadow.radius 7 软阴影（有重量）',
+  '',
+  '**你必须至少用上一样**（6 选 1 或更多）：',
+  '  ① 胶片颗粒：SVG feTurbulence 当背景，opacity .02~.04，mix-blend-mode: overlay',
+  '  ② 带色暗角：radial-gradient 边缘压 .18~.25，颜色**带色相**（不要纯黑）',
+  '  ③ 扫描线：repeating-linear-gradient(180deg, rgba(0,0,0,.12) 0 1px, transparent 1px 3px)',
+  '  ④ 噪点（防渐变 banding）：feTurbulence baseFrequency .9，opacity .03',
+  '  ⑤ 纸纹 / 布纹：feTurbulence baseFrequency .04，mix-blend-mode: multiply',
+  '  ⑥ 发光溢出：drop-shadow 紧 4px + 散 30px（让亮的东西"漏出来"）',
+  '',
+  '❌ 反例：整屏纯色 + 干净渐变 + 锐利投影 ⇒ 这是 PPT，不是影片。',
+].join('\n')
+
+/* ★★ 禁止偷懒 —— 6 条实测出来的"它总选省事的那条路" */
+const NO_LAZY_RULES = [
+  '【禁止偷懒 · 6 条实测禁令】',
+  '',
+  '这 6 条都是我从生成结果里统计出来的"它总选省事的那条路"，逐条禁掉：',
+  '',
+  '① **必须用 SVG**（不许全靠 div + background-image 拼）',
+  '   实测：6 个结果 <svg> 出现 **0 次** ⇒ 所以没有描边字、没有图标、没有图表。',
+  '   ⇒ 描边字、图标、数据图表、引线标签，**一律用 SVG 做**。',
+  '',
+  '② **不许用"压暗图片"代替"给文字做围边"**',
+  '   实测：4/6 结果用 brightness(0.32~0.9) 压暗 ⇒ 图片被毁。',
+  '   ⇒ 文字看不清时，**先加围边**，围边不够再垫局部色块。',
+  '',
+  '③ **不许抄英文的负字距**',
+  '   实测：每版都有 letter-spacing -0.02~-0.06em + 字号 300~420px。',
+  '   中文是满格方块，收紧就碰。**安全范围 [-0.02em, +0.06em]**。',
+  '',
+  '④ **不许只用 CSS 一种工具**',
+  '   实测：canvas 用 0 次、three.js 用 0 次。',
+  '   ⇒ 二维粒子/图表用 canvas；真 3D（需要转视角/灯光）用 three.js 内联。',
+  '',
+  '⑤ **不许把元素做得太小**',
+  '   实测：我犯过 3 次（火柴/液滴/塔），AI 也犯。',
+  '   ⇒ 主体占画面**短边 40~65%**。判据：缩到 25% 还认得出吗？',
+  '',
+  '⑥ **不许"每段长得一样"**',
+  '   实测：多数片子的段落都是"满幅图 + 大字压在上面"。',
+  '   ⇒ 相邻三段不许同类型；8 种视觉类型至少用 5 种。',
+].join('\n')
+
 /** 组装 */
 export function renderHardRules(): string {
-  return [IMAGE_RULES, '', TEXT_STROKE_RULES, '', STICKER_RULES, '', TOOL_RULES, '', QUALITY_GATES].join('\n')
+  return [
+    DIRECTOR_STATEMENT, '',
+    TEXTURE_RULES, '',
+    NO_LAZY_RULES, '',
+    IMAGE_RULES, '',
+    TEXT_STROKE_RULES, '',
+    STICKER_RULES, '',
+    TOOL_RULES, '',
+    QUALITY_GATES,
+  ].join('\n')
 }
