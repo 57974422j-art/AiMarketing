@@ -196,16 +196,96 @@ const NO_LAZY_RULES = [
   '   ⇒ 相邻三段不许同类型；8 种视觉类型至少用 5 种。',
 ].join('\n')
 
+/* ══════════════════════════════════════════════════════════════════════
+   ★★ 排版硬底线（2026-11-02 · 用户指出"字还是连在一起"）
+   实测 012~015：
+     line-height 0.78~0.92 **13 处**   ← 主因（我上轮只禁了 letter-spacing，漏了）
+     letter-spacing -0.01~-0.05em **18 处**
+   ══════════════════════════════════════════════════════════════════════ */
+const TYPO_RULES = [
+  '【排版硬底线 · 中文不是英文】',
+  '',
+  '❌ **line-height 必须 ≥ 0.95**（多行大标题用 1.0 ~ 1.1）',
+  '   英文可以用 0.78（字母上下有留白），**中文字形占满行高** ⇒ 小于 1 就上下重叠。',
+  '   实测 gen_015：font-size 320px + line-height 0.78 ⇒ 行高 250px ⇒ **重叠 70px**。',
+  '',
+  '❌ **letter-spacing 安全范围 [-0.02em, +0.06em]**',
+  '   超 -0.02em 开始碰，超 -0.05em 明显粘连。',
+  '',
+  '❌ **文字安全区**：大字覆盖的区域**不许放任何其他文字**（小字 / 旁白 / 说明）。',
+  '   实测 gen_013：大字"两只猫一只枕"压住了小字"365天里，有314天"。',
+  '   ⇒ 大字落位后，把它的包围盒标出来，小字只能放在盒外。',
+  '',
+  '✅ 判据：把画面缩到 **30%**，如果两行字看起来"连成一块" ⇒ 违规。',
+].join('\n')
+
+/* ★★ SVG 必须真的写字（实测：<svg> 有 2~4 个，但 <text> 全是 0） */
+const SVG_TEXT_RULE = [
+  '【SVG 必须真的写字】',
+  '',
+  '实测 012~015：`<svg>` 有 2~4 个，但 **`<text>` 全是 0**',
+  '⇒ 它拿 SVG 只画矩形 / 圆圈 / 线条，**文字还是用 div + text-shadow**',
+  '⇒ 所以"围边"永远做不出来（div 做不出外轮廓描边）',
+  '',
+  '**要求**：凡是「描边字 / 三层花字 / 数据图表 / 引线标签」，**必须用 `<svg><text>`**：',
+  '  <svg viewBox="0 0 720 300">',
+  '    <text x="360" y="200" text-anchor="middle" font-size="120" font-weight="900"',
+  '      paint-order="stroke" stroke="#FF3D8B" stroke-width="42"',
+  '      stroke-linejoin="round" fill="#FF3D8B">鲜切!!</text>',
+  '    <text ... stroke="#FFFFFF" stroke-width="20" ... fill="#FFFFFF">鲜切!!</text>',
+  '    <text ... fill="url(#gradGold)">鲜切!!</text>',
+  '  </svg>',
+  '',
+  '⇒ 判据：如果全片 `<text>` 数量 = 0 ⇒ **围边一定做错了**。',
+].join('\n')
+
+/* ★★ 思考面板必须可见（2026-11-02 · 用户："我要看到它怎么想的"） */
+const TRACE_VISIBLE_RULE = [
+  '【思考日志必须"看得见"，不能只藏在源码里】',
+  '',
+  '除了在 `</body>` 前写 `<script type="application/json" id="__trace">…</script>`，',
+  '**还要在页面右下角渲染一个可见面板**（不影响 `__seek` 截图）：',
+  '',
+  '  <div id="__tracePanel" style="position:fixed;right:12px;bottom:56px;width:360px;',
+  '    max-height:60vh;overflow:auto;background:rgba(10,14,20,.94);color:#C8D8E8;',
+  '    font:11px/1.6 monospace;padding:12px;border-radius:10px;',
+  '    border:1px solid rgba(120,180,255,.35);z-index:99998;display:none">',
+  '    <div style="color:#7CF;font-weight:700;margin-bottom:8px">AI 思考日志</div>',
+  '    <pre id="__traceBody" style="white-space:pre-wrap;word-break:break-all"></pre>',
+  '  </div>',
+  '  <button id="__traceBtn" style="position:fixed;right:12px;bottom:12px;z-index:99999;',
+  '    background:#1B4A7A;color:#BFE3FF;border:1px solid #3A7CB8;border-radius:8px;',
+  '    padding:8px 14px;font:12px system-ui;cursor:pointer">看 AI 怎么想的</button>',
+  '  <script>',
+  '    document.getElementById("__traceBtn").onclick = function(){',
+  '      var p = document.getElementById("__tracePanel");',
+  '      var on = p.style.display === "block";',
+  '      p.style.display = on ? "none" : "block";',
+  '      if (!on) {',
+  '        var raw = document.getElementById("__trace");',
+  '        try { document.getElementById("__traceBody").textContent =',
+  '          JSON.stringify(JSON.parse(raw.textContent), null, 2) }',
+  '        catch(e) { document.getElementById("__traceBody").textContent = raw.textContent }',
+  '      }',
+  '    };',
+  '  </script>',
+  '',
+  '⚠️ 面板和按钮**不影响画面内容**（`__seek` 截图时会拍到右下角一个小按钮，可接受）。',
+].join('\n')
+
 /** 组装 */
 export function renderHardRules(): string {
   return [
     DIRECTOR_STATEMENT, '',
     TEXTURE_RULES, '',
     NO_LAZY_RULES, '',
+    TYPO_RULES, '',
+    SVG_TEXT_RULE, '',
     IMAGE_RULES, '',
     TEXT_STROKE_RULES, '',
     STICKER_RULES, '',
     TOOL_RULES, '',
-    QUALITY_GATES,
+    QUALITY_GATES, '',
+    TRACE_VISIBLE_RULE,
   ].join('\n')
 }
