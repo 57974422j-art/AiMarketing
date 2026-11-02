@@ -102,47 +102,60 @@ export default function Lab2Page() {
   const playFromRef = useRef<number>(0)
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
 
-  /* ★播放器：用 requestAnimationFrame 推 __seek(t)，和真实播放一样 */
+  /**
+   * ★★ 2026-11-02 用户："暂停也暂停不住 点帧也停不下来"
+   *   根因：页面内有自己的 rAF 自动播放，我在外层又起一个 rAF ⇒ 两个打架
+   *   修法：**不自己推 rAF**，只控制页面内的 window.__lab2Paused + window.__seek
+   */
+  function setPausedInFrame(p: boolean) {
+    try {
+      const w = iframeRef.current?.contentWindow as (Window & { __lab2Paused?: boolean }) | null
+      if (w) w.__lab2Paused = p
+    } catch { /* ignore */ }
+  }
+
   function togglePlay() {
     if (playing) {
       setPlaying(false)
-      cancelAnimationFrame(rafRef.current)
+      setPausedInFrame(true)
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
       return
     }
-    const total = result?.totalSeconds || 45
-    const from = seekT >= total - 0.05 ? 0 : seekT
-    setSeekT(from)
-    playFromRef.current = from
-    playStartRef.current = performance.now()
+    /* 让页面内自己播；这里只是同步进度条 */
+    setPausedInFrame(false)
     setPlaying(true)
-
-    const tick = () => {
-      const el = (performance.now() - playStartRef.current) / 1000
-      let t = playFromRef.current + el
-      if (t >= total) t = total
-      setSeekT(t)
-      seekTo(t, true)
-      if (t < total) {
-        rafRef.current = requestAnimationFrame(tick)
-      } else {
-        setPlaying(false)
-      }
+    const sync = () => {
+      try {
+        const w = iframeRef.current?.contentWindow as (Window & { __lab2Paused?: boolean; __lab2Total?: number }) | null
+        if (w && typeof w.__lab2Total === 'number') {
+          setSeekT((prev) => {
+            const next = prev + 0.05
+            return next > w.__lab2Total! ? 0 : next
+          })
+        }
+      } catch { /* ignore */ }
+      rafRef.current = requestAnimationFrame(sync)
     }
-    rafRef.current = requestAnimationFrame(tick)
+    rafRef.current = requestAnimationFrame(sync)
   }
 
   /* 卸载时停掉 */
-  useEffect(() => () => { cancelAnimationFrame(rafRef.current) }, [])
+  useEffect(() => () => {
+    if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    setPausedInFrame(true)
+  }, [])
 
   /* ★2026-11-02 用户反馈"图片都堆在一个页面上，看不到效果"
      ⇒ 加"全屏"+"新标签"+"时间轴"三件，直接把单屏效果看出来 */
   function seekTo(t: number, quiet = false) {
+    /* ★拖时间轴/点段号 = 先暂停，否则页面内 rAF 立刻盖回来 */
+    const w = iframeRef.current?.contentWindow as
+      (Window & { __seek?: (t: number) => void; __lab2Paused?: boolean }) | null
     try {
-      const w = iframeRef.current?.contentWindow as (Window & { __seek?: (t: number) => void }) | null
+      if (w) w.__lab2Paused = true
+      setPlaying(false)
       if (w?.__seek) w.__seek(t)
-      else if (!quiet) {
-        setErr('这一版没有 __seek（模型漏了播放接口）')
-      }
+      else if (!quiet) setErr('这一版没有 __seek（模型漏了播放接口）')
     } catch { if (!quiet) setErr('跨域读不到 iframe（用「↗ 新标签」打开）') }
   }
 
@@ -168,21 +181,54 @@ export default function Lab2Page() {
     setPicked((p) => (p.includes(name) ? p.filter((x) => x !== name) : p.length >= 20 ? p : [...p, name]))
   }
 
+  /**
+   * ★2026-11-02 用户："图还是进不去"
+   *   最可靠的路：**前端 fetch signedUrl → canvas 压缩 → base64**
+   *   （后端 getObject 一直读不到，前端能拿到 signedUrl 就一定能转）
+   */
+  async function toB64(url: string, maxW = 1100, q = 0.78): Promise<string> {
+    return new Promise((resolve) => {
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.onload = () => {
+        try {
+          const scale = Math.min(1, maxW / img.width)
+          const c = document.createElement('canvas')
+          c.width = Math.max(1, Math.round(img.width * scale))
+          c.height = Math.max(1, Math.round(img.height * scale))
+          const ctx = c.getContext('2d')
+          if (!ctx) { resolve(''); return }
+          ctx.drawImage(img, 0, 0, c.width, c.height)
+          resolve(c.toDataURL('image/jpeg', q))
+        } catch { resolve('') }
+      }
+      img.onerror = () => resolve('')
+      img.src = url
+    })
+  }
+
   async function gen(isRetry = false) {
     if (picked.length < 1) { setErr('至少选 1 张素材'); return }
     if (isRetry && !feedback.trim()) { setErr('重做请先写「哪里不对」'); return }
     setErr(''); setLoading(true)
     if (!isRetry) setResult(null)
     try {
+      /* 先把选中的图转成 base64（自包含，不依赖后端读 OSS） */
+      const pickedUrls = picked.map((n) => (items.find((it) => String(it.name) === n)?.url) || '')
+      const b64s: string[] = []
+      for (const u of pickedUrls) {
+        b64s.push(u ? await toB64(u) : '')
+      }
+      const imgData = b64s.filter(Boolean)
+
       const r = await fetch('/api/lab2', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
           images: picked,
-          /* ★2026-11-02 兜底：把 signedUrl 一起送过去
-             （后端读 OSS 可能失败，用 signedUrl 直接塞 <img src> 最稳） */
-          imageUrls: picked.map((n) => (items.find((it) => String(it.name) === n)?.url) || ''),
+          imageData: imgData,          /* ★base64 数组（前端压缩好的） */
+          imageUrls: pickedUrls,
           contentType,
           copyMode,
           decoDensity,

@@ -132,6 +132,7 @@ function ensureSeekGuard(html: string): string {
   }
 
   const script = '<script id="lab2-seek-guard">(function(){'
+    + 'window.__lab2Paused=false;'      /* ★外部可暂停（播放器控制这个） */
     + 'function seek2(t){'
     + 'var secs=document.querySelectorAll(".sec");'
     + 'for(var i=0;i<secs.length;i++){'
@@ -142,13 +143,13 @@ function ensureSeekGuard(html: string): string {
     + 'sec.style.setProperty("--p",String(p));'
     + 'var on=(t>=s)&&(t<s+d);'
     + 'sec.style.visibility=on?"visible":"hidden";'
-    + 'var fin=Math.min(1,p/0.10);'
-    + 'var fout=Math.min(1,(1-p)/0.10);'
+    + 'var fin=Math.min(1,p/0.04);'      /* ★淡入 4%（原来 10% 太早变暗） */
+    + 'var fout=Math.min(1,(1-p)/0.04);' /* ★淡出 4% */
     + 'sec.style.opacity=on?String(Math.min(fin,fout)):"0";'
     + '}'
     + '}'
-    + 'window.__seek=seek2;'   /* 覆盖原版 */
-    + '/* 如果页面已有自动播放，它会用新的 __seek；没有就自己起一个 */'
+    + 'window.__seek=seek2;'
+    + '/* 自动播放：★暂停时完全不推进（治"暂停停不住"） */'
     + 'if(!window.__lab2autoplay){'
     + 'window.__lab2autoplay=1;'
     + 'var total=0;var secs=document.querySelectorAll(".sec");'
@@ -156,8 +157,16 @@ function ensureSeekGuard(html: string): string {
     + 'var e=(Number(secs[j].dataset.start)||0)+(Number(secs[j].dataset.duration)||3);'
     + 'if(e>total)total=e;}'
     + 'if(!total)total=30;'
+    + 'window.__lab2Total=total;'
     + 'var t0=performance.now();'
-    + 'function loop(now){var t=(now-t0)/1000;if(t>total){t0=now;t=0;}seek2(t);requestAnimationFrame(loop);}'
+    + 'var acc=0;'                       /* 已播放秒数（暂停时不加） */
+    + 'var last=performance.now();'
+    + 'function loop(now){'
+    + 'var dt=(now-last)/1000;last=now;'
+    + 'if(!window.__lab2Paused){acc+=dt;if(acc>total)acc=0;}'
+    + 'seek2(acc);'
+    + 'requestAnimationFrame(loop);'
+    + '}'
     + 'seek2(0);requestAnimationFrame(loop);'
     + '}'
     + '})();</script>'
@@ -386,14 +395,23 @@ export async function POST(req: NextRequest) {
        ② signedUrl 缺失时才回落到 OSS 读图 + sharp 压缩 */
     const imgErrs: string[] = []
     const imageUrls: string[] = Array.isArray(body?.imageUrls) ? body.imageUrls : []
+    const imageData: string[] = Array.isArray(body?.imageData) ? body.imageData : []
     const embedImgs: (string | null)[] = []
     for (let i = 0; i < Math.min(imgs.length, 12); i++) {
+      /* ① 最高优先：前端压缩好的 base64（自包含，一定能显示） */
+      const b64 = String(imageData[i] || '')
+      if (/^data:image\//.test(b64)) {
+        embedImgs.push(b64)
+        continue
+      }
+      /* ② 次选：signedUrl */
       const u = String(imageUrls[i] || '')
       if (/^https?:\/\//.test(u)) {
-        embedImgs.push(u)            /* 直接用 signedUrl */
-      } else {
-        embedImgs.push(await readImgForEmbed(ossKey(imgs[i]), imgErrs))
+        embedImgs.push(u)
+        continue
       }
+      /* ③ 兜底：后端读 OSS */
+      embedImgs.push(await readImgForEmbed(ossKey(imgs[i]), imgErrs))
     }
     html = embedPlaceholders(html, embedImgs)
 
