@@ -138,24 +138,37 @@ function ensureSeekGuard(html: string): string {
   }
 
   const script = '<script id="lab2-seek-guard">(function(){'
-    + 'window.__lab2Paused=false;'      /* ★外部可暂停（播放器控制这个） */
-    + 'function seek2(t){'
+    + 'window.__lab2Paused=false;'
+    /* ★★★ 2026-11-02 关键修正（用户："没有动效，都是固定图片"）
+       上一版我**整个替换**了 window.__seek ⇒ 把 AI 写的"逐元素入场动画"
+       （el.style.transform / el.style.opacity 错帧）全杀掉了
+       ⇒ 所有文字元素停在 opacity:0 ⇒ 看不见
+       现在：**保留 AI 原版**，只补它缺的「段级可见性」 */
+    + 'var origSeek=window.__seek;'
+    + 'function guard(t){'
     + 'var secs=document.querySelectorAll(".sec");'
+    /* ① 先跑原版（元素级动画） */
+    + 'if(typeof origSeek==="function"){try{origSeek(t);}catch(e){}}'
+    /* ② 再补段级可见性（原版可能没做，或做得不全） */
     + 'for(var i=0;i<secs.length;i++){'
     + 'var sec=secs[i];'
     + 'var s=Number(sec.dataset.start)||0;'
     + 'var d=Number(sec.dataset.duration)||3;'
     + 'var p=Math.min(1,Math.max(0,(t-s)/d));'
-    + 'sec.style.setProperty("--p",String(p));'
+    + 'if(!sec.style.getPropertyValue("--p"))sec.style.setProperty("--p",String(p));'
     + 'var on=(t>=s)&&(t<s+d);'
-    + 'sec.style.visibility=on?"visible":"hidden";'
-    + 'var fin=Math.min(1,p/0.04);'      /* ★淡入 4%（原来 10% 太早变暗） */
-    + 'var fout=Math.min(1,(1-p)/0.04);' /* ★淡出 4% */
-    + 'sec.style.opacity=on?String(Math.min(fin,fout)):"0";'
+    + 'if(!on){sec.style.visibility="hidden";sec.style.opacity="0";}'
+    + 'else{'
+    + '  sec.style.visibility="visible";'
+    /* 只在原版没设 opacity 时才补（避免盖掉原版的淡入淡出） */
+    + '  if(!sec.dataset.seekSetOp){'
+    + '    var fin=Math.min(1,p/0.04),fout=Math.min(1,(1-p)/0.04);'
+    + '    sec.style.opacity=String(Math.min(fin,fout));'
+    + '  }'
     + '}'
     + '}'
-    + 'window.__seek=seek2;'
-    + '/* 自动播放：★暂停时完全不推进（治"暂停停不住"） */'
+    + '}'
+    + 'window.__seek=guard;'
     + 'if(!window.__lab2autoplay){'
     + 'window.__lab2autoplay=1;'
     + 'var total=0;var secs=document.querySelectorAll(".sec");'
@@ -164,19 +177,13 @@ function ensureSeekGuard(html: string): string {
     + 'if(e>total)total=e;}'
     + 'if(!total)total=30;'
     + 'window.__lab2Total=total;'
-    + 'var acc=0;'
-    + 'var last=performance.now();'
-    /* ★★ 2026-11-02 实测修的 bug：暂停时**绝对不能**再调 seek2
-       否则每帧都会把外部 __seek(t) 设的值盖掉 ⇒ "拖时间轴立刻跳回去" */
+    + 'var acc=0,last=performance.now();'
     + 'function loop(now){'
     + 'var dt=(now-last)/1000;last=now;'
-    + 'if(!window.__lab2Paused){'
-    + '  acc+=dt;if(acc>total)acc=0;'
-    + '  seek2(acc);'                     /* ← 只在播放时推 */
-    + '}'
+    + 'if(!window.__lab2Paused){acc+=dt;if(acc>total)acc=0;guard(acc);}'
     + 'requestAnimationFrame(loop);'
     + '}'
-    + 'seek2(0);requestAnimationFrame(loop);'
+    + 'guard(0);requestAnimationFrame(loop);'
     + '}'
     + '})();</script>'
 
@@ -292,6 +299,13 @@ function scanMetrics(html: string) {
     hasSticker: /0\s+0\s+0\s+\d+px\s+#?F{3,6}/i.test(html),
     hasTrace: html.includes('__trace'),
     hasAutoplay: /requestAnimationFrame\s*\(\s*loop/.test(html),
+    /* ★CSS 里真的有 var(--p) 吗（0 = 动效全靠 JS ⇒ 一崩就静止） */
+    cssVarP: (html.match(/var\(--p\)/g) || []).length,
+    /* 工具使用 */
+    svgCount: (html.match(/<svg/g) || []).length,
+    svgText: (html.match(/<text/g) || []).length,
+    paintOrder: (html.match(/paint-order/g) || []).length,
+    canvasCount: (html.match(/<canvas/g) || []).length,
     /* 内联图 = data:base64 或 signedUrl（两种都算） */
     hasImgs: (html.match(/data:image\//g) || []).length
       + (html.match(/<img[^>]+src="https?:\/\//gi) || []).length

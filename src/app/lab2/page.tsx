@@ -31,6 +31,11 @@ type Metrics = {
   hasTrace: boolean
   hasAutoplay?: boolean
   hasImgs?: number
+  cssVarP?: number
+  svgCount?: number
+  svgText?: number
+  paintOrder?: number
+  canvasCount?: number
 }
 
 type Seg = { start: number; duration: number }
@@ -587,6 +592,16 @@ export default function Lab2Page() {
                   </div>
                   <div style={{ color: (result.metrics.hasImgs || 0) > 0 ? '#7CF' : '#FF6B6B' }}>
                     内联图：{result.metrics.hasImgs ?? 0} 张
+                  </div>
+                  <div style={{ color: (result.metrics.cssVarP || 0) > 20 ? '#7CF' : '#FFB347' }}>
+                    CSS var(--p)：{result.metrics.cssVarP ?? 0} 处
+                    {(result.metrics.cssVarP || 0) < 5 ? '（≈0 ⇒ 动效全靠 JS，一崩就静止）' : ''}
+                  </div>
+                  <div style={{ color: (result.metrics.svgText || 0) > 0 ? '#7CF' : '#FFB347' }}>
+                    SVG：{result.metrics.svgCount ?? 0} 个 / text {result.metrics.svgText ?? 0} / paint-order {result.metrics.paintOrder ?? 0}
+                  </div>
+                  <div style={{ color: (result.metrics.canvasCount || 0) > 0 ? '#7CF' : '#7B8798' }}>
+                    canvas：{result.metrics.canvasCount ?? 0} 个
                   </div>
                 </div>
               </div>
