@@ -18,10 +18,28 @@ import { getMemories, addPending, confirmPending, rejectPending } from '@/lib/la
 
 export const maxDuration = 900
 
-function outDir(): string {
-  const d = path.join(process.cwd(), 'temp', '_lab2', 'out')
+/**
+ * ★2026-11-02 用户要求："要放仓库 你不放仓库，我们俩什么都看不到，测试什么"
+ *   ⇒ 产物直接写 **storage/<repoId>/**（和老线同一个仓库目录）
+ *   ⇒ 文件名沿用仓库命名：gen_YYYYMMDD_NNN.html
+ *   ⇒ 这样在仓库页能直接看到、能直接打开、能测
+ */
+function repoDir(repoId: string): string {
+  const d = path.join(process.cwd(), 'storage', repoId)
   fs.mkdirSync(d, { recursive: true })
   return d
+}
+
+/** 当天序号：扫同目录已有 gen_YYYYMMDD_*.html，取最大 +1 */
+function nextSeq(dir: string, ymd: string): string {
+  let max = 0
+  try {
+    for (const f of fs.readdirSync(dir)) {
+      const m = f.match(new RegExp('^gen_' + ymd + '_(\\d{3})\\.html$'))
+      if (m) max = Math.max(max, parseInt(m[1], 10))
+    }
+  } catch { /* 空目录 */ }
+  return String(max + 1).padStart(3, '0')
 }
 
 /** 读一张图 → base64（复用 oss） */
@@ -158,15 +176,33 @@ export async function POST(req: NextRequest) {
       html = '<!DOCTYPE html>\n' + html
     }
 
-    /* ── 存文件 ── */
-    const name = 'lab2_' + Date.now() + '.html'
-    fs.writeFileSync(path.join(outDir(), name), html, 'utf8')
+    /* ── 存文件：直接写进个人仓库 storage/<repoId>/ ── */
+    const repoId = String(body?.repoId || '1')
+    const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+    const dir = repoDir(repoId)
+    const seq = nextSeq(dir, ymd)
+    const name = 'gen_' + ymd + '_' + seq + '.html'
+    fs.writeFileSync(path.join(dir, name), html, 'utf8')
+
+    /* 总时长 = 最后一段 start + duration（给前端时间轴用） */
+    let totalSeconds = Number(form.maxSeconds || 45)
+    try {
+      let maxEnd = 0
+      html.replace(/data-start=["']?([\d.]+)["']?[^>]*data-duration=["']?([\d.]+)/g, (_, a, b) => {
+        const end = parseFloat(a) + parseFloat(b)
+        if (end > maxEnd) maxEnd = end
+        return _
+      })
+      if (maxEnd > 0) totalSeconds = Math.ceil(maxEnd * 10) / 10
+    } catch { /* 保底 */ }
 
     return NextResponse.json({
       ok: true,
-      url: '/api/lab2/file?name=' + encodeURIComponent(name),
+      url: '/api/lab2/file?name=' + encodeURIComponent(name) + '&repoId=' + encodeURIComponent(repoId),
+      repoId,
       name,
       elapsed: Math.round((Date.now() - t0) / 1000),
+      totalSeconds,
       trace: extractTrace(html),
       metrics: scanMetrics(html),
       prompt,             /* 把完整 prompt 返回，供「完成复制」用 */

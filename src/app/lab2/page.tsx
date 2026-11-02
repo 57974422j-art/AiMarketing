@@ -35,6 +35,7 @@ type Result = {
   url: string
   name: string
   elapsed: number
+  totalSeconds?: number
   trace: Trace
   metrics: Metrics
   prompt: string
@@ -84,7 +85,28 @@ export default function Lab2Page() {
   const [retrying, setRetrying] = useState(false)
 
   const [copied, setCopied] = useState('')
+  const [seekT, setSeekT] = useState(0)
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
+
+  /* ★2026-11-02 用户反馈"图片都堆在一个页面上，看不到效果"
+     ⇒ 加"全屏"+"新标签"+"时间轴"三件，直接把单屏效果看出来 */
+  function seekTo(t: number) {
+    try {
+      const w = iframeRef.current?.contentWindow as (Window & { __seek?: (t: number) => void }) | null
+      if (w?.__seek) w.__seek(t)
+      else {
+        /* 没 __seek（生成漏了）⇒ 至少提示 */
+        setErr('这一版没有 __seek（模型漏了播放接口）')
+      }
+    } catch { setErr('跨域读不到 iframe（用「新标签」打开）') }
+  }
+
+  function openFullscreen() {
+    const el = iframeRef.current
+    if (!el) return
+    if (el.requestFullscreen) el.requestFullscreen().catch(() => setErr('全屏被浏览器拒绝'))
+    else setErr('浏览器不支持全屏')
+  }
 
   /* 读素材（复用旧 lab 的只读接口） */
   useEffect(() => {
@@ -287,9 +309,43 @@ export default function Lab2Page() {
                   style={{ ...btn(false), padding: '9px 12px' }}>👍 满意</button>
               </div>
 
-              {/* 预览 */}
-              <iframe ref={iframeRef} src={result.url} title="lab2-preview"
-                style={{ width: '100%', aspectRatio: '9 / 16', maxHeight: '78vh', border: '1px solid #242C38', borderRadius: 10, background: '#000', display: 'block' }} />
+              {/* 预览 + 全屏 + 时间轴 */}
+              <div style={{ position: 'relative' }}>
+                <iframe ref={iframeRef} src={result.url} title="lab2-preview"
+                  style={{ width: '100%', aspectRatio: '9 / 16', maxHeight: '78vh', border: '1px solid #242C38', borderRadius: 10, background: '#000', display: 'block' }} />
+
+                {/* 右上角：全屏 */}
+                <button onClick={openFullscreen}
+                  title="全屏播放"
+                  style={{ position: 'absolute', right: 10, top: 10, zIndex: 5, padding: '5px 10px',
+                    background: 'rgba(10,14,20,.8)', color: '#BFE3FF', border: '1px solid rgba(58,124,184,.7)',
+                    borderRadius: 6, fontSize: 11, cursor: 'pointer' }}>⛶ 全屏</button>
+
+                {/* 右下角：原样打开（单独新标签，不经过 iframe） */}
+                <a href={result.url} target="_blank" rel="noreferrer"
+                  title="在新标签打开（不受网站容器影响）"
+                  style={{ position: 'absolute', right: 10, top: 46, zIndex: 5, padding: '5px 10px',
+                    background: 'rgba(10,14,20,.8)', color: '#BFE3FF', border: '1px solid rgba(58,124,184,.7)',
+                    borderRadius: 6, fontSize: 11, textDecoration: 'none' }}>↗ 新标签</a>
+              </div>
+
+              {/* 时间轴：拖一下就能看每一段，不用等它自己播 */}
+              <div style={{ ...box, marginTop: 10, padding: '10px 12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span style={{ fontSize: 10, color: '#7A8798', whiteSpace: 'nowrap' }}>时间轴</span>
+                  <input type="range" min={0} max={result.totalSeconds || 45} step={0.1} value={seekT}
+                    onChange={(e) => { const v = Number(e.target.value); setSeekT(v); seekTo(v) }}
+                    style={{ flex: 1, accentColor: '#3ECF8E' }} />
+                  <span style={{ fontSize: 10, color: '#BFE3FF', minWidth: 62, textAlign: 'right' }}>
+                    {seekT.toFixed(1)}s / {result.totalSeconds || 45}s
+                  </span>
+                  <button onClick={() => seekTo(0)} style={{ ...btn(false), fontSize: 10, padding: '4px 8px' }}>⏮</button>
+                  <button onClick={() => seekTo((result.totalSeconds || 45) / 2)} style={{ ...btn(false), fontSize: 10, padding: '4px 8px' }}>⏭ 中段</button>
+                </div>
+                <div style={{ fontSize: 9, color: '#4C5765', marginTop: 6, lineHeight: 1.6 }}>
+                  拖时间轴 = 直接调页面里的 <code>__seek(t)</code>。看每段是不是真的切换了、有没有叠在一起。
+                </div>
+              </div>
 
               {/* 重做 */}
               <div style={{ ...box, marginTop: 12 }}>
