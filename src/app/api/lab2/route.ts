@@ -80,16 +80,46 @@ async function readImgForEmbed(key: string): Promise<string | null> {
   }
 }
 
-/** 把 {{IMG_N}} 替换成真实 base64 */
+/**
+ * 把 {{IMG_N}} 替换成真实 base64
+ * ★★ 2026-11-02 兜底：实测 AI **不写占位符**，只写 <img src=""> 或 url('')
+ *    ⇒ 必须能"按出现顺序"填图，不能依赖它照做
+ */
 function embedPlaceholders(html: string, imgs: (string | null)[]): string {
   let out = html
+  const valid = imgs.filter(Boolean) as string[]
+  if (!valid.length) return out
+
+  /* ── ① 先按占位符精确替换（AI 照做的情况） ── */
+  let byPlaceholder = 0
   imgs.forEach((dataUrl, i) => {
     if (!dataUrl) return
     const re = new RegExp('\\{\\{\\s*IMG_' + (i + 1) + '\\s*\\}\\}', 'g')
+    if (re.test(out)) byPlaceholder++
     out = out.replace(re, dataUrl)
   })
-  /* 没替换成功的（AI 编了超出数量的号）⇒ 清掉，避免裂图 */
   out = out.replace(/\{\{\s*IMG_\d+\s*\}\}/g, '')
+
+  /* ── ② 兜底：把空的 src="" / url('') 按出现顺序填满 ── */
+  if (byPlaceholder === 0) {
+    let k = 0
+    /* <img src=""> / <img src=''> / <img > 无 src */
+    out = out.replace(/<img\b([^>]*?)\ssrc=(?:"\s*"|'\s*')([^>]*)>/gi, (m, a, b) => {
+      const d = valid[k % valid.length]; k++
+      return '<img' + a + ' src="' + d + '"' + b + '>'
+    })
+    out = out.replace(/<img\b(?![^>]*\ssrc=)([^>]*)>/gi, (m, a) => {
+      const d = valid[k % valid.length]; k++
+      return '<img src="' + d + '"' + a + '>'
+    })
+    /* background-image: url('') / url() / url("") */
+    out = out.replace(/url\(\s*(?:''|""|)\s*\)/gi, () => {
+      const d = valid[k % valid.length]; k++
+      return 'url("' + d + '")'
+    })
+    console.log('[lab2] 兜底填图：' + k + ' 处（AI 没写占位符）')
+  }
+
   return out
 }
 
