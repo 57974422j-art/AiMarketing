@@ -190,7 +190,10 @@ function scanMetrics(html: string) {
     hasSticker: /0\s+0\s+0\s+\d+px\s+#?F{3,6}/i.test(html),
     hasTrace: html.includes('__trace'),
     hasAutoplay: /requestAnimationFrame\s*\(\s*loop/.test(html),
-    hasImgs: (html.match(/data:image\//g) || []).length,
+    /* 内联图 = data:base64 或 signedUrl（两种都算） */
+    hasImgs: (html.match(/data:image\//g) || []).length
+      + (html.match(/<img[^>]+src="https?:\/\//gi) || []).length
+      + (html.match(/url\("https?:\/\//gi) || []).length,
   }
 }
 
@@ -293,11 +296,20 @@ export async function POST(req: NextRequest) {
     /* ── 存文件：直接写进个人仓库 storage/<repoId>/ ── */
     const repoId = String(body?.repoId || '1')
 
-    /* ★把 {{IMG_N}} 替换成真实图片（用户："素材和我给的毫无关系"） */
+    /* ★把 {{IMG_N}} 替换成真实图片
+       ★★ 2026-11-02 双路：
+       ① 优先用前端传来的 signedUrl（最稳，不需要读 OSS）
+       ② signedUrl 缺失时才回落到 OSS 读图 + sharp 压缩 */
     const imgErrs: string[] = []
+    const imageUrls: string[] = Array.isArray(body?.imageUrls) ? body.imageUrls : []
     const embedImgs: (string | null)[] = []
-    for (const k of imgs.slice(0, 12)) {
-      embedImgs.push(await readImgForEmbed(ossKey(k), imgErrs))
+    for (let i = 0; i < Math.min(imgs.length, 12); i++) {
+      const u = String(imageUrls[i] || '')
+      if (/^https?:\/\//.test(u)) {
+        embedImgs.push(u)            /* 直接用 signedUrl */
+      } else {
+        embedImgs.push(await readImgForEmbed(ossKey(imgs[i]), imgErrs))
+      }
     }
     html = embedPlaceholders(html, embedImgs)
 

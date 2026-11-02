@@ -180,6 +180,9 @@ export default function Lab2Page() {
         credentials: 'include',
         body: JSON.stringify({
           images: picked,
+          /* ★2026-11-02 兜底：把 signedUrl 一起送过去
+             （后端读 OSS 可能失败，用 signedUrl 直接塞 <img src> 最稳） */
+          imageUrls: picked.map((n) => (items.find((it) => String(it.name) === n)?.url) || ''),
           contentType,
           copyMode,
           decoDensity,
