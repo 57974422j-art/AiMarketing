@@ -29,6 +29,8 @@ type Metrics = {
   darkMin: number | null
   hasSticker: boolean
   hasTrace: boolean
+  hasAutoplay?: boolean
+  hasImgs?: number
 }
 
 type Seg = { start: number; duration: number }
@@ -524,6 +526,12 @@ export default function Lab2Page() {
                   </div>
                   <div style={{ color: result.metrics.hasSticker ? '#7CF' : '#7B8798' }}>
                     贴纸白边：{result.metrics.hasSticker ? '有' : '无'}
+                  </div>
+                  <div style={{ color: result.metrics.hasAutoplay ? '#7CF' : '#FF6B6B' }}>
+                    自动播放：{result.metrics.hasAutoplay ? '有' : '无（打开只有第一帧）'}
+                  </div>
+                  <div style={{ color: (result.metrics.hasImgs || 0) > 0 ? '#7CF' : '#FF6B6B' }}>
+                    内联图：{result.metrics.hasImgs ?? 0} 张
                   </div>
                 </div>
               </div>

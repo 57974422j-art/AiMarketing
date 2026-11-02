@@ -182,12 +182,29 @@ window.__seek = function (t) {
     sec.style.setProperty("--p", String(Math.min(1, Math.max(0, (t - s) / d))));
   });
 };
-window.__seek(0);
+
+/* ⛔⛔ 自动播放 —— 缺这段，打开永远只有第一帧（2026-11-02 用户实测） */
+(function () {
+  var TOTAL = <总秒数>;
+  var t0 = performance.now();
+  function loop(now) {
+    var t = (now - t0) / 1000;
+    if (t > TOTAL) { t0 = now; t = 0; }   /* 循环播 */
+    window.__seek(t);
+    requestAnimationFrame(loop);
+  }
+  window.__seek(0);
+  requestAnimationFrame(loop);
+})();
 \`\`\`
 
 ⚠️ 所有动效读 \`var(--p)\`（0 = 刚入场，1 = 就位）。
 ❌ 不许用 \`animation\` / \`@keyframes\` 承载 \`--p\`。
-⚠️ 图别超出画布（top + 高度 ≤ ${H - 20}）。`
+⚠️ 图别超出画布（top + 高度 ≤ ${H - 20}）。
+
+⛔⛔ **这一整块（含自动播放）必须原样写进去。**
+   只写 \`__seek\` 定义、不写 rAF 循环 ⇒ **打开永远停在第一帧**（我们已经被这个坑了两次）。
+   判据：用浏览器打开（不经过任何预览器），**画面必须自己动起来**；不动 = 不合格。`
 }
 
 /* ══════════════════════════════════════════════════════════════════════

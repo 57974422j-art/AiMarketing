@@ -85,6 +85,36 @@ async function readImgForEmbed(key: string, errs?: string[]): Promise<string | n
 }
 
 /**
+ * ★★ 2026-11-02 用户："浏览器打开只能看到开始第一帧，这交付基础规则都没定吗"
+ *   根因：AI 只写了 `window.__seek = function(){}` + `__seek(0)`，
+ *         **没有任何东西在推它** ⇒ 永远停在 t=0
+ *   兜底：没检测到 rAF 循环就自动注入
+ */
+function ensureAutoplay(html: string): string {
+  const hasLoop = /requestAnimationFrame\s*\(\s*loop/.test(html)
+    || (/function\s+loop\s*\(/.test(html) && /__seek\(\s*t\s*\)/.test(html))
+  if (hasLoop) return html
+
+  let total = 0
+  html.replace(/data-start=["']?([\d.]+)["']?[^>]*data-duration=["']?([\d.]+)/g, (_m, a, b) => {
+    const end = parseFloat(a) + parseFloat(b)
+    if (end > total) total = end
+    return _m
+  })
+  if (!total) total = 30
+
+  const script = '<script id="lab2-autoplay-guard">(function(){'
+    + 'if(!window.__seek)return;'
+    + 'var TOTAL=' + total + ';var t0=performance.now();'
+    + 'function loop(now){var t=(now-t0)/1000;if(t>TOTAL){t0=now;t=0;}window.__seek(t);requestAnimationFrame(loop);}'
+    + 'window.__seek(0);requestAnimationFrame(loop);'
+    + '})();</script>'
+
+  if (html.includes('</body>')) return html.replace('</body>', script + '</body>')
+  return html + script
+}
+
+/**
  * 把 {{IMG_N}} 替换成真实 base64
  * ★★ 2026-11-02 兜底：实测 AI **不写占位符**，只写 <img src=""> 或 url('')
  *    ⇒ 必须能"按出现顺序"填图，不能依赖它照做
@@ -159,6 +189,8 @@ function scanMetrics(html: string) {
     darkMin: dark.length ? Math.min(...dark) : null,
     hasSticker: /0\s+0\s+0\s+\d+px\s+#?F{3,6}/i.test(html),
     hasTrace: html.includes('__trace'),
+    hasAutoplay: /requestAnimationFrame\s*\(\s*loop/.test(html),
+    hasImgs: (html.match(/data:image\//g) || []).length,
   }
 }
 
@@ -268,6 +300,9 @@ export async function POST(req: NextRequest) {
       embedImgs.push(await readImgForEmbed(ossKey(k), imgErrs))
     }
     html = embedPlaceholders(html, embedImgs)
+
+    /* ★兜底：没有自动播放就注入（用户："打开只有第一帧"） */
+    html = ensureAutoplay(html)
 
     const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '')
     let name = ''
