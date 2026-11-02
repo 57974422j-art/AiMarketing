@@ -158,12 +158,39 @@ const HARD_RULES = `【硬底线 · 违反即不合格】
 /* ══════════════════════════════════════════════════════════════════════
    ④ 播放契约（唯一接口，整块复制）
    ══════════════════════════════════════════════════════════════════════ */
-function contract(H: number) {
+function contract(W: number, H: number) {
   return `【播放契约 · 这一整块必须原样复制，少一行就全段叠在一起】
 
 \`\`\`html
-<section class="sec" data-start="0" data-duration="4">…</section>
-<section class="sec" data-start="4" data-duration="6">…</section>
+<body>
+  <div id="stage">
+    <section class="sec" data-start="0" data-duration="4">…</section>
+    <section class="sec" data-start="4" data-duration="6">…</section>
+  </div>
+</body>
+\`\`\`
+
+\`\`\`css
+/* ⛔ 舞台自适应视口 —— 缺这段，小窗口里只看到上半截（2026-11-02 用户实测） */
+html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:#000; }
+#stage {
+  position:absolute; left:50%; top:50%;
+  width:${W}px; height:${H}px;
+  transform-origin: center center;
+  transform: translate(-50%,-50%) scale(var(--fit, 1));
+}
+\`\`\`
+
+\`\`\`js
+/* ⛔ 自动缩放：让 ${W}×${H} 完整装进任何窗口 */
+(function () {
+  function fit() {
+    var s = Math.min(window.innerWidth / ${W}, window.innerHeight / ${H});
+    document.documentElement.style.setProperty('--fit', String(s));
+  }
+  window.addEventListener('resize', fit);
+  fit();
+})();
 \`\`\`
 
 \`\`\`css
@@ -467,7 +494,7 @@ export function buildLab2Prompt(f: Lab2Form): string {
   p.push('')
   p.push(HARD_RULES)
   p.push('')
-  p.push(contract(H))
+  p.push(contract(W, H))
   p.push('')
 
   const ct = renderContent(f.contentType)

@@ -115,6 +115,38 @@ function ensureAutoplay(html: string): string {
 }
 
 /**
+ * ★★ 2026-11-02 用户："竖屏只看到上半截，下面看不见"
+ *   根因：舞台是 720×1280 固定尺寸，窗口小就超出视口
+ *   兜底：没检测到 --fit 缩放就自动注入（让整个舞台装进窗口）
+ */
+function ensureFit(html: string, W: number, H: number): string {
+  if (/--fit/.test(html) && /innerWidth/.test(html)) return html
+
+  const css = '<style id="lab2-fit-guard">'
+    + 'html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden !important;background:#000}'
+    + '#stage{position:absolute !important;left:50% !important;top:50% !important;'
+    + 'width:' + W + 'px !important;height:' + H + 'px !important;'
+    + 'transform-origin:center center !important;'
+    + 'transform:translate(-50%,-50%) scale(var(--fit,1)) !important}'
+    + '</style>'
+
+  const js = '<script id="lab2-fit-guard-js">(function(){'
+    + 'function fit(){'
+    + 'var s=Math.min(window.innerWidth/' + W + ',window.innerHeight/' + H + ');'
+    + 'document.documentElement.style.setProperty("--fit",String(s));'
+    + '}'
+    + 'window.addEventListener("resize",fit);fit();'
+    + '})();</script>'
+
+  let out = html
+  if (out.includes('</head>')) out = out.replace('</head>', css + '</head>')
+  else out = css + out
+  if (out.includes('</body>')) out = out.replace('</body>', js + '</body>')
+  else out = out + js
+  return out
+}
+
+/**
  * 把 {{IMG_N}} 替换成真实 base64
  * ★★ 2026-11-02 兜底：实测 AI **不写占位符**，只写 <img src=""> 或 url('')
  *    ⇒ 必须能"按出现顺序"填图，不能依赖它照做
@@ -315,6 +347,10 @@ export async function POST(req: NextRequest) {
 
     /* ★兜底：没有自动播放就注入（用户："打开只有第一帧"） */
     html = ensureAutoplay(html)
+
+    /* ★兜底：舞台自适应视口（用户："竖屏只看到上半截"） */
+    const isLand = String(form.aspect || '') === '16:9'
+    html = ensureFit(html, isLand ? 1280 : 720, isLand ? 720 : 1280)
 
     const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '')
     let name = ''

@@ -399,8 +399,14 @@ export default function Lab2Page() {
 
               {/* 预览 + 全屏 + 时间轴 */}
               <div style={{ position: 'relative' }}>
+                {/* ★2026-11-02 用户："竖屏只看到上半截" ⇒ 按可用高度定尺寸，保证完整可见 */}
                 <iframe ref={iframeRef} src={result.url} title="lab2-preview"
-                  style={{ width: '100%', aspectRatio: '9 / 16', maxHeight: '78vh', border: '1px solid #242C38', borderRadius: 10, background: '#000', display: 'block' }} />
+                  style={{
+                    display: 'block', margin: '0 auto',
+                    height: 'min(76vh, 96vw * 16 / 9)',
+                    aspectRatio: '9 / 16',
+                    border: '1px solid #242C38', borderRadius: 10, background: '#000',
+                  }} />
 
                 {/* 右上角：全屏 */}
                 <button onClick={openFullscreen}
