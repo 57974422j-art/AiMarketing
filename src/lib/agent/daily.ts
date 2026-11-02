@@ -1979,7 +1979,11 @@ async function runDesignRetry(ctx: DailyCtx, d: DailyDraft, picks: DailyPick[]):
         + 'html:not([data-mode="film"]) .sec{display:flex!important;visibility:visible!important;'
         + 'position:relative!important;inset:auto!important;left:auto!important;top:auto!important;'
         + 'width:var(--daily-cw,720px)!important;height:var(--daily-ch,1280px)!important;'
-        + 'overflow:hidden!important;opacity:1!important;margin:0 auto 12px}'
+        /* ★2026-11-02：段间距 12 → 48px。
+           用户实测："每段像压着前一段，然后缓缓放大" —— 因为 iframe 只显示 0.7 段，
+           段间只有 12px ⇒ 滚动时永远看到"上一段底 + 下一段顶"，视觉上叠在一起。
+           拉到 48px 后，段与段之间有明确的"空白分隔"。 */
+        + 'overflow:hidden!important;opacity:1!important;margin:0 auto 48px}'
         + '</style>'
         + '<script id="ai-preview-guard-js">(function(){'
         + 'var root=document.documentElement;if(root.getAttribute("data-mode")==="film")return;'

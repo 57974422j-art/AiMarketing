@@ -769,10 +769,16 @@ export default function LabPage() {
                 )}
 
                 {/* 预览（preview 模式：纵向铺开，滚动看全） */}
+                {/* ★2026-11-02：iframe 高度改成按画幅比例（原来固定 900）
+                    原来 900 < 段高 1280 ⇒ 一屏只看到 0.7 段 ⇒ 滚动时"像压片"。
+                    现在用 aspectRatio 让 iframe 完整容纳一段，再用 maxHeight 防溢出。 */}
                 <iframe ref={iframeRef} src={result.url} title="lab-preview"
                   style={{
-                    width: '100%', height: 900, border: '1px solid #242C38', borderRadius: 10,
-                    background: '#000',
+                    width: '100%',
+                    aspectRatio: String(result.aspect || '') === '16:9' ? '16 / 9' : '9 / 16',
+                    maxHeight: '86vh',
+                    border: '1px solid #242C38', borderRadius: 10,
+                    background: '#000', display: 'block',
                   }} />
               </>
             )}
