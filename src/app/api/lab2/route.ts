@@ -123,6 +123,14 @@ function ensureAutoplay(html: string): string {
 function ensureSeekGuard(html: string): string {
   if (html.includes('lab2-seek-guard')) return html
 
+  /* ⛔⛔ 先删掉致命规则 .sec:first-child{opacity:1}
+     —— 它让第 1 段永远不消失，后面所有段都堆在它上面（2026-11-02 用户实测） */
+  html = html.replace(/\.sec\s*:\s*first-child\s*\{[^}]*opacity\s*:\s*1[^}]*\}/gi, '')
+  /* 同时把 .sec 的默认 opacity 压成 0（避免初始全亮） */
+  if (!/\.sec\s*\{[^}]*opacity\s*:\s*0/.test(html)) {
+    html = html.replace(/(\.sec\s*\{)/, '$1\n  opacity:0;')
+  }
+
   const script = '<script id="lab2-seek-guard">(function(){'
     + 'function seek2(t){'
     + 'var secs=document.querySelectorAll(".sec");'

@@ -194,12 +194,13 @@ html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; back
 \`\`\`
 
 \`\`\`css
-/* ⛔ 这两行必须成对出现 */
+/* 段的基础样式 —— 可见性由 __seek 里的 visibility 控制（不要靠 CSS 的 opacity 扛） */
 .sec {
   background: #0A0A0A;                                  /* ← 换成你的底色 */
-  opacity: clamp(0, calc(var(--p) * 20), 1);            /* ← 缺这行：6 段全亮全叠 */
+  opacity: 0;                                           /* 默认隐藏，__seek 会设 1 */
 }
-.sec:first-child { opacity: 1; }
+/* ⛔⛔ 千万不要写 .sec:first-child{opacity:1}
+   —— 那会让第 1 段**永远不消失**，后面所有段都堆在它上面（2026-11-02 实测） */
 \`\`\`
 
 \`\`\`js
