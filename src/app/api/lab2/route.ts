@@ -115,6 +115,50 @@ function ensureAutoplay(html: string): string {
 }
 
 /**
+ * ★★ 2026-11-02 用户："所有层都加在一帧上"
+ *   根因：AI 写的 __seek 只设 --p，而 CSS 的 opacity:clamp(...) **p=1 后前一段不会消失**
+ *        ⇒ 前一段一直亮着，后一段背景不够实就透出来 = 全叠一帧
+ *   兜底：注入覆盖版 __seek，强制按 [start, start+duration) 控制 visibility + 淡入淡出
+ */
+function ensureSeekGuard(html: string): string {
+  if (html.includes('lab2-seek-guard')) return html
+
+  const script = '<script id="lab2-seek-guard">(function(){'
+    + 'function seek2(t){'
+    + 'var secs=document.querySelectorAll(".sec");'
+    + 'for(var i=0;i<secs.length;i++){'
+    + 'var sec=secs[i];'
+    + 'var s=Number(sec.dataset.start)||0;'
+    + 'var d=Number(sec.dataset.duration)||3;'
+    + 'var p=Math.min(1,Math.max(0,(t-s)/d));'
+    + 'sec.style.setProperty("--p",String(p));'
+    + 'var on=(t>=s)&&(t<s+d);'
+    + 'sec.style.visibility=on?"visible":"hidden";'
+    + 'var fin=Math.min(1,p/0.10);'
+    + 'var fout=Math.min(1,(1-p)/0.10);'
+    + 'sec.style.opacity=on?String(Math.min(fin,fout)):"0";'
+    + '}'
+    + '}'
+    + 'window.__seek=seek2;'   /* 覆盖原版 */
+    + '/* 如果页面已有自动播放，它会用新的 __seek；没有就自己起一个 */'
+    + 'if(!window.__lab2autoplay){'
+    + 'window.__lab2autoplay=1;'
+    + 'var total=0;var secs=document.querySelectorAll(".sec");'
+    + 'for(var j=0;j<secs.length;j++){'
+    + 'var e=(Number(secs[j].dataset.start)||0)+(Number(secs[j].dataset.duration)||3);'
+    + 'if(e>total)total=e;}'
+    + 'if(!total)total=30;'
+    + 'var t0=performance.now();'
+    + 'function loop(now){var t=(now-t0)/1000;if(t>total){t0=now;t=0;}seek2(t);requestAnimationFrame(loop);}'
+    + 'seek2(0);requestAnimationFrame(loop);'
+    + '}'
+    + '})();</script>'
+
+  if (html.includes('</body>')) return html.replace('</body>', script + '</body>')
+  return html + script
+}
+
+/**
  * ★★ 2026-11-02 用户："竖屏只看到上半截，下面看不见"
  *   根因：舞台是 720×1280 固定尺寸，窗口小就超出视口
  *   兜底：没检测到 --fit 缩放就自动注入（让整个舞台装进窗口）
@@ -344,6 +388,9 @@ export async function POST(req: NextRequest) {
       }
     }
     html = embedPlaceholders(html, embedImgs)
+
+    /* ★兜底：覆盖 __seek（强制按段显示，治"所有层叠一帧"）—— 必须早于 autoplay */
+    html = ensureSeekGuard(html)
 
     /* ★兜底：没有自动播放就注入（用户："打开只有第一帧"） */
     html = ensureAutoplay(html)

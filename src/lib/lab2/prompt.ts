@@ -206,7 +206,18 @@ html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; back
 window.__seek = function (t) {
   document.querySelectorAll(".sec").forEach(function (sec) {
     var s = Number(sec.dataset.start) || 0, d = Number(sec.dataset.duration) || 3;
-    sec.style.setProperty("--p", String(Math.min(1, Math.max(0, (t - s) / d))));
+    var p = Math.min(1, Math.max(0, (t - s) / d));
+    sec.style.setProperty("--p", String(p));
+
+    /* ⛔⛔ 关键：只在 [s, s+d) 内可见 —— 治"所有层叠在一帧上"
+       只靠 CSS 的 opacity:clamp(...) 不行：p 到 1 后前一段**不会消失** */
+    var on = (t >= s) && (t < s + d);
+    sec.style.visibility = on ? "visible" : "hidden";
+
+    /* 淡入 10% / 淡出 10%（fade 不是必须，但看起来更顺） */
+    var fin  = Math.min(1, p / 0.10);
+    var fout = Math.min(1, (1 - p) / 0.10);
+    sec.style.opacity = on ? String(Math.min(fin, fout)) : "0";
   });
 };
 
