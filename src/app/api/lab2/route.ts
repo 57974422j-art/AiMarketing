@@ -148,11 +148,20 @@ export async function POST(req: NextRequest) {
     const feedback = String(body?.feedback || '').trim()
     if (feedback) addPending(userId, feedback)
 
-    /* ── 读图片 ── */
+    /* ── 读图片 ──
+       ★2026-11-02 用户："让它看不到素材"
+         根因：前端传的是**文件名**，但 getObject 要的是 **storage/<uid>/<文件名>**
+         （老 lab 是 readImgB64('storage/' + auth.userId + '/' + nm)）
+         我只传了文件名 ⇒ 全部读不到 ⇒ imgParts 空 ⇒ AI 根本没见过图 */
+    const ossKey = (nm: string) => (/^storage\//.test(nm) ? nm : 'storage/' + userId + '/' + nm)
     const imgParts: { type: 'image_url'; image_url: { url: string } }[] = []
+    let imgOk = 0
     for (const k of imgs.slice(0, 12)) {
-      const b64 = await readImgB64(k)
-      if (b64) imgParts.push({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + b64 } })
+      const b64 = await readImgB64(ossKey(k))
+      if (b64) {
+        imgOk++
+        imgParts.push({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + b64 } })
+      }
     }
 
     /* ── 组装 prompt ── */
@@ -221,7 +230,7 @@ export async function POST(req: NextRequest) {
     /* ★把 {{IMG_N}} 替换成真实图片（用户："素材和我给的毫无关系"） */
     const embedImgs: (string | null)[] = []
     for (const k of imgs.slice(0, 12)) {
-      embedImgs.push(await readImgForEmbed(k))
+      embedImgs.push(await readImgForEmbed(ossKey(k)))
     }
     html = embedPlaceholders(html, embedImgs)
 
@@ -265,6 +274,8 @@ export async function POST(req: NextRequest) {
       repoId,
       name,
       savedTo,
+      imgSent: imgOk,          /* AI 实际看到的图张数 */
+      imgEmbedded: embedImgs.filter(Boolean).length,  /* 实际内联进 HTML 的张数 */
       elapsed: Math.round((Date.now() - t0) / 1000),
       totalSeconds,
       segments,

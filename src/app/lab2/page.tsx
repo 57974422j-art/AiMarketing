@@ -37,6 +37,8 @@ type Result = {
   url: string
   name: string
   savedTo?: string
+  imgSent?: number
+  imgEmbedded?: number
   elapsed: number
   totalSeconds?: number
   segments?: Seg[]
@@ -289,16 +291,56 @@ export default function Lab2Page() {
             </div>
           </div>
 
-          {/* 素材 */}
+          {/* 素材：★带缩略图（用户："只显示序号根本看不出是哪张"） */}
           <div style={box}>
-            <span style={label}>素材（已选 {picked.length} 张）</span>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, maxHeight: 200, overflow: 'auto' }}>
-              {items.length === 0 && <span style={{ fontSize: 10, color: '#4C5765' }}>读不到素材（检查 /api/lab/files）</span>}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 10.5, color: '#7A8798' }}>素材（已选 {picked.length} 张）</span>
+              <span style={{ fontSize: 9, color: '#4C5765' }}>共 {items.length} 张 · 点图选择</span>
+            </div>
+
+            {items.length === 0 && (
+              <div style={{ fontSize: 10, color: '#FF6B6B', lineHeight: 1.7 }}>
+                读不到素材（检查 /api/lab/files 是否登录）
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 5, maxHeight: 300, overflow: 'auto' }}>
               {items.map((it, i) => {
-                const n = String(it.key || it.name || i)
-                return <button key={n} onClick={() => toggle(n)} style={btn(picked.includes(n))}>{i + 1}</button>
+                const n = String(it.name || it.key || i)
+                const on = picked.includes(n)
+                return (
+                  <button key={n} onClick={() => toggle(n)} title={n}
+                    style={{
+                      position: 'relative', padding: 0, aspectRatio: '1 / 1', cursor: 'pointer',
+                      border: on ? '2px solid #3ECF8E' : '1px solid #242C38',
+                      borderRadius: 6, overflow: 'hidden',
+                      background: on ? 'rgba(62,207,142,.15)' : '#0B0F14',
+                    }}>
+                    {it.url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={it.url} alt={n} loading="lazy"
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    ) : (
+                      <span style={{ fontSize: 9, color: '#7A8798' }}>{i + 1}</span>
+                    )}
+                    {on && (
+                      <span style={{
+                        position: 'absolute', right: 2, top: 2, width: 14, height: 14,
+                        borderRadius: '50%', background: '#3ECF8E', color: '#06110B',
+                        fontSize: 9, lineHeight: '14px', textAlign: 'center', fontWeight: 900,
+                      }}>✓</span>
+                    )}
+                  </button>
+                )
               })}
             </div>
+
+            {picked.length > 0 && (
+              <div style={{ fontSize: 9, color: '#7A8798', marginTop: 7, lineHeight: 1.6 }}>
+                已选：{picked.slice(0, 6).map((p) => p.replace(/\.[^.]+$/, '')).join(' · ')}
+                {picked.length > 6 ? ` 等 ${picked.length} 张` : ''}
+              </div>
+            )}
           </div>
 
           {/* 补充要求 */}
@@ -449,6 +491,11 @@ export default function Lab2Page() {
                   <div>耗时：{result.elapsed}s</div>
                   <div style={{ gridColumn: '1 / -1', fontSize: 9.5, color: '#7A8798' }}>
                     存到：{result.savedTo || result.name}
+                  </div>
+                  <div style={{ gridColumn: '1 / -1', fontSize: 9.5,
+                    color: (result.imgSent || 0) > 0 ? '#7CF' : '#FF6B6B' }}>
+                    AI 看到图：{result.imgSent ?? '?'} 张 · 内联进 HTML：{result.imgEmbedded ?? '?'} 张
+                    {(result.imgSent || 0) === 0 ? '（0 张 = AI 根本没看到素材！）' : ''}
                   </div>
                   <div style={{ color: result.metrics.text > 0 ? '#7CF' : '#FF6B6B' }}>
                     &lt;text&gt;：{result.metrics.text} {result.metrics.text === 0 ? '（围边必错）' : ''}
