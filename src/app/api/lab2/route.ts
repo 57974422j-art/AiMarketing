@@ -105,8 +105,14 @@ function ensureAutoplay(html: string): string {
 
   const script = '<script id="lab2-autoplay-guard">(function(){'
     + 'if(!window.__seek)return;'
-    + 'var TOTAL=' + total + ';var t0=performance.now();'
-    + 'function loop(now){var t=(now-t0)/1000;if(t>TOTAL){t0=now;t=0;}window.__seek(t);requestAnimationFrame(loop);}'
+    + 'var TOTAL=' + total + ';'
+    + 'var acc=0,last=performance.now();'
+    /* ★暂停时绝对不推 —— 否则盖掉外部 __seek(t) */
+    + 'function loop(now){'
+    + 'var dt=(now-last)/1000;last=now;'
+    + 'if(!window.__lab2Paused){acc+=dt;if(acc>TOTAL)acc=0;window.__seek(acc);}'
+    + 'requestAnimationFrame(loop);'
+    + '}'
     + 'window.__seek(0);requestAnimationFrame(loop);'
     + '})();</script>'
 
@@ -158,13 +164,16 @@ function ensureSeekGuard(html: string): string {
     + 'if(e>total)total=e;}'
     + 'if(!total)total=30;'
     + 'window.__lab2Total=total;'
-    + 'var t0=performance.now();'
-    + 'var acc=0;'                       /* 已播放秒数（暂停时不加） */
+    + 'var acc=0;'
     + 'var last=performance.now();'
+    /* ★★ 2026-11-02 实测修的 bug：暂停时**绝对不能**再调 seek2
+       否则每帧都会把外部 __seek(t) 设的值盖掉 ⇒ "拖时间轴立刻跳回去" */
     + 'function loop(now){'
     + 'var dt=(now-last)/1000;last=now;'
-    + 'if(!window.__lab2Paused){acc+=dt;if(acc>total)acc=0;}'
-    + 'seek2(acc);'
+    + 'if(!window.__lab2Paused){'
+    + '  acc+=dt;if(acc>total)acc=0;'
+    + '  seek2(acc);'                     /* ← 只在播放时推 */
+    + '}'
     + 'requestAnimationFrame(loop);'
     + '}'
     + 'seek2(0);requestAnimationFrame(loop);'

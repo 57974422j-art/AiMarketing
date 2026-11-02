@@ -229,13 +229,18 @@ window.__seek = function (t) {
 };
 
 /* ⛔⛔ 自动播放 —— 缺这段，打开永远只有第一帧（2026-11-02 用户实测） */
+window.__lab2Paused = false;   /* 外部可暂停 */
 (function () {
   var TOTAL = <总秒数>;
-  var t0 = performance.now();
+  var acc = 0, last = performance.now();
   function loop(now) {
-    var t = (now - t0) / 1000;
-    if (t > TOTAL) { t0 = now; t = 0; }   /* 循环播 */
-    window.__seek(t);
+    var dt = (now - last) / 1000; last = now;
+    /* ⛔ 暂停时**绝对不许**调 __seek —— 否则会盖掉外部设的帧 */
+    if (!window.__lab2Paused) {
+      acc += dt;
+      if (acc > TOTAL) acc = 0;
+      window.__seek(acc);
+    }
     requestAnimationFrame(loop);
   }
   window.__seek(0);
