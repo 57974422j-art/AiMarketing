@@ -479,7 +479,20 @@ export function buildLab2Prompt(f: Lab2Form): string {
 
 图：${n} 张 · 时长：约 ${sec} 秒 · 画布：${W}×${H}
 
-**每一张图都要用上**，不许剩。（剩图 = 你没读完素材）`)
+⚠️ **图片一律用占位符引用，系统会自动替换成真实图片**：
+
+  <img src="{{IMG_1}}" alt="">        ← 第 1 张
+  <div style="background-image:url('{{IMG_2}}')"></div>   ← 第 2 张
+  … 一直到 {{IMG_${n}}}
+
+**规则**：
+  · 只能用 \`{{IMG_1}}\` ~ \`{{IMG_${n}}}\` 这 ${n} 个占位符，**不许自己编 URL**（编的会裂图）
+  · **每一张都要用上**，不许剩（剩图 = 你没读完素材）
+  · 同一个占位符可以重复用（同一张图不同裁切，用 \`background-position\` 区分）
+  · ⚠️ 不许用纯色块/渐变"代表"某张图 —— 那等于没用
+
+**占位符在 HTML 里长这样（原样写，不要转义）：**
+\`<img src="{{IMG_1}}" style="width:100%;height:100%;object-fit:cover">\``)
   p.push('')
 
   p.push(TRACE)

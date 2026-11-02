@@ -54,6 +54,45 @@ async function readImgB64(key: string): Promise<string | null> {
   }
 }
 
+/**
+ * ★2026-11-02 用户："用的素材和我给的毫无关系"
+ *   根因：lab2 从没把图**内联**进 HTML ⇒ AI 只能自己编 URL / 用纯色块代替
+ *   修法：prompt 要求写 {{IMG_1}} 占位符，后端替换成真实压缩图的 base64
+ */
+async function readImgForEmbed(key: string): Promise<string | null> {
+  try {
+    const { getObject } = await import('@/lib/oss')
+    const buf = await getObject(key)
+    if (!buf || !buf.length) return null
+    try {
+      const sharpMod = (await import('sharp')).default
+      const out = await sharpMod(buf)
+        .resize({ width: 1200, withoutEnlargement: true })
+        .jpeg({ quality: 78, mozjpeg: true })
+        .toBuffer()
+      return 'data:image/jpeg;base64,' + out.toString('base64')
+    } catch {
+      /* sharp 不可用 ⇒ 原图直出（体积大但能显示） */
+      return 'data:image/jpeg;base64,' + buf.toString('base64')
+    }
+  } catch {
+    return null
+  }
+}
+
+/** 把 {{IMG_N}} 替换成真实 base64 */
+function embedPlaceholders(html: string, imgs: (string | null)[]): string {
+  let out = html
+  imgs.forEach((dataUrl, i) => {
+    if (!dataUrl) return
+    const re = new RegExp('\\{\\{\\s*IMG_' + (i + 1) + '\\s*\\}\\}', 'g')
+    out = out.replace(re, dataUrl)
+  })
+  /* 没替换成功的（AI 编了超出数量的号）⇒ 清掉，避免裂图 */
+  out = out.replace(/\{\{\s*IMG_\d+\s*\}\}/g, '')
+  return out
+}
+
 /** 从 HTML 里抠出 __trace */
 function extractTrace(html: string): unknown {
   const m = html.match(/<script[^>]*id="__trace"[^>]*>([\s\S]*?)<\/script>/)
@@ -178,18 +217,42 @@ export async function POST(req: NextRequest) {
 
     /* ── 存文件：直接写进个人仓库 storage/<repoId>/ ── */
     const repoId = String(body?.repoId || '1')
-    const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-    const dir = repoDir(repoId)
-    const seq = nextSeq(dir, ymd)
-    const name = 'gen_' + ymd + '_' + seq + '.html'
-    fs.writeFileSync(path.join(dir, name), html, 'utf8')
 
-    /* 总时长 = 最后一段 start + duration（给前端时间轴用） */
+    /* ★把 {{IMG_N}} 替换成真实图片（用户："素材和我给的毫无关系"） */
+    const embedImgs: (string | null)[] = []
+    for (const k of imgs.slice(0, 12)) {
+      embedImgs.push(await readImgForEmbed(k))
+    }
+    html = embedPlaceholders(html, embedImgs)
+
+    const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+    let name = ''
+    let savedTo = ''
+    try {
+      const dir = repoDir(repoId)
+      const seq = nextSeq(dir, ymd)
+      name = 'gen_' + ymd + '_' + seq + '.html'
+      fs.writeFileSync(path.join(dir, name), html, 'utf8')
+      savedTo = 'storage/' + repoId + '/' + name
+    } catch (e) {
+      /* 写仓库失败 ⇒ 回落临时目录（至少能看能下载） */
+      const fb = path.join(process.cwd(), 'temp', '_lab2', 'out')
+      fs.mkdirSync(fb, { recursive: true })
+      name = 'lab2_' + Date.now() + '.html'
+      fs.writeFileSync(path.join(fb, name), html, 'utf8')
+      savedTo = 'temp/_lab2/out/' + name + '（仓库写入失败：' + String((e as Error)?.message || e) + '）'
+    }
+
+    /* 总时长 + 段表（给前端播放器 / 段导航用） */
     let totalSeconds = Number(form.maxSeconds || 45)
+    const segments: { start: number; duration: number }[] = []
     try {
       let maxEnd = 0
       html.replace(/data-start=["']?([\d.]+)["']?[^>]*data-duration=["']?([\d.]+)/g, (_, a, b) => {
-        const end = parseFloat(a) + parseFloat(b)
+        const st = parseFloat(a)
+        const du = parseFloat(b)
+        segments.push({ start: st, duration: du })
+        const end = st + du
         if (end > maxEnd) maxEnd = end
         return _
       })
@@ -201,8 +264,10 @@ export async function POST(req: NextRequest) {
       url: '/api/lab2/file?name=' + encodeURIComponent(name) + '&repoId=' + encodeURIComponent(repoId),
       repoId,
       name,
+      savedTo,
       elapsed: Math.round((Date.now() - t0) / 1000),
       totalSeconds,
+      segments,
       trace: extractTrace(html),
       metrics: scanMetrics(html),
       prompt,             /* 把完整 prompt 返回，供「完成复制」用 */

@@ -31,11 +31,15 @@ type Metrics = {
   hasTrace: boolean
 }
 
+type Seg = { start: number; duration: number }
+
 type Result = {
   url: string
   name: string
+  savedTo?: string
   elapsed: number
   totalSeconds?: number
+  segments?: Seg[]
   trace: Trace
   metrics: Metrics
   prompt: string
@@ -86,19 +90,54 @@ export default function Lab2Page() {
 
   const [copied, setCopied] = useState('')
   const [seekT, setSeekT] = useState(0)
+  const [playing, setPlaying] = useState(false)
+  const rafRef = useRef<number>(0)
+  const playStartRef = useRef<number>(0)
+  const playFromRef = useRef<number>(0)
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
+
+  /* ★播放器：用 requestAnimationFrame 推 __seek(t)，和真实播放一样 */
+  function togglePlay() {
+    if (playing) {
+      setPlaying(false)
+      cancelAnimationFrame(rafRef.current)
+      return
+    }
+    const total = result?.totalSeconds || 45
+    const from = seekT >= total - 0.05 ? 0 : seekT
+    setSeekT(from)
+    playFromRef.current = from
+    playStartRef.current = performance.now()
+    setPlaying(true)
+
+    const tick = () => {
+      const el = (performance.now() - playStartRef.current) / 1000
+      let t = playFromRef.current + el
+      if (t >= total) t = total
+      setSeekT(t)
+      seekTo(t, true)
+      if (t < total) {
+        rafRef.current = requestAnimationFrame(tick)
+      } else {
+        setPlaying(false)
+      }
+    }
+    rafRef.current = requestAnimationFrame(tick)
+  }
+
+  /* 卸载时停掉 */
+  useEffect(() => () => { cancelAnimationFrame(rafRef.current) }, [])
 
   /* ★2026-11-02 用户反馈"图片都堆在一个页面上，看不到效果"
      ⇒ 加"全屏"+"新标签"+"时间轴"三件，直接把单屏效果看出来 */
-  function seekTo(t: number) {
+  function seekTo(t: number, quiet = false) {
     try {
       const w = iframeRef.current?.contentWindow as (Window & { __seek?: (t: number) => void }) | null
       if (w?.__seek) w.__seek(t)
-      else {
-        /* 没 __seek（生成漏了）⇒ 至少提示 */
+      else if (!quiet) {
         setErr('这一版没有 __seek（模型漏了播放接口）')
       }
-    } catch { setErr('跨域读不到 iframe（用「新标签」打开）') }
+    } catch { if (!quiet) setErr('跨域读不到 iframe（用「↗ 新标签」打开）') }
   }
 
   function openFullscreen() {
@@ -329,21 +368,46 @@ export default function Lab2Page() {
                     borderRadius: 6, fontSize: 11, textDecoration: 'none' }}>↗ 新标签</a>
               </div>
 
-              {/* 时间轴：拖一下就能看每一段，不用等它自己播 */}
+              {/* ★播放器：▶播放 / ⏸暂停 / 时间轴 / 下载 */}
               <div style={{ ...box, marginTop: 10, padding: '10px 12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 10, color: '#7A8798', whiteSpace: 'nowrap' }}>时间轴</span>
-                  <input type="range" min={0} max={result.totalSeconds || 45} step={0.1} value={seekT}
+                  <button onClick={togglePlay}
+                    style={{ fontSize: 14, padding: '6px 14px', minWidth: 74, cursor: 'pointer',
+                      background: playing ? 'rgba(255,179,71,.22)' : 'rgba(62,207,142,.22)',
+                      border: '1px solid ' + (playing ? '#FFB347' : '#3ECF8E'),
+                      borderRadius: 7, color: playing ? '#FFE9C8' : '#D6FBEA', fontWeight: 700 }}>
+                    {playing ? '⏸ 暂停' : '▶ 播放'}
+                  </button>
+                  <input type="range" min={0} max={result.totalSeconds || 45} step={0.05} value={seekT}
                     onChange={(e) => { const v = Number(e.target.value); setSeekT(v); seekTo(v) }}
                     style={{ flex: 1, accentColor: '#3ECF8E' }} />
                   <span style={{ fontSize: 10, color: '#BFE3FF', minWidth: 62, textAlign: 'right' }}>
                     {seekT.toFixed(1)}s / {result.totalSeconds || 45}s
                   </span>
-                  <button onClick={() => seekTo(0)} style={{ ...btn(false), fontSize: 10, padding: '4px 8px' }}>⏮</button>
-                  <button onClick={() => seekTo((result.totalSeconds || 45) / 2)} style={{ ...btn(false), fontSize: 10, padding: '4px 8px' }}>⏭ 中段</button>
+                  <button onClick={() => { setPlaying(false); setSeekT(0); seekTo(0) }}
+                    style={{ ...btn(false), fontSize: 10, padding: '4px 8px' }}>⏮</button>
+                  <a href={result.url + '&download=1'} download={result.name}
+                    style={{ ...btn(false), fontSize: 11, padding: '5px 11px', textDecoration: 'none',
+                      background: 'rgba(74,158,255,.2)', borderColor: '#4A9EFF', color: '#BFE3FF' }}>
+                    ⬇ 下载 HTML
+                  </a>
                 </div>
+
+                {/* 段导航：直接跳到每段开头 */}
+                {(result.segments || []).length > 0 && (
+                  <div style={{ display: 'flex', gap: 4, marginTop: 8, flexWrap: 'wrap' }}>
+                    {(result.segments || []).map((s, i) => (
+                      <button key={i} onClick={() => { setPlaying(false); setSeekT(s.start + 0.3); seekTo(s.start + 0.3) }}
+                        style={{ ...btn(Math.abs(seekT - s.start) < (s.duration || 3)), fontSize: 9.5, padding: '3px 8px' }}>
+                        {i + 1}. {s.start}s
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 <div style={{ fontSize: 9, color: '#4C5765', marginTop: 6, lineHeight: 1.6 }}>
-                  拖时间轴 = 直接调页面里的 <code>__seek(t)</code>。看每段是不是真的切换了、有没有叠在一起。
+                  点「▶ 播放」自动播完；也可以拖时间轴 / 点段号直接跳。
+                  {!playing && seekT === 0 && '（现在停在 0s，点播放就开始）'}
                 </div>
               </div>
 
@@ -383,6 +447,9 @@ export default function Lab2Page() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 14px', fontSize: 10.5 }}>
                   <div>段数：{result.metrics.sections}</div>
                   <div>耗时：{result.elapsed}s</div>
+                  <div style={{ gridColumn: '1 / -1', fontSize: 9.5, color: '#7A8798' }}>
+                    存到：{result.savedTo || result.name}
+                  </div>
                   <div style={{ color: result.metrics.text > 0 ? '#7CF' : '#FF6B6B' }}>
                     &lt;text&gt;：{result.metrics.text} {result.metrics.text === 0 ? '（围边必错）' : ''}
                   </div>
