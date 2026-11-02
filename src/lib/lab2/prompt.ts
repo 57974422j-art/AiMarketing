@@ -85,13 +85,31 @@ const TEXTURE = `【质感 · 至少选一样"脏"的层次】
   ⑤ 纸纹/布纹：feTurbulence baseFrequency .04，mix-blend-mode: multiply
   ⑥ 发光溢出：drop-shadow 紧 4px + 散 30px
 
-⛔⛔ **质感层的两条硬限制**（2026-11-02 用户实测「所有素材都有细横杠」）：
-  · **扫描线 / 噪点 / 颗粒的 opacity 一律 ≤ .12**
-    实测有人给 0.5（4 倍浓）⇒ 每张照片被划成"条纹纸"
-  · **质感层不许盖在照片上**
-    ✅ 只压纯色背景区 / 文字块周围
-    ❌ 不许 position:absolute; inset:0 全屏盖住 img
-    判据：把质感层关掉，照片应该**一模一样**；不一样 = 盖住了
+⛔⛔ **质感层的两条硬限制**（2026-11-02 用户实测两个病）：
+  实测一：.scan { z-index:59; opacity:.5 } 全屏盖 ⇒ **每张照片有细横杠**
+  实测二：.grain { inset:0; opacity:.035; mix-blend-mode:overlay; z-index:60 }
+          ⇒ 值合规，但**全屏 overlay** ⇒ 照片像蒙了层"热气"
+
+  · **opacity 一律 ≤ .12**（扫描线 / 噪点 / 颗粒）
+  · **质感层绝不许 position:absolute; inset:0 盖住照片**
+
+✅ **正确做法（三选一，都不盖图）**：
+
+  ① **把噪点做进背景（最推荐，零副作用）**
+     .photo {
+       background-image: url('{{IMG_1}}'), url(noise.svg);
+       background-size: cover, 200px;
+       background-blend-mode: normal, overlay;   /* 只混自己的背景，不影响子元素 */
+     }
+     ⇒ 图自己带质感，**不额外叠层**
+
+  ② **只盖纯色区**
+     .grain { position:absolute; left:0; right:0; top:0; height:340px; }  /* 不覆盖图 */
+
+  ③ **用 mask 挖掉图区**
+     .grain { -webkit-mask: linear-gradient(180deg, #000 0 30%, transparent 45% 100%); }
+
+  判据：**把质感层删掉，照片应该一模一样**；不一样 = 盖住了
 
 ❌ 反例：整屏纯色 + 干净渐变 + 锐利投影 ⇒ 这是 PPT，不是影片。`
 

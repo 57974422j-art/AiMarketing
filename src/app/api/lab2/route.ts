@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import fs from 'node:fs'
 import path from 'node:path'
+import { getAuthFromHeaders, getAuthFromCookie } from '@/lib/api-auth'
 import { buildLab2Prompt, type Lab2Form } from '@/lib/lab2/prompt'
 import { getMemories, addPending, confirmPending, rejectPending } from '@/lib/lab2/memory'
 
@@ -228,6 +229,28 @@ function ensureFit(html: string, W: number, H: number): string {
  * ★★ 2026-11-02 兜底：实测 AI **不写占位符**，只写 <img src=""> 或 url('')
  *    ⇒ 必须能"按出现顺序"填图，不能依赖它照做
  */
+async function fetchAsBase64(url: string, errs?: string[]): Promise<string | null> {
+  try {
+    const r = await fetch(url, { cache: 'no-store' })
+    if (!r.ok) { errs?.push('fetch ' + r.status); return null }
+    const buf = Buffer.from(await r.arrayBuffer())
+    if (!buf.length) { errs?.push('空图'); return null }
+    try {
+      const sharpMod = (await import('sharp')).default
+      const out = await sharpMod(buf)
+        .resize({ width: 1200, withoutEnlargement: true })
+        .jpeg({ quality: 78, mozjpeg: true })
+        .toBuffer()
+      return 'data:image/jpeg;base64,' + out.toString('base64')
+    } catch {
+      return 'data:image/jpeg;base64,' + buf.toString('base64')
+    }
+  } catch (e) {
+    errs?.push('fetch异常 ' + String((e as Error)?.message || e).slice(0, 60))
+    return null
+  }
+}
+
 function embedPlaceholders(html: string, imgs: (string | null)[]): string {
   let out = html
   const valid = imgs.filter(Boolean) as string[]
@@ -316,7 +339,12 @@ function scanMetrics(html: string) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const userId = String(body?.userId || 'default')
+
+    /* ★★★ 2026-11-02 修：userId 之前取 body?.userId || 'default'
+       ⇒ 变成 storage/default/xxx.jpg ⇒ OSS 读不到 ⇒ **AI 一张图都没看到**（盲写）
+       现在：优先从鉴权拿（header 或 cookie），保证是真实用户目录 */
+    const authUser = getAuthFromHeaders(req) || getAuthFromCookie(req)
+    const userId = String(authUser?.userId || body?.userId || '1')
     const imgs: string[] = Array.isArray(body?.images) ? body.images : []
 
     /* ── 动作：confirm / reject（用于记忆验证） ── */
@@ -339,10 +367,21 @@ export async function POST(req: NextRequest) {
          （老 lab 是 readImgB64('storage/' + auth.userId + '/' + nm)）
          我只传了文件名 ⇒ 全部读不到 ⇒ imgParts 空 ⇒ AI 根本没见过图 */
     const ossKey = (nm: string) => (/^storage\//.test(nm) ? nm : 'storage/' + userId + '/' + nm)
+    const imageUrlsEarly: string[] = Array.isArray(body?.imageUrls) ? body.imageUrls : []
     const imgParts: { type: 'image_url'; image_url: { url: string } }[] = []
     let imgOk = 0
-    for (const k of imgs.slice(0, 12)) {
-      const b64 = await readImgB64(ossKey(k))
+    for (let i = 0; i < Math.min(imgs.length, 12); i++) {
+      const k = imgs[i]
+      /* ① 先试 OSS（快） */
+      let b64 = await readImgB64(ossKey(k))
+      /* ② OSS 读不到 ⇒ **回头 fetch signedUrl**（2026-11-02：userId 走 default 时 OSS 必失败） */
+      if (!b64) {
+        const u = String(imageUrlsEarly[i] || '')
+        if (/^https?:\/\//.test(u)) {
+          const d = await fetchAsBase64(u)
+          if (d) b64 = d.replace(/^data:image\/[^;]+;base64,/, '')
+        }
+      }
       if (b64) {
         imgOk++
         imgParts.push({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + b64 } })
@@ -427,10 +466,12 @@ export async function POST(req: NextRequest) {
         embedImgs.push(b64)
         continue
       }
-      /* ② 次选：signedUrl */
+      /* ② 次选：signedUrl ⇒ **后端 fetch 下来转 base64**（自包含、永久有效）
+         ★2026-11-02：直接塞 signedUrl 的话，1 小时后签名过期 ⇒ 下载的 HTML 图全裂 */
       const u = String(imageUrls[i] || '')
       if (/^https?:\/\//.test(u)) {
-        embedImgs.push(u)
+        const b = await fetchAsBase64(u, imgErrs)
+        embedImgs.push(b || u)   /* fetch 失败才退回原 URL */
         continue
       }
       /* ③ 兜底：后端读 OSS */
