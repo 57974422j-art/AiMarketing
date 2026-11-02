@@ -39,6 +39,8 @@ type Result = {
   savedTo?: string
   imgSent?: number
   imgEmbedded?: number
+  imgErrs?: string[]
+  ossKeys?: string[]
   elapsed: number
   totalSeconds?: number
   segments?: Seg[]
@@ -493,10 +495,20 @@ export default function Lab2Page() {
                     存到：{result.savedTo || result.name}
                   </div>
                   <div style={{ gridColumn: '1 / -1', fontSize: 9.5,
-                    color: (result.imgSent || 0) > 0 ? '#7CF' : '#FF6B6B' }}>
+                    color: (result.imgEmbedded || 0) > 0 ? '#7CF' : '#FF6B6B' }}>
                     AI 看到图：{result.imgSent ?? '?'} 张 · 内联进 HTML：{result.imgEmbedded ?? '?'} 张
-                    {(result.imgSent || 0) === 0 ? '（0 张 = AI 根本没看到素材！）' : ''}
+                    {(result.imgEmbedded || 0) === 0 ? '（0 张 = 图没进去）' : ''}
                   </div>
+                  {(result.ossKeys || []).length > 0 && (
+                    <div style={{ gridColumn: '1 / -1', fontSize: 9, color: '#4C5765', wordBreak: 'break-all' }}>
+                      OSS 路径：{(result.ossKeys || []).join(' | ')}
+                    </div>
+                  )}
+                  {(result.imgErrs || []).length > 0 && (
+                    <div style={{ gridColumn: '1 / -1', fontSize: 9, color: '#FF6B6B', wordBreak: 'break-all', lineHeight: 1.6 }}>
+                      读图失败：{(result.imgErrs || []).join(' ｜ ')}
+                    </div>
+                  )}
                   <div style={{ color: result.metrics.text > 0 ? '#7CF' : '#FF6B6B' }}>
                     &lt;text&gt;：{result.metrics.text} {result.metrics.text === 0 ? '（围边必错）' : ''}
                   </div>

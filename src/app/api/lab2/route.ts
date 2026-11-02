@@ -59,11 +59,14 @@ async function readImgB64(key: string): Promise<string | null> {
  *   根因：lab2 从没把图**内联**进 HTML ⇒ AI 只能自己编 URL / 用纯色块代替
  *   修法：prompt 要求写 {{IMG_1}} 占位符，后端替换成真实压缩图的 base64
  */
-async function readImgForEmbed(key: string): Promise<string | null> {
+async function readImgForEmbed(key: string, errs?: string[]): Promise<string | null> {
   try {
     const { getObject } = await import('@/lib/oss')
     const buf = await getObject(key)
-    if (!buf || !buf.length) return null
+    if (!buf || !buf.length) {
+      errs?.push(key + ' → 空 buffer')
+      return null
+    }
     try {
       const sharpMod = (await import('sharp')).default
       const out = await sharpMod(buf)
@@ -75,7 +78,8 @@ async function readImgForEmbed(key: string): Promise<string | null> {
       /* sharp 不可用 ⇒ 原图直出（体积大但能显示） */
       return 'data:image/jpeg;base64,' + buf.toString('base64')
     }
-  } catch {
+  } catch (e) {
+    errs?.push(key + ' → ' + String((e as Error)?.message || e).slice(0, 120))
     return null
   }
 }
@@ -258,9 +262,10 @@ export async function POST(req: NextRequest) {
     const repoId = String(body?.repoId || '1')
 
     /* ★把 {{IMG_N}} 替换成真实图片（用户："素材和我给的毫无关系"） */
+    const imgErrs: string[] = []
     const embedImgs: (string | null)[] = []
     for (const k of imgs.slice(0, 12)) {
-      embedImgs.push(await readImgForEmbed(ossKey(k)))
+      embedImgs.push(await readImgForEmbed(ossKey(k), imgErrs))
     }
     html = embedPlaceholders(html, embedImgs)
 
@@ -306,6 +311,8 @@ export async function POST(req: NextRequest) {
       savedTo,
       imgSent: imgOk,          /* AI 实际看到的图张数 */
       imgEmbedded: embedImgs.filter(Boolean).length,  /* 实际内联进 HTML 的张数 */
+      imgErrs: imgErrs.slice(0, 4),   /* 读图失败原因（定位用） */
+      ossKeys: imgs.slice(0, 3).map(ossKey),   /* 实际用的 OSS 路径（定位用） */
       elapsed: Math.round((Date.now() - t0) / 1000),
       totalSeconds,
       segments,
