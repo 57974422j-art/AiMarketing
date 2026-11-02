@@ -77,12 +77,21 @@ const TEXTURE = `【质感 · 至少选一样"脏"的层次】
   · 3d-render：shadow.radius 7 软阴影
 
 **必须至少用一样**（6 选 1 或更多）：
-  ① 胶片颗粒：SVG feTurbulence，opacity .02~.04，mix-blend-mode: overlay
-  ② 带色暗角：radial-gradient 边缘压 .18~.25，颜色**带色相**（不要纯黑）
-  ③ 扫描线：repeating-linear-gradient(180deg, rgba(0,0,0,.12) 0 1px, transparent 1px 3px)
-  ④ 噪点：feTurbulence baseFrequency .9，opacity .03
+  ① 胶片颗粒：SVG feTurbulence，**opacity .02~.04**，mix-blend-mode: overlay
+  ② 带色暗角：radial-gradient 边缘压 **.18~.25**，颜色**带色相**（不要纯黑）
+  ③ 扫描线：repeating-linear-gradient(180deg, rgba(0,0,0,.12) 0 1px, transparent 1px 3px)，
+     **opacity ≤ .12**，**且不许盖在照片上**（见下）
+  ④ 噪点：feTurbulence baseFrequency .9，**opacity .03**
   ⑤ 纸纹/布纹：feTurbulence baseFrequency .04，mix-blend-mode: multiply
   ⑥ 发光溢出：drop-shadow 紧 4px + 散 30px
+
+⛔⛔ **质感层的两条硬限制**（2026-11-02 用户实测「所有素材都有细横杠」）：
+  · **扫描线 / 噪点 / 颗粒的 opacity 一律 ≤ .12**
+    实测有人给 0.5（4 倍浓）⇒ 每张照片被划成"条纹纸"
+  · **质感层不许盖在照片上**
+    ✅ 只压纯色背景区 / 文字块周围
+    ❌ 不许 position:absolute; inset:0 全屏盖住 img
+    判据：把质感层关掉，照片应该**一模一样**；不一样 = 盖住了
 
 ❌ 反例：整屏纯色 + 干净渐变 + 锐利投影 ⇒ 这是 PPT，不是影片。`
 
@@ -105,6 +114,13 @@ const HARD_RULES = `【硬底线 · 违反即不合格】
 ❌ \`letter-spacing\` 安全范围 **[-0.02em, +0.06em]**
 ❌ **文字安全区**：大字覆盖的区域**不许放任何其他文字**
 ✅ 判据：缩到 30%，如果两行字"连成一块" ⇒ 违规
+
+⛔⛔ **绝对定位的文字块之间必须留间距**（2026-11-02 实测重叠 47px）：
+  实测错误写法：.title{top:840px; font:900 76px/1.02} + .desc{top:948px}
+                 两行标题占 840~995px，.desc 从 948 开始 ⇒ **重叠 47px**
+  **算法**：下一块的 top ≥ 上一块 top + 行数 × 字号 × line-height + 24px
+  ⇒ 例：840 + 2 × 76 × 1.02 + 24 = **1019px**（不是 948）
+  ⇒ **更好的做法：不要用绝对定位，用 flex 竖排**（永远不会重叠）
 
 ❌ **单行文字宽度 ≤ 画布宽 − 2×边距**（边距 ≥ 48px）
    实测：720px 画布，字号 96px × 9 字（"30 分钟 · 只撒一次"）= 864px
