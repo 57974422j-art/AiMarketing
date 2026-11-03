@@ -47,10 +47,36 @@ export async function shotFrames(
     /* 动态 import：playwright 可能没装（本地开发），失败不影响主流程 */
     const { chromium } = await import('playwright')
 
-    /* 服务器上 chromium 路径：优先环境变量，其次默认 */
-    const exe = process.env.CHROMIUM_PATH || undefined
+    /**
+     * ★★★ 2026-11-03 服务器报错：
+     *   browserType.launch: Executable doesn't exist at
+     *   /root/.cache/ms-playwright/chromium_headless_shell-1223/...
+     *   ⇒ playwright 装了，但 chromium 二进制没下载
+     *
+     * 修法：按顺序探测，找到就用
+     *   ① CHROMIUM_PATH 环境变量
+     *   ② 系统 chromium / chromium-browser / google-chrome / chrome
+     *   ③ playwright 自带（npx playwright install chromium 之后才有）
+     */
+    const candidates = [
+      process.env.CHROMIUM_PATH,
+      '/usr/bin/chromium',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/google-chrome',
+      '/usr/bin/google-chrome-stable',
+      '/snap/bin/chromium',
+      '/opt/google/chrome/chrome',
+    ].filter(Boolean) as string[]
+
+    let exe: string | undefined
+    for (const c of candidates) {
+      try {
+        if (fs.existsSync(c)) { exe = c; break }
+      } catch { /* ignore */ }
+    }
+
     browser = await chromium.launch({
-      executablePath: exe,
+      executablePath: exe,     /* undefined ⇒ 用 playwright 自带的 */
       headless: true,
       args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
     })
