@@ -58,7 +58,7 @@ export async function shotFrames(
      *   ② 系统 chromium / chromium-browser / google-chrome / chrome
      *   ③ playwright 自带（npx playwright install chromium 之后才有）
      */
-    const candidates = [
+    const candidates: string[] = [
       process.env.CHROMIUM_PATH,
       '/usr/bin/chromium',
       '/usr/bin/chromium-browser',
@@ -68,10 +68,52 @@ export async function shotFrames(
       '/opt/google/chrome/chrome',
     ].filter(Boolean) as string[]
 
+    /**
+     * ★★★ 2026-11-03 服务器实况：
+     *   root 用户下没有 chromium，但 **appuser 用户装过**：
+     *   /home/appuser/.cache/ms-playwright/chromium_headless_shell-1228/
+     *     chrome-headless-shell-linux64/chrome-headless-shell
+     *   ⇒ 服务如果是 root 跑的，playwright 按当前用户找 ⇒ 找不到
+     *   ⇒ 必须**扫所有用户的 .cache/ms-playwright**
+     */
+    try {
+      const homes: string[] = ['/root', '/home']
+      for (const h of homes) {
+        if (h === '/home') {
+          for (const u of fs.readdirSync('/home')) homes.push('/home/' + u)
+          continue
+        }
+        const pwDir = h + '/.cache/ms-playwright'
+        if (!fs.existsSync(pwDir)) continue
+        /* ms-playwright 下会有 chromium-XXXX / chromium_headless_shell-XXXX 目录 */
+        for (const sub of fs.readdirSync(pwDir)) {
+          if (!/^chromium/i.test(sub)) continue
+          const base = pwDir + '/' + sub
+          /* 常见两种布局 */
+          const guesses = [
+            base + '/chrome-linux/chrome',
+            base + '/chrome-headless-shell-linux64/chrome-headless-shell',
+          ]
+          for (const g of guesses) {
+            try { if (fs.existsSync(g)) candidates.push(g) } catch { /* ignore */ }
+          }
+          /* 兜底：递归找一层 */
+          try {
+            for (const sub2 of fs.readdirSync(base)) {
+              const g = base + '/' + sub2 + '/chrome-headless-shell'
+              if (fs.existsSync(g)) candidates.push(g)
+              const g2 = base + '/' + sub2 + '/chrome'
+              if (fs.existsSync(g2)) candidates.push(g2)
+            }
+          } catch { /* ignore */ }
+        }
+      }
+    } catch { /* ignore */ }
+
     let exe: string | undefined
     for (const c of candidates) {
       try {
-        if (fs.existsSync(c)) { exe = c; break }
+        if (c && fs.existsSync(c)) { exe = c; break }
       } catch { /* ignore */ }
     }
 
