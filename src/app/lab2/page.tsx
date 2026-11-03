@@ -88,6 +88,10 @@ export default function Lab2Page() {
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<Result | null>(null)
 
+  /* ★★ 画幅（2026-11-03 用户："横屏竖屏加到实验2，作为最高级设置"）
+     之前写死 9:16，用户选不了；prompt 里也没有"竖屏/横屏"字样 */
+  const [aspect, setAspect] = useState('9:16')
+
   const [contentType, setContentType] = useState('food')
   const [copyMode, setCopyMode] = useState('sell')
   const [decoDensity, setDecoDensity] = useState('mid')
@@ -242,7 +246,7 @@ export default function Lab2Page() {
           selfReview,
           userRules,
           maxSeconds: 45,
-          aspect: '9:16',
+          aspect,
           /* 重做：带上上次 HTML + 意见 */
           prevHtml: isRetry ? result?.html : '',
           feedback: isRetry ? feedback : '',
@@ -314,6 +318,36 @@ export default function Lab2Page() {
           <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>LAB2 · 新实验线</div>
           <div style={{ fontSize: 10, color: '#4C5765', marginBottom: 12 }}>
             导演宣言 + 硬底线 + 1 个分类维度 · 老 lab 不动
+          </div>
+
+          {/* ★★ 画幅（最高级设置 · 2026-11-03 用户要求） */}
+          <div style={{
+            ...box,
+            border: '1px solid rgba(255,179,71,.55)',
+            background: 'rgba(255,179,71,.07)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
+              <span style={{ fontSize: 11, color: '#FFD9A0', fontWeight: 700 }}>画幅（最优先）</span>
+              <span style={{ fontSize: 9, color: '#8A7A5C' }}>
+                {aspect === '16:9' ? '1280 × 720 横屏' : '720 × 1280 竖屏'}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {[['9:16', '📱 竖屏 9:16'], ['16:9', '🖥 横屏 16:9']].map(([v, t]) => (
+                <button key={v} onClick={() => setAspect(v)}
+                  style={{
+                    flex: 1, fontSize: 11.5, padding: '9px 0', borderRadius: 6, cursor: 'pointer',
+                    border: aspect === v ? '2px solid #FFB347' : '1px solid #242C38',
+                    background: aspect === v ? 'rgba(255,179,71,.24)' : '#0B0F14',
+                    color: aspect === v ? '#FFE9C8' : '#7A8798',
+                    fontWeight: aspect === v ? 700 : 400,
+                  }}>{t}</button>
+              ))}
+            </div>
+            <div style={{ fontSize: 9, color: '#6B5C42', marginTop: 7, lineHeight: 1.7 }}>
+              画幅决定：画布尺寸 · 安全边距 · 单行字数上限 · 主体占比
+              <br />⚠️ 这个选了会直接写进 prompt，AI 按对应画幅构图
+            </div>
           </div>
 
           {/* 内容类型 */}
