@@ -14,6 +14,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import fs from 'node:fs'
 import path from 'node:path'
 import { getAuthFromHeaders, getAuthFromCookie } from '@/lib/api-auth'
+import { shotFrames } from '@/lib/lab2/shot'
 import { buildLab2Prompt, type Lab2Form } from '@/lib/lab2/prompt'
 import { getMemories, addPending, confirmPending, rejectPending } from '@/lib/lab2/memory'
 
@@ -537,7 +538,10 @@ export async function POST(req: NextRequest) {
        ══════════════════════════════════════════════════════════════════════ */
     let review: { rounds: number; issues: string[]; changes: string[]; shotOk: boolean; shotErr?: string } | null = null
     try {
-      const { shotFrames } = await import('@/lib/lab2/shot')
+      /* ★★★ 2026-11-03 修：原来是 `await import('@/lib/lab2/shot')`（动态）
+         Next.js **standalone 打包不会包含动态 import 的模块**
+         ⇒ 运行时抛错 → 被 try/catch 吞掉 → 截图从未执行（temp/_lab2/shot 目录都不存在）
+         ⇒ 改成**顶部静态 import**（见文件头） */
       let total0 = Number(form.maxSeconds || 45)
       try {
         let mx = 0

@@ -13,6 +13,8 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+/* ★2026-11-03：静态 import（standalone 打包不包含动态 import 的模块） */
+import { chromium } from 'playwright'
 
 export type ShotResult = {
   ok: boolean
@@ -43,9 +45,6 @@ export async function shotFrames(
   try {
     fs.mkdirSync(tmpDir, { recursive: true })
     fs.writeFileSync(tmpFile, html, 'utf8')
-
-    /* 动态 import：playwright 可能没装（本地开发），失败不影响主流程 */
-    const { chromium } = await import('playwright')
 
     /**
      * ★★★ 2026-11-03 服务器报错：
