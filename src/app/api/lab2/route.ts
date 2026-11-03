@@ -541,10 +541,13 @@ export async function POST(req: NextRequest) {
     let review: { rounds: number; issues: string[]; changes: string[]; shotOk: boolean; shotErr?: string } | null = null
 
     /* ★自审开关（2026-11-03）：关掉就跳过整段（省 4~5 分钱） */
+    console.log('[lab2] 自审判断：form.selfReview=' + form.selfReview + '（body.selfReview=' + body?.selfReview + '）')
     if (!form.selfReview) {
+      console.log('[lab2] 自审：已关闭，跳过')
       review = { rounds: 0, issues: [], changes: [], shotOk: false, shotErr: '已关闭（开关=关）' }
     } else
     try {
+      console.log('[lab2] 自审：开始截图')
       /* ★★★ 2026-11-03 修：原来是 `await import('@/lib/lab2/shot')`（动态）
          Next.js **standalone 打包不会包含动态 import 的模块**
          ⇒ 运行时抛错 → 被 try/catch 吞掉 → 截图从未执行（temp/_lab2/shot 目录都不存在）

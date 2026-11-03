@@ -42,9 +42,13 @@ export async function shotFrames(
   const tmpFile = path.join(tmpDir, 'shot_' + Date.now() + '.html')
   let browser: { close: () => Promise<void> } | null = null
 
+  /* ★2026-11-03 加日志：定位到底卡在哪一步（跑一次就能看） */
+  console.log('[lab2-shot] ① 开始，tmpDir=' + tmpDir)
+
   try {
     fs.mkdirSync(tmpDir, { recursive: true })
     fs.writeFileSync(tmpFile, html, 'utf8')
+    console.log('[lab2-shot] ② 临时文件已写：' + tmpFile + '（' + Math.round(html.length / 1024) + 'KB）')
 
     /**
      * ★★★ 2026-11-03 服务器报错：
@@ -116,11 +120,15 @@ export async function shotFrames(
       } catch { /* ignore */ }
     }
 
+    console.log('[lab2-shot] ③ 找到的 chromium：' + (exe || '（用 playwright 默认）'))
+    console.log('[lab2-shot] ③ 候选列表：' + candidates.slice(0, 5).join(' | '))
+
     browser = await chromium.launch({
       executablePath: exe,     /* undefined ⇒ 用 playwright 自带的 */
       headless: true,
       args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
     })
+    console.log('[lab2-shot] ④ 浏览器已启动')
 
     const page = await (browser as unknown as {
       newPage: (o: unknown) => Promise<{
@@ -132,6 +140,7 @@ export async function shotFrames(
     }).newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 })
 
     await page.goto('file:///' + tmpFile.replace(/\\/g, '/'), { waitUntil: 'load', timeout: 15000 })
+    console.log('[lab2-shot] ⑤ 页面已加载')
 
     /* 等 __seek 就绪 */
     await page.evaluate(() => new Promise((r) => setTimeout(r, 400)))
@@ -164,8 +173,11 @@ export async function shotFrames(
     await browser.close()
     browser = null
 
+    console.log('[lab2-shot] ⑦ 完成，' + images.length + ' 张截图')
     return { ok: true, images, times }
   } catch (e) {
+    console.error('[lab2-shot] ❌ 失败：' + String((e as Error)?.message || e))
+    console.error('[lab2-shot] ❌ stack：' + String((e as Error)?.stack || '').slice(0, 500))
     try { if (browser) await browser.close() } catch { /* ignore */ }
     return { ok: false, images: [], times: [], error: String((e as Error)?.message || e).slice(0, 160) }
   } finally {
