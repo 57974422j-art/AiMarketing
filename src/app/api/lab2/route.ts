@@ -31,16 +31,31 @@ function repoDir(repoId: string): string {
   return d
 }
 
-/** 当天序号：扫同目录已有 gen_YYYYMMDD_*.html，取最大 +1 */
-function nextSeq(dir: string, ymd: string): string {
-  let max = 0
-  try {
-    for (const f of fs.readdirSync(dir)) {
-      const m = f.match(new RegExp('^gen_' + ymd + '_(\\d{3})\\.html$'))
-      if (m) max = Math.max(max, parseInt(m[1], 10))
-    }
-  } catch { /* 空目录 */ }
-  return String(max + 1).padStart(3, '0')
+/**
+ * ★★★ 2026-11-03 用户："生成一个就把上次做的抵掉了，不要一直是一"
+ *
+ * 上一版 bug：只扫**本地目录**算序号，但历史文件都在 OSS（本地是空的）
+ *   ⇒ max 永远 0 ⇒ 永远返回 001 ⇒ **每次覆盖上一单**
+ *
+ * 现在：文件名用 **gen_YYYYMMDD_HHMMSS**（秒级时间戳）
+ *   · 天然唯一，不覆盖
+ *   · 同秒内再撞就在后面加 _1 / _2
+ *   · 仓库页按 mtime 排序，不受命名影响
+ */
+function uniqueName(dir: string, ymd: string): string {
+  const d = new Date()
+  const hms = String(d.getHours()).padStart(2, '0')
+    + String(d.getMinutes()).padStart(2, '0')
+    + String(d.getSeconds()).padStart(2, '0')
+
+  let name = 'gen_' + ymd + '_' + hms + '.html'
+  let n = 1
+  /* 同秒撞车（本地或 OSS 同名）⇒ 加后缀 */
+  while (fs.existsSync(path.join(dir, name)) && n < 100) {
+    name = 'gen_' + ymd + '_' + hms + '_' + n + '.html'
+    n++
+  }
+  return name
 }
 
 /** 读一张图 → base64（复用 oss） */
@@ -614,8 +629,7 @@ export async function POST(req: NextRequest) {
     let savedTo = ''
     try {
       const dir = repoDir(repoId)
-      const seq = nextSeq(dir, ymd)
-      name = 'gen_' + ymd + '_' + seq + '.html'
+      name = uniqueName(dir, ymd)
       fs.writeFileSync(path.join(dir, name), html, 'utf8')
       savedTo = 'storage/' + repoId + '/' + name
 
