@@ -216,11 +216,29 @@ function renderSwitches(f: Lab2Form) {
   }
   out.push('· 装饰密度：' + (decoMap[deco] || decoMap.mid) + '（你自己把握）')
 
+  /* ★★★ 2026-11-03 用户实测：「设 60% 无效，全是全图」+「看不出它小图会怎么设计」
+     ⇒ 上一版只写了一句"大部分段落用满幅大图"，**没给做法、没给比例落点**，它全做满幅了。
+     现在：给出「满幅怎么实现」「非满幅怎么排」「按比例卡段数」三条，让它真按比例做。 */
   const bi = Number(f.bigImg ?? 100)
-  if (bi >= 100) out.push('· 大图比：**100% —— 每段都用满幅大图**（图铺满画布）')
-  else if (bi >= 60) out.push(`· 大图比：${bi}% —— 大部分段落用满幅大图`)
-  else if (bi > 0) out.push(`· 大图比：${bi}% —— 少量满幅，其余自由排版`)
-  else out.push('· 大图比：0% —— 不用满幅大图')
+  out.push('· 大图比：' + bi + '%')
+  if (bi >= 100) {
+    out.push('  每一段都用**满幅图**（图铺满整个画布）')
+    out.push('  写法：`position:absolute; inset:0; background-image:url(...); background-size:cover;`')
+    out.push('  或 `<img style="width:100%;height:100%;object-fit:cover">`')
+  } else if (bi >= 60) {
+    out.push('  **约 ' + Math.round(bi / 10) + '/10 的段落**用满幅图，**剩下的段落不要满幅**')
+    out.push('  满幅写法：`position:absolute; inset:0; background-size:cover`')
+    out.push('  非满幅的排法（自由选）：图占画布 50~70% 一侧、贴纸白边、双图并排、局部特写、纯排版')
+  } else if (bi > 0) {
+    out.push('  **只有 1~2 段**用满幅图，**其余段落都不要满幅**')
+    out.push('  非满幅是主体：图占 40~70%、贴纸、多图错落、局部特写、纯文字排版')
+  } else {
+    out.push('  **完全不用满幅图**')
+    out.push('  每段都是：图占一部分（40~70%）+ 文字排版 / 贴纸 / 双图 / 局部特写')
+  }
+  if (bi < 100) {
+    out.push('  ⚠️ 如果每段都做满幅图，就等于 100% —— 那这一项设置就没生效')
+  }
 
   const mo = f.motion || 'on'
   out.push('· 动效：' + (mo === 'off' ? '关（只要淡入/位移这类最简单的）' : '开（你可以自由发挥）'))
