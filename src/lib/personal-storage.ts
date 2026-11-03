@@ -64,9 +64,41 @@ export interface SaveToRepoOptions {
  * 返回最终文件名（如 20260723_001.mp4）
  */
 export async function saveToPersonalRepo(opts: SaveToRepoOptions): Promise<{ name: string }> {
-  const { userId, buffer, ext, mime } = opts
+  const { userId, ext } = opts
   const uid = String(userId)
   const quotaCheck = opts.quotaCheck ?? true
+
+  /**
+   * ★★★ 2026-11-03 用户定案：「**只要上传到仓库就压缩**，以后用图不再反复压。」
+   *
+   * 背景（实测）：用户手机原图 5712×4284、平均 4.4MB（微信「原图」不压缩），
+   *   14 张 = 60MB ⇒ 生成时 60MB HTML、预览白屏十几秒、发 AI 也超时。
+   *
+   * 口径（用户逐条确认）：
+   *   · **不裁剪**（保持原始长宽比，不切边、不留白、不拉伸）
+   *   · **等比例缩放**到长边 1800 —— 720 画布上仍有 2.5 倍余量，肉眼无差
+   *   · quality 82（mozjpeg）⇒ 通常 350~550KB
+   *   · 只处理图片；视频/其它原样
+   *   · 已经比 1800 小的图**不放大**（withoutEnlargement）
+   *
+   * ⇒ 放在 saveToPersonalRepo 里做，是因为**所有上传入口最终都走这里**（改一处，全覆盖）。
+   */
+  let buffer = opts.buffer
+  let mime = opts.mime
+  if (/^image\//i.test(mime) && buffer.length > 200 * 1024) {
+    try {
+      const sharpMod = (await import('sharp')).default
+      const out = await sharpMod(buffer)
+        .rotate()                                     /* 按 EXIF 摆正（手机图常见） */
+        .resize({ width: 1800, height: 1800, fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 82, mozjpeg: true })
+        .toBuffer()
+      if (out.length > 0 && out.length < buffer.length) {
+        buffer = out
+        mime = 'image/jpeg'
+      }
+    } catch { /* sharp 不可用 ⇒ 原图（不阻断上传） */ }
+  }
 
   // ★VF_QUOTA_V2：配额判定统一到 lib/storage-quota
   //   （一处真源：总量 500MB / 拒传阈值 450MB / **排除 .thumbs 与 _gen**）
