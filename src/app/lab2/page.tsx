@@ -128,17 +128,16 @@ export default function Lab2Page() {
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
       return
     }
-    /* 让页面内自己播；这里只是同步进度条 */
+    /* 让页面内自己播；这里只**读**它的真实时间，不自己累加
+       ★2026-11-03 修：之前是 prev + 0.05/帧 ⇒ 每秒 3 秒 ⇒ 进度条和画面对不上 */
     setPausedInFrame(false)
     setPlaying(true)
     const sync = () => {
       try {
-        const w = iframeRef.current?.contentWindow as (Window & { __lab2Paused?: boolean; __lab2Total?: number }) | null
-        if (w && typeof w.__lab2Total === 'number') {
-          setSeekT((prev) => {
-            const next = prev + 0.05
-            return next > w.__lab2Total! ? 0 : next
-          })
+        const w = iframeRef.current?.contentWindow as
+          (Window & { __lab2Paused?: boolean; __lab2Total?: number; __lab2Time?: number }) | null
+        if (w && typeof w.__lab2Time === 'number') {
+          setSeekT(w.__lab2Time)     /* ← 读真实时间 */
         }
       } catch { /* ignore */ }
       rafRef.current = requestAnimationFrame(sync)

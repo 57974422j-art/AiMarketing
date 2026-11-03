@@ -182,6 +182,8 @@ function ensureSeekGuard(html: string): string {
     + 'function loop(now){'
     + 'var dt=(now-last)/1000;last=now;'
     + 'if(!window.__lab2Paused){acc+=dt;if(acc>total)acc=0;guard(acc);}'
+    /* ★2026-11-03 暴露真实时间给外层播放器（否则外部只能自己猜，会差 3 倍） */
+    + 'window.__lab2Time=acc;'
     + 'requestAnimationFrame(loop);'
     + '}'
     + 'guard(0);requestAnimationFrame(loop);'
