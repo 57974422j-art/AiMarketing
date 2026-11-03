@@ -501,15 +501,20 @@ export default function Lab2Page() {
                   </a>
                 </div>
 
-                {/* 段导航：直接跳到每段开头 */}
+                {/* 段导航：★2026-11-03 用户："固定的秒数肯定无法用"
+                    ⇒ 只显示「段 N」（时长由 AI 按素材自己定，秒数没意义）*/}
                 {(result.segments || []).length > 0 && (
                   <div style={{ display: 'flex', gap: 4, marginTop: 8, flexWrap: 'wrap' }}>
-                    {(result.segments || []).map((s, i) => (
-                      <button key={i} onClick={() => { setPlaying(false); setSeekT(s.start + 0.3); seekTo(s.start + 0.3) }}
-                        style={{ ...btn(Math.abs(seekT - s.start) < (s.duration || 3)), fontSize: 9.5, padding: '3px 8px' }}>
-                        {i + 1}. {s.start}s
-                      </button>
-                    ))}
+                    {(result.segments || []).map((s, i) => {
+                      const active = seekT >= s.start && seekT < s.start + (s.duration || 3)
+                      return (
+                        <button key={i} onClick={() => { setPlaying(false); const t = s.start + Math.min(0.3, (s.duration || 3) / 3); setSeekT(t); seekTo(t) }}
+                          title={(s.start.toFixed(1)) + 's ~ ' + (s.start + (s.duration || 3)).toFixed(1) + 's'}
+                          style={{ ...btn(active), fontSize: 9.5, padding: '3px 9px' }}>
+                          段 {i + 1}
+                        </button>
+                      )
+                    })}
                   </div>
                 )}
 

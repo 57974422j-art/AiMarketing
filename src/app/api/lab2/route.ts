@@ -512,6 +512,22 @@ export async function POST(req: NextRequest) {
       name = 'gen_' + ymd + '_' + seq + '.html'
       fs.writeFileSync(path.join(dir, name), html, 'utf8')
       savedTo = 'storage/' + repoId + '/' + name
+
+      /* ★★★ 2026-11-03 用户："成片不交个人仓库，只能下载"
+         根因：仓库页读的是 **OSS**（listAllObjects('storage/<repoId>/')），
+              而 lab2 只写本地磁盘 ⇒ 仓库页永远看不到。
+         修法：和老线一样，**同时 putObject 到 OSS**。 */
+      try {
+        const { putObject } = await import('@/lib/oss')
+        await putObject(
+          'storage/' + repoId + '/' + name,
+          Buffer.from(html, 'utf8'),
+          'text/html',
+        )
+        savedTo += '（已同步 OSS）'
+      } catch (e2) {
+        savedTo += '（OSS 同步失败：' + String((e2 as Error)?.message || e2).slice(0, 60) + '）'
+      }
     } catch (e) {
       /* 写仓库失败 ⇒ 回落临时目录（至少能看能下载） */
       const fb = path.join(process.cwd(), 'temp', '_lab2', 'out')
