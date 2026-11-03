@@ -27,6 +27,8 @@ export type Lab2Form = {
   copyMode?: string
   /** 装饰密度：low / mid / high */
   decoDensity?: string
+  /** ★大图比 0~100：有多少比例的段落用满幅大图（2026-11-03） */
+  bigImg?: number
   /** 动效：off / on */
   motion?: string
   /** 本用户的历史教训（由 memory.ts 提供） */
@@ -457,6 +459,22 @@ function renderSwitches(f: Lab2Form) {
   if (deco === 'low') out.push('  少（每段 0~2 类）：圆角 + 一个徽章，其余克制')
   else if (deco === 'high') out.push('  多（每段 5~6 类）：6 类全上，但**不许盖住主体**')
   else out.push('  中（每段 3~4 类）：背景纹理 / 徽章 / 小装饰 / 三层描边 / 贴纸 / 圆角，挑 3 个以上')
+
+  /* ★大图比（2026-11-03 · 用户："加一个大图比，我准备让它都设计大图"） */
+  const bi = Number(f.bigImg ?? 100)
+  out.push('')
+  out.push('· 大图比')
+  if (bi >= 100) {
+    out.push('  **100%：每一段都用满幅大图**（图铺满 720×1280，`object-fit: cover`）')
+    out.push('  · 文字用围边压在图上（不靠压暗）')
+    out.push('  · 段与段的区别靠：文字位置 / 描边颜色 / 装饰 / 动效，**不靠改变图的大小**')
+  } else if (bi >= 60) {
+    out.push(`  **${bi}%：约 ${Math.round(bi / 100 * 10) / 10} 的段落用满幅大图，其余贴纸/局部**`)
+  } else if (bi > 0) {
+    out.push(`  **${bi}%：少量满幅（约 1~2 段），其余用贴纸化 / 圆形 / 局部特写**`)
+  } else {
+    out.push('  **0%：不用满幅大图**，全部用贴纸化 / 局部特写 / 多图错落')
+  }
 
   const mo = f.motion || 'on'
   out.push('')

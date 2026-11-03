@@ -415,6 +415,8 @@ export async function POST(req: NextRequest) {
       copyMode: String(body?.copyMode || 'sell'),
       decoDensity: String(body?.decoDensity || 'mid'),
       motion: String(body?.motion || 'on'),
+      /* ★大图比（0~100）：让它按比例用满幅大图 */
+      bigImg: Number(body?.bigImg ?? 100),
       memories: getMemories(userId),
       userRules: String(body?.userRules || ''),
       selfReview: body?.selfReview !== false,
@@ -537,6 +539,11 @@ export async function POST(req: NextRequest) {
        ⇒ **给它眼睛，不是给它规则**
        ══════════════════════════════════════════════════════════════════════ */
     let review: { rounds: number; issues: string[]; changes: string[]; shotOk: boolean; shotErr?: string } | null = null
+
+    /* ★自审开关（2026-11-03）：关掉就跳过整段（省 4~5 分钱） */
+    if (!form.selfReview) {
+      review = { rounds: 0, issues: [], changes: [], shotOk: false, shotErr: '已关闭（开关=关）' }
+    } else
     try {
       /* ★★★ 2026-11-03 修：原来是 `await import('@/lib/lab2/shot')`（动态）
          Next.js **standalone 打包不会包含动态 import 的模块**

@@ -105,6 +105,11 @@ export default function Lab2Page() {
   const [copyMode, setCopyMode] = useState('sell')
   const [decoDensity, setDecoDensity] = useState('mid')
   const [motion, setMotion] = useState('on')
+  /* ★★ 2026-11-03 用户要求加的两个：
+     ① 自审开关（开 = 多一次调用，能自己看截图改；关 = 只生成一次）
+     ② 大图比（让它都设计大图，容易发现问题）*/
+  const [selfReviewOn, setSelfReviewOn] = useState(true)
+  const [bigImg, setBigImg] = useState(100)
   const [selfReview, setSelfReview] = useState(true)
   const [userRules, setUserRules] = useState('')
 
@@ -252,7 +257,8 @@ export default function Lab2Page() {
           copyMode,
           decoDensity,
           motion,
-          selfReview,
+          selfReview: selfReviewOn,
+          bigImg,
           userRules,
           maxSeconds: 45,
           aspect,
@@ -387,9 +393,40 @@ export default function Lab2Page() {
               ))}
             </div>
             <span style={label}>动效</span>
-            <div style={{ display: 'flex', gap: 5 }}>
+            <div style={{ display: 'flex', gap: 5, marginBottom: 10 }}>
               {[['off', '关'], ['on', '开']].map(([v, t]) => (
                 <button key={v} onClick={() => setMotion(v)} style={btn(motion === v)}>{t}</button>
+              ))}
+            </div>
+
+            {/* ★大图比（2026-11-03 用户："加一个大图比，我准备让它都设计大图，这比较容易发现问题"） */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <span style={{ fontSize: 10.5, color: '#7A8798' }}>大图比</span>
+              <span style={{ fontSize: 10, color: bigImg >= 80 ? '#FFB347' : '#7CF', fontWeight: 700 }}>
+                {bigImg}%
+              </span>
+            </div>
+            <input type="range" min={0} max={100} step={10} value={bigImg}
+              onChange={(e) => setBigImg(Number(e.target.value))}
+              style={{ width: '100%', accentColor: '#FFB347', marginBottom: 4 }} />
+            <div style={{ fontSize: 8.5, color: '#4C5765', marginBottom: 10, lineHeight: 1.6 }}>
+              {bigImg === 0 && '不做满幅图（全用贴纸/局部）'}
+              {bigImg > 0 && bigImg < 60 && '少量满幅图（偏贴纸化）'}
+              {bigImg >= 60 && bigImg < 100 && '大部分段落用满幅大图'}
+              {bigImg === 100 && '★ 每段都用满幅大图（最容易看清问题）'}
+            </div>
+
+            {/* ★自审开关 */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 10.5, color: '#7A8798' }}>自审（让它看自己的成片）</span>
+              <span style={{ fontSize: 9, color: '#4C5765' }}>
+                {selfReviewOn ? '多 4~5 分钱' : '省 4~5 分钱'}
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 5 }}>
+              {[[true, '开 · 截图自审'], [false, '关 · 只生成']].map(([v, t]) => (
+                <button key={String(v)} onClick={() => setSelfReviewOn(v as boolean)}
+                  style={{ ...btn(selfReviewOn === v), flex: 1, fontSize: 10 }}>{t as string}</button>
               ))}
             </div>
           </div>
