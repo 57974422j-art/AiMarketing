@@ -438,28 +438,38 @@ export async function POST(req: NextRequest) {
     ]
 
     const t0 = Date.now()
-    const r = await fetch('https://api.deepseek.com/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
-      body: JSON.stringify({
-        model: 'deepseek-chat',
-        messages,
-        temperature: 0.7,
-        max_tokens: 64000,
-      }),
-    })
-    if (!r.ok) {
-      const err = await r.text().catch(() => '')
-      return NextResponse.json({ ok: false, error: 'AI 调用失败 ' + r.status + ' ' + err.slice(0, 300) }, { status: 500 })
+
+    /* ── 统一的 LLM 调用（第 1 轮生成 / 第 2 轮自审都用它） ── */
+    async function callLLM(msgs: Record<string, unknown>[], temp = 0.7): Promise<string> {
+      const r = await fetch('https://api.deepseek.com/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + key },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          messages: msgs,
+          temperature: temp,
+          max_tokens: 64000,
+        }),
+      })
+      if (!r.ok) {
+        const err = await r.text().catch(() => '')
+        throw new Error('AI 调用失败 ' + r.status + ' ' + err.slice(0, 300))
+      }
+      const j = await r.json()
+      let h = String(j?.choices?.[0]?.message?.content || '')
+      if (!h.includes('<html')) {
+        const m = h.match(/```html\s*([\s\S]*?)```/)
+        if (m) h = m[1]
+      }
+      if (!h.includes('<!DOCTYPE') && !h.includes('<!doctype')) h = '<!DOCTYPE html>\n' + h
+      return h
     }
-    const j = await r.json()
-    let html: string = String(j?.choices?.[0]?.message?.content || '')
-    if (!html.includes('<html')) {
-      const m = html.match(/```html\s*([\s\S]*?)```/)
-      if (m) html = m[1]
-    }
-    if (!html.includes('<!DOCTYPE') && !html.includes('<!doctype')) {
-      html = '<!DOCTYPE html>\n' + html
+
+    let html = ''
+    try {
+      html = await callLLM(messages)
+    } catch (e) {
+      return NextResponse.json({ ok: false, error: String((e as Error)?.message || e) }, { status: 500 })
     }
 
     /* ── 存文件：直接写进个人仓库 storage/<repoId>/ ── */
@@ -501,7 +511,103 @@ export async function POST(req: NextRequest) {
 
     /* ★兜底：舞台自适应视口（用户："竖屏只看到上半截"） */
     const isLand = String(form.aspect || '') === '16:9'
-    html = ensureFit(html, isLand ? 1280 : 720, isLand ? 720 : 1280)
+    const CW = isLand ? 1280 : 720
+    const CH = isLand ? 720 : 1280
+    html = ensureFit(html, CW, CH)
+
+    /* ══════════════════════════════════════════════════════════════════════
+       ★★ 2026-11-03 用户："先加一段让它自己审一下……让它自己说出每轮改了几次为什么改"
+       第一次生成 ⇒ 无头 Chromium 截图 4 帧 ⇒ 把截图发回给它 ⇒ 它自审 + 改
+       ⇒ **给它眼睛，不是给它规则**
+       ══════════════════════════════════════════════════════════════════════ */
+    let review: { rounds: number; issues: string[]; changes: string[]; shotOk: boolean; shotErr?: string } | null = null
+    try {
+      const { shotFrames } = await import('@/lib/lab2/shot')
+      let total0 = Number(form.maxSeconds || 45)
+      try {
+        let mx = 0
+        html.replace(/data-start=["']?([\d.]+)["']?[^>]*data-duration=["']?([\d.]+)/g, (_m, a, b) => {
+          const e = parseFloat(a) + parseFloat(b)
+          if (e > mx) mx = e
+          return _m
+        })
+        if (mx > 0) total0 = Math.ceil(mx * 10) / 10
+      } catch { /* ignore */ }
+
+      const shot = await shotFrames(html, CW, CH, total0)
+
+      if (shot.ok && shot.images.length) {
+        /* 把截图 + 自审要求发给模型 */
+        const reviewPrompt = [
+          '【自审 · 这是你自己刚做出来的成片截图】',
+          '',
+          `下面是同一条片子在 t = ${shot.times.map((x) => x + 's').join(' / ')} 的 4 帧截图。`,
+          '**这就是观众会看到的样子。** 请仔细看，不要凭想象。',
+          '',
+          '逐项检查（有问题就改，没问题就说明"已检查，合格"）：',
+          '  ① **文字**：有没有糊成一团 / 笔画粘连 / 挤出屏幕 / 压在图片主体上导致看不清',
+          '  ② **留白**：有没有单侧空白超过画布 30%（看着"空"不是"留白"）',
+          '  ③ **构图**：每段的视觉重心在哪？是不是都挤在同一个角落？',
+          '  ④ **图片**：有没有被压暗/变灰/被半透明层盖住？',
+          '  ⑤ **段落**：4 帧画面是不是明显不同（如果看起来一样 ⇒ 段落没切换）',
+          '',
+          '⚠️ 只在**确实有问题**时才改。没问题就别动（改了反而可能更糟）。',
+          '',
+          '输出格式（严格）：',
+          '  先输出一段 ```json``` 自审日志：',
+          '  {',
+          '    "检查": { "文字": "...", "留白": "...", "构图": "...", "图片": "...", "段落": "..." },',
+          '    "发现的问题": ["问题1", "问题2"],',
+          '    "改了什么": ["改动1（为什么）", "改动2（为什么）"],',
+          '    "改了几轮": N,',
+          '    "没改的地方": "为什么不动"',
+          '  }',
+          '  然后输出**完整的新 HTML**（`<!DOCTYPE html>` 到 `</html>`）。',
+          '  ⚠️ 如果判断没问题、不需要改 ⇒ JSON 里写 `"改了什么": []`，HTML 原样输出。',
+        ].join('\n')
+
+        const round2 = await callLLM([
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: reviewPrompt },
+              ...shot.images.map((d) => ({ type: 'image_url', image_url: { url: d } })),
+            ],
+          },
+        ], 0.4)
+
+        /* 解析自审日志 */
+        let issues: string[] = []
+        let changes: string[] = []
+        let rounds = 0
+        const jm = round2.match(/```json\s*([\s\S]*?)```/)
+        if (jm) {
+          try {
+            const o = JSON.parse(jm[1]) as Record<string, unknown>
+            issues = Array.isArray(o['发现的问题']) ? (o['发现的问题'] as string[]) : []
+            changes = Array.isArray(o['改了什么']) ? (o['改了什么'] as string[]) : []
+            rounds = Number(o['改了几轮'] || 0)
+          } catch { /* 解析失败就当没改 */ }
+        }
+
+        /* 如果它给了新 HTML（且含 html 标签），采用；否则保留原版 */
+        const newHtmlMatch = round2.match(/<!DOCTYPE html>[\s\S]*<\/html>/i)
+        if (newHtmlMatch && newHtmlMatch[0].length > html.length * 0.5) {
+          html = newHtmlMatch[0]
+          /* 新版还要再兜底一次（它可能又写坏了） */
+          html = embedPlaceholders(html, embedImgs)
+          html = ensureSeekGuard(html)
+          html = ensureAutoplay(html)
+          html = ensureFit(html, CW, CH)
+        }
+
+        review = { rounds, issues, changes, shotOk: true }
+      } else {
+        review = { rounds: 0, issues: [], changes: [], shotOk: false, shotErr: shot.error || '截图失败' }
+      }
+    } catch (e) {
+      review = { rounds: 0, issues: [], changes: [], shotOk: false, shotErr: String((e as Error)?.message || e).slice(0, 120) }
+    }
 
     const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '')
     let name = ''
@@ -559,6 +665,7 @@ export async function POST(req: NextRequest) {
       repoId,
       name,
       savedTo,
+      review,                  /* ★自审记录（改了几轮 / 发现什么 / 改了什么） */
       imgSent: imgOk,          /* AI 实际看到的图张数 */
       imgEmbedded: embedImgs.filter(Boolean).length,  /* 实际内联进 HTML 的张数 */
       imgErrs: imgErrs.slice(0, 4),   /* 读图失败原因（定位用） */

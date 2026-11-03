@@ -40,10 +40,19 @@ type Metrics = {
 
 type Seg = { start: number; duration: number }
 
+type Review = {
+  rounds: number
+  issues: string[]
+  changes: string[]
+  shotOk: boolean
+  shotErr?: string
+}
+
 type Result = {
   url: string
   name: string
   savedTo?: string
+  review?: Review | null
   imgSent?: number
   imgEmbedded?: number
   imgErrs?: string[]
@@ -636,6 +645,41 @@ export default function Lab2Page() {
                   <div style={{ gridColumn: '1 / -1', fontSize: 9.5, color: '#7A8798' }}>
                     存到：{result.savedTo || result.name}
                   </div>
+                  {/* ★★ 自审记录（2026-11-03）：它自己看了截图，改了几轮、为什么改 */}
+                  <div style={{ gridColumn: '1 / -1', marginTop: 2, marginBottom: 4 }}>
+                    <div style={{
+                      fontWeight: 700, marginBottom: 6,
+                      color: result.review?.shotOk ? '#7CF' : '#FF6B6B',
+                    }}>
+                      自审 {result.review?.shotOk ? '✓' : '✗'}
+                      {result.review?.shotOk
+                        ? `（改了 ${result.review.rounds} 轮）`
+                        : `（截图失败：${result.review?.shotErr || '未执行'}）`}
+                    </div>
+
+                    {result.review?.shotOk && (
+                      <div style={{ fontSize: 9.5, lineHeight: 1.75 }}>
+                        <div style={{ color: '#FFB347', marginBottom: 3 }}>
+                          发现的问题（{result.review.issues.length}）：
+                        </div>
+                        {result.review.issues.length === 0
+                          ? <div style={{ color: '#7CF' }}>　无（它认为合格）</div>
+                          : result.review.issues.map((s, i) => (
+                            <div key={i} style={{ color: '#E8C88A' }}>　{i + 1}. {s}</div>
+                          ))}
+
+                        <div style={{ color: '#FFB347', marginTop: 6, marginBottom: 3 }}>
+                          改了什么（{result.review.changes.length}）：
+                        </div>
+                        {result.review.changes.length === 0
+                          ? <div style={{ color: '#7CF' }}>　没改（它认为没问题）</div>
+                          : result.review.changes.map((s, i) => (
+                            <div key={i} style={{ color: '#A8D8C0' }}>　{i + 1}. {s}</div>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+
                   <div style={{ gridColumn: '1 / -1', fontSize: 9.5,
                     color: (result.imgEmbedded || 0) > 0 ? '#7CF' : '#FF6B6B' }}>
                     AI 看到图：{result.imgSent ?? '?'} 张 · 内联进 HTML：{result.imgEmbedded ?? '?'} 张
