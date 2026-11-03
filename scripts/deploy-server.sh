@@ -62,6 +62,37 @@ echo "[4/7] 构建…"
 rm -rf .next && npm run build
 echo "[5/7] 复制静态资源…"
 cp -r .next/static .next/standalone/.next/static && cp -r public .next/standalone/public
+
+# ★★★ 2026-11-03 用户实测：上传压缩报
+#   Could not load the "sharp" module using the linux-x64 runtime
+#   ERR_DLOPEN_FAILED: libvips-cpp.so.8.18.3: cannot open shared object file
+# 根因：Next.js standalone 自动收集依赖时**漏了 @img/sharp-libvips-linux-x64**
+#       （那个包只有 .so，Next 的 tracing 没识别出来）
+#       ⇒ sharp 加载失败 ⇒ 退回 ffmpeg（只压质量不缩尺寸）⇒ 图还是 2.7MB
+# 修法：构建后强制补齐 @img（尤其 libvips），幂等，缺什么补什么。
+echo "[5a/7] 补齐 sharp 原生库（@img）…"
+if [ -d node_modules/@img ]; then
+  mkdir -p .next/standalone/node_modules/@img
+  for d in node_modules/@img/*; do
+    [ -e "$d" ] || continue
+    n=$(basename "$d")
+    if [ ! -e ".next/standalone/node_modules/@img/$n" ]; then
+      cp -r "$d" ".next/standalone/node_modules/@img/$n" && echo "  + @img/$n"
+    fi
+  done
+  # 缺 libvips 时 sharp 必挂 —— 显式检查一次
+  if [ ! -d ".next/standalone/node_modules/@img/sharp-libvips-linux-x64" ]; then
+    echo "  ⚠️ 仍然缺 sharp-libvips-linux-x64（sharp 会退回 ffmpeg，图不会缩尺寸）"
+  else
+    echo "  ✅ libvips 已就位"
+  fi
+  # 顺手补 sharp 本体（同理，Next 偶尔也不收）
+  if [ -d node_modules/sharp ] && [ ! -e .next/standalone/node_modules/sharp ]; then
+    cp -r node_modules/sharp .next/standalone/node_modules/sharp && echo "  + sharp"
+  fi
+else
+  echo "  ⚠️ 根 node_modules 里没有 @img，跳过"
+fi
 # ★VF_NODE_TIMEOUT_V1（2026-10-26）：Node 22 默认 requestTimeout=300s，
 #   而 AI 出页那步要 285s ⇒ 请求被掐断、客户端收不到响应（实测 11 分钟后才报超时）。
 #   这里给 standalone/server.js 注入"关掉请求超时"（幂等，重复跑不会重复注入）。

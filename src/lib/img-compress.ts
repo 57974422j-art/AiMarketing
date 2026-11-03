@@ -35,10 +35,6 @@
  * ⇒ 现在统一用 `createRequire(import.meta.url)` 去 require，绕开 ESM/CJS 互操作问题。
  */
 import { createRequire } from 'node:module'
-import { spawnSync } from 'node:child_process'
-import fs from 'node:fs'
-import os from 'node:os'
-import path from 'node:path'
 
 /** 只有超过这个体积才压（小图压了没意义，反而多一次解码）
  *  ★VF_UPLOAD_SHRINK_V1b（2026-10-30 用户定案「超过 1.2MB 压或者 1MB 压都可以」）：
@@ -49,6 +45,8 @@ import path from 'node:path'
  *    ⚠️ 副作用：0.6~1MB 的图不再压（以前会）⇒ 仓库体积略大一点点，但**画质零损失**。
  *    17 张 × 1.1MB（压后）× 1.37 ≈ 26MB ⇒ 仍在实测 45MB 上限的**安全区**内。 */
 const SHRINK_THRESHOLD = 1024 * 1024          // 1MB
+/** ★长边上限：等比例缩到 1800（720 画布上 2.5 倍余量，肉眼无差） */
+const MAX_EDGE = 1800
 /** jpg 目标质量：82 是"肉眼无感"与"体积下降"的平衡点 */
 const JPEG_QUALITY = 82
 
@@ -88,51 +86,42 @@ export async function shrinkImageOnUpload(
 
   const before = buffer.length
 
-  /* ── 首选 sharp：质量最高、体积最小、行为最可控 ── */
+  /* ── 只用 sharp（用户 2026-11-03 定案：「不要 ffmpeg 兜底，就 sharp 压缩」） ──
+     口径：
+       · **等比例缩到长边 1800**（withoutEnlargement：小图不放大）
+       · **不裁剪**（fit:'inside' 保持比例，不切边、不留白、不拉伸）
+       · quality 82（mozjpeg）
+       · 5712×4284 / 6.8MB ⇒ 1800×1350 / ≈450KB（720 画布上 2.5 倍余量，肉眼无差）
+     ⚠️ 上一版"不调 resize"导致 5712 的图压完还是 2.7MB（用户实测），已改。 */
   const sharp = getSharp()
-  if (sharp) {
-    try {
-      const out = await sharp(buffer)
-        // ⚠️ 不调 .resize() / .extract() / .rotate() —— 尺寸与构图必须原样保留
-        .jpeg({ quality: JPEG_QUALITY, mozjpeg: true, chromaSubsampling: '4:4:4' })
-        .toBuffer()
-      if (out && out.length && out.length < before * 0.92) {
-        return {
-          buffer: out,
-          note: before + 'KB → ' + Math.round(out.length / 1024) + 'KB（sharp q' + JPEG_QUALITY + '，尺寸未变）',
-        }
-      }
-      return { buffer, note: 'sharp 压缩收益不足，保留原图' }
-    } catch (e1: any) {
-      try { console.error('[上传压缩] sharp 处理失败，转 ffmpeg：' + String(e1?.message || e1).slice(0, 120)) } catch { /* ignore */ }
-    }
+  if (!sharp) {
+    try { console.error('[上传压缩] sharp 不可用，原图直传（检查 .next/standalone/node_modules/@img/sharp-libvips-linux-x64）') } catch { /* ignore */ }
+    return { buffer, note: 'sharp 不可用，保留原图' }
   }
 
-  /* ── 兜底 ffmpeg：只设质量，不加 -vf（不加就不会改尺寸） ── */
   try {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ups-'))
-    const inP = path.join(dir, 'in.' + (e === 'jpeg' ? 'jpg' : e))
-    const outP = path.join(dir, 'out.jpg')
-    try {
-      fs.writeFileSync(inP, buffer)
-      // -q:v 3 约等于 jpg q85；**刻意不加 -vf scale** ⇒ 尺寸原样
-      const r = spawnSync('ffmpeg', ['-y', '-v', 'error', '-threads', '1', '-i', inP,
-        '-threads', '1', '-q:v', '3', outP], { timeout: 30000 })
-      if (r.status === 0 && fs.existsSync(outP)) {
-        const out = fs.readFileSync(outP)
-        if (out.length && out.length < before * 0.92) {
-          return {
-            buffer: out,
-            note: before + 'KB → ' + Math.round(out.length / 1024) + 'KB（ffmpeg q3，尺寸未变）',
-          }
-        }
+    const out = await sharp(buffer)
+      .rotate()                                              /* 按 EXIF 摆正（手机图常见） */
+      .resize({
+        width: MAX_EDGE,
+        height: MAX_EDGE,
+        fit: 'inside',                                       /* 等比例，不裁剪 */
+        withoutEnlargement: true,                            /* 小图不放大 */
+      })
+      .jpeg({ quality: JPEG_QUALITY, mozjpeg: true })
+      .toBuffer()
+    if (out && out.length && out.length < before) {
+      const meta = await sharp(out).metadata().catch(() => null)
+      const wh = meta && meta.width ? '(' + meta.width + '×' + meta.height + ')' : ''
+      return {
+        buffer: out,
+        note: Math.round(before / 1024) + 'KB → ' + Math.round(out.length / 1024)
+          + 'KB（sharp 长边' + MAX_EDGE + ' q' + JPEG_QUALITY + ' ' + wh + '）',
       }
-    } finally {
-      try { fs.rmSync(dir, { recursive: true, force: true }) } catch { /* ignore */ }
     }
-  } catch (e2: any) {
-    try { console.error('[上传压缩] ffmpeg 兜底也失败，保留原图：' + String(e2?.message || e2).slice(0, 120)) } catch { /* ignore */ }
+    return { buffer, note: 'sharp 压缩收益不足，保留原图' }
+  } catch (e1: unknown) {
+    try { console.error('[上传压缩] sharp 处理失败，保留原图：' + String((e1 as Error)?.message || e1).slice(0, 160)) } catch { /* ignore */ }
+    return { buffer, note: 'sharp 处理失败，保留原图' }
   }
-
-  return { buffer, note: '压缩未生效，保留原图' }
 }
