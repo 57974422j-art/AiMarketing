@@ -98,6 +98,8 @@ export default function Lab2Page() {
   /* 重做 */
   const [feedback, setFeedback] = useState('')
   const [retrying, setRetrying] = useState(false)
+  /* ★反馈截图（最多 4 张，转 base64 发给模型看） */
+  const [fbImages, setFbImages] = useState<{ name: string; data: string }[]>([])
 
   const [copied, setCopied] = useState('')
   const [seekT, setSeekT] = useState(0)
@@ -245,6 +247,7 @@ export default function Lab2Page() {
           /* 重做：带上上次 HTML + 意见 */
           prevHtml: isRetry ? result?.html : '',
           feedback: isRetry ? feedback : '',
+          feedbackImages: isRetry ? fbImages.map((x) => x.data) : [],
         }),
       })
       const j = await r.json()
@@ -529,6 +532,45 @@ export default function Lab2Page() {
                 <textarea value={feedback} onChange={(e) => setFeedback(e.target.value)}
                   placeholder="例：第 2 段字粘在一起，line-height 太小；第 4 段图被压暗了" rows={2}
                   style={{ width: '100%', background: '#06080B', border: '1px solid #242C38', borderRadius: 6, color: '#D8E2EC', fontSize: 11, padding: 8, resize: 'vertical' }} />
+
+                {/* ★2026-11-03 用户要求：反馈可以上传图片（模型能看图，比文字准 10 倍） */}
+                <div style={{ marginTop: 8 }}>
+                  <label style={{
+                    display: 'inline-block', fontSize: 10, padding: '6px 12px', borderRadius: 6, cursor: 'pointer',
+                    background: 'rgba(74,158,255,.18)', border: '1px solid #4A9EFF', color: '#BFE3FF',
+                  }}>
+                    📎 上传截图（说明问题）
+                    <input type="file" accept="image/*" multiple style={{ display: 'none' }}
+                      onChange={async (e) => {
+                        const files = Array.from(e.target.files || [])
+                        if (!files.length) return
+                        const arr: { name: string; data: string }[] = []
+                        for (const f of files.slice(0, 4)) {
+                          const d = await new Promise<string>((res) => {
+                            const fr = new FileReader()
+                            fr.onload = () => res(String(fr.result))
+                            fr.onerror = () => res('')
+                            fr.readAsDataURL(f)
+                          })
+                          if (d) arr.push({ name: f.name, data: d })
+                        }
+                        setFbImages((p) => [...p, ...arr].slice(0, 4))
+                        e.target.value = ''
+                      }} />
+                  </label>
+                  {fbImages.length > 0 && (
+                    <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                      {fbImages.map((im, i) => (
+                        <div key={i} style={{ position: 'relative' }}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={im.data} alt={im.name} style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 6, border: '1px solid #242C38' }} />
+                          <button onClick={() => setFbImages((p) => p.filter((_, j) => j !== i))}
+                            style={{ position: 'absolute', right: -4, top: -4, width: 16, height: 16, borderRadius: '50%', background: '#FF6B6B', color: '#fff', border: 'none', fontSize: 10, cursor: 'pointer', lineHeight: '16px', padding: 0 }}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <button onClick={() => { setRetrying(true); gen(true) }} disabled={loading || !feedback.trim()}
                   style={{ ...btn(false), marginTop: 8, padding: '8px 16px', fontWeight: 700, background: feedback.trim() ? 'rgba(255,179,71,.2)' : '#0B0F14', borderColor: feedback.trim() ? '#FFB347' : '#242C38', color: feedback.trim() ? '#FFE9C8' : '#4C5765' }}>
                   {retrying ? '重做中…' : '↻ 按意见重做'}

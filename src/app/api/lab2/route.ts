@@ -413,12 +413,24 @@ export async function POST(req: NextRequest) {
     const key = String(process.env.DEEPSEEK_API_KEY || '').trim()
     if (!key) return NextResponse.json({ ok: false, error: '缺少 DEEPSEEK_API_KEY' }, { status: 500 })
 
+    /* ★反馈截图（用户上传的"哪里不对"的图）⇒ 一起发给模型看 */
+    const fbImgs: string[] = Array.isArray(body?.feedbackImages) ? body.feedbackImages : []
+    const fbParts = fbImgs
+      .slice(0, 4)
+      .filter((d) => /^data:image\//.test(String(d)))
+      .map((d) => ({ type: 'image_url' as const, image_url: { url: String(d) } }))
+
+    const textBlock = fbParts.length
+      ? prompt + retryNote + '\n\n【用户上传的截图：这就是他说的"哪里不对"，请仔细看图，不要只看文字描述】'
+      : prompt + retryNote
+
     const messages: Record<string, unknown>[] = [
       {
         role: 'user',
         content: [
-          { type: 'text', text: prompt + retryNote },
+          { type: 'text', text: textBlock },
           ...imgParts,
+          ...fbParts,
         ],
       },
     ]
