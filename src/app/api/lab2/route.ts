@@ -60,33 +60,21 @@ function uniqueName(dir: string, ymd: string): string {
 }
 
 /**
- * 读一张图 → base64（**必须压缩**）
+ * 读一张图 → base64（**原图，不压缩**）
  *
- * ★★★ 2026-11-03 用户实测：换了一批没压缩过的猫图（2~5MB/张 × 12 = 24~60MB）
- *   ⇒ 直接塞给 DeepSeek ⇒ `fetch failed`（连接被断）
+ * ★★★ 2026-11-03 用户定案：
+ *   「给 AI 的图根本不需要压缩。AI 那边没有大小限制，是我们自己想多了。
+ *     压缩要提前到**上传仓库**那一步（见 lib/personal-storage.ts），
+ *     用图时就不用反复压了。」
  *
- *   日报线以前也踩过这个坑：**"发给 AI 的图"和"内联进 HTML 的图"必须分开压**
- *     · 发给 AI：够看清内容即可 ⇒ 宽 900 / q 70（约 60~120KB/张）
- *     · 内联 HTML：要能展示 ⇒ 宽 1200 / q 78
- *
- *   ⇒ 现在这个函数统一走 sharp 压缩，不再原图直出。
+ * ⇒ 这里恢复"原图直出"。图的大小由**上传时**控制（长边 1800 / q82 ≈ 450KB）。
  */
-async function readImgB64(key: string, maxW = 900, q = 70): Promise<string | null> {
+async function readImgB64(key: string): Promise<string | null> {
   try {
     const { getObject } = await import('@/lib/oss')
     const buf = await getObject(key)
     if (!buf || !buf.length) return null
-    try {
-      const sharpMod = (await import('sharp')).default
-      const out = await sharpMod(buf)
-        .resize({ width: maxW, withoutEnlargement: true })
-        .jpeg({ quality: q, mozjpeg: true })
-        .toBuffer()
-      return out.toString('base64')
-    } catch {
-      /* sharp 不可用 ⇒ 原图（这次没办法，但至少不会崩） */
-      return buf.toString('base64')
-    }
+    return buf.toString('base64')
   } catch {
     return null
   }
@@ -410,18 +398,18 @@ export async function POST(req: NextRequest) {
     const imgParts: { type: 'image_url'; image_url: { url: string } }[] = []
     let imgOk = 0
     let imgBytes = 0
-    /* ★总大小上限：DeepSeek 虽能吃大，但 20MB 以上开始偶发断连（实测猫图 60MB 必挂） */
-    const MAX_TOTAL = 18 * 1024 * 1024
+    /* ★2026-11-03 用户定案：**不再设总数上限**（"AI 那边根本没限制，都是我自己猜的"）
+       图的大小由上传时控制（长边 1800 / q82 ≈ 450KB），这里只统计不拦截。 */
 
     for (let i = 0; i < Math.min(imgs.length, 12); i++) {
       const k = imgs[i]
-      /* ① 先试 OSS（readImgB64 已内部压到 900/q70，约 60~120KB/张） */
+      /* ① 先试 OSS（原图，不压缩 —— 图早就在上传时压过了） */
       let b64 = await readImgB64(ossKey(k))
-      /* ② OSS 读不到 ⇒ 回头 fetch signedUrl（**也要压**，否则原图直塞） */
+      /* ② OSS 读不到 ⇒ 回头 fetch signedUrl */
       if (!b64) {
         const u = String(imageUrlsEarly[i] || '')
         if (/^https?:\/\//.test(u)) {
-          const d = await fetchAsBase64(u)   /* 内部已 sharp 到 1200/q78 */
+          const d = await fetchAsBase64(u)
           if (d) b64 = d.replace(/^data:image\/[^;]+;base64,/, '')
         }
       }
@@ -429,10 +417,6 @@ export async function POST(req: NextRequest) {
         imgOk++
         imgBytes += b64.length
         imgParts.push({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + b64 } })
-        if (imgBytes > MAX_TOTAL) {
-          console.warn('[lab2] 图片总量已超 ' + Math.round(MAX_TOTAL / 1024 / 1024) + 'MB，停止追加（已发 ' + imgOk + ' 张）')
-          break
-        }
       }
     }
     console.log('[lab2] 发给 AI：' + imgOk + ' 张，合计 ' + (imgBytes / 1024 / 1024).toFixed(2) + ' MB（base64）')
