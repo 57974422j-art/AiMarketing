@@ -125,6 +125,47 @@ export default function Lab2Page() {
   const [chatBusy, setChatBusy] = useState(false)
   const [sessionId] = useState('main')
 
+  /* ★段落删除（2026-11-04）：标记 → 代码删段 + 重排时间轴（不经过 AI） */
+  const [delSel, setDelSel] = useState<number[]>([])
+  const [secBusy, setSecBusy] = useState(false)
+
+  function toggleDel(n: number) {
+    setDelSel((p) => (p.includes(n) ? p.filter((x) => x !== n) : [...p, n]))
+  }
+
+  async function applyDelete() {
+    if (!delSel.length || secBusy || !result) return
+    setSecBusy(true)
+    setErr('')
+    try {
+      const r = await fetch('/api/lab2/sections', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ sessionId, name: result.name, delete: delSel }),
+      })
+      const j = await r.json()
+      if (!j?.ok) { setErr(String(j?.error || '删除失败')); return }
+      setResult((prev) => (prev
+        ? {
+          ...prev,
+          url: j.url,
+          name: j.name,
+          savedTo: j.savedTo,
+          segments: j.segments,
+          totalSeconds: j.totalSeconds,
+        }
+        : prev))
+      setChatMsgs((p) => [...p, { role: 'assistant', text: j.savedTo ? ('已删掉第 ' + delSel.join('、') + ' 段，时间轴重排完成') : '' }])
+      setDelSel([])
+      setSeekT(0)
+    } catch (e) {
+      setErr('删除异常：' + String((e as Error)?.message || e))
+    } finally {
+      setSecBusy(false)
+    }
+  }
+
   const [copied, setCopied] = useState('')
   const [seekT, setSeekT] = useState(0)
   const [playing, setPlaying] = useState(false)
@@ -652,20 +693,61 @@ export default function Lab2Page() {
                   </a>
                 </div>
 
-                {/* 段导航：★2026-11-03 用户："固定的秒数肯定无法用"
-                    ⇒ 只显示「段 N」（时长由 AI 按素材自己定，秒数没意义）*/}
+                {/* 段导航 + 勾选删除
+                    ★2026-11-04 用户："生成 30 段不合适我命令全部切掉"
+                      ⇒ 点段号跳转；点段号右边的 ✕ 标记待删；「删除选中」由**代码重排时间轴**
+                        （不让 AI 算 —— 它算 data-start 必错） */}
                 {(result.segments || []).length > 0 && (
                   <div style={{ display: 'flex', gap: 4, marginTop: 8, flexWrap: 'wrap' }}>
                     {(result.segments || []).map((s, i) => {
                       const active = seekT >= s.start && seekT < s.start + (s.duration || 3)
+                      const marked = delSel.includes(i + 1)
                       return (
-                        <button key={i} onClick={() => { setPlaying(false); const t = s.start + Math.min(0.3, (s.duration || 3) / 3); setSeekT(t); seekTo(t) }}
-                          title={(s.start.toFixed(1)) + 's ~ ' + (s.start + (s.duration || 3)).toFixed(1) + 's'}
-                          style={{ ...btn(active), fontSize: 9.5, padding: '3px 9px' }}>
-                          段 {i + 1}
-                        </button>
+                        <span key={i} style={{ display: 'inline-flex' }}>
+                          <button onClick={() => { setPlaying(false); const t = s.start + Math.min(0.3, (s.duration || 3) / 3); setSeekT(t); seekTo(t) }}
+                            title={(s.start.toFixed(1)) + 's ~ ' + (s.start + (s.duration || 3)).toFixed(1) + 's'}
+                            style={{
+                              ...btn(active), fontSize: 9.5, padding: '3px 8px',
+                              borderRadius: '5px 0 0 5px',
+                              opacity: marked ? 0.45 : 1,
+                              textDecoration: marked ? 'line-through' : 'none',
+                            }}>
+                            段 {i + 1}
+                          </button>
+                          <button onClick={() => toggleDel(i + 1)}
+                            title={marked ? '取消删除' : '标记删除（不会立刻删）'}
+                            style={{
+                              fontSize: 9, padding: '3px 6px', cursor: 'pointer',
+                              borderRadius: '0 5px 5px 0',
+                              border: '1px solid ' + (marked ? '#FF6B6B' : '#242C38'),
+                              borderLeft: 'none',
+                              background: marked ? 'rgba(255,107,107,.25)' : '#0B0F14',
+                              color: marked ? '#FF9B9B' : '#4C5765',
+                            }}>
+                            ✕
+                          </button>
+                        </span>
                       )
                     })}
+                  </div>
+                )}
+                {delSel.length > 0 && (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+                    <span style={{ fontSize: 10, color: '#FF9B9B' }}>
+                      已标记删除 {delSel.length} 段（第 {[...delSel].sort((a, b) => a - b).join('、')} 段）
+                    </span>
+                    <button onClick={applyDelete} disabled={secBusy}
+                      style={{
+                        fontSize: 10, padding: '5px 12px', borderRadius: 6, cursor: secBusy ? 'default' : 'pointer',
+                        border: '1px solid #FF6B6B', background: secBusy ? '#2A3440' : 'rgba(255,107,107,.2)',
+                        color: secBusy ? '#7A8798' : '#FFC8C8', fontWeight: 700,
+                      }}>
+                      {secBusy ? '删除中…' : '删除并重排时间轴'}
+                    </button>
+                    <button onClick={() => setDelSel([])}
+                      style={{ ...btn(false), fontSize: 10, padding: '5px 10px' }}>
+                      取消
+                    </button>
                   </div>
                 )}
 
