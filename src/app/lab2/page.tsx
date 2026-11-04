@@ -119,6 +119,12 @@ export default function Lab2Page() {
   /* ★反馈截图（最多 4 张，转 base64 发给模型看） */
   const [fbImages, setFbImages] = useState<{ name: string; data: string }[]>([])
 
+  /* ★★★ 对话改片（2026-11-04）：长期会话 + 记忆 */
+  const [chatMsgs, setChatMsgs] = useState<Array<{ role: 'user' | 'assistant'; text: string }>>([])
+  const [chatText, setChatText] = useState('')
+  const [chatBusy, setChatBusy] = useState(false)
+  const [sessionId] = useState('main')
+
   const [copied, setCopied] = useState('')
   const [seekT, setSeekT] = useState(0)
   const [playing, setPlaying] = useState(false)
@@ -201,6 +207,61 @@ export default function Lab2Page() {
     })()
   }, [])
 
+  /* ★★★ 2026-11-04 打开页面就恢复「上一次聊到哪」
+     —— 用户："不是这份做完了下次它连自己干什么都忘记" */
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const r = await fetch('/api/lab2/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ action: 'history', sessionId: 'main' }),
+        })
+        const j = await r.json()
+        if (j?.ok && Array.isArray(j.messages) && j.messages.length) {
+          setChatMsgs(j.messages.map((m: { role: 'user' | 'assistant'; text: string }) => ({ role: m.role, text: m.text })))
+          /* 自动把预览切回它上次那一版 */
+          if (j.url) {
+            setResult((prev) => (prev ? { ...prev, url: j.url, name: j.currentHtmlName || prev.name } : prev))
+          }
+        }
+      } catch { /* 静默 */ }
+    })()
+  }, [])
+
+  /** 发一句，让它改当前版本 */
+  async function sendChat() {
+    const t = chatText.trim()
+    if (!t || chatBusy) return
+    if (!result) { setErr('先在左边点「生成」做一版，再聊着改'); return }
+    setErr('')
+    setChatText('')
+    setChatMsgs((p) => [...p, { role: 'user', text: t }])
+    setChatBusy(true)
+    try {
+      const r = await fetch('/api/lab2/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ sessionId, text: t }),
+      })
+      const j = await r.json()
+      if (!j?.ok) {
+        setChatMsgs((p) => [...p, { role: 'assistant', text: '❌ ' + (j?.error || '改失败') }])
+        return
+      }
+      setChatMsgs((p) => [...p, { role: 'assistant', text: j.reply || '已改好' }])
+      /* 换新版本预览（指标基于上一版，不重算） */
+      setResult((prev) => (prev ? { ...prev, url: j.url, name: j.name, savedTo: j.savedTo } : prev))
+      setSeekT(0)
+    } catch (e) {
+      setChatMsgs((p) => [...p, { role: 'assistant', text: '❌ ' + String((e as Error)?.message || e) }])
+    } finally {
+      setChatBusy(false)
+    }
+  }
+
   function toggle(name: string) {
     setPicked((p) => (p.includes(name) ? p.filter((x) => x !== name) : p.length >= 20 ? p : [...p, name]))
   }
@@ -266,12 +327,22 @@ export default function Lab2Page() {
           prevHtml: isRetry ? result?.html : '',
           feedback: isRetry ? feedback : '',
           feedbackImages: isRetry ? fbImages.map((x) => x.data) : [],
+          sessionId,                 /* ★首版写进这个会话，之后对话改片继续用 */
         }),
       })
       const j = await r.json()
       if (!j?.ok) { setErr(String(j?.error || '生成失败')); return }
       setResult(j as Result)
       if (isRetry) setFeedback('')
+      /* ★首版也记进对话（后端已写 session，这里只补前端显示） */
+      setChatMsgs((p) => [
+        ...p,
+        {
+          role: 'assistant',
+          text: (isRetry ? '已按你的意见重做一版' : '首版已生成')
+            + '（' + (j?.name || '') + '）\n接下来可以在这里直接说要改哪里。',
+        },
+      ])
     } catch (e) {
       setErr('异常：' + String((e as Error)?.message || e))
     } finally {
@@ -601,6 +672,60 @@ export default function Lab2Page() {
                 <div style={{ fontSize: 9, color: '#4C5765', marginTop: 6, lineHeight: 1.6 }}>
                   点「▶ 播放」自动播完；也可以拖时间轴 / 点段号直接跳。
                   {!playing && seekT === 0 && '（现在停在 0s，点播放就开始）'}
+                </div>
+              </div>
+
+              {/* ★★★ 对话改片（2026-11-04 用户："要能跟我实现长期会话，自己有记忆"）
+                  首轮用「生成」，之后在这里聊着改；每轮都带「历史 + 当前 HTML」⇒ 它知道在改哪一版 */}
+              <div style={{ ...box, marginTop: 12, border: '1px solid rgba(74,158,255,.4)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ fontSize: 11, color: '#BFE3FF', fontWeight: 700 }}>💬 对话改片</span>
+                  <span style={{ fontSize: 9, color: '#4C5765' }}>它记得这条片子的上下文</span>
+                </div>
+
+                <div style={{
+                  maxHeight: 200, overflow: 'auto', background: '#06080B', border: '1px solid #1A2028',
+                  borderRadius: 6, padding: 8, marginBottom: 8, lineHeight: 1.65,
+                }}>
+                  {chatMsgs.length === 0 && (
+                    <div style={{ fontSize: 10, color: '#4C5765' }}>
+                      先在上面点「生成」做一版，然后在这里说：
+                      <br />「第 3 段的字太大」「把最后一段换成另一个结尾」「整体慢一点」…
+                    </div>
+                  )}
+                  {chatMsgs.map((m, i) => (
+                    <div key={i} style={{ marginBottom: 7 }}>
+                      <span style={{ fontSize: 9, color: m.role === 'user' ? '#7CF' : '#FFB347' }}>
+                        {m.role === 'user' ? '你' : '导演'}：
+                      </span>
+                      <span style={{ fontSize: 10.5, color: m.role === 'user' ? '#D8E2EC' : '#A8D8C0', whiteSpace: 'pre-wrap' }}>
+                        {m.text}
+                      </span>
+                    </div>
+                  ))}
+                  {chatBusy && <div style={{ fontSize: 10, color: '#7A8798' }}>导演正在改…（20~60s）</div>}
+                </div>
+
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input
+                    value={chatText}
+                    onChange={(e) => setChatText(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) sendChat() }}
+                    placeholder="例：第 3 段的字小一点；结尾换成品牌名"
+                    style={{
+                      flex: 1, background: '#06080B', border: '1px solid #242C38', borderRadius: 6,
+                      color: '#D8E2EC', fontSize: 11, padding: '8px 10px',
+                    }}
+                  />
+                  <button onClick={sendChat} disabled={chatBusy || !chatText.trim()}
+                    style={{
+                      padding: '8px 16px', borderRadius: 6, border: 'none', fontSize: 11, fontWeight: 700,
+                      cursor: (chatBusy || !chatText.trim()) ? 'default' : 'pointer',
+                      background: (chatBusy || !chatText.trim()) ? '#2A3440' : 'linear-gradient(100deg,#4A9EFF,#3ECF8E)',
+                      color: (chatBusy || !chatText.trim()) ? '#7A8798' : '#06110B',
+                    }}>
+                    {chatBusy ? '改…' : '发送'}
+                  </button>
                 </div>
               </div>
 

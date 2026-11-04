@@ -46,12 +46,32 @@ function save(s: Store) {
   } catch { /* 静默失败，不影响生成 */ }
 }
 
-/** 取该用户"已验证有效"的教训（最多 20 条，按 hits 降序） */
+/**
+ * 取该用户的教训（最多 20 条）
+ *
+ * ★★★ 2026-11-04 用户：「实验2 要自己有记忆，不是这份做完下次连干什么都忘记。」
+ *
+ * 上一版门槛：只注入 `state === 'active' && hits > 0`
+ *   ⇒ 转 active 只能靠用户点「👍 满意」
+ *   ⇒ 实测那按钮从来没人点 ⇒ 所有意见永远停在 pending
+ *   ⇒ prompt 里永远是"（无历史教训）"—— 记忆等于不存在
+ *
+ * 现在：**pending 也注入**（用户写过的话就是他想要的），只排除 dead（连续无效）。
+ *   · active（验证过）排前面，hits 高的更前
+ *   · pending（还没验证）排后面，新的更前
+ *   · dead（反复无效）不注入
+ */
 export function getMemories(userId: string, limit = 20): string[] {
   const all = load()[userId] || []
   return all
-    .filter((l) => l.state === 'active' && l.hits > 0)
-    .sort((a, b) => b.hits - a.hits)
+    .filter((l) => l.state !== 'dead')
+    .sort((a, b) => {
+      const A = a.state === 'active' ? 1 : 0
+      const B = b.state === 'active' ? 1 : 0
+      if (A !== B) return B - A          /* active 优先 */
+      if (A === 1) return b.hits - a.hits /* active 内按命中次数 */
+      return a.createdAt < b.createdAt ? 1 : -1  /* pending 内新的优先 */
+    })
     .slice(0, limit)
     .map((l) => l.text)
 }

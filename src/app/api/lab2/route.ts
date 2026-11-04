@@ -785,6 +785,38 @@ export async function POST(req: NextRequest) {
       savedTo = 'temp/_lab2/out/' + name + '（仓库写入失败：' + String((e as Error)?.message || e) + '）'
     }
 
+    /* ★★★ 2026-11-04 用户：「要能跟我实现长期会话，自己有记忆。
+       不是这份做完了下次它连自己干什么都忘记。」
+       ⇒ 首轮生成后，把「在做什么 + 这版文件名」写进会话
+         （后续 /api/lab2/chat 会带着它 + 历史 + 当前 HTML 去改，这才是"记得") */
+    try {
+      const { appendMessage } = await import('@/lib/lab2/session')
+      const sid = String(body?.sessionId || 'main')
+      const W0 = isLand ? 1280 : 720
+      const H0 = isLand ? 720 : 1280
+      appendMessage(
+        userId,
+        sid,
+        {
+          role: 'assistant',
+          text: '首版已生成（' + (html.match(/<section[^>]*class="sec/g) || []).length + ' 段）',
+          htmlName: name,
+          ts: new Date().toISOString(),
+        },
+        {
+          W: W0,
+          H: H0,
+          aspect: isLand ? '16:9' : '9:16',
+          contentType: form.contentType,
+          copyMode: form.copyMode,
+          decoDensity: form.decoDensity,
+          bigImg: form.bigImg,
+          imgCount: imgs.length,
+          imgs: imgs.slice(0, 20),
+        },
+      )
+    } catch { /* 会话写失败不影响出片 */ }
+
     /* 总时长 + 段表（给前端播放器 / 段导航用） */
     let totalSeconds = Number(form.maxSeconds || 45)
     const segments: { start: number; duration: number }[] = []
