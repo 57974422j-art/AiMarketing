@@ -54,30 +54,48 @@ function writeHtml(uid: string, html: string): string {
   return name
 }
 
-/** 把 HTML 压到能塞进 prompt 的规模（只保留结构，去掉 base64 正文） */
-function trimHtml(html: string, max = 90000): string {
-  /* base64 保留前 200 字符（够识别），其余省略 —— 否则 5MB 进不了上下文 */
-  let out = html.replace(
-    /data:image\/([a-z]+);base64,[A-Za-z0-9+/=]+/gi,
-    (_m, t) => 'data:image/' + t + ';base64,__KEEP__',
+/**
+ * ★★★ 2026-11-04 用户实测：AI 在对话里自己承认
+ *   「我看不到原图。我这边拿到的只有 `data:image/...;base64,__KEEP__` 这个占位字符串，
+ *     所以第 9 段我确实是按通用假设在写，不是看着图说的。」
+ *
+ * 根因：上一版为了省 token，把 base64 全压成 `__KEEP__`，**图一张都没发给它**
+ *   ⇒ 它只能瞎猜（"猫头往右移"它改成上下移，因为看不见）
+ *
+ * 现在：**压成带编号的 `__KEEP_1__ / __KEEP_2__`，同时把真图按同顺序一起发**
+ *   ⇒ 它说"第 3 段用的是 __KEEP_5__"，就能对应的看第 5 张图
+ */
+function extractImages(html: string): { trimmed: string; images: string[] } {
+  const images: string[] = []
+  const trimmed = html.replace(
+    /data:image\/[a-z]+;base64,[A-Za-z0-9+/=]+/gi,
+    (m) => {
+      images.push(m)
+      return '__KEEP_' + images.length + '__'
+    },
   )
-  if (out.length > max) out = out.slice(0, max) + '\n<!-- 后面省略 -->'
-  return out
+  return { trimmed, images }
 }
 
-/** 还原 __KEEP__（给新生成的结果回填原图） */
-function restoreKeep(newHtml: string, oldHtml: string): string {
-  const all = [...oldHtml.matchAll(/data:image\/([a-z]+);base64,[A-Za-z0-9+/=]+/gi)].map((m) => m[0])
+/** 按编号回填真图 */
+function restoreKeep(newHtml: string, images: string[]): string {
+  let out = newHtml.replace(/__KEEP_(\d+)__/g, (_m, d) => images[Number(d) - 1] || '')
+  /* 兼容它写成不带编号的 __KEEP__（顺序回填） */
   let i = 0
-  return newHtml.replace(/data:image\/([a-z]+);base64,__KEEP__/gi, () => all[i++] || '')
+  out = out.replace(/__KEEP__/g, () => images[i++] || '')
+  return out
 }
 
 const SYSTEM = `你是一位**动态设计导演**，正在和客户一起改一条已经做好的动态影片（HTML 单文件）。
 
 规则：
 · 只改客户说的那部分。**没提到的地方一律不动**（尤其是图片、段落时长、播放脚本）。
-· 图片是 data:image/...;base64,__KEEP__ 占位 —— **原样保留这个字符串**，系统会填回真图。
-  绝不要改写、缩短或删掉它。
+· 图片是 \`__KEEP_1__\` / \`__KEEP_2__\` … 占位 —— **原样保留这个字符串（含编号）**，
+  系统会按编号填回真图。绝不要改写、缩短或删掉它。
+
+★ **这一版的图真的在下面，你能看见。**
+  要判断"主体在哪、被裁掉了什么、字压在什么上面"⇒ **去看那张图，不要凭想象、不要套通用假设。**
+  如果某张图看不清或没给 ⇒ **直接说"这张我看不到"，不要编。**
 · 每次改完，先用 2~4 行说清「改了什么、为什么」，再给完整 HTML。
 
 输出格式（严格）：
@@ -137,6 +155,14 @@ export async function POST(req: NextRequest) {
     ).join('\n')
 
     const brief = s.brief
+
+    /* ★把这一版 HTML 里的图抽出来（同时编号），一起发给它看 */
+    const { trimmed, images } = extractImages(curHtml)
+    /* 用户手动上传的截图（最多 4 张） */
+    const userShots: string[] = (Array.isArray(body?.images) ? body.images : [])
+      .filter((d: unknown) => /^data:image\//.test(String(d)))
+      .slice(0, 4)
+
     const ask = [
       '【这条片子的基本信息】',
       `画布：${brief.W} × ${brief.H}（${brief.aspect}）· 素材 ${brief.imgCount || brief.imgs.length} 张`,
@@ -147,13 +173,26 @@ export async function POST(req: NextRequest) {
       '',
       '【当前这一版的完整 HTML】',
       '```html',
-      trimHtml(curHtml),
+      trimmed,
       '```',
+      '',
+      images.length
+        ? [
+          '【这一版用到的图 · 就在下面】',
+          `HTML 里的 \`__KEEP_1__\` ~ \`__KEEP_${images.length}__\` **逐个**对应我发给你的第 1 ~ ${images.length} 张图（顺序完全一致）。`,
+          '同一个编号重复出现 = 同一张图在不同段里用。',
+          '⇒ **要改哪一段，先看那段用的是第几个编号，再看那张图。不要凭想象。**',
+        ].join('\n')
+        : '',
+      userShots.length
+        ? `【客户额外上传了 ${userShots.length} 张截图（在这些图的最后）】—— 图上圈出/标出的地方就是他说的"哪里不对"。`
+        : '',
       '',
       '【客户这次的要求】',
       text,
       '',
       '按上面的格式输出（先 REPLY 说改了什么，再给完整 HTML）。',
+      images.length ? `⚠️ 输出里每个 \`__KEEP_N__\` **原样保留**，系统会按编号填回真图。` : '',
     ].filter(Boolean).join('\n')
 
     const key = String(process.env.DEEPSEEK_API_KEY || '').trim()
@@ -166,7 +205,15 @@ export async function POST(req: NextRequest) {
         model: 'deepseek-chat',
         messages: [
           { role: 'system', content: SYSTEM },
-          { role: 'user', content: ask },
+          {
+            role: 'user',
+            /* ★图必须真的发过去（之前只发 __KEEP__ ⇒ 它看不见图 ⇒ 瞎改） */
+            content: [
+              { type: 'text', text: ask },
+              ...images.map((d) => ({ type: 'image_url', image_url: { url: d } })),
+              ...userShots.map((d) => ({ type: 'image_url', image_url: { url: d } })),
+            ],
+          },
         ],
         temperature: 0.5,
         max_tokens: 64000,
@@ -201,8 +248,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: false, error: 'AI 没返回完整 HTML，请再试一次' }, { status: 500 })
     }
 
-    /* 回填图片 */
-    newHtml = restoreKeep(newHtml, curHtml)
+    /* 回填图片（按 __KEEP_N__ 编号） */
+    newHtml = restoreKeep(newHtml, images)
 
     /* 存新版本 */
     const name = writeHtml(userId, newHtml)

@@ -124,6 +124,8 @@ export default function Lab2Page() {
   const [chatText, setChatText] = useState('')
   const [chatBusy, setChatBusy] = useState(false)
   const [sessionId] = useState('main')
+  /* ★对话截图（2026-11-04 用户："它看不到图就瞎改，加一个上传图片"） */
+  const [chatImgs, setChatImgs] = useState<{ name: string; data: string }[]>([])
 
   /* ★段落删除（2026-11-04）：标记 → 代码删段 + 重排时间轴（不经过 AI） */
   const [delSel, setDelSel] = useState<number[]>([])
@@ -278,14 +280,19 @@ export default function Lab2Page() {
     if (!result) { setErr('先在左边点「生成」做一版，再聊着改'); return }
     setErr('')
     setChatText('')
-    setChatMsgs((p) => [...p, { role: 'user', text: t }])
+    const sentImgs = chatImgs.map((x) => x.data)
+    setChatMsgs((p) => [...p, {
+      role: 'user',
+      text: t + (sentImgs.length ? `（附 ${sentImgs.length} 张截图）` : ''),
+    }])
+    setChatImgs([])
     setChatBusy(true)
     try {
       const r = await fetch('/api/lab2/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ sessionId, text: t }),
+        body: JSON.stringify({ sessionId, text: t, images: sentImgs }),
       })
       const j = await r.json()
       if (!j?.ok) {
@@ -786,6 +793,45 @@ export default function Lab2Page() {
                     </div>
                   ))}
                   {chatBusy && <div style={{ fontSize: 10, color: '#7A8798' }}>导演正在改…（20~60s）</div>}
+                </div>
+
+                {/* ★上传截图：把它看不见/看错的地方直接给它看 */}
+                <div style={{ marginBottom: 8 }}>
+                  <label style={{
+                    display: 'inline-block', fontSize: 10, padding: '5px 11px', borderRadius: 6, cursor: 'pointer',
+                    background: 'rgba(74,158,255,.16)', border: '1px solid #4A9EFF', color: '#BFE3FF',
+                  }}>
+                    📎 上传截图（把它看错的地方给它看）
+                    <input type="file" accept="image/*" multiple style={{ display: 'none' }}
+                      onChange={async (e) => {
+                        const files = Array.from(e.target.files || [])
+                        if (!files.length) return
+                        const arr: { name: string; data: string }[] = []
+                        for (const f of files.slice(0, 4)) {
+                          const d = await new Promise<string>((res) => {
+                            const fr = new FileReader()
+                            fr.onload = () => res(String(fr.result))
+                            fr.onerror = () => res('')
+                            fr.readAsDataURL(f)
+                          })
+                          if (d) arr.push({ name: f.name, data: d })
+                        }
+                        setChatImgs((p) => [...p, ...arr].slice(0, 4))
+                        e.target.value = ''
+                      }} />
+                  </label>
+                  {chatImgs.length > 0 && (
+                    <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                      {chatImgs.map((im, i) => (
+                        <div key={i} style={{ position: 'relative' }}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={im.data} alt={im.name} style={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 5, border: '1px solid #242C38' }} />
+                          <button onClick={() => setChatImgs((p) => p.filter((_, j) => j !== i))}
+                            style={{ position: 'absolute', right: -4, top: -4, width: 15, height: 15, borderRadius: '50%', background: '#FF6B6B', color: '#fff', border: 'none', fontSize: 9, cursor: 'pointer', lineHeight: '15px', padding: 0 }}>×</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ display: 'flex', gap: 6 }}>
