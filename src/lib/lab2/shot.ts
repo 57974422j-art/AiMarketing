@@ -145,14 +145,48 @@ export async function shotFrames(
     /* 等 __seek 就绪 */
     await page.evaluate(() => new Promise((r) => setTimeout(r, 400)))
 
-    /* 4 个采样点：1s / 25% / 50% / 75% */
-    const sec = Math.max(1, total || 30)
-    const times = [
-      Math.min(1, sec * 0.03),
-      sec * 0.25,
-      sec * 0.5,
-      sec * 0.75,
-    ].map((v) => Math.round(v * 10) / 10)
+    /**
+     * ★★★ 2026-11-04 用户实测两个问题：
+     *   ① 「固定 4 帧」⇒ 60 秒的片子只截 1/15/30/45s，**末段（58-60s）永远看不到**
+     *      实测那段是黑屏（图空 + 没字），自审完全没发现
+     *   ② 「seek 后只等 220ms」⇒ 而片子的文字过渡是 transition 0.8s + delay 最多 0.6s
+     *      ⇒ 截图时字还没淡入完 ⇒ **自审看到"没字"，但成片其实是有的**
+     *      （我自己截图也踩过这个坑，误判过好几单）
+     *
+     * 现在：
+     *   · **按段采样**：每段取中点（避开淡入淡出），段数多少就截多少
+     *   · 上限 12 帧（几十段的长片也截得完；均匀抽，但**保证含最后一段**）
+     *   · 每帧等 1500ms（覆盖 0.8s transition + 0.6s delay）
+     */
+    const secs: { start: number; dur: number }[] = []
+    html.replace(
+      /data-start=["']?([\d.]+)["']?[^>]*data-duration=["']?([\d.]+)/g,
+      (_m, a, b) => {
+        secs.push({ start: parseFloat(a), dur: parseFloat(b) })
+        return _m
+      },
+    )
+
+    let times: number[]
+    if (secs.length) {
+      times = secs.map((s) => Math.round((s.start + s.dur * 0.5) * 10) / 10)
+    } else {
+      /* 解析不到段 ⇒ 退回按总时长均匀取 4 点 */
+      const sec = Math.max(1, total || 30)
+      times = [0.25, 0.5, 0.75, 0.95].map((v) => Math.round(sec * v * 10) / 10)
+    }
+
+    const MAX_FRAMES = 12
+    if (times.length > MAX_FRAMES) {
+      const lastT = times[times.length - 1]
+      const step = times.length / MAX_FRAMES
+      const picked: number[] = []
+      for (let i = 0; i < MAX_FRAMES; i++) picked.push(times[Math.floor(i * step)])
+      picked[picked.length - 1] = lastT        /* ★最后一段必须在内 */
+      times = picked
+    }
+
+    console.log('[lab2-shot] ⑥ 采样 ' + times.length + ' 帧：' + times.join(' / ') + 's')
 
     const images: string[] = []
     for (const t of times) {
@@ -164,7 +198,8 @@ export async function shotFrames(
           if (typeof window.__seek === 'function') window.__seek(tt)
         } catch { /* ignore */ }
       }, t)
-      await page.evaluate(() => new Promise((r) => setTimeout(r, 220)))
+      /* 等动效跑完（transition 0.8s + delay 最多 0.6s） */
+      await page.evaluate(() => new Promise((r) => setTimeout(r, 1500)))
       const buf = await page.screenshot({ type: 'jpeg', quality: 72 })
       images.push('data:image/jpeg;base64,' + buf.toString('base64'))
     }

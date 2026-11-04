@@ -312,7 +312,8 @@ export default function Lab2Page() {
   }
 
   function toggle(name: string) {
-    setPicked((p) => (p.includes(name) ? p.filter((x) => x !== name) : p.length >= 20 ? p : [...p, name]))
+    /* ★2026-11-04 用户："我没有张数限制，准备传几十张做长视频" ⇒ 上限从 20 提到 60 */
+    setPicked((p) => (p.includes(name) ? p.filter((x) => x !== name) : p.length >= 60 ? p : [...p, name]))
   }
 
   /**

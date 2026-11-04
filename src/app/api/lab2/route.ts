@@ -72,10 +72,18 @@ function uniqueName(dir: string, ymd: string): string {
  *      序号 = {{IMG_1}}..{{IMG_N}} 的编号
  *      （把总览图放在 messages 的第一张，后面跟原图）
  */
-async function makeContactSheet(b64s: string[], cols = 4, cell = 400): Promise<string | null> {
+async function makeContactSheet(b64s: string[]): Promise<string | null> {
   try {
     const valid = b64s.filter(Boolean)
     if (valid.length < 2) return null          /* 只有 1 张没必要拼 */
+
+    /**
+     * ★2026-11-04 用户要传几十张做长视频 ⇒ 拼图必须自适应，
+     *   否则 40 张按 4 列 400px 拼出来 2260×5600（太大，模型也看不清）
+     */
+    const n = valid.length
+    const cols = n <= 8 ? 4 : n <= 15 ? 5 : n <= 24 ? 6 : 7
+    const cell = n <= 8 ? 400 : n <= 15 ? 340 : n <= 24 ? 290 : 250
 
     const sharpMod = (await import('sharp')).default
     const tiles: { buf: Buffer; w: number; h: number }[] = []
@@ -363,7 +371,13 @@ function embedPlaceholders(html: string, imgs: (string | null)[]): string {
     if (re.test(out)) byPlaceholder++
     out = out.replace(re, dataUrl)
   })
-  out = out.replace(/\{\{\s*IMG_\d+\s*\}\}/g, '')
+  /* ★2026-11-04：原来这里直接替换成 '' ⇒ 超出范围的占位符变空 ⇒ `url('')` ⇒ 黑屏段
+     （实测：13 张素材时它写 {{IMG_13}}，系统只有 12 张 ⇒ 末段全黑）
+     现在：超范围就**用第一张图顶上**，宁可重复也不要空 */
+  out = out.replace(/\{\{\s*IMG_(\d+)\s*\}\}/g, (_m, d) => {
+    const i = Number(d) - 1
+    return imgs[i] || valid[0] || ''
+  })
 
   /* ── ② 兜底：把空的 src="" / url('') 按出现顺序填满 ── */
   if (byPlaceholder === 0) {
@@ -474,7 +488,11 @@ export async function POST(req: NextRequest) {
        图的大小由上传时控制（长边 1800 / q82 ≈ 450KB），这里只统计不拦截。 */
 
     const b64List: string[] = []      /* 按 IMG_1..IMG_N 顺序收集，用于拼总览图 */
-    for (let i = 0; i < Math.min(imgs.length, 12); i++) {
+    /* ★2026-11-04 用户："去掉你的硬上限，我没有张数限制，还准备传几十张做长视频"
+       ⇒ 原来是 Math.min(imgs.length, 12)，而 prompt 却告诉它 imgs.length 张
+         ⇒ 第 13 张开始它写了占位符但没图 ⇒ 替换成空 ⇒ **末段黑屏**（实测过）
+       ⇒ 现在跟 imgs.length 一致，不设上限 */
+    for (let i = 0; i < imgs.length; i++) {
       const k = imgs[i]
       /* ① 先试 OSS（原图，不压缩 —— 图早就在上传时压过了） */
       let b64 = await readImgB64(ossKey(k))
@@ -615,7 +633,8 @@ export async function POST(req: NextRequest) {
     const imageUrls: string[] = Array.isArray(body?.imageUrls) ? body.imageUrls : []
     const imageData: string[] = Array.isArray(body?.imageData) ? body.imageData : []
     const embedImgs: (string | null)[] = []
-    for (let i = 0; i < Math.min(imgs.length, 12); i++) {
+    /* ★同上：内联也不设张数上限（否则第 13 张起变空 ⇒ 黑屏段） */
+    for (let i = 0; i < imgs.length; i++) {
       /* ① 最高优先：前端压缩好的 base64（自包含，一定能显示） */
       const b64 = String(imageData[i] || '')
       if (/^data:image\//.test(b64)) {
@@ -684,15 +703,19 @@ export async function POST(req: NextRequest) {
         const reviewPrompt = [
           '【自审 · 这是你自己刚做出来的成片截图】',
           '',
-          `下面是同一条片子在 t = ${shot.times.map((x) => x + 's').join(' / ')} 的 4 帧截图。`,
-          '**这就是观众会看到的样子。** 请仔细看，不要凭想象。',
+          `下面是同一条片子 **${shot.images.length} 帧**截图，对应 t = ${shot.times.map((x) => x + 's').join(' / ')}。`,
+          '**每一帧取的都是那一段的中点**（淡入淡出已结束）⇒ 这就是观众看到的样子。',
+          '⚠️ 请**逐帧**看，不要只看第一帧。片长多少段，就给你截了多少帧（超长片每段抽一帧）。',
           '',
           '逐项检查（有问题就改，没问题就说明"已检查，合格"）：',
           '  ① **文字**：有没有糊成一团 / 笔画粘连 / 挤出屏幕 / 压在图片主体上导致看不清',
           '  ② **留白**：有没有单侧空白超过画布 30%（看着"空"不是"留白"）',
           '  ③ **构图**：每段的视觉重心在哪？是不是都挤在同一个角落？',
           '  ④ **图片**：有没有被压暗/变灰/被半透明层盖住？',
-          '  ⑤ **段落**：4 帧画面是不是明显不同（如果看起来一样 ⇒ 段落没切换）',
+          '  ⑤ **段落**：相邻帧画面是不是明显不同（如果一样 ⇒ 段落没切换）',
+          '  ⑥ **空帧**：有没有哪一帧几乎全黑/全空（图片没加载、或者只剩一条线）',
+          '     ⇒ 这种必须查：那张图的占位符是不是没填上、或者整段没有任何内容',
+          '  ⑦ **末帧**：最后一帧有没有内容（落版 / 品牌 / 一句话），不能是黑的',
           '',
           '⚠️ 只在**确实有问题**时才改。没问题就别动（改了反而可能更糟）。',
           '',
