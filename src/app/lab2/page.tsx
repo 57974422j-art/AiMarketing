@@ -51,6 +51,7 @@ type Review = {
 type Result = {
   url: string
   name: string
+  repoId?: string
   savedTo?: string
   review?: Review | null
   imgSent?: number
@@ -644,6 +645,19 @@ export default function Lab2Page() {
                 <button onClick={() => copyAll('prompt', result.prompt)}
                   style={{ ...btn(copied === 'prompt'), flex: 1, padding: '9px 0' }}>
                   {copied === 'prompt' ? '✓ 已复制' : '📋 复制完整 prompt'}
+                </button>
+                {/* ★🔗 分享（2026-11-04 用户："我想知道这个分享出去什么样"）
+                    链接打开就是黑底全屏播放，不用登录、没有工具栏 */}
+                <button onClick={() => {
+                  const u = location.origin + '/w/' + encodeURIComponent(result.repoId || '1')
+                    + '/' + encodeURIComponent(result.name)
+                  try { navigator.clipboard.writeText(u) } catch { /* ignore */ }
+                  setCopied('share')
+                  setTimeout(() => setCopied(''), 2500)
+                  window.open(u, '_blank')
+                }}
+                  style={{ ...btn(copied === 'share'), padding: '9px 12px' }}>
+                  {copied === 'share' ? '✓ 链接已复制' : '🔗 分享'}
                 </button>
                 <button onClick={() => { confirm('满意吗？点确定=标记这条记忆有效'); fetch('/api/lab2', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'confirm' }) }) }}
                   style={{ ...btn(false), padding: '9px 12px' }}>👍 满意</button>
