@@ -60,6 +60,78 @@ function uniqueName(dir: string, ymd: string): string {
 }
 
 /**
+ * ★★★ 2026-11-04 用户：「你能拼成一张图它也会。让它拼成一张图快。」
+ *
+ * 为什么需要这个：
+ *   逐张看 10 张图 ⇒ 得到 10 条独立记忆（"IMG_8 是猫"）
+ *   看一张总览图  ⇒ 一次建立**空间地图**（"IMG_8 的猫头在左下，右边空"）
+ *        ↓
+ *   ⇒ 排版的偏差（切头/出框）来自"没同时看到全部素材的相对位置"
+ *
+ * 做法：把本次选中的 N 张拼成网格，左上角标序号 1..N
+ *      序号 = {{IMG_1}}..{{IMG_N}} 的编号
+ *      （把总览图放在 messages 的第一张，后面跟原图）
+ */
+async function makeContactSheet(b64s: string[], cols = 4, cell = 400): Promise<string | null> {
+  try {
+    const valid = b64s.filter(Boolean)
+    if (valid.length < 2) return null          /* 只有 1 张没必要拼 */
+
+    const sharpMod = (await import('sharp')).default
+    const tiles: { buf: Buffer; w: number; h: number }[] = []
+
+    for (const b of valid) {
+      /* 每格统一 cell×cell（contain 居中，不裁切 —— 图完整，方便判断留白在哪） */
+      const out = await sharpMod(Buffer.from(b, 'base64'))
+        .resize({
+          width: cell,
+          height: cell,
+          fit: 'contain',
+          background: { r: 26, g: 28, b: 32 },
+          withoutEnlargement: true,
+        })
+        .jpeg({ quality: 78 })
+        .toBuffer()
+      const m = await sharpMod(out).metadata()
+      tiles.push({ buf: out, w: m.width || cell, h: m.height || cell })
+    }
+
+    const cellW = Math.max(...tiles.map((t) => t.w))
+    const cellH = Math.max(...tiles.map((t) => t.h))
+    const gap = 10
+    const rows = Math.ceil(tiles.length / cols)
+    const W = cols * (cellW + gap) + gap
+    const H = rows * (cellH + gap) + gap
+
+    const comps: { input: Buffer; left: number; top: number }[] = []
+    tiles.forEach((t, i) => {
+      const cx = (i % cols) * (cellW + gap) + gap
+      const cy = Math.floor(i / cols) * (cellH + gap) + gap
+      comps.push({ input: t.buf, left: cx, top: cy })
+      /* 序号角标（序号 = IMG 编号） */
+      const svg = '<svg width="46" height="46" xmlns="http://www.w3.org/2000/svg">'
+        + '<rect width="46" height="46" rx="9" fill="#000" fill-opacity="0.78"/>'
+        + '<text x="23" y="33" text-anchor="middle" font-family="sans-serif" '
+        + 'font-size="27" font-weight="bold" fill="#FFD24A">' + (i + 1) + '</text></svg>'
+      comps.push({ input: Buffer.from(svg), left: cx + 6, top: cy + 6 })
+    })
+
+    const outBuf = await sharpMod({
+      create: { width: W, height: H, channels: 3, background: { r: 16, g: 18, b: 22 } },
+    })
+      .composite(comps)
+      .jpeg({ quality: 80 })
+      .toBuffer()
+
+    console.log('[lab2] 素材总览图：' + tiles.length + ' 张 · ' + W + '×' + H + ' · ' + Math.round(outBuf.length / 1024) + 'KB')
+    return 'data:image/jpeg;base64,' + outBuf.toString('base64')
+  } catch (e) {
+    console.log('[lab2] 拼总览图失败（不影响主流程）：' + String((e as Error)?.message || e).slice(0, 100))
+    return null
+  }
+}
+
+/**
  * 读一张图 → base64（**原图，不压缩**）
  *
  * ★★★ 2026-11-03 用户定案：
@@ -401,6 +473,7 @@ export async function POST(req: NextRequest) {
     /* ★2026-11-03 用户定案：**不再设总数上限**（"AI 那边根本没限制，都是我自己猜的"）
        图的大小由上传时控制（长边 1800 / q82 ≈ 450KB），这里只统计不拦截。 */
 
+    const b64List: string[] = []      /* 按 IMG_1..IMG_N 顺序收集，用于拼总览图 */
     for (let i = 0; i < Math.min(imgs.length, 12); i++) {
       const k = imgs[i]
       /* ① 先试 OSS（原图，不压缩 —— 图早就在上传时压过了） */
@@ -416,10 +489,20 @@ export async function POST(req: NextRequest) {
       if (b64) {
         imgOk++
         imgBytes += b64.length
+        b64List.push(b64)
         imgParts.push({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + b64 } })
       }
     }
-    console.log('[lab2] 发给 AI：' + imgOk + ' 张，合计 ' + (imgBytes / 1024 / 1024).toFixed(2) + ' MB（base64）')
+
+    /* ★★★ 2026-11-04：拼一张「素材总览」（序号 1..N = IMG_1..IMG_N）
+       插在**第一张** —— 让它一次看到全部素材的相对位置（脸在哪、哪空），
+       再逐张看细节。比只看 10 张独立的图更容易保持"空间地图"。 */
+    const sheet = await makeContactSheet(b64List)
+    if (sheet) {
+      imgParts.unshift({ type: 'image_url', image_url: { url: sheet } })
+    }
+    console.log('[lab2] 发给 AI：' + imgOk + ' 张素材' + (sheet ? ' + 1 张总览' : '')
+      + '，合计 ' + (imgBytes / 1024 / 1024).toFixed(2) + ' MB（base64）')
 
     /* ── 组装 prompt ── */
     const form: Lab2Form = {
@@ -455,9 +538,19 @@ export async function POST(req: NextRequest) {
       .filter((d) => /^data:image\//.test(String(d)))
       .map((d) => ({ type: 'image_url' as const, image_url: { url: String(d) } }))
 
-    const textBlock = fbParts.length
+    /* ★总览图说明（第一张） */
+    const sheetNote = sheet
+      ? '\n\n【图片说明】\n'
+        + '  · **第 1 张 = 素材总览**：网格里每个格子左上角的**黄色数字**，'
+        + '就是它的编号（1 = {{IMG_1}}，2 = {{IMG_2}}…）\n'
+        + '  · 之后依次是各张原图（顺序与编号一致）\n'
+        + '  · 总览图用来**看清每张的构图关系**（主体在哪、哪边是空的、哪些能配对）；'
+        + '原图用来看细节'
+      : ''
+
+    const textBlock = (fbParts.length
       ? prompt + retryNote + '\n\n【用户上传的截图：这就是他说的"哪里不对"，请仔细看图，不要只看文字描述】'
-      : prompt + retryNote
+      : prompt + retryNote) + sheetNote
 
     const messages: Record<string, unknown>[] = [
       {
