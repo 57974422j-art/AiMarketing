@@ -562,7 +562,8 @@ export default function Lab2Page() {
       {/* ══ 主区：左 260 设置 / 右自适应（预览 + 分析）══ */}
       <div style={{
         flex: 1, display: 'grid',
-        gridTemplateColumns: zen ? '0px 1fr' : '260px 1fr',
+        /* ★2026-11-05 用户："怎么跟你设计的结构不一样" ⇒ 改成真三栏 */
+        gridTemplateColumns: zen ? '0px 1fr 0px' : '260px 1fr 360px',
         gap: zen ? 0 : 12,
         padding: zen ? 6 : 12, overflow: 'hidden', minHeight: 0,
         transition: 'grid-template-columns .2s ease',
@@ -713,14 +714,143 @@ export default function Lab2Page() {
           {/* ★生成按钮已移到顶栏（直播时不用滚动就能点） */}
         </div>
 
-        {/* 右栏 */}
-        <div style={{ overflowY: 'auto', minHeight: 0, paddingRight: 4 }}>
+        {/* ══ 中栏：预览（最大，直播时观众看这里）══ */}
+        <div style={{ minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
           {!result && (
             <div style={{ ...box, height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4C5765', fontSize: 12 }}>
-              生成后这里显示预览 + AI 思考日志 + 技术指标
+              生成后这里全屏显示成片
             </div>
           )}
+          {result && (
+            <>
+                {/* 预览 + 全屏 + 时间轴（常驻，不随 tab 切换）*/}
+                <div style={{ position: 'relative' }}>
+                  {/* ★★★ 2026-11-05 用户："我要做个横屏，出来效果又是竖屏中出来一个横屏"
+                     根因：这个 iframe 的 aspectRatio **写死 '9 / 16'**
+                          ⇒ 横屏成片（1280×720）塞进竖框
+                          ⇒ 里面的 --fit 按竖框算 ⇒ 缩成中间一条，上下大片黑
+                     现在：框比例跟着画布走（用 result 里存的，或当前选择） */}
+                  <iframe ref={iframeRef} src={result.url} title="lab2-preview"
+                    style={{
+                      display: 'block', margin: '0 auto',
+                      /* 三栏后中栏宽 = 100vw - 260 - 360 - 间距 ≈ 100vw - 660 */
+                      height: (result.aspect || aspect) === '16:9'
+                        ? 'min(66vh, (100vw - 680px) * 9 / 16)'
+                        : 'min(72vh, (100vw - 680px) * 16 / 9)',
+                      aspectRatio: (result.aspect || aspect) === '16:9' ? '16 / 9' : '9 / 16',
+                      border: '1px solid #242C38', borderRadius: 10, background: '#000',
+                    }} />
+  
+                  {/* 右上角：全屏 */}
+                  <button onClick={openFullscreen}
+                    title="全屏播放"
+                    style={{ position: 'absolute', right: 10, top: 10, zIndex: 5, padding: '5px 10px',
+                      background: 'rgba(10,14,20,.8)', color: '#BFE3FF', border: '1px solid rgba(58,124,184,.7)',
+                      borderRadius: 6, fontSize: 11, cursor: 'pointer' }}>⛶ 全屏</button>
+  
+                  {/* 右下角：原样打开（单独新标签，不经过 iframe） */}
+                  <a href={result.url} target="_blank" rel="noreferrer"
+                    title="在新标签打开（不受网站容器影响）"
+                    style={{ position: 'absolute', right: 10, top: 46, zIndex: 5, padding: '5px 10px',
+                      background: 'rgba(10,14,20,.8)', color: '#BFE3FF', border: '1px solid rgba(58,124,184,.7)',
+                      borderRadius: 6, fontSize: 11, textDecoration: 'none' }}>↗ 新标签</a>
+                </div>
+  
+                {/* ★播放器：▶播放 / ⏸暂停 / 时间轴 / 下载 */}
+                <div style={{ ...box, marginTop: 10, padding: '10px 12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <button onClick={togglePlay}
+                      style={{ fontSize: 14, padding: '6px 14px', minWidth: 74, cursor: 'pointer',
+                        background: playing ? 'rgba(255,179,71,.22)' : 'rgba(62,207,142,.22)',
+                        border: '1px solid ' + (playing ? '#FFB347' : '#3ECF8E'),
+                        borderRadius: 7, color: playing ? '#FFE9C8' : '#D6FBEA', fontWeight: 700 }}>
+                      {playing ? '⏸ 暂停' : '▶ 播放'}
+                    </button>
+                    <input type="range" min={0} max={result.totalSeconds || 45} step={0.05} value={seekT}
+                      onChange={(e) => { const v = Number(e.target.value); setSeekT(v); seekTo(v) }}
+                      style={{ flex: 1, accentColor: '#3ECF8E' }} />
+                    <span style={{ fontSize: 10, color: '#BFE3FF', minWidth: 62, textAlign: 'right' }}>
+                      {seekT.toFixed(1)}s / {result.totalSeconds || 45}s
+                    </span>
+                    <button onClick={() => { setPlaying(false); setSeekT(0); seekTo(0) }}
+                      style={{ ...btn(false), fontSize: 10, padding: '4px 8px' }}>⏮</button>
+                    <a href={result.url + '&download=1'} download={result.name}
+                      style={{ ...btn(false), fontSize: 11, padding: '5px 11px', textDecoration: 'none',
+                        background: 'rgba(74,158,255,.2)', borderColor: '#4A9EFF', color: '#BFE3FF' }}>
+                      ⬇ 下载 HTML
+                    </a>
+                  </div>
+  
+                  {/* 段导航 + 勾选删除
+                      ★2026-11-04 用户："生成 30 段不合适我命令全部切掉"
+                        ⇒ 点段号跳转；点段号右边的 ✕ 标记待删；「删除选中」由**代码重排时间轴**
+                          （不让 AI 算 —— 它算 data-start 必错） */}
+                  {(result.segments || []).length > 0 && (
+                    <div style={{ display: 'flex', gap: 4, marginTop: 8, flexWrap: 'wrap' }}>
+                      {(result.segments || []).map((s, i) => {
+                        const active = seekT >= s.start && seekT < s.start + (s.duration || 3)
+                        const marked = delSel.includes(i + 1)
+                        return (
+                          <span key={i} style={{ display: 'inline-flex' }}>
+                            <button onClick={() => { setPlaying(false); const t = s.start + Math.min(0.3, (s.duration || 3) / 3); setSeekT(t); seekTo(t) }}
+                              title={(s.start.toFixed(1)) + 's ~ ' + (s.start + (s.duration || 3)).toFixed(1) + 's'}
+                              style={{
+                                ...btn(active), fontSize: 9.5, padding: '3px 8px',
+                                borderRadius: '5px 0 0 5px',
+                                opacity: marked ? 0.45 : 1,
+                                textDecoration: marked ? 'line-through' : 'none',
+                              }}>
+                              段 {i + 1}
+                            </button>
+                            <button onClick={() => toggleDel(i + 1)}
+                              title={marked ? '取消删除' : '标记删除（不会立刻删）'}
+                              style={{
+                                fontSize: 9, padding: '3px 6px', cursor: 'pointer',
+                                borderRadius: '0 5px 5px 0',
+                                border: '1px solid ' + (marked ? '#FF6B6B' : '#242C38'),
+                                borderLeft: 'none',
+                                background: marked ? 'rgba(255,107,107,.25)' : '#0B0F14',
+                                color: marked ? '#FF9B9B' : '#4C5765',
+                              }}>
+                              ✕
+                            </button>
+                          </span>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {delSel.length > 0 && (
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+                      <span style={{ fontSize: 10, color: '#FF9B9B' }}>
+                        已标记删除 {delSel.length} 段（第 {[...delSel].sort((a, b) => a - b).join('、')} 段）
+                      </span>
+                      <button onClick={applyDelete} disabled={secBusy}
+                        style={{
+                          fontSize: 10, padding: '5px 12px', borderRadius: 6, cursor: secBusy ? 'default' : 'pointer',
+                          border: '1px solid #FF6B6B', background: secBusy ? '#2A3440' : 'rgba(255,107,107,.2)',
+                          color: secBusy ? '#7A8798' : '#FFC8C8', fontWeight: 700,
+                        }}>
+                        {secBusy ? '删除中…' : '删除并重排时间轴'}
+                      </button>
+                      <button onClick={() => setDelSel([])}
+                        style={{ ...btn(false), fontSize: 10, padding: '5px 10px' }}>
+                        取消
+                      </button>
+                    </div>
+                  )}
+  
+                  <div style={{ fontSize: 9, color: '#4C5765', marginTop: 6, lineHeight: 1.6 }}>
+                    点「▶ 播放」自动播完；也可以拖时间轴 / 点段号直接跳。
+                    {!playing && seekT === 0 && '（现在停在 0s，点播放就开始）'}
+                  </div>
+                </div>
+  
+            </>
+          )}
+        </div>
 
+        {/* ══ 右栏：分析（tab）══ */}
+        <div style={{ overflowY: 'auto', minHeight: 0, paddingRight: 4 }}>
           {result && (
             <>
               {/* ══ tab 切换（第 3 批）· 演示模式下隐藏 ══ */}
@@ -774,128 +904,6 @@ export default function Lab2Page() {
               )}
 
 
-
-              {/* 预览 + 全屏 + 时间轴（常驻，不随 tab 切换）*/}
-              <div style={{ position: 'relative' }}>
-                {/* ★★★ 2026-11-05 用户："我要做个横屏，出来效果又是竖屏中出来一个横屏"
-                   根因：这个 iframe 的 aspectRatio **写死 '9 / 16'**
-                        ⇒ 横屏成片（1280×720）塞进竖框
-                        ⇒ 里面的 --fit 按竖框算 ⇒ 缩成中间一条，上下大片黑
-                   现在：框比例跟着画布走（用 result 里存的，或当前选择） */}
-                <iframe ref={iframeRef} src={result.url} title="lab2-preview"
-                  style={{
-                    display: 'block', margin: '0 auto',
-                    /* 直播版：按视口高度算，给下面的时间轴/段导航留空间 */
-                    height: (result.aspect || aspect) === '16:9'
-                      ? 'min(68vh, (100vw - 340px) * 9 / 16)'
-                      : 'min(74vh, (100vw - 340px) * 16 / 9)',
-                    aspectRatio: (result.aspect || aspect) === '16:9' ? '16 / 9' : '9 / 16',
-                    border: '1px solid #242C38', borderRadius: 10, background: '#000',
-                  }} />
-
-                {/* 右上角：全屏 */}
-                <button onClick={openFullscreen}
-                  title="全屏播放"
-                  style={{ position: 'absolute', right: 10, top: 10, zIndex: 5, padding: '5px 10px',
-                    background: 'rgba(10,14,20,.8)', color: '#BFE3FF', border: '1px solid rgba(58,124,184,.7)',
-                    borderRadius: 6, fontSize: 11, cursor: 'pointer' }}>⛶ 全屏</button>
-
-                {/* 右下角：原样打开（单独新标签，不经过 iframe） */}
-                <a href={result.url} target="_blank" rel="noreferrer"
-                  title="在新标签打开（不受网站容器影响）"
-                  style={{ position: 'absolute', right: 10, top: 46, zIndex: 5, padding: '5px 10px',
-                    background: 'rgba(10,14,20,.8)', color: '#BFE3FF', border: '1px solid rgba(58,124,184,.7)',
-                    borderRadius: 6, fontSize: 11, textDecoration: 'none' }}>↗ 新标签</a>
-              </div>
-
-              {/* ★播放器：▶播放 / ⏸暂停 / 时间轴 / 下载 */}
-              <div style={{ ...box, marginTop: 10, padding: '10px 12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <button onClick={togglePlay}
-                    style={{ fontSize: 14, padding: '6px 14px', minWidth: 74, cursor: 'pointer',
-                      background: playing ? 'rgba(255,179,71,.22)' : 'rgba(62,207,142,.22)',
-                      border: '1px solid ' + (playing ? '#FFB347' : '#3ECF8E'),
-                      borderRadius: 7, color: playing ? '#FFE9C8' : '#D6FBEA', fontWeight: 700 }}>
-                    {playing ? '⏸ 暂停' : '▶ 播放'}
-                  </button>
-                  <input type="range" min={0} max={result.totalSeconds || 45} step={0.05} value={seekT}
-                    onChange={(e) => { const v = Number(e.target.value); setSeekT(v); seekTo(v) }}
-                    style={{ flex: 1, accentColor: '#3ECF8E' }} />
-                  <span style={{ fontSize: 10, color: '#BFE3FF', minWidth: 62, textAlign: 'right' }}>
-                    {seekT.toFixed(1)}s / {result.totalSeconds || 45}s
-                  </span>
-                  <button onClick={() => { setPlaying(false); setSeekT(0); seekTo(0) }}
-                    style={{ ...btn(false), fontSize: 10, padding: '4px 8px' }}>⏮</button>
-                  <a href={result.url + '&download=1'} download={result.name}
-                    style={{ ...btn(false), fontSize: 11, padding: '5px 11px', textDecoration: 'none',
-                      background: 'rgba(74,158,255,.2)', borderColor: '#4A9EFF', color: '#BFE3FF' }}>
-                    ⬇ 下载 HTML
-                  </a>
-                </div>
-
-                {/* 段导航 + 勾选删除
-                    ★2026-11-04 用户："生成 30 段不合适我命令全部切掉"
-                      ⇒ 点段号跳转；点段号右边的 ✕ 标记待删；「删除选中」由**代码重排时间轴**
-                        （不让 AI 算 —— 它算 data-start 必错） */}
-                {(result.segments || []).length > 0 && (
-                  <div style={{ display: 'flex', gap: 4, marginTop: 8, flexWrap: 'wrap' }}>
-                    {(result.segments || []).map((s, i) => {
-                      const active = seekT >= s.start && seekT < s.start + (s.duration || 3)
-                      const marked = delSel.includes(i + 1)
-                      return (
-                        <span key={i} style={{ display: 'inline-flex' }}>
-                          <button onClick={() => { setPlaying(false); const t = s.start + Math.min(0.3, (s.duration || 3) / 3); setSeekT(t); seekTo(t) }}
-                            title={(s.start.toFixed(1)) + 's ~ ' + (s.start + (s.duration || 3)).toFixed(1) + 's'}
-                            style={{
-                              ...btn(active), fontSize: 9.5, padding: '3px 8px',
-                              borderRadius: '5px 0 0 5px',
-                              opacity: marked ? 0.45 : 1,
-                              textDecoration: marked ? 'line-through' : 'none',
-                            }}>
-                            段 {i + 1}
-                          </button>
-                          <button onClick={() => toggleDel(i + 1)}
-                            title={marked ? '取消删除' : '标记删除（不会立刻删）'}
-                            style={{
-                              fontSize: 9, padding: '3px 6px', cursor: 'pointer',
-                              borderRadius: '0 5px 5px 0',
-                              border: '1px solid ' + (marked ? '#FF6B6B' : '#242C38'),
-                              borderLeft: 'none',
-                              background: marked ? 'rgba(255,107,107,.25)' : '#0B0F14',
-                              color: marked ? '#FF9B9B' : '#4C5765',
-                            }}>
-                            ✕
-                          </button>
-                        </span>
-                      )
-                    })}
-                  </div>
-                )}
-                {delSel.length > 0 && (
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
-                    <span style={{ fontSize: 10, color: '#FF9B9B' }}>
-                      已标记删除 {delSel.length} 段（第 {[...delSel].sort((a, b) => a - b).join('、')} 段）
-                    </span>
-                    <button onClick={applyDelete} disabled={secBusy}
-                      style={{
-                        fontSize: 10, padding: '5px 12px', borderRadius: 6, cursor: secBusy ? 'default' : 'pointer',
-                        border: '1px solid #FF6B6B', background: secBusy ? '#2A3440' : 'rgba(255,107,107,.2)',
-                        color: secBusy ? '#7A8798' : '#FFC8C8', fontWeight: 700,
-                      }}>
-                      {secBusy ? '删除中…' : '删除并重排时间轴'}
-                    </button>
-                    <button onClick={() => setDelSel([])}
-                      style={{ ...btn(false), fontSize: 10, padding: '5px 10px' }}>
-                      取消
-                    </button>
-                  </div>
-                )}
-
-                <div style={{ fontSize: 9, color: '#4C5765', marginTop: 6, lineHeight: 1.6 }}>
-                  点「▶ 播放」自动播完；也可以拖时间轴 / 点段号直接跳。
-                  {!playing && seekT === 0 && '（现在停在 0s，点播放就开始）'}
-                </div>
-              </div>
 
               {/* ★★★ 对话改片 + 重做（tab=chat 时才显示）*/}
               {tab === 'chat' && !zen && (
