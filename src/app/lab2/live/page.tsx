@@ -521,6 +521,12 @@ export default function Lab2Page() {
     background: '#0B0F14', border: '1px solid #242C38', borderRadius: 9, padding: 9, marginBottom: 8,
   }
   const label: React.CSSProperties = { fontSize: 10.5, color: '#7A8798', marginBottom: 6, display: 'block' }
+  /* ★勾选框样式（2026-11-05：代替原来的三档按钮，省高度） */
+  const chk: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, color: '#B0BEC8',
+    padding: '5px 0', cursor: 'pointer', userSelect: 'none',
+  }
+
   const btn = (active: boolean): React.CSSProperties => ({
     fontSize: 11, padding: '6px 11px', borderRadius: 6, cursor: 'pointer',
     border: active ? '1px solid #3ECF8E' : '1px solid #242C38',
@@ -539,7 +545,6 @@ export default function Lab2Page() {
         borderBottom: '1px solid #1A2028', background: '#080B10', flexShrink: 0,
       }}>
         <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: .3 }}>LAB2 · 直播台</span>
-        <span style={{ fontSize: 10, color: '#4C5765' }}>（实验版，和 /lab2 互不影响）</span>
         <div style={{ width: 1, height: 18, background: '#1A2028' }} />
         <span style={{ fontSize: 11, color: aspect === '16:9' ? '#FFD9A0' : '#BFE3FF', fontWeight: 700 }}>
           {aspect === '16:9' ? '1280 × 720 横屏' : '720 × 1280 竖屏'}
@@ -555,15 +560,6 @@ export default function Lab2Page() {
             {result.metrics?.sections ?? '?'} 段 · {result.elapsed}s
           </span>
         )}
-        {/* ★演示模式：直播放片时一键收起两侧，只留预览 */}
-        <button onClick={() => setZen((z) => !z)}
-          title={zen ? '退出演示模式' : '演示模式（隐藏两侧，只留预览）'}
-          style={{
-            padding: '8px 14px', borderRadius: 8, fontSize: 11.5, cursor: 'pointer',
-            border: '1px solid ' + (zen ? '#FFB347' : '#242C38'),
-            background: zen ? 'rgba(255,179,71,.2)' : '#0B0F14',
-            color: zen ? '#FFE9C8' : '#7A8798',
-          }}>{zen ? '⛶ 退出演示' : '⛶ 演示'}</button>
         <button onClick={() => gen(false)} disabled={loading}
           style={{
             padding: '8px 26px', borderRadius: 8, border: 'none', fontSize: 12.5, fontWeight: 700,
@@ -639,29 +635,45 @@ export default function Lab2Page() {
             {/* ★注解改成鼠标悬停提示（用户："注解可以指上去再显示"） */}
           </div>
 
-          {/* 3 个开关 */}
+          {/* ★2026-11-05 用户："这里占的太大了。自审有个框打开就代表要不要就行了。装饰密度也是"
+              ⇒ 三档按钮全改成勾选框（勾 = 要 / 多，不勾 = 不要 / 少） */}
           <div style={box}>
-            <span style={label}>文案模式</span>
-            <div style={{ display: 'flex', gap: 5, marginBottom: 10 }}>
-              {[['desc', '说明'], ['sell', '卖点'], ['poem', '短句']].map(([v, t]) => (
-                <button key={v} onClick={() => setCopyMode(v)} style={btn(copyMode === v)}>{t}</button>
-              ))}
-            </div>
-            <span style={label}>装饰密度</span>
-            <div style={{ display: 'flex', gap: 5, marginBottom: 10 }}>
-              {[['low', '少'], ['mid', '中'], ['high', '多']].map(([v, t]) => (
-                <button key={v} onClick={() => setDecoDensity(v)} style={btn(decoDensity === v)}>{t}</button>
-              ))}
-            </div>
-            <span style={label}>动效</span>
-            <div style={{ display: 'flex', gap: 5, marginBottom: 10 }}>
-              {[['off', '关'], ['on', '开']].map(([v, t]) => (
-                <button key={v} onClick={() => setMotion(v)} style={btn(motion === v)}>{t}</button>
-              ))}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 7 }}>
+              <span style={{ fontSize: 10.5, color: '#7A8798' }}>文案</span>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[['desc', '说明'], ['sell', '卖点'], ['poem', '短句']].map(([v, t]) => (
+                  <button key={v} onClick={() => setCopyMode(v)}
+                    style={{ ...btn(copyMode === v), padding: '4px 10px', fontSize: 10 }}>{t}</button>
+                ))}
+              </div>
             </div>
 
-            {/* ★大图比（2026-11-03 用户："加一个大图比，我准备让它都设计大图，这比较容易发现问题"） */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <label style={chk}>
+              <input type="checkbox" checked={decoDensity !== 'low'}
+                onChange={(e) => setDecoDensity(e.target.checked ? 'high' : 'low')}
+                style={{ width: 14, height: 14, accentColor: '#3ECF8E' }} />
+              装饰多一点
+            </label>
+
+            <label style={chk}>
+              <input type="checkbox" checked={motion === 'on'}
+                onChange={(e) => setMotion(e.target.checked ? 'on' : 'off')}
+                style={{ width: 14, height: 14, accentColor: '#3ECF8E' }} />
+              动效
+            </label>
+
+            <label style={chk} title="开启后多一次截图自审（多 4~5 分钱）">
+              <input type="checkbox" checked={selfReviewOn}
+                onChange={(e) => setSelfReviewOn(e.target.checked)}
+                style={{ width: 14, height: 14, accentColor: '#3ECF8E' }} />
+              自审（截图自查）
+              <span style={{ fontSize: 9, color: '#4C5765', marginLeft: 2 }}>
+                {selfReviewOn ? '多 4~5 分' : '省 4~5 分'}
+              </span>
+            </label>
+
+            {/* ★大图比 */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, marginBottom: 2 }}>
               <span style={{ fontSize: 10.5, color: '#7A8798' }}>大图比</span>
               <span style={{ fontSize: 10, color: bigImg >= 80 ? '#FFB347' : '#7CF', fontWeight: 700 }}>
                 {bigImg}%
@@ -669,23 +681,9 @@ export default function Lab2Page() {
             </div>
             <input type="range" min={0} max={100} step={10} value={bigImg}
               onChange={(e) => setBigImg(Number(e.target.value))}
-              style={{ width: '100%', accentColor: '#FFB347', marginBottom: 4 }} />
-            <div style={{ fontSize: 8.5, color: '#7A8798', marginBottom: 8 }}>
+              style={{ width: '100%', accentColor: '#FFB347' }} />
+            <div style={{ fontSize: 8.5, color: '#7A8798', marginTop: 2 }}>
               {bigImg === 0 ? '全用贴纸/局部' : bigImg < 60 ? '少量满幅' : bigImg < 100 ? '大部分满幅' : '★ 全满幅'}
-            </div>
-
-            {/* ★自审开关 */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ fontSize: 10.5, color: '#7A8798' }}>自审（让它看自己的成片）</span>
-              <span style={{ fontSize: 9, color: '#4C5765' }}>
-                {selfReviewOn ? '多 4~5 分钱' : '省 4~5 分钱'}
-              </span>
-            </div>
-            <div style={{ display: 'flex', gap: 5 }}>
-              {[[true, '开 · 截图自审'], [false, '关 · 只生成']].map(([v, t]) => (
-                <button key={String(v)} onClick={() => setSelfReviewOn(v as boolean)}
-                  style={{ ...btn(selfReviewOn === v), flex: 1, fontSize: 10 }}>{t as string}</button>
-              ))}
             </div>
           </div>
 
@@ -858,7 +856,19 @@ export default function Lab2Page() {
                     {!playing && seekT === 0 && '（现在停在 0s，点播放就开始）'}
                   </div>
                 </div>
-  
+
+                {/* ★演示模式（2026-11-05 用户："换一个点个再中间下面"）*/}
+                <div style={{ textAlign: 'center', marginTop: 10 }}>
+                  <button onClick={() => setZen((z) => !z)}
+                    title={zen ? '退出演示模式' : '演示模式（收起两侧，只留预览）'}
+                    style={{
+                      padding: '7px 20px', borderRadius: 7, fontSize: 11, cursor: 'pointer',
+                      border: '1px solid ' + (zen ? '#FFB347' : '#242C38'),
+                      background: zen ? 'rgba(255,179,71,.2)' : '#0B0F14',
+                      color: zen ? '#FFE9C8' : '#7A8798',
+                    }}>{zen ? '⛶ 退出演示' : '⛶ 演示模式（收起两侧）'}</button>
+                </div>
+
             </>
           )}
         </div>
