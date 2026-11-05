@@ -123,7 +123,6 @@ export default function Lab2Page() {
      ② 大图比（让它都设计大图，容易发现问题）*/
   const [selfReviewOn, setSelfReviewOn] = useState(true)
   const [bigImg, setBigImg] = useState(100)
-  const [selfReview, setSelfReview] = useState(true)
   const [userRules, setUserRules] = useState('')
 
   /* 重做 */
@@ -131,6 +130,9 @@ export default function Lab2Page() {
   const [retrying, setRetrying] = useState(false)
   /* ★反馈截图（最多 4 张，转 base64 发给模型看） */
   const [fbImages, setFbImages] = useState<{ name: string; data: string }[]>([])
+
+  /* ★2026-11-05 直播版：素材改用弹窗选（左栏不再堆几十张缩略图） */
+  const [showMatPicker, setShowMatPicker] = useState(false)
 
   /* ★★★ 对话改片（2026-11-04）：长期会话 + 记忆 */
   const [chatMsgs, setChatMsgs] = useState<Array<{ role: 'user' | 'assistant'; text: string }>>([])
@@ -548,6 +550,26 @@ export default function Lab2Page() {
         {/* 左栏 */}
         <div style={{ overflowY: 'auto', minHeight: 0, paddingRight: 4 }}>
 
+          {/* ★★★ 2026-11-05 用户："补充我觉得应该是最高级"
+              ⇒ 移到左栏最上面（它是最直接的意图输入，优先于所有滑杆） */}
+          <div style={{
+            ...box,
+            border: '1px solid rgba(62,207,142,.5)',
+            background: 'rgba(62,207,142,.06)',
+          }}>
+            <span style={{ ...label, color: '#8FE8C8', fontWeight: 700 }}>补充要求（最高优先）</span>
+            <textarea value={userRules} onChange={(e) => setUserRules(e.target.value)}
+              placeholder="这条片子你想怎么改？例如：结尾要有品牌名 / 别用金色 / 前 3 秒要抓人"
+              rows={3}
+              style={{
+                width: '100%', background: '#06080B', border: '1px solid #242C38', borderRadius: 6,
+                color: '#D8E2EC', fontSize: 11, padding: 8, resize: 'vertical', lineHeight: 1.6,
+              }} />
+            <div style={{ fontSize: 8.5, color: '#4C5765', marginTop: 5 }}>
+              写在这里的话会原样进 prompt，优先级高于所有滑杆
+            </div>
+          </div>
+
           {/* ★★ 画幅（最高级设置 · 2026-11-03 用户要求） */}
           <div style={{
             ...box,
@@ -644,68 +666,40 @@ export default function Lab2Page() {
             </div>
           </div>
 
-          {/* 素材：★带缩略图（用户："只显示序号根本看不出是哪张"） */}
+          {/* 素材：★2026-11-05 直播版 —— 不再把 49 张堆在左栏，折叠成一行 + 弹窗选 */}
           <div style={box}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ fontSize: 10.5, color: '#7A8798' }}>素材（已选 {picked.length} 张）</span>
-              <span style={{ fontSize: 9, color: '#4C5765' }}>共 {items.length} 张 · 点图选择</span>
-            </div>
-
-            {items.length === 0 && (
-              <div style={{ fontSize: 10, color: '#FF6B6B', lineHeight: 1.7 }}>
-                读不到素材（检查 /api/lab/files 是否登录）
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{
+                  fontSize: 11.5, fontWeight: 700,
+                  color: picked.length ? '#3ECF8E' : '#FF6B6B',
+                }}>
+                  素材 {picked.length} 张{picked.length === 0 ? '（必须先选）' : ''}
+                </div>
+                <div style={{ fontSize: 9, color: '#4C5765', marginTop: 2 }}>
+                  {items.length === 0 ? '读不到素材（检查登录）' : `共 ${items.length} 张可选`}
+                </div>
               </div>
-            )}
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 5, maxHeight: 300, overflow: 'auto' }}>
-              {items.map((it, i) => {
-                const n = String(it.name || it.key || i)
-                const on = picked.includes(n)
-                return (
-                  <button key={n} onClick={() => toggle(n)} title={n}
-                    style={{
-                      position: 'relative', padding: 0, aspectRatio: '1 / 1', cursor: 'pointer',
-                      border: on ? '2px solid #3ECF8E' : '1px solid #242C38',
-                      borderRadius: 6, overflow: 'hidden',
-                      background: on ? 'rgba(62,207,142,.15)' : '#0B0F14',
-                    }}>
-                    {it.url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={it.url} alt={n} loading="lazy"
-                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                    ) : (
-                      <span style={{ fontSize: 9, color: '#7A8798' }}>{i + 1}</span>
-                    )}
-                    {on && (
-                      <span style={{
-                        position: 'absolute', right: 2, top: 2, width: 14, height: 14,
-                        borderRadius: '50%', background: '#3ECF8E', color: '#06110B',
-                        fontSize: 9, lineHeight: '14px', textAlign: 'center', fontWeight: 900,
-                      }}>✓</span>
-                    )}
-                  </button>
-                )
-              })}
+              <button onClick={() => setShowMatPicker(true)}
+                style={{ ...btn(picked.length > 0), padding: '7px 13px', fontSize: 11, flexShrink: 0 }}>
+                选择
+              </button>
             </div>
 
             {picked.length > 0 && (
-              <div style={{ fontSize: 9, color: '#7A8798', marginTop: 7, lineHeight: 1.6 }}>
-                已选：{picked.slice(0, 6).map((p) => p.replace(/\.[^.]+$/, '')).join(' · ')}
-                {picked.length > 6 ? ` 等 ${picked.length} 张` : ''}
+              <div style={{ display: 'flex', gap: 4, marginTop: 8, flexWrap: 'wrap' }}>
+                {picked.slice(0, 6).map((n) => {
+                  const u = items.find((it) => String(it.name || it.key) === n)?.url
+                  return u
+                    ? /* eslint-disable-next-line @next/next/no-img-element */
+                    <img key={n} src={String(u)} alt="" style={{ width: 38, height: 38, objectFit: 'cover', borderRadius: 4, border: '1px solid #242C38' }} />
+                    : null
+                })}
+                {picked.length > 6 && (
+                  <span style={{ fontSize: 10, color: '#7A8798', alignSelf: 'center' }}>+{picked.length - 6}</span>
+                )}
               </div>
             )}
-          </div>
-
-          {/* 补充要求 */}
-          <div style={box}>
-            <span style={label}>补充要求（可选）</span>
-            <textarea value={userRules} onChange={(e) => setUserRules(e.target.value)}
-              placeholder="例如：结尾要有品牌名" rows={2}
-              style={{ width: '100%', background: '#06080B', border: '1px solid #242C38', borderRadius: 6, color: '#D8E2EC', fontSize: 11, padding: 8, resize: 'vertical' }} />
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: '#7A8798', marginTop: 8, cursor: 'pointer' }}>
-              <input type="checkbox" checked={selfReview} onChange={(e) => setSelfReview(e.target.checked)} />
-              交付前自评（7 维打分，≤5 分先改再输出）
-            </label>
           </div>
 
           {/* ★生成按钮已移到顶栏（直播时不用滚动就能点） */}
@@ -1157,6 +1151,74 @@ export default function Lab2Page() {
           )}
         </div>
       </div>
+
+      {/* ══ 素材选择弹窗（2026-11-05 直播版：左栏不再堆几十张）══ */}
+      {showMatPicker && (
+        <div
+          onClick={() => setShowMatPicker(false)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,.78)', zIndex: 200,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+          }}>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(980px, 94vw)', maxHeight: '86vh', display: 'flex', flexDirection: 'column',
+              background: '#0B0F14', border: '1px solid #2A3440', borderRadius: 12, overflow: 'hidden',
+            }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
+              borderBottom: '1px solid #1A2028', flexShrink: 0,
+            }}>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>选择素材</span>
+              <span style={{ fontSize: 11, color: picked.length ? '#3ECF8E' : '#7A8798' }}>
+                已选 {picked.length} 张
+              </span>
+              <span style={{ fontSize: 10, color: '#4C5765' }}>共 {items.length} 张</span>
+              <div style={{ flex: 1 }} />
+              <button onClick={() => setPicked([])} style={{ ...btn(false), fontSize: 10.5 }}>清空</button>
+              <button onClick={() => setPicked(items.slice(0, 60).map((it, i) => String(it.name || it.key || i)))}
+                style={{ ...btn(false), fontSize: 10.5 }}>全选</button>
+              <button onClick={() => setShowMatPicker(false)}
+                style={{ ...btn(true), fontSize: 10.5 }}>完成</button>
+            </div>
+
+            <div style={{
+              padding: 14, overflowY: 'auto', minHeight: 0,
+              display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))', gap: 8,
+            }}>
+              {items.map((it, i) => {
+                const n = String(it.name || it.key || i)
+                const on = picked.includes(n)
+                return (
+                  <button key={n} onClick={() => toggle(n)} title={n}
+                    style={{
+                      position: 'relative', padding: 0, aspectRatio: '1 / 1', cursor: 'pointer',
+                      border: on ? '2px solid #3ECF8E' : '1px solid #242C38',
+                      borderRadius: 7, overflow: 'hidden',
+                      background: on ? 'rgba(62,207,142,.15)' : '#0B0F14',
+                    }}>
+                    {it.url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={it.url} alt={n} loading="lazy"
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    ) : (
+                      <span style={{ fontSize: 9, color: '#7A8798' }}>{i + 1}</span>
+                    )}
+                    {on && (
+                      <span style={{
+                        position: 'absolute', right: 3, top: 3, width: 17, height: 17,
+                        borderRadius: '50%', background: '#3ECF8E', color: '#06110B',
+                        fontSize: 11, lineHeight: '17px', textAlign: 'center', fontWeight: 900,
+                      }}>✓</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
