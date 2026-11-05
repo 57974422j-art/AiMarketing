@@ -703,6 +703,34 @@ export async function POST(req: NextRequest) {
       }
     })()
 
+    /**
+     * ★★★ 2026-11-05 「设定 vs 实际」数字对照
+     *
+     * 用户实测：大图比设 60% → 实际 9/11 = 82%
+     *   它的 __trace 写的是"避免视觉疲劳，增加版式变化"（用自己的尺子）
+     *   ⇒ 软指标被审美覆盖
+     *
+     * 现在：代码数出"实际满幅段数"，和设定值一起给它（和用户）看。
+     *   判据（保守）：段内含 `inset:0` ⇒ 认为这一段是满幅底图
+     */
+    const setCheck: {
+      bigImgSet: number
+      fullSecs: number
+      totalSecs: number
+      actualPct: number
+    } = (() => {
+      const secHtml = [...html.matchAll(/<section[^>]*class="sec[^"]*"[^>]*>[\s\S]*?<\/section>/g)]
+        .map((m) => m[0])
+      const fullSecs = secHtml.filter((s) => /inset:\s*0|inset:0/.test(s)).length
+      const totalSecs = secHtml.length
+      return {
+        bigImgSet: Number(form.bigImg ?? 100),
+        fullSecs,
+        totalSecs,
+        actualPct: totalSecs ? Math.round((fullSecs / totalSecs) * 100) : 0,
+      }
+    })()
+
     html = embedPlaceholders(html, embedImgs)
 
     /* ★兜底：覆盖 __seek（强制按段显示，治"所有层叠一帧"）—— 必须早于 autoplay */
@@ -925,6 +953,8 @@ export async function POST(req: NextRequest) {
       imgExternal: (html.match(/https:\/\/[^"'\s)]*(?:aliyuncs|oss)/g) || []).length,
       /* ★素材使用明细（第几段用了哪几张图 / 漏了哪几张） */
       imgUsage,
+      /* ★设定 vs 实际（大图比设多少 / 实际满幅几段） */
+      setCheck,
       imgErrs: imgErrs.slice(0, 4),   /* 读图失败原因（定位用） */
       ossKeys: imgs.slice(0, 3).map(ossKey),   /* 实际用的 OSS 路径（定位用） */
       elapsed: Math.round((Date.now() - t0) / 1000),

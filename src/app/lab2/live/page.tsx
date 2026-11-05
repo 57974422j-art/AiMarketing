@@ -60,6 +60,8 @@ type Result = {
   imgEmbedded?: number
   /** ★HTML 里残留的 OSS 外链数（>0 = 这份成片会过期） */
   imgExternal?: number
+  /** ★设定 vs 实际（大图比） */
+  setCheck?: { bigImgSet: number; fullSecs: number; totalSecs: number; actualPct: number }
   /** ★素材使用明细：每段用了哪几张、漏了哪几张 */
   imgUsage?: {
     total: number
@@ -457,6 +459,18 @@ export default function Lab2Page() {
 
       /* ★2026-11-05 补：素材使用明细 —— 它到底看了哪张、漏了哪张 */
       '',
+      /* ★2026-11-05 补：设定 vs 实际（软指标有没有被执行） */
+      ...(result.setCheck
+        ? [
+          '══════ 设定 vs 实际 ══════',
+          '大图比设 ' + result.setCheck.bigImgSet + '% → 实际满幅 '
+            + result.setCheck.fullSecs + '/' + result.setCheck.totalSecs
+            + ' = ' + result.setCheck.actualPct + '%'
+            + (Math.abs(result.setCheck.actualPct - result.setCheck.bigImgSet) > 20 ? '（⚠️ 差得多）' : '（✅ 对得上）'),
+          '',
+        ]
+        : []),
+
       '══════ 素材使用 ══════',
       ...(result.imgUsage && !result.imgUsage.unknown
         ? [
@@ -1156,6 +1170,22 @@ export default function Lab2Page() {
                   <div style={{ color: result.metrics.hasAutoplay ? '#7CF' : '#FF6B6B' }}>
                     自动播放：{result.metrics.hasAutoplay ? '有' : '无（打开只有第一帧）'}
                   </div>
+                  {/* ★2026-11-05 设定 vs 实际（软指标被审美覆盖，用数字堵住） */}
+                  {result.setCheck && (
+                    <div style={{
+                      gridColumn: '1 / -1', fontSize: 9.5, lineHeight: 1.7,
+                      color: Math.abs(result.setCheck.actualPct - result.setCheck.bigImgSet) > 20 ? '#FF6B6B' : '#7CF',
+                    }}>
+                      设定 vs 实际：
+                      大图比设 <b>{result.setCheck.bigImgSet}%</b>
+                      {' → '}实际满幅 <b>{result.setCheck.fullSecs}/{result.setCheck.totalSecs}</b>
+                      {' = '}<b>{result.setCheck.actualPct}%</b>
+                      {Math.abs(result.setCheck.actualPct - result.setCheck.bigImgSet) > 20
+                        ? '　⚠️ 差得多，问它为什么'
+                        : '　✅ 对得上'}
+                    </div>
+                  )}
+
                   {/* ★2026-11-05 素材使用明细（它看的是哪张 / 漏了哪张） */}
                   {result.imgUsage && !result.imgUsage.unknown && (
                     <div style={{ gridColumn: '1 / -1', fontSize: 9.5, lineHeight: 1.7 }}>
