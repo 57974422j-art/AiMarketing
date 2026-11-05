@@ -1263,7 +1263,11 @@ export default function Lab2Page() {
                 return (
                   <button key={n} onClick={() => toggle(n)} title={n}
                     style={{
-                      position: 'relative', padding: 0, aspectRatio: '1 / 1', cursor: 'pointer',
+                      /* ★2026-11-05 修：原来用 aspectRatio:'1/1'，被 grid 的 stretch 打破
+                         ⇒ 格子塌成横条、图片被压扁
+                         ⇒ 改成**固定高度 132px**，宽由 grid 列宽决定，永远不塌 */
+                      position: 'relative', padding: 0, cursor: 'pointer',
+                      display: 'block', width: '100%', height: 152, lineHeight: 0,
                       border: on ? '2px solid #3ECF8E' : '1px solid #242C38',
                       borderRadius: 7, overflow: 'hidden',
                       background: on ? 'rgba(62,207,142,.15)' : '#0B0F14',
@@ -1271,7 +1275,7 @@ export default function Lab2Page() {
                     {it.url ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={it.url} alt={n} loading="lazy"
-                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                        style={{ width: '100%', height: 152, objectFit: 'cover', display: 'block' }} />
                     ) : (
                       <span style={{ fontSize: 9, color: '#7A8798' }}>{i + 1}</span>
                     )}
