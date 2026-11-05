@@ -134,6 +134,9 @@ export default function Lab2Page() {
   /* ★2026-11-05 直播版：素材改用弹窗选（左栏不再堆几十张缩略图） */
   const [showMatPicker, setShowMatPicker] = useState(false)
 
+  /* ★2026-11-05 第 3 批：右栏 tab（一次只显示一块，长度砍 2/3） */
+  const [tab, setTab] = useState<'metrics' | 'chat' | 'report'>('metrics')
+
   /* ★★★ 对话改片（2026-11-04）：长期会话 + 记忆 */
   const [chatMsgs, setChatMsgs] = useState<Array<{ role: 'user' | 'assistant'; text: string }>>([])
   const [chatText, setChatText] = useState('')
@@ -495,8 +498,9 @@ export default function Lab2Page() {
     ].join('\n')
   }
 
+  /* ★2026-11-05 直播版：padding/margin 收紧（用户："还是超出必须滚轮"） */
   const box: React.CSSProperties = {
-    background: '#0B0F14', border: '1px solid #242C38', borderRadius: 10, padding: 12, marginBottom: 12,
+    background: '#0B0F14', border: '1px solid #242C38', borderRadius: 9, padding: 9, marginBottom: 8,
   }
   const label: React.CSSProperties = { fontSize: 10.5, color: '#7A8798', marginBottom: 6, display: 'block' }
   const btn = (active: boolean): React.CSSProperties => ({
@@ -547,8 +551,8 @@ export default function Lab2Page() {
         flex: 1, display: 'grid', gridTemplateColumns: '260px 1fr', gap: 12,
         padding: 12, overflow: 'hidden', minHeight: 0,
       }}>
-        {/* 左栏 */}
-        <div style={{ overflowY: 'auto', minHeight: 0, paddingRight: 4 }}>
+        {/* 左栏：★zoom 0.86 —— 9 个设置块在 1080 屏一屏放不下，整体缩一档 */}
+        <div style={{ overflowY: 'auto', minHeight: 0, paddingRight: 4, zoom: 0.86 }}>
 
           {/* ★★★ 2026-11-05 用户："补充我觉得应该是最高级"
               ⇒ 移到左栏最上面（它是最直接的意图输入，优先于所有滑杆） */}
@@ -715,7 +719,22 @@ export default function Lab2Page() {
 
           {result && (
             <>
-              {/* 完成复制 */}
+              {/* ══ tab 切换（第 3 批）══ */}
+              <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+                {([
+                  ['metrics', '📊 指标 · 自审'],
+                  ['chat', '💬 对话改片'],
+                  ['report', '📋 报告'],
+                ] as const).map(([k, label]) => (
+                  <button key={k} onClick={() => setTab(k)}
+                    style={{
+                      ...btn(tab === k), flex: 1, padding: '7px 0', fontSize: 11, fontWeight: tab === k ? 700 : 400,
+                    }}>{label}</button>
+                ))}
+              </div>
+
+              {/* 完成复制 / prompt / 分享 / 满意（tab=report）*/}
+              {tab === 'report' && (
               <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
                 <button onClick={() => copyAll('all', buildReport())}
                   style={{ ...btn(copied === 'all'), flex: 1, padding: '9px 0', fontWeight: 700 }}>
@@ -741,8 +760,9 @@ export default function Lab2Page() {
                 <button onClick={() => { confirm('满意吗？点确定=标记这条记忆有效'); fetch('/api/lab2', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'confirm' }) }) }}
                   style={{ ...btn(false), padding: '9px 12px' }}>👍 满意</button>
               </div>
+              )}
 
-              {/* 预览 + 全屏 + 时间轴 */}
+              {/* 预览 + 全屏 + 时间轴（常驻，不随 tab 切换）*/}
               <div style={{ position: 'relative' }}>
                 {/* ★★★ 2026-11-05 用户："我要做个横屏，出来效果又是竖屏中出来一个横屏"
                    根因：这个 iframe 的 aspectRatio **写死 '9 / 16'**
@@ -864,9 +884,10 @@ export default function Lab2Page() {
                 </div>
               </div>
 
-              {/* ★★★ 对话改片（2026-11-04 用户："要能跟我实现长期会话，自己有记忆"）
-                  首轮用「生成」，之后在这里聊着改；每轮都带「历史 + 当前 HTML」⇒ 它知道在改哪一版 */}
-              <div style={{ ...box, marginTop: 12, border: '1px solid rgba(74,158,255,.4)' }}>
+              {/* ★★★ 对话改片 + 重做（tab=chat 时才显示）*/}
+              {tab === 'chat' && (
+              <>
+              <div style={{ ...box, marginTop: 0, border: '1px solid rgba(74,158,255,.4)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                   <span style={{ fontSize: 11, color: '#BFE3FF', fontWeight: 700 }}>💬 对话改片</span>
                   <span style={{ fontSize: 9, color: '#4C5765' }}>它记得这条片子的上下文</span>
@@ -1013,9 +1034,13 @@ export default function Lab2Page() {
                   {retrying ? '重做中…' : '↻ 按意见重做'}
                 </button>
               </div>
+              </>
+              )}
 
-              {/* AI 思考 */}
-              <div style={{ ...box, marginTop: 12 }}>
+              {/* AI 思考 + 技术扫描 + 自审（tab=metrics）*/}
+              {tab === 'metrics' && (
+              <>
+              <div style={{ ...box, marginTop: 0 }}>
                 <span style={label}>AI 思考日志（__trace）</span>
                 {result.trace ? (
                   <pre style={{ fontSize: 9.5, lineHeight: 1.6, color: '#A8C0D8', whiteSpace: 'pre-wrap', wordBreak: 'break-all', margin: 0, maxHeight: 320, overflow: 'auto' }}>
@@ -1147,6 +1172,8 @@ export default function Lab2Page() {
                   </div>
                 </div>
               </div>
+              </>
+              )}
             </>
           )}
         </div>
