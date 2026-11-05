@@ -149,6 +149,28 @@ export async function POST(req: NextRequest) {
     /* ── 记下用户这句 ── */
     appendMessage(userId, sid, { role: 'user', text, ts: new Date().toISOString() })
 
+    /**
+     * ★★★ 2026-11-05 用户："记忆打通"
+     *
+     * 之前：对话只写 session（同一会话记得，新开一单全忘）
+     *       memory 只有「重做 + 写反馈」才写 ⇒ 跨单永远"（无历史教训）"
+     *
+     * 现在：把对话里**意见类**的话写进 memory（addPending），下一单自动带上。
+     * ⚠️ 过滤：只记「像要求」的句子，不记「第 6 段往右移」这种一次性定位指令：
+     *    · 长度 6~80
+     *    · 含要求词（要/别/不要/应该/必须/改成/统一/以后/每次/太…/不够/避免）
+     *    · 排除「第N段+方位」的纯定位句
+     */
+    try {
+      const OPINION = /(要|别|不要|不许|应该|必须|需要|改成|换成|统一|以后|每次|都|太|不够|避免|记住|所有|全部)/
+      const pureLocate = /^第\s*\d+\s*[段帧张]?\s*(往|向|上|下|左|右|移|改成|换成)/
+      if (text.length >= 6 && text.length <= 80 && OPINION.test(text) && !pureLocate.test(text)) {
+        const { addPending } = await import('@/lib/lab2/memory')
+        addPending(userId, text.slice(0, 60))
+        console.log('[lab2-chat] 记进长期记忆：' + text.slice(0, 40))
+      }
+    } catch { /* 记忆写失败不影响改片 */ }
+
     /* ── 拼历史（最近 12 条，只带文字，不带 HTML）── */
     const hist = s.messages.slice(-12).map((m: ChatMsg) =>
       (m.role === 'user' ? '【客户】' : '【你】') + m.text

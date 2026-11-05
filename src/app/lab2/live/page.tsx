@@ -137,6 +137,10 @@ export default function Lab2Page() {
   /* ★2026-11-05 第 3 批：右栏 tab（一次只显示一块，长度砍 2/3） */
   const [tab, setTab] = useState<'metrics' | 'chat' | 'report'>('metrics')
 
+  /* ★2026-11-05 第 4 批：演示模式（隐藏两侧，只留预览）/ 报告弹窗 */
+  const [zen, setZen] = useState(false)
+  const [showReport, setShowReport] = useState(false)
+
   /* ★★★ 对话改片（2026-11-04）：长期会话 + 记忆 */
   const [chatMsgs, setChatMsgs] = useState<Array<{ role: 'user' | 'assistant'; text: string }>>([])
   const [chatText, setChatText] = useState('')
@@ -537,6 +541,15 @@ export default function Lab2Page() {
             {result.metrics?.sections ?? '?'} 段 · {result.elapsed}s
           </span>
         )}
+        {/* ★演示模式：直播放片时一键收起两侧，只留预览 */}
+        <button onClick={() => setZen((z) => !z)}
+          title={zen ? '退出演示模式' : '演示模式（隐藏两侧，只留预览）'}
+          style={{
+            padding: '8px 14px', borderRadius: 8, fontSize: 11.5, cursor: 'pointer',
+            border: '1px solid ' + (zen ? '#FFB347' : '#242C38'),
+            background: zen ? 'rgba(255,179,71,.2)' : '#0B0F14',
+            color: zen ? '#FFE9C8' : '#7A8798',
+          }}>{zen ? '⛶ 退出演示' : '⛶ 演示'}</button>
         <button onClick={() => gen(false)} disabled={loading}
           style={{
             padding: '8px 26px', borderRadius: 8, border: 'none', fontSize: 12.5, fontWeight: 700,
@@ -548,8 +561,11 @@ export default function Lab2Page() {
 
       {/* ══ 主区：左 260 设置 / 右自适应（预览 + 分析）══ */}
       <div style={{
-        flex: 1, display: 'grid', gridTemplateColumns: '260px 1fr', gap: 12,
-        padding: 12, overflow: 'hidden', minHeight: 0,
+        flex: 1, display: 'grid',
+        gridTemplateColumns: zen ? '0px 1fr' : '260px 1fr',
+        gap: zen ? 0 : 12,
+        padding: zen ? 6 : 12, overflow: 'hidden', minHeight: 0,
+        transition: 'grid-template-columns .2s ease',
       }}>
         {/* 左栏：★zoom 0.86 —— 9 个设置块在 1080 屏一屏放不下，整体缩一档 */}
         <div style={{ overflowY: 'auto', minHeight: 0, paddingRight: 4, zoom: 0.86 }}>
@@ -719,7 +735,8 @@ export default function Lab2Page() {
 
           {result && (
             <>
-              {/* ══ tab 切换（第 3 批）══ */}
+              {/* ══ tab 切换（第 3 批）· 演示模式下隐藏 ══ */}
+              {!zen && (
               <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
                 {([
                   ['metrics', '📊 指标 · 自审'],
@@ -732,9 +749,10 @@ export default function Lab2Page() {
                     }}>{label}</button>
                 ))}
               </div>
+              )}
 
               {/* 完成复制 / prompt / 分享 / 满意（tab=report）*/}
-              {tab === 'report' && (
+              {tab === 'report' && !zen && (
               <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
                 <button onClick={() => copyAll('all', buildReport())}
                   style={{ ...btn(copied === 'all'), flex: 1, padding: '9px 0', fontWeight: 700 }}>
@@ -760,6 +778,14 @@ export default function Lab2Page() {
                 <button onClick={() => { confirm('满意吗？点确定=标记这条记忆有效'); fetch('/api/lab2', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'confirm' }) }) }}
                   style={{ ...btn(false), padding: '9px 12px' }}>👍 满意</button>
               </div>
+              )}
+
+              {/* ★查看完整报告（弹窗，2026-11-05）*/}
+              {tab === 'report' && !zen && (
+                <button onClick={() => setShowReport(true)}
+                  style={{ width: '100%', padding: '9px 0', marginBottom: 10, fontSize: 11.5, ...btn(false) }}>
+                  👁 查看完整报告（要求 + 思考 + 素材使用 + 自审 + 指标）
+                </button>
               )}
 
               {/* 预览 + 全屏 + 时间轴（常驻，不随 tab 切换）*/}
@@ -885,7 +911,7 @@ export default function Lab2Page() {
               </div>
 
               {/* ★★★ 对话改片 + 重做（tab=chat 时才显示）*/}
-              {tab === 'chat' && (
+              {tab === 'chat' && !zen && (
               <>
               <div style={{ ...box, marginTop: 0, border: '1px solid rgba(74,158,255,.4)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -1038,7 +1064,7 @@ export default function Lab2Page() {
               )}
 
               {/* AI 思考 + 技术扫描 + 自审（tab=metrics）*/}
-              {tab === 'metrics' && (
+              {tab === 'metrics' && !zen && (
               <>
               <div style={{ ...box, marginTop: 0 }}>
                 <span style={label}>AI 思考日志（__trace）</span>
@@ -1178,6 +1204,35 @@ export default function Lab2Page() {
           )}
         </div>
       </div>
+
+      {/* ══ 完整报告弹窗（2026-11-05）══ */}
+      {showReport && result && (
+        <div onClick={() => setShowReport(false)}
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,.8)', zIndex: 210,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+          }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 'min(920px, 94vw)', maxHeight: '88vh', display: 'flex', flexDirection: 'column',
+              background: '#0B0F14', border: '1px solid #2A3440', borderRadius: 12, overflow: 'hidden',
+            }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 15px', borderBottom: '1px solid #1A2028' }}>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>本单完整报告</span>
+              <div style={{ flex: 1 }} />
+              <button onClick={() => copyAll('all', buildReport())} style={{ ...btn(copied === 'all'), fontSize: 11 }}>
+                {copied === 'all' ? '✓ 已复制' : '📋 复制全文'}
+              </button>
+              <button onClick={() => setShowReport(false)} style={{ ...btn(true), fontSize: 11 }}>关闭</button>
+            </div>
+            <pre style={{
+              flex: 1, minHeight: 0, overflow: 'auto', margin: 0, padding: 15,
+              fontSize: 11, lineHeight: 1.75, color: '#C8D8E8', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+              background: '#06080B',
+            }}>{buildReport()}</pre>
+          </div>
+        </div>
+      )}
 
       {/* ══ 素材选择弹窗（2026-11-05 直播版：左栏不再堆几十张）══ */}
       {showMatPicker && (
