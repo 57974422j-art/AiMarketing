@@ -52,6 +52,8 @@ type Result = {
   url: string
   name: string
   repoId?: string
+  /** ★这一版实际用的画幅（生成时定下的，用户后来改选择也不影响预览） */
+  aspect?: string
   savedTo?: string
   review?: Review | null
   imgSent?: number
@@ -666,12 +668,18 @@ export default function Lab2Page() {
 
               {/* 预览 + 全屏 + 时间轴 */}
               <div style={{ position: 'relative' }}>
-                {/* ★2026-11-02 用户："竖屏只看到上半截" ⇒ 按可用高度定尺寸，保证完整可见 */}
+                {/* ★★★ 2026-11-05 用户："我要做个横屏，出来效果又是竖屏中出来一个横屏"
+                   根因：这个 iframe 的 aspectRatio **写死 '9 / 16'**
+                        ⇒ 横屏成片（1280×720）塞进竖框
+                        ⇒ 里面的 --fit 按竖框算 ⇒ 缩成中间一条，上下大片黑
+                   现在：框比例跟着画布走（用 result 里存的，或当前选择） */}
                 <iframe ref={iframeRef} src={result.url} title="lab2-preview"
                   style={{
                     display: 'block', margin: '0 auto',
-                    height: 'min(76vh, 96vw * 16 / 9)',
-                    aspectRatio: '9 / 16',
+                    height: (result.aspect || aspect) === '16:9'
+                      ? 'min(76vh, 96vw * 9 / 16)'
+                      : 'min(76vh, 96vw * 16 / 9)',
+                    aspectRatio: (result.aspect || aspect) === '16:9' ? '16 / 9' : '9 / 16',
                     border: '1px solid #242C38', borderRadius: 10, background: '#000',
                   }} />
 

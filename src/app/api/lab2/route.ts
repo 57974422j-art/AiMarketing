@@ -861,6 +861,9 @@ export async function POST(req: NextRequest) {
       url: '/api/lab2/file?name=' + encodeURIComponent(name) + '&repoId=' + encodeURIComponent(repoId),
       repoId,
       name,
+      /* ★2026-11-05 用户："我要做横屏，出来是竖屏中一个横屏"
+         根因：前端预览框写死 9/16 ⇒ 把实际画幅告诉它，预览跟着走 */
+      aspect: isLand ? '16:9' : '9:16',
       savedTo,
       review,                  /* ★自审记录（改了几轮 / 发现什么 / 改了什么） */
       imgSent: imgOk,          /* AI 实际看到的图张数 */
