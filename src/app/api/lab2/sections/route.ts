@@ -57,7 +57,10 @@ function relayout(secs: string[]): string[] {
 
 function writeHtml(uid: string, html: string): string {
   const d = new Date()
-  const ymd = d.toISOString().slice(0, 10).replace(/-/g, '')
+  /* ★2026-11-06 修：ymd 和 hms 必须同源（都用本地时间），否则 08:00 前日期差一天 */
+  const ymd = String(d.getFullYear())
+    + String(d.getMonth() + 1).padStart(2, '0')
+    + String(d.getDate()).padStart(2, '0')
   const hms = String(d.getHours()).padStart(2, '0')
     + String(d.getMinutes()).padStart(2, '0')
     + String(d.getSeconds()).padStart(2, '0')

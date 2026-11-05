@@ -38,7 +38,11 @@ function readHtml(uid: string, name: string): string {
 /** 存新版本（沿用 uniqueName：时间戳，不覆盖） */
 function writeHtml(uid: string, html: string): string {
   const d = new Date()
-  const ymd = d.toISOString().slice(0, 10).replace(/-/g, '')
+  /* ★2026-11-06 修：原来 ymd 用 toISOString()（UTC），hms 用本地时间
+     ⇒ 北京时间 08:00 前生成的文件，日期被写成前一天（用户："今天 6 号，日期全是 5 号"）*/
+  const ymd = String(d.getFullYear())
+    + String(d.getMonth() + 1).padStart(2, '0')
+    + String(d.getDate()).padStart(2, '0')
   const hms = String(d.getHours()).padStart(2, '0')
     + String(d.getMinutes()).padStart(2, '0')
     + String(d.getSeconds()).padStart(2, '0')

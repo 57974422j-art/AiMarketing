@@ -711,7 +711,14 @@ export async function POST(req: NextRequest) {
      *   ⇒ 软指标被审美覆盖
      *
      * 现在：代码数出"实际满幅段数"，和设定值一起给它（和用户）看。
-     *   判据（保守）：段内含 `inset:0` ⇒ 认为这一段是满幅底图
+     *
+     * ★★★ 2026-11-05 修：第一版判据只用 `inset:0`，
+     *   实测 135355 那单 9 段全是满幅（`<img class="full-img">` + CSS 里 object-fit:cover），
+     *   但我报了「0/9 = 0%」——**假警报**。
+     *   现在三个判据叠加，且要求"该段只有 1 张图"（避免把双图并排算成满幅）：
+     *     ① 段内含 `inset:0`
+     *     ② 段内含 `background-size:cover` 且只有一处背景图
+     *     ③ 段内唯一 `<img>` 的 class 在 CSS 里同时有 object-fit:cover + width:100% + height:100%
      */
     const setCheck: {
       bigImgSet: number
@@ -719,9 +726,44 @@ export async function POST(req: NextRequest) {
       totalSecs: number
       actualPct: number
     } = (() => {
+      /* 先把 CSS 里每个 class 的定义抓出来 */
+      const cssMap: Record<string, string> = {}
+      {
+        const re = /\.([a-zA-Z0-9_-]+)\s*\{([^}]*)\}/g
+        let m: RegExpExecArray | null
+        while ((m = re.exec(html)) !== null) {
+          cssMap[m[1]] = (cssMap[m[1]] || '') + m[2]
+        }
+      }
+
+      const isFull = (s: string): boolean => {
+        const imgCount = (s.match(/<img\b/g) || []).length
+        const bgCount = (s.match(/background-image\s*:/g) || []).length
+        /* ① */
+        if (/inset:\s*0/.test(s) && imgCount + bgCount <= 1) return true
+        /* ② */
+        if (/background-size:\s*cover/.test(s) && bgCount === 1 && imgCount === 0) return true
+        /* ③ */
+        if (imgCount === 1) {
+          const cls = (s.match(/<img[^>]*\sclass="([^"]*)"/) || [])[1] || ''
+          for (const c of cls.split(/\s+/).filter(Boolean)) {
+            const def = cssMap[c] || ''
+            if (/object-fit:\s*cover/.test(def)
+              && /width:\s*100%/.test(def)
+              && /height:\s*100%/.test(def)) return true
+          }
+          /* 兜底：class 名就叫 full / bg / cover 之类，且 CSS 里有 object-fit:cover */
+          for (const c of cls.split(/\s+/).filter(Boolean)) {
+            const def = cssMap[c] || ''
+            if (/object-fit:\s*cover/.test(def) && /position:\s*absolute/.test(def)) return true
+          }
+        }
+        return false
+      }
+
       const secHtml = [...html.matchAll(/<section[^>]*class="sec[^"]*"[^>]*>[\s\S]*?<\/section>/g)]
         .map((m) => m[0])
-      const fullSecs = secHtml.filter((s) => /inset:\s*0|inset:0/.test(s)).length
+      const fullSecs = secHtml.filter(isFull).length
       const totalSecs = secHtml.length
       return {
         bigImgSet: Number(form.bigImg ?? 100),
@@ -854,7 +896,20 @@ export async function POST(req: NextRequest) {
       review = { rounds: 0, issues: [], changes: [], shotOk: false, shotErr: String((e as Error)?.message || e).slice(0, 120) }
     }
 
-    const ymd = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+    /**
+     * ★★★ 2026-11-06 用户："今天 6 号，日期全部是 5 号的"
+     *
+     * 病灶：这里用 `toISOString()`（**UTC**）取日期，
+     *   而 uniqueName() 里的 hms 用 `getHours()`（**本地时间**）
+     *   ⇒ 两个不同源 ⇒ 北京时间 08:00 以前生成的文件，日期会写成**前一天**
+     *   实测：北京 11-06 07:52 → UTC 11-05 23:52 → 文件名 gen_20261105_0752.html
+     *
+     * 修：日期也用本地时区（和 hms 同源）
+     */
+    const _now = new Date()
+    const ymd = String(_now.getFullYear())
+      + String(_now.getMonth() + 1).padStart(2, '0')
+      + String(_now.getDate()).padStart(2, '0')
     let name = ''
     let savedTo = ''
     try {
