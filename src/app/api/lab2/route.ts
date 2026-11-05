@@ -668,6 +668,41 @@ export async function POST(req: NextRequest) {
         if (!embedImgs[i]) embedImgs[i] = firstOk
       }
     }
+    /**
+     * ★★★ 2026-11-05 用户："关于它看的是哪张，能在回执中看到最好"
+     *
+     * 必须在 **embedPlaceholders 之前**统计 —— 替换后全是 base64，认不出是第几张。
+     * 目的：让「13 张素材只用了 7 张」这种问题**看得见**（现在它自己都不知道漏了 6 张）
+     */
+    const imgUsage: {
+      total: number
+      used: number[]
+      missing: number[]
+      perSec: number[][]
+      unknown: boolean
+    } = (() => {
+      const secHtml = [...html.matchAll(/<section[^>]*class="sec[^"]*"[^>]*>[\s\S]*?<\/section>/g)]
+        .map((m) => m[0])
+      const perSec: number[][] = []
+      const usedSet = new Set<number>()
+      secHtml.forEach((s) => {
+        const ids = [...s.matchAll(/\{\{\s*IMG_(\d+)\s*\}\}/g)].map((m) => Number(m[1]))
+        perSec.push(ids)
+        ids.forEach((i) => usedSet.add(i))
+      })
+      const used = [...usedSet].sort((a, b) => a - b)
+      const missing: number[] = []
+      for (let i = 1; i <= imgs.length; i++) if (!usedSet.has(i)) missing.push(i)
+      return {
+        total: imgs.length,
+        used,
+        missing,
+        perSec,
+        /* 一个占位符都没写 ⇒ 统计不可信（它可能用了空 src / background） */
+        unknown: used.length === 0,
+      }
+    })()
+
     html = embedPlaceholders(html, embedImgs)
 
     /* ★兜底：覆盖 __seek（强制按段显示，治"所有层叠一帧"）—— 必须早于 autoplay */
@@ -888,6 +923,8 @@ export async function POST(req: NextRequest) {
       imgEmbedded: embedImgs.filter((x) => !!x && /^data:image\//.test(x)).length,
       /* 新增：HTML 里残留的外链数（>0 就是"这份成片会过期"） */
       imgExternal: (html.match(/https:\/\/[^"'\s)]*(?:aliyuncs|oss)/g) || []).length,
+      /* ★素材使用明细（第几段用了哪几张图 / 漏了哪几张） */
+      imgUsage,
       imgErrs: imgErrs.slice(0, 4),   /* 读图失败原因（定位用） */
       ossKeys: imgs.slice(0, 3).map(ossKey),   /* 实际用的 OSS 路径（定位用） */
       elapsed: Math.round((Date.now() - t0) / 1000),

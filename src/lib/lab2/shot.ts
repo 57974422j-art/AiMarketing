@@ -169,7 +169,10 @@ export async function shotFrames(
 
     let times: number[]
     if (secs.length) {
-      times = secs.map((s) => Math.round((s.start + s.dur * 0.5) * 10) / 10)
+      /* ★2026-11-05 用户："只有每段最后一帧才能看到全部显示完整的"
+         ⇒ 0.5（中点）有时动效还没停；1.0（末帧）又可能赶上"末尾淡出" ⇒ 截到半透明
+         ⇒ 取 **0.7**：入场早完成，又留 30% 余量防退出 */
+      times = secs.map((s) => Math.round((s.start + s.dur * 0.7) * 10) / 10)
     } else {
       /* 解析不到段 ⇒ 退回按总时长均匀取 4 点 */
       const sec = Math.max(1, total || 30)

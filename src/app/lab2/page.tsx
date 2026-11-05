@@ -60,6 +60,14 @@ type Result = {
   imgEmbedded?: number
   /** ★HTML 里残留的 OSS 外链数（>0 = 这份成片会过期） */
   imgExternal?: number
+  /** ★素材使用明细：每段用了哪几张、漏了哪几张 */
+  imgUsage?: {
+    total: number
+    used: number[]
+    missing: number[]
+    perSec: number[][]
+    unknown: boolean
+  }
   imgErrs?: string[]
   ossKeys?: string[]
   elapsed: number
@@ -437,6 +445,48 @@ export default function Lab2Page() {
       '压暗(<0.95)：' + m.darkCount + ' 处' + (m.darkMin ? '（最低 ' + m.darkMin + '）' : ''),
       '贴纸白边：' + (m.hasSticker ? '有' : '无'),
       '思考日志：' + (m.hasTrace ? '有' : '无'),
+
+      /* ★2026-11-05 补：素材使用明细 —— 它到底看了哪张、漏了哪张 */
+      '',
+      '══════ 素材使用 ══════',
+      ...(result.imgUsage && !result.imgUsage.unknown
+        ? [
+          '素材 ' + result.imgUsage.total + ' 张 → 用了 ' + result.imgUsage.used.length + ' 张'
+            + (result.imgUsage.missing.length
+              ? '｜⚠️ 漏了 IMG_' + result.imgUsage.missing.join('、IMG_')
+              : '｜全部用上 ✅'),
+          '逐段：' + result.imgUsage.perSec
+            .map((ids, i) => '段' + (i + 1) + '[' + (ids.length ? ids.map((x) => 'IMG_' + x).join('+') : '无图') + ']')
+            .join(' '),
+        ]
+        : ['（它没写 {{IMG_N}} 占位符，无法统计用了哪张）']),
+
+      /* ★2026-11-05 补：内联 / 外链（外链 > 0 ⇒ 这份 1~2 小时后图全裂） */
+      '',
+      '══════ 图片落地 ══════',
+      'AI 看到：' + (result.imgSent ?? '?') + ' 张 · 内联进 HTML：' + (result.imgEmbedded ?? '?') + ' 张',
+      (result.imgExternal || 0) > 0
+        ? '⚠️ 外链 ' + result.imgExternal + ' 个（签名会过期，1~2 小时后图全裂）'
+        : '外链 0 个 ✅（自包含，永久有效）',
+      ...(result.imgErrs && result.imgErrs.length ? ['读图失败：' + result.imgErrs.join(' ｜ ')] : []),
+
+      /* ★2026-11-05 补：自审（它自己看了成片，改了几轮 / 发现什么 / 改了什么） */
+      '',
+      '══════ 自审 ══════',
+      ...(result.review
+        ? [
+          result.review.shotOk
+            ? '自审 ✓（改了 ' + result.review.rounds + ' 轮）'
+            : '自审 ✗（截图失败：' + (result.review.shotErr || '未执行') + '）',
+          '发现的问题（' + result.review.issues.length + '）：'
+            + (result.review.issues.length ? '' : '无（它认为合格）'),
+          ...result.review.issues.map((s, i) => '  ' + (i + 1) + '. ' + s),
+          '改了什么（' + result.review.changes.length + '）：'
+            + (result.review.changes.length ? '' : '没改（它认为没问题）'),
+          ...result.review.changes.map((s, i) => '  ' + (i + 1) + '. ' + s),
+        ]
+        : ['（没有自审记录 —— 开关可能关着）']),
+
       '',
       '══════ 文件名 ══════',
       result.name + ' · 耗时 ' + result.elapsed + 's',
@@ -1039,6 +1089,28 @@ export default function Lab2Page() {
                   <div style={{ color: result.metrics.hasAutoplay ? '#7CF' : '#FF6B6B' }}>
                     自动播放：{result.metrics.hasAutoplay ? '有' : '无（打开只有第一帧）'}
                   </div>
+                  {/* ★2026-11-05 素材使用明细（它看的是哪张 / 漏了哪张） */}
+                  {result.imgUsage && !result.imgUsage.unknown && (
+                    <div style={{ gridColumn: '1 / -1', fontSize: 9.5, lineHeight: 1.7 }}>
+                      <div style={{ color: result.imgUsage.missing.length ? '#FF6B6B' : '#7CF' }}>
+                        素材使用：{result.imgUsage.used.length} / {result.imgUsage.total} 张
+                        {result.imgUsage.missing.length > 0
+                          ? ` · ⚠️ 漏了 IMG_${result.imgUsage.missing.join('、IMG_')}`
+                          : ' · 全部用上 ✅'}
+                      </div>
+                      <div style={{ color: '#7B8798', wordBreak: 'break-all' }}>
+                        逐段：
+                        {result.imgUsage.perSec.map((ids, i) => (
+                          <span key={i}>
+                            {' '}段{i + 1}
+                            <span style={{ color: ids.length ? '#8FB8D8' : '#FF6B6B' }}>
+                              [{ids.length ? ids.map((x) => 'IMG_' + x).join('+') : '无图'}]
+                            </span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div style={{ color: (result.metrics.hasImgs || 0) > 0 ? '#7CF' : '#FF6B6B' }}>
                     内联图：{result.metrics.hasImgs ?? 0} 张
                   </div>
