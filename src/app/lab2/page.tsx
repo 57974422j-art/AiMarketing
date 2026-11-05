@@ -58,6 +58,8 @@ type Result = {
   review?: Review | null
   imgSent?: number
   imgEmbedded?: number
+  /** ★HTML 里残留的 OSS 外链数（>0 = 这份成片会过期） */
+  imgExternal?: number
   imgErrs?: string[]
   ossKeys?: string[]
   elapsed: number
@@ -356,7 +358,11 @@ export default function Lab2Page() {
       for (const u of pickedUrls) {
         b64s.push(u ? await toB64(u) : '')
       }
-      const imgData = b64s.filter(Boolean)
+      /* ★2026-11-05：**不能 filter**！
+         17 张里若有 3 张压缩失败，filter 后只剩 14 个
+         ⇒ 后端 imageData[i] 和 imgs[i] **整体错位** ⇒ 图配错段
+         保留空字符串占位，后端自己会跳过并走 OSS 兜底 */
+      const imgData = b64s
 
       const r = await fetch('/api/lab2', {
         method: 'POST',
@@ -997,6 +1003,12 @@ export default function Lab2Page() {
                     color: (result.imgEmbedded || 0) > 0 ? '#7CF' : '#FF6B6B' }}>
                     AI 看到图：{result.imgSent ?? '?'} 张 · 内联进 HTML：{result.imgEmbedded ?? '?'} 张
                     {(result.imgEmbedded || 0) === 0 ? '（0 张 = 图没进去）' : ''}
+                    {/** ★2026-11-05：外链 > 0 ⇒ 这份 HTML 会过期（签名 1~2 小时） */}
+                    {(result.imgExternal || 0) > 0 && (
+                      <span style={{ color: '#FF6B6B' }}>
+                        {' '}· ⚠️ 外链 {result.imgExternal} 个（签名会过期，1~2 小时后图全裂）
+                      </span>
+                    )}
                   </div>
                   {(result.ossKeys || []).length > 0 && (
                     <div style={{ gridColumn: '1 / -1', fontSize: 9, color: '#4C5765', wordBreak: 'break-all' }}>

@@ -641,16 +641,32 @@ export async function POST(req: NextRequest) {
         embedImgs.push(b64)
         continue
       }
-      /* ② 次选：signedUrl ⇒ **后端 fetch 下来转 base64**（自包含、永久有效）
-         ★2026-11-02：直接塞 signedUrl 的话，1 小时后签名过期 ⇒ 下载的 HTML 图全裂 */
+      /* ② 次选：signedUrl ⇒ 后端 fetch 下来转 base64
+         ★2026-11-02：直接塞 signedUrl 的话，1 小时后签名过期 ⇒ 下载的 HTML 图全裂
+         ★★★ 2026-11-05 用户实测（gen_20261105_082951，横屏 17 张）：
+             前端 imageData 空了 ⇒ 走这里 ⇒ fetch 403（签名已过期 11 小时）
+             ⇒ 旧代码 `embedImgs.push(b || u)` **退回了原 URL**
+             ⇒ HTML 里 13 个会过期的外链 ⇒ 打开全黑，AI 自审还说"没问题"
+             ⇒ 现在：fetch 失败**绝不退回 URL**，继续往下走 ③ 读 OSS */
       const u = String(imageUrls[i] || '')
       if (/^https?:\/\//.test(u)) {
         const b = await fetchAsBase64(u, imgErrs)
-        embedImgs.push(b || u)   /* fetch 失败才退回原 URL */
-        continue
+        if (b) { embedImgs.push(b); continue }
       }
-      /* ③ 兜底：后端读 OSS */
-      embedImgs.push(await readImgForEmbed(ossKey(imgs[i]), imgErrs))
+      /* ③ 服务端直读 OSS（有权限，不依赖签名） */
+      const fromOss = await readImgForEmbed(ossKey(imgs[i]), imgErrs)
+      if (fromOss) { embedImgs.push(fromOss); continue }
+      /* ④ 实在读不到 ⇒ 先记 null，下面统一用「第一张成功的图」顶上
+            （宁可重复一张，也不要留空/留外链 ⇒ 否则就是黑屏段） */
+      embedImgs.push(null)
+    }
+
+    /* ★把读不到的图，用第一张成功的顶掉（保证每个占位符都有真图） */
+    const firstOk = embedImgs.find((x) => x && /^data:image\//.test(x)) || null
+    if (firstOk) {
+      for (let i = 0; i < embedImgs.length; i++) {
+        if (!embedImgs[i]) embedImgs[i] = firstOk
+      }
     }
     html = embedPlaceholders(html, embedImgs)
 
@@ -867,7 +883,11 @@ export async function POST(req: NextRequest) {
       savedTo,
       review,                  /* ★自审记录（改了几轮 / 发现什么 / 改了什么） */
       imgSent: imgOk,          /* AI 实际看到的图张数 */
-      imgEmbedded: embedImgs.filter(Boolean).length,  /* 实际内联进 HTML 的张数 */
+      /* ★2026-11-05 修统计口径：原来 filter(Boolean) 把**外链 URL 也算"内联"**
+         ⇒ 明明 0 张 base64，页面却显示"内联 17 张"，一直在骗人 */
+      imgEmbedded: embedImgs.filter((x) => !!x && /^data:image\//.test(x)).length,
+      /* 新增：HTML 里残留的外链数（>0 就是"这份成片会过期"） */
+      imgExternal: (html.match(/https:\/\/[^"'\s)]*(?:aliyuncs|oss)/g) || []).length,
       imgErrs: imgErrs.slice(0, 4),   /* 读图失败原因（定位用） */
       ossKeys: imgs.slice(0, 3).map(ossKey),   /* 实际用的 OSS 路径（定位用） */
       elapsed: Math.round((Date.now() - t0) / 1000),
