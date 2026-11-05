@@ -43,7 +43,19 @@ export function datePrefixOf(d: Date = new Date()): string {
 export function isGeneratedName(nameOrKey: string): boolean {
   const key = String(nameOrKey || '')
   if (key.includes('/' + LEGACY_DIR) || key.startsWith(LEGACY_DIR)) return true
-  return /^gen_\d{8}_\d{3}\./.test(baseNameOf(key))
+  /**
+   * ★★★ 2026-11-06 用户实测：「个人仓库里，生成素材跑到原始素材里去了，今天忽然显示出来」
+   *
+   * 病灶：这里原来要求**3 位序号** `gen_YYYYMMDD_NNN.ext`
+   *   · 日报 / 老线：`gen_20261013_002.html`  ✅ 符合
+   *   · **lab2 成片**：`gen_20261105_135355.html`（时间戳 6 位）❌ **不符合**
+   *     ⇒ repoKind() 判成 'asset' ⇒ 仓库页把它归到「**原始素材**」那一组
+   *
+   * 修：序号放宽成 **3 位以上纯数字** `\d{3,}` ⇒ 两种命名都认
+   *   · 仍然要求"gen_ + 8 位日期 + 下划线 + 纯数字 + ."
+   *     ⇒ 用户自己上传 `gen_我的图.jpg` 依然**不会**被误判（那条保护还在）
+   */
+  return /^gen_\d{8}_\d{3,}\./.test(baseNameOf(key))
 }
 
 /** 组装文件名：`20261011_001.jpg` / `gen_20261011_001.mp4` */
