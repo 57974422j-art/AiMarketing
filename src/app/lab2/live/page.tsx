@@ -585,9 +585,6 @@ export default function Lab2Page() {
                 width: '100%', background: '#06080B', border: '1px solid #242C38', borderRadius: 6,
                 color: '#D8E2EC', fontSize: 11, padding: 8, resize: 'vertical', lineHeight: 1.6,
               }} />
-            <div style={{ fontSize: 8.5, color: '#4C5765', marginTop: 5 }}>
-              写在这里的话会原样进 prompt，优先级高于所有滑杆
-            </div>
           </div>
 
           {/* ★★ 画幅（最高级设置 · 2026-11-03 用户要求） */}
@@ -614,23 +611,17 @@ export default function Lab2Page() {
                   }}>{t}</button>
               ))}
             </div>
-            <div style={{ fontSize: 9, color: '#6B5C42', marginTop: 7, lineHeight: 1.7 }}>
-              画幅决定：画布尺寸 · 安全边距 · 单行字数上限 · 主体占比
-              <br />⚠️ 这个选了会直接写进 prompt，AI 按对应画幅构图
-            </div>
           </div>
 
           {/* 内容类型 */}
           <div style={box}>
-            <span style={label}>内容类型（唯一的分类）</span>
+            <span style={label} title={CT_HINT[contentType] || ''}>内容类型（唯一的分类）</span>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
               {CONTENTS.map(([v, t]) => (
                 <button key={v || 'auto'} onClick={() => setContentType(v)} style={btn(contentType === v)}>{t}</button>
               ))}
             </div>
-            {contentType && (
-              <div style={{ fontSize: 9, color: '#4C5765', marginTop: 8, lineHeight: 1.7 }}>{CT_HINT[contentType]}</div>
-            )}
+            {/* ★注解改成鼠标悬停提示（用户："注解可以指上去再显示"） */}
           </div>
 
           {/* 3 个开关 */}
@@ -664,11 +655,8 @@ export default function Lab2Page() {
             <input type="range" min={0} max={100} step={10} value={bigImg}
               onChange={(e) => setBigImg(Number(e.target.value))}
               style={{ width: '100%', accentColor: '#FFB347', marginBottom: 4 }} />
-            <div style={{ fontSize: 8.5, color: '#4C5765', marginBottom: 10, lineHeight: 1.6 }}>
-              {bigImg === 0 && '不做满幅图（全用贴纸/局部）'}
-              {bigImg > 0 && bigImg < 60 && '少量满幅图（偏贴纸化）'}
-              {bigImg >= 60 && bigImg < 100 && '大部分段落用满幅大图'}
-              {bigImg === 100 && '★ 每段都用满幅大图（最容易看清问题）'}
+            <div style={{ fontSize: 8.5, color: '#7A8798', marginBottom: 8 }}>
+              {bigImg === 0 ? '全用贴纸/局部' : bigImg < 60 ? '少量满幅' : bigImg < 100 ? '大部分满幅' : '★ 全满幅'}
             </div>
 
             {/* ★自审开关 */}
@@ -751,17 +739,20 @@ export default function Lab2Page() {
               </div>
               )}
 
-              {/* 完成复制 / prompt / 分享 / 满意（tab=report）*/}
+              {/* 完成复制 / prompt / 查看 / 分享 / 满意（tab=report，一排放下）*/}
               {tab === 'report' && !zen && (
-              <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
                 <button onClick={() => copyAll('all', buildReport())}
-                  style={{ ...btn(copied === 'all'), flex: 1, padding: '9px 0', fontWeight: 700 }}>
-                  {copied === 'all' ? '✓ 已复制' : '📋 完成复制（要求 + 思考 + 指标）'}
+                  style={{ ...btn(copied === 'all'), flex: 1, padding: '8px 0', fontWeight: 700, fontSize: 10.5 }}>
+                  {copied === 'all' ? '✓ 已复制' : '📋 完成复制'}
                 </button>
                 <button onClick={() => copyAll('prompt', result.prompt)}
-                  style={{ ...btn(copied === 'prompt'), flex: 1, padding: '9px 0' }}>
-                  {copied === 'prompt' ? '✓ 已复制' : '📋 复制完整 prompt'}
+                  style={{ ...btn(copied === 'prompt'), flex: 1, padding: '8px 0', fontSize: 10.5 }}>
+                  {copied === 'prompt' ? '✓ 已复制' : '📋 prompt'}
                 </button>
+                <button onClick={() => setShowReport(true)}
+                  title="查看完整报告"
+                  style={{ ...btn(false), padding: '8px 10px', fontSize: 10.5 }}>👁</button>
                 {/* ★🔗 分享（2026-11-04 用户："我想知道这个分享出去什么样"）
                     链接打开就是黑底全屏播放，不用登录、没有工具栏 */}
                 <button onClick={() => {
@@ -772,21 +763,17 @@ export default function Lab2Page() {
                   setTimeout(() => setCopied(''), 2500)
                   window.open(u, '_blank')
                 }}
-                  style={{ ...btn(copied === 'share'), padding: '9px 12px' }}>
-                  {copied === 'share' ? '✓ 链接已复制' : '🔗 分享'}
+                  title="复制分享链接 + 新标签打开"
+                  style={{ ...btn(copied === 'share'), padding: '8px 10px', fontSize: 10.5 }}>
+                  {copied === 'share' ? '✓' : '🔗'}
                 </button>
                 <button onClick={() => { confirm('满意吗？点确定=标记这条记忆有效'); fetch('/api/lab2', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'confirm' }) }) }}
-                  style={{ ...btn(false), padding: '9px 12px' }}>👍 满意</button>
+                  title="满意（标记这条记忆有效）"
+                  style={{ ...btn(false), padding: '8px 10px', fontSize: 10.5 }}>👍</button>
               </div>
               )}
 
-              {/* ★查看完整报告（弹窗，2026-11-05）*/}
-              {tab === 'report' && !zen && (
-                <button onClick={() => setShowReport(true)}
-                  style={{ width: '100%', padding: '9px 0', marginBottom: 10, fontSize: 11.5, ...btn(false) }}>
-                  👁 查看完整报告（要求 + 思考 + 素材使用 + 自审 + 指标）
-                </button>
-              )}
+
 
               {/* 预览 + 全屏 + 时间轴（常驻，不随 tab 切换）*/}
               <div style={{ position: 'relative' }}>
@@ -1267,7 +1254,8 @@ export default function Lab2Page() {
 
             <div style={{
               padding: 14, overflowY: 'auto', minHeight: 0,
-              display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(104px, 1fr))', gap: 8,
+              /* ★2026-11-05 用户："不要显示那么多图片出现挤压" ⇒ 格子加大，靠滚动 */
+              display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(154px, 1fr))', gap: 10,
             }}>
               {items.map((it, i) => {
                 const n = String(it.name || it.key || i)
