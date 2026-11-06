@@ -125,6 +125,8 @@ export default function Lab2Page() {
      ② 大图比（让它都设计大图，容易发现问题）*/
   const [selfReviewOn, setSelfReviewOn] = useState(true)
   const [bigImg, setBigImg] = useState(100)
+  /* ★2026-11-06 收尾帧：最后一段纯绘制（不用图） */
+  const [endCard, setEndCard] = useState(false)
   const [userRules, setUserRules] = useState('')
 
   /* 重做 */
@@ -397,6 +399,7 @@ export default function Lab2Page() {
           motion,
           selfReview: selfReviewOn,
           bigImg,
+          endCard,
           userRules,
           maxSeconds: 45,
           aspect,
@@ -670,6 +673,15 @@ export default function Lab2Page() {
               <span style={{ fontSize: 9, color: '#4C5765', marginLeft: 2 }}>
                 {selfReviewOn ? '多 4~5 分' : '省 4~5 分'}
               </span>
+            </label>
+
+            {/* ★2026-11-06 收尾帧：最后一段纯绘制（用户："以前支持几段自己画，特别是收尾帧"）*/}
+            <label style={chk} title="最后一段不用图，纯绘制一个落版（品牌名 + 一句话 + 签名图形）">
+              <input type="checkbox" checked={endCard}
+                onChange={(e) => setEndCard(e.target.checked)}
+                style={{ width: 14, height: 14, accentColor: '#3ECF8E' }} />
+              收尾帧自己画
+              <span style={{ fontSize: 9, color: '#4C5765', marginLeft: 2 }}>最后一段不用图</span>
             </label>
 
             {/* ★大图比 */}

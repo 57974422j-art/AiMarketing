@@ -533,6 +533,8 @@ export async function POST(req: NextRequest) {
       motion: String(body?.motion || 'on'),
       /* ★大图比（0~100）：让它按比例用满幅大图 */
       bigImg: Number(body?.bigImg ?? 100),
+      /* ★2026-11-06 收尾帧：最后一段纯绘制（不用图） */
+      endCard: body?.endCard === true,
       memories: getMemories(userId),
       userRules: String(body?.userRules || ''),
       selfReview: body?.selfReview !== false,

@@ -123,6 +123,8 @@ export default function Lab2Page() {
      ② 大图比（让它都设计大图，容易发现问题）*/
   const [selfReviewOn, setSelfReviewOn] = useState(true)
   const [bigImg, setBigImg] = useState(100)
+  /* ★2026-11-06 收尾帧：最后一段纯绘制（不用图） */
+  const [endCard, setEndCard] = useState(false)
   const [selfReview, setSelfReview] = useState(true)
   const [userRules, setUserRules] = useState('')
 
@@ -386,6 +388,7 @@ export default function Lab2Page() {
           motion,
           selfReview: selfReviewOn,
           bigImg,
+          endCard,
           userRules,
           maxSeconds: 45,
           aspect,
@@ -608,6 +611,15 @@ export default function Lab2Page() {
                   style={{ ...btn(selfReviewOn === v), flex: 1, fontSize: 10 }}>{t as string}</button>
               ))}
             </div>
+
+            {/* ★2026-11-06 收尾帧：最后一段纯绘制（用户："以前支持几段自己画，特别是收尾帧"）*/}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 10.5, color: '#B0BEC8', padding: '7px 0 2px', cursor: 'pointer' }}
+              title="最后一段不用图，纯绘制一个落版（品牌名 + 一句话 + 签名图形）">
+              <input type="checkbox" checked={endCard} onChange={(e) => setEndCard(e.target.checked)}
+                style={{ width: 14, height: 14, accentColor: '#3ECF8E' }} />
+              收尾帧自己画
+              <span style={{ fontSize: 9, color: '#4C5765' }}>最后一段不用图</span>
+            </label>
           </div>
 
           {/* 素材：★带缩略图（用户："只显示序号根本看不出是哪张"） */}
