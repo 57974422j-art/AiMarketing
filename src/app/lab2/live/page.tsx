@@ -797,7 +797,8 @@ export default function Lab2Page() {
             background: 'rgba(255,179,71,.07)',
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 7 }}>
-              <span style={{ fontSize: 11, color: '#FFD9A0', fontWeight: 700 }}>画幅（最优先）</span>
+              {/* ★2026-11-06 去掉"最优先" —— 上面「补充要求」才是最高优先，两个都说最优先会打架 */}
+              <span style={{ fontSize: 11, color: '#FFD9A0', fontWeight: 700 }}>画幅</span>
               <span style={{ fontSize: 9, color: '#8A7A5C' }}>
                 {aspect === '16:9' ? '1280 × 720 横屏' : '720 × 1280 竖屏'}
               </span>
@@ -840,11 +841,20 @@ export default function Lab2Page() {
               </div>
             </div>
 
+            {/* ★2026-11-06 修：勾选框只有"开/关"两态，但装饰密度是三档（少/中/多）
+                 ⇒ 原来勾上永远变 high、不勾永远变 low，**"中"档一旦动过就回不来**
+                 ⇒ 现在把当前档位显示出来，勾选框只管"多一点/少一点" */}
             <label style={chk}>
               <input type="checkbox" checked={decoDensity !== 'low'}
                 onChange={(e) => setDecoDensity(e.target.checked ? 'high' : 'low')}
                 style={{ width: 14, height: 14, accentColor: '#3ECF8E' }} />
               装饰多一点
+              <span style={{
+                fontSize: 9, marginLeft: 2,
+                color: decoDensity === 'high' ? '#FFB347' : '#4C5765',
+              }}>
+                {decoDensity === 'high' ? '多' : decoDensity === 'mid' ? '中（默认）' : '少'}
+              </span>
             </label>
 
             <label style={chk}>

@@ -36,14 +36,7 @@ const PART1 = `【画幅 · 最优先】
 安全边距：左右 48px · 上下 64px（内容不许出这个框）
 可用区：%%USABLE%%
 
-**竖屏构图的常识（按这个做）**：
-  · 视觉重心在**纵向**：内容必须**垂直居中**，不许只用固定 \`top: 200px\` 这种锚定
-    ✅ 正确：\`top: calc(50% - 半高)\` 或 flex 居中
-    ❌ 错误：贴纸图 \`top:200px; height:500px\` ⇒ **下面空 580px（45%）**（实测过）
-  · **单侧留白 ≤ 画布高的 18%（230px）**，超过就是"空"不是"留白"
-  · 贴纸图短边 **≥ 700px**（画布短边的 55~70%），500px 太小
-  · 一屏内**至少 2 个视觉元素**（图 + 字 或 图 + 数字），不许只有一个
-  · ❌ 不要把横屏的"左文右图"直接压窄用
+%%FRAME_RULES%%
 
 【你是导演，不是执行器】
 
@@ -155,13 +148,27 @@ const PART2 = `【硬底线 · 违反即不合格】
     \`-webkit-text-stroke: 10px #E8452F; color: #FFF;\`
 
 **写法 B（三层花字，推荐）**：
-    \`<svg viewBox="0 0 720 300">
+    \`\`\`html
+    <svg viewBox="0 0 720 300">
+      <!-- 第1层：彩色粗边（字号 120 ⇒ stroke-width 12，约 10%） -->
       <text x="360" y="200" text-anchor="middle" font-size="120" font-weight="900"
-        paint-order="stroke" stroke="#FF3D8B" stroke-width="42"
+        paint-order="stroke" stroke="#FF3D8B" stroke-width="12"
         stroke-linejoin="round" fill="#FF3D8B">鲜切!!</text>
-      <text ... stroke="#FFFFFF" stroke-width="20" ... fill="#FFFFFF">鲜切!!</text>
-      <text ... fill="url(#gradGold)">鲜切!!</text>
-    </svg>\`
+      <!-- 第2层：白边（stroke-width 6，是第1层的一半） -->
+      <text x="360" y="200" text-anchor="middle" font-size="120" font-weight="900"
+        paint-order="stroke" stroke="#FFFFFF" stroke-width="6"
+        stroke-linejoin="round" fill="#FFFFFF">鲜切!!</text>
+      <!-- 第3层：字芯（渐变填充，不加 stroke） -->
+      <text x="360" y="200" text-anchor="middle" font-size="120" font-weight="900"
+        fill="url(#gradGold)">鲜切!!</text>
+    </svg>
+    \`\`\`
+
+    ⛔⛔ **描边会吃掉字形内部，这是最容易翻车的地方（实测过）**：
+       stroke 是**沿字形边缘向两侧各扩一半** ⇒ stroke-width 30 会向字芯内吃进 15px
+       三层叠下来，字号 120 的字芯只剩 120−30−10 = **80px** ⇒ 笔画糊成一团
+       正确算法：**外层 ≤ 字号 10%**，中层 ≤ 外层的 50%，字芯 ≥ 字号的 65%
+       （120 号 ⇒ 外层 12 / 中层 6 ⇒ 字芯 102px ✅）
 
 **写法 C（发光）**：
     \`filter: drop-shadow(0 0 4px #FF6B35) drop-shadow(0 0 26px #FF6B35);\`
@@ -187,10 +194,14 @@ const PART2 = `【硬底线 · 违反即不合格】
 ❌ 任何 \`<script src="https://...">\` 一律禁止（渲染器会失败）
 
 ═══ 禁止偷懒 7 条 ═══
-① **必须用 SVG**（描边字/图标/图表/引线，一律 SVG）
+① **描边字/图标/图表/引线一律用 SVG**（不要用 div 拼）
 ② **不许压暗图片代替围边**
 ③ **不许抄英文负字距/负行高**
-④ **不许只用 CSS**（canvas 0 次 + three 0 次 ⇒ 你在偷懒）
+④ **不许全程只有 div + 文字**：
+   至少要有一样"非排版"的手段 —— SVG 矢量图形（印章/纹样/路径生长/描边字）
+   或 canvas（粒子/噪点/光晕）或 CSS 高级特性（mask / clip-path / blend-mode / filter）
+   ⚠️ **不是"必须 canvas"**：canvas 只在你真的需要粒子/逐帧时才用；
+      没需求就上 SVG 或 mask，别硬塞一个空粒子层充数
 ⑤ **不许元素太小**（主体占短边 40~65%；缩到 25% 还认得出吗）
 ⑥ **不许每段长得一样**（相邻三段不许同类型，至少 5 种构图）
 ⑦ **"多图错落"必须是同一主体**（全景+特写+局部；❌ 不许把不相干两张图并排；
@@ -225,10 +236,36 @@ export function strongPart2(): string {
   return PART2
 }
 
+/**
+ * ★★★ 2026-11-06 修矛盾（第 7 条）：
+ *   强版原来只有"竖屏构图常识"（纵向重心 / 垂直居中 / 留白≤画布高18% / 贴纸短边≥700px），
+ *   横版 1280×720 照搬这套 ⇒ 它在横画布里做"上下堆叠 + 垂直居中"
+ *   ⇒ 成品：上面一条图 + 下面一大块黑（用户实测 183746 就是这个）
+ */
+const VERT_RULES = `**竖屏构图常识（9:16，按这个做）**：
+  · 视觉重心在**纵向**：内容**垂直居中**，不许只靠固定 \`top: 200px\` 这种锚定
+    ✅ \`top: calc(50% - 半高)\` 或 flex 居中
+    ❌ 贴纸图 \`top:200px; height:500px\` ⇒ **下面空 580px（45%）**（实测过）
+  · **单侧留白 ≤ 画布高的 18%（230px）**，超过就是"空"不是"留白"
+  · 贴纸图短边 **≥ 700px**（画布短边的 55~70%），500px 太小
+  · 一屏内**至少 2 个视觉元素**（图 + 字 或 图 + 数字）
+  · ❌ 不要把横屏的"左文右图"直接压窄用`
+
+const HORI_RULES = `**横屏构图常识（16:9，和竖屏完全不是一套）**：
+  · 视觉重心在**横向**：内容**水平居中**，左右对称或黄金分割（0.618）
+  · **单侧留白 ≤ 画布宽的 18%（230px）**；横屏最容易出的错是**上下留黑边**
+    ⇒ 图要铺满高度，别做成"上面一条图 + 下面一大块黑"
+  · 主体占**短边（720）**的 40~65% ⇒ 约 290~470px 高
+  · 主标题字号按**画布宽**算：一屏一句，字号 **≥ 宽度的 6%（约 76px）**
+    小字 ≥ 宽度的 2.2%（28px）；横屏上"看起来刚好"的字，投到手机上会糊
+  · 版式优先**左右关系**：左文右图 / 右文左图 / 上标题下横幅 / 中缝对称 / 出血裁切
+  · ❌ 不要照搬竖屏的"上下堆叠"（横屏会变成：上面一条图 + 下面一大块黑）`
+
 /** 顶部占位符替换（画幅 / 素材 / 时长） */
 export function fillFrame(tpl: string, f: FrameCtx, W: number, H: number): string {
   const land = String(f.aspect || '') === '16:9'
   return tpl
+    .replace(/%%FRAME_RULES%%/g, land ? HORI_RULES : VERT_RULES)
     .replace(/%%W%%/g, String(W))
     .replace(/%%H%%/g, String(H))
     .replace(/%%ASPECT%%/g, land ? '横屏 16:9' : '竖屏 9:16')
