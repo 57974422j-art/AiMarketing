@@ -288,6 +288,35 @@ export default function Lab2Page() {
     } catch { if (!quiet) setErr('跨域读不到 iframe（用「↗ 新标签」打开）') }
   }
 
+  /**
+   * ★★★ 2026-11-06 用户：「其它都支持生成后直接镜像到本地，去看日报线怎么镜像的抄一下就行」
+   *
+   * 抄的是日报线（app/agent/page.tsx）的同一套：
+   *   window.electronAPI.storageMirror(`/api/storage/file?userId=X&name=Y`)
+   *     ↓
+   *   客户端（Electron）会把 OSS 上这份文件拉到本地仓库 storage/<uid>/
+   *
+   * 为什么用 /api/storage/file 而不是 /api/lab2/file：
+   *   · 前者是日报线一直在用的，Electron 侧行为已验证
+   *   · lab2 成片也在 `storage/<uid>/gen_xxx.html`（同一个 key 规则）⇒ 能读到
+   *
+   * AI 思考日志：**HTML 里自带 `__trace`**（生成时就写进去了）
+   *   ⇒ 镜像 HTML 就等于把思考一起镜像下来了，不用单独存文件
+   */
+  function mirrorToLocal(name?: string, repoId?: string) {
+    try {
+      const n = String(name || '')
+      if (!n) return
+      const api = (window as unknown as {
+        electronAPI?: { storageMirror?: (u: string) => void }
+      }).electronAPI
+      if (!api?.storageMirror) return   /* 网页版没有 electronAPI ⇒ 静默跳过 */
+      const uid = String(repoId || '1')
+      api.storageMirror(`/api/storage/file?userId=${uid}&name=${encodeURIComponent(n)}`)
+      console.log('[lab2] 镜像到本地仓库：' + n)
+    } catch { /* 镜像失败不影响主流程 */ }
+  }
+
   /** ★框选确认：截「当前帧的这块」→ 塞进对话附件 + 切到对话 tab */
   async function doCrop() {
     if (!result || !cropRect) return
@@ -389,6 +418,8 @@ export default function Lab2Page() {
           /* 自动把预览切回它上次那一版 */
           if (j.url) {
             setResult((prev) => (prev ? { ...prev, url: j.url, name: j.currentHtmlName || prev.name } : prev))
+      /* ★对话改片也出新文件 ⇒ 一样镜像到本地 */
+      mirrorToLocal(j?.currentHtmlName, (result?.repoId) || '1')
           }
         }
       } catch { /* 静默 */ }
@@ -424,6 +455,8 @@ export default function Lab2Page() {
       setChatMsgs((p) => [...p, { role: 'assistant', text: j.reply || '已改好' }])
       /* 换新版本预览（指标基于上一版，不重算） */
       setResult((prev) => (prev ? { ...prev, url: j.url, name: j.name, savedTo: j.savedTo } : prev))
+      /* ★删段重排也出新文件 ⇒ 一样镜像 */
+      mirrorToLocal(j?.name, result?.repoId)
       setSeekT(0)
     } catch (e) {
       setChatMsgs((p) => [...p, { role: 'assistant', text: '❌ ' + String((e as Error)?.message || e) }])
@@ -509,6 +542,8 @@ export default function Lab2Page() {
       const j = await r.json()
       if (!j?.ok) { setErr(String(j?.error || '生成失败')); return }
       setResult(j as Result)
+      /* ★生成完立刻镜像到本地仓库（Electron 里生效；网页版静默跳过） */
+      mirrorToLocal(j?.name, j?.repoId)
       if (isRetry) setFeedback('')
       /* ★首版也记进对话（后端已写 session，这里只补前端显示） */
       setChatMsgs((p) => [
