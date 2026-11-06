@@ -950,10 +950,18 @@ export default function Lab2Page() {
           {/* ★生成按钮已移到顶栏（直播时不用滚动就能点） */}
         </div>
 
-        {/* ══ 中栏：预览（最大，直播时观众看这里）══ */}
-        <div style={{ minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
+        {/* ══ 中栏：预览（最大，直播时观众看这里）══
+            ★2026-11-06 用户："要适当必然中间" ⇒ 预览块**水平 + 垂直居中**，
+              不被右栏内容长短影响（右栏是独立滚动列，改它不动这里） */}
+        <div style={{
+          minHeight: 0, overflowY: 'auto', overflowX: 'hidden',
+          display: 'flex', flexDirection: 'column',
+          /* 垂直居中用 justifyContent；水平**不用 alignItems:center**
+             （那会把播放条也挤成内容宽）—— 预览自己 margin:0 auto 居中 */
+          justifyContent: 'center', alignItems: 'stretch',
+        }}>
           {!result && (
-            <div style={{ ...box, height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4C5765', fontSize: 12 }}>
+            <div style={{ ...box, width: '100%', height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4C5765', fontSize: 12 }}>
               生成后这里全屏显示成片
             </div>
           )}
@@ -970,9 +978,12 @@ export default function Lab2Page() {
                     style={{
                       display: 'block', margin: '0 auto',
                       /* 三栏后中栏宽 = 100vw - 260 - 360 - 间距 ≈ 100vw - 660 */
+                      /* ★2026-11-06 用户："出现时严重压缩中间"
+                         ⇒ 竖屏高度 72vh → 76vh（预览按比例变宽），
+                           同时给下方播放条+段导航留够空间（不滚） */
                       height: (result.aspect || aspect) === '16:9'
-                        ? 'min(66vh, (100vw - 680px) * 9 / 16)'
-                        : 'min(72vh, (100vw - 680px) * 16 / 9)',
+                        ? 'min(66vh, (100vw - 660px) * 9 / 16)'
+                        : 'min(76vh, (100vw - 660px) * 16 / 9)',
                       aspectRatio: (result.aspect || aspect) === '16:9' ? '16 / 9' : '9 / 16',
                       border: '1px solid #242C38', borderRadius: 10, background: '#000',
                     }} />
@@ -1196,8 +1207,39 @@ export default function Lab2Page() {
           )}
         </div>
 
-        {/* ══ 右栏：分析（tab）══ */}
-        <div style={{ overflowY: 'auto', minHeight: 0, paddingRight: 4 }}>
+        {/* ══ 右栏：对话改片（★2026-11-06 用户："会话框不生成不出现，我说的是固定在右侧"）══ */}
+        <div style={{
+          overflowY: 'auto', minHeight: 0, paddingRight: 4,
+          display: 'flex', flexDirection: 'column',
+        }}>
+          {/**
+           * ★★★ 2026-11-06 用户：
+           *   「看一下会话框 不生成不出现 我说的是固定在右侧，不要生成才出现
+           *     而且要适当必然中间，现在是出现时严重压缩中间」
+           *
+           * 两个问题：
+           *   ① 没生成时右栏**整块空白**（不出现）⇒ 现在常驻一段说明
+           *   ② 生成后右栏内容一长，**中栏预览被挤窄**（因为右栏 overflowY:auto 会撑）
+           *      ⇒ 中栏用 flex 居中 + 固定高度，不被右栏内容影响
+           */}
+          {!result && !zen && (
+            <div style={{
+              ...box,
+              border: '1px dashed #2A3440', background: 'transparent',
+              color: '#5E6B7A', fontSize: 11, lineHeight: 1.9,
+            }}>
+              <div style={{ fontWeight: 700, color: '#7A8798', marginBottom: 6, fontSize: 11.5 }}>
+                💬 对话改片
+              </div>
+              生成一版之后，这里就是你和它对话的地方。<br />
+              直接说哪儿不对（例：第 3 段的字压住菜了 / 结尾换成品牌名 / 数字太小），<br />
+              它会在**现有版本上**改，不会重做整条。<br />
+              <span style={{ color: '#4C5765', fontSize: 10 }}>
+                也可以先在预览里「📷 框选」一块画面发过去。
+              </span>
+            </div>
+          )}
+
           {result && (
             <>
               {/* ★★★ 2026-11-06 用户：
