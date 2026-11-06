@@ -62,6 +62,8 @@ type Result = {
   imgExternal?: number
   /** ★自动修掉的动画死锁数（[data-p="1"] ⇒ [data-p]，修 n 处说明原片有 n 处全隐藏） */
   deadlockFixed?: number
+  /** ★自动补的 section id 数（CSS 用了 #sN 但 HTML 没 id ⇒ 段落样式全废） */
+  sectionIdsFixed?: number
   /** ★设定 vs 实际（大图比） */
   setCheck?: { bigImgSet: number; fullSecs: number; totalSecs: number; actualPct: number }
   /** ★素材使用明细：每段用了哪几张、漏了哪几张 */
@@ -556,6 +558,13 @@ export default function Lab2Page() {
         ? ['',
           '⚠️ 动画死锁：检测到 ' + result.deadlockFixed + ' 处 [data-p="1"]（可见时 p 永远到不了 1）'
           + '\n   ⇒ 已自动放宽成 [data-p]，否则这些元素**整段都是隐藏的**（全黑）']
+        : []),
+      /* ★2026-11-06 段落 id 缺失（CSS 用 #sN 但 HTML 没 id ⇒ 段落样式全部失效） */
+      ...((result.sectionIdsFixed || 0) > 0
+        ? ['',
+          '⚠️ 段落 id 缺失：CSS 用了 #s1~#sN，但 HTML 的 section 没有 id'
+          + '\n   ⇒ 已按顺序补 ' + result.sectionIdsFixed + ' 个'
+          + '（不补的话：巨字退化成 16px、遮罩失效、文字挤成一坨）']
         : []),
 
       /* ★2026-11-05 补：素材使用明细 —— 它到底看了哪张、漏了哪张 */
@@ -1395,6 +1404,15 @@ export default function Lab2Page() {
                       ⚠️ 动画死锁 {result.deadlockFixed} 处已自动修
                       （原片写的是 <code>[data-p=&quot;1&quot;]</code>，可见时 p 永远到不了 1
                       ⇒ 这些元素整段隐藏 ⇒ 全黑）
+                    </div>
+                  )}
+
+                  {/* ★2026-11-06 段落 id 缺失自动补（CSS 用了 #sN 但 section 没 id） */}
+                  {(result.sectionIdsFixed || 0) > 0 && (
+                    <div style={{ gridColumn: '1 / -1', fontSize: 9.5, color: '#FF6B6B', lineHeight: 1.7 }}>
+                      ⚠️ 段落 id 缺失 {result.sectionIdsFixed} 个已自动补
+                      （CSS 用 <code>#s1 .big</code> 这种前缀，但 HTML 的 section 没有 id
+                      ⇒ 段落样式全废：巨字变 16px、遮罩失效、文字挤成一坨）
                     </div>
                   )}
 

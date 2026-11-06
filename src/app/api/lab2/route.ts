@@ -807,6 +807,59 @@ export async function POST(req: NextRequest) {
       console.log('[lab2] ⚠️ 检测到 ' + deadlockFix + ' 处 [data-p="1"] 死锁 ⇒ 已放宽成 [data-p]')
     }
 
+    /**
+     * ★★★ 2026-11-06 用户实测（gen_20261106_114737，8 段全废）：
+     *
+     * 病灶：CSS 全部用 `#s1 .big` / `#s2 .overlay` / `#s3 .imgwrap` 这种**段落前缀**，
+     *   但 HTML 里的 section **一个 id 都没有**（`<section class="sec" data-start="0">`）
+     *   ⇒ 除无前缀的通用类（.sec/.grain/.vignette/.display/.imgwrap）外，
+     *     **所有段落样式全部失效**
+     *   ⇒ 表现：巨字退化成 16px、遮罩没有、文字失去定位变成"流式堆在图片下面"
+     *     ⇒ 首尾纯排版段全黑、带图段"图占上半 + 底部大黑区"（自审误判成"图没铺满"）
+     *
+     * 代码能确定性修：CSS 用到了 #s1..#sN ⇒ 就按顺序给第 N 个 section 补 id="sN"。
+     *   安全边界：
+     *     · CSS 里没用到 #sN ⇒ 不动
+     *     · section 数量 < 用到的最大编号 ⇒ 不动（可能是别的元素的 id）
+     *     · 所有 section 都已有 id ⇒ 不动
+     */
+    let idFix = 0
+    {
+      const used = new Set<number>()
+      const re = /#s(\d+)\b/g
+      let mm: RegExpExecArray | null
+      while ((mm = re.exec(html)) !== null) {
+        const n = Number(mm[1])
+        if (n >= 1 && n <= 60) used.add(n)
+      }
+      const maxN = used.size ? Math.max(...used) : 0
+
+      const secRe = /<section\b([^>]*\bclass="[^"]*\bsec\b[^"]*"[^>]*)>/g
+      const secs = [...html.matchAll(secRe)]
+      const total = secs.length
+
+      if (maxN > 0 && total >= maxN) {
+        /* 有 section 缺 id（或者 id 和顺序对不上）才动手 */
+        const needFix = secs.some((m, i) => {
+          const idm = m[1].match(/\bid="([^"]*)"/)
+          return !idm || idm[1] !== 's' + (i + 1)
+        })
+        if (needFix) {
+          let i = 0
+          html = html.replace(secRe, (whole, attrs: string) => {
+            i++
+            let a = String(attrs)
+            if (/\bid="[^"]*"/.test(a)) a = a.replace(/\bid="[^"]*"/, 'id="s' + i + '"')
+            else a = ' id="s' + i + '"' + a
+            idFix++
+            return '<section' + a + '>'
+          })
+          console.log('[lab2] ⚠️ 检测到 CSS 用了 #s1~#s' + maxN
+            + '，但 section 缺 id ⇒ 已按顺序补 ' + idFix + ' 个')
+        }
+      }
+    }
+
     /* ★兜底：覆盖 __seek（强制按段显示，治"所有层叠一帧"）—— 必须早于 autoplay */
     html = ensureSeekGuard(html)
 
@@ -1032,6 +1085,8 @@ export async function POST(req: NextRequest) {
       aspect: isLand ? '16:9' : '9:16',
       /* ★2026-11-06 自动修掉了几处动画死锁（[data-p="1"] ⇒ [data-p]） */
       deadlockFixed: deadlockFix,
+      /* ★2026-11-06 自动补了几个 section 的 id（CSS 用了 #sN 但 HTML 没有 id） */
+      sectionIdsFixed: idFix,
       savedTo,
       review,                  /* ★自审记录（改了几轮 / 发现什么 / 改了什么） */
       imgSent: imgOk,          /* AI 实际看到的图张数 */
