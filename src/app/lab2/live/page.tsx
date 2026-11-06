@@ -145,6 +145,20 @@ export default function Lab2Page() {
   const [zen, setZen] = useState(false)
   const [showReport, setShowReport] = useState(false)
 
+  /**
+   * ★★★ 2026-11-06 用户：「在预览页上加一个截图划范围功能，确认了直接加入会话框」
+   *
+   * 交互：点「📷 框选」→ 预览变暗、鼠标十字 → 拖一个框 → 【✔ 加入对话】
+   *   → 后端截「那一帧的那一块」→ 自动进「💬 对话改片」的附件 → 切到对话 tab
+   *
+   * 好处：不用手动截图、不用口述"第几段"——它看到的就是它自己画的画面。
+   */
+  const [cropOn, setCropOn] = useState(false)
+  const [cropBusy, setCropBusy] = useState(false)
+  /** 拖动中的框（屏幕像素，相对 iframe 左上角） */
+  const [cropRect, setCropRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  const cropStart = useRef<{ x: number; y: number } | null>(null)
+
   /* ★★★ 对话改片（2026-11-04）：长期会话 + 记忆 */
   const [chatMsgs, setChatMsgs] = useState<Array<{ role: 'user' | 'assistant'; text: string }>>([])
   const [chatText, setChatText] = useState('')
@@ -266,6 +280,58 @@ export default function Lab2Page() {
       if (w?.__seek) w.__seek(t)
       else if (!quiet) setErr('这一版没有 __seek（模型漏了播放接口）')
     } catch { if (!quiet) setErr('跨域读不到 iframe（用「↗ 新标签」打开）') }
+  }
+
+  /** ★框选确认：截「当前帧的这块」→ 塞进对话附件 + 切到对话 tab */
+  async function doCrop() {
+    if (!result || !cropRect) return
+    const el = iframeRef.current
+    if (!el) return
+    const box = el.getBoundingClientRect()
+    if (!box.width || !box.height) return
+
+    const land = (result.aspect || aspect) === '16:9'
+    const CW = land ? 1280 : 720
+    const CH = land ? 720 : 1280
+    const kx = CW / box.width
+    const ky = CH / box.height
+
+    setCropBusy(true)
+    setErr('')
+    try {
+      const r = await fetch('/api/lab2/shot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: result.name,
+          repoId: result.repoId || '1',
+          t: seekT,
+          rect: {
+            x: cropRect.x * kx,
+            y: cropRect.y * ky,
+            w: cropRect.w * kx,
+            h: cropRect.h * ky,
+          },
+        }),
+      })
+      const j = await r.json()
+      if (!j?.ok) { setErr(String(j?.error || '截图失败')); return }
+
+      setChatImgs((p) => [
+        ...p,
+        { name: 'crop@' + seekT.toFixed(1) + 's', data: String(j.image) },
+      ].slice(0, 6))
+      /* 预填一句，你补完就能发（省得再想怎么说） */
+      setChatText('这块画面有问题（' + seekT.toFixed(1) + 's）：')
+      setCropOn(false)
+      setCropRect(null)
+      setTab('chat')
+    } catch (e) {
+      setErr('截图异常：' + String((e as Error)?.message || e))
+    } finally {
+      setCropBusy(false)
+    }
   }
 
   function openFullscreen() {
@@ -775,19 +841,106 @@ export default function Lab2Page() {
                       border: '1px solid #242C38', borderRadius: 10, background: '#000',
                     }} />
   
-                  {/* 右上角：全屏 */}
-                  <button onClick={openFullscreen}
-                    title="全屏播放"
-                    style={{ position: 'absolute', right: 10, top: 10, zIndex: 5, padding: '5px 10px',
-                      background: 'rgba(10,14,20,.8)', color: '#BFE3FF', border: '1px solid rgba(58,124,184,.7)',
-                      borderRadius: 6, fontSize: 11, cursor: 'pointer' }}>⛶ 全屏</button>
-  
-                  {/* 右下角：原样打开（单独新标签，不经过 iframe） */}
-                  <a href={result.url} target="_blank" rel="noreferrer"
-                    title="在新标签打开（不受网站容器影响）"
-                    style={{ position: 'absolute', right: 10, top: 46, zIndex: 5, padding: '5px 10px',
-                      background: 'rgba(10,14,20,.8)', color: '#BFE3FF', border: '1px solid rgba(58,124,184,.7)',
-                      borderRadius: 6, fontSize: 11, textDecoration: 'none' }}>↗ 新标签</a>
+                  {/* 右上角：全屏 / 新标签 / 框选（框选时隐藏，避免被覆盖层挡住） */}
+                  {!cropOn && (
+                    <>
+                      <button onClick={openFullscreen}
+                        title="全屏播放"
+                        style={{ position: 'absolute', right: 10, top: 10, zIndex: 5, padding: '5px 10px',
+                          background: 'rgba(10,14,20,.8)', color: '#BFE3FF', border: '1px solid rgba(58,124,184,.7)',
+                          borderRadius: 6, fontSize: 11, cursor: 'pointer' }}>⛶ 全屏</button>
+
+                      <a href={result.url} target="_blank" rel="noreferrer"
+                        title="在新标签打开（不受网站容器影响）"
+                        style={{ position: 'absolute', right: 10, top: 46, zIndex: 5, padding: '5px 10px',
+                          background: 'rgba(10,14,20,.8)', color: '#BFE3FF', border: '1px solid rgba(58,124,184,.7)',
+                          borderRadius: 6, fontSize: 11, textDecoration: 'none' }}>↗ 新标签</a>
+
+                      {/* ★2026-11-06 框选截图：框一块 → 直接进对话附件 */}
+                      <button
+                        onClick={() => { seekTo(seekT, true); setCropOn(true); setCropRect(null); setErr('') }}
+                        title="在画面上框一块，截下来直接发给它看"
+                        style={{ position: 'absolute', left: 10, top: 10, zIndex: 5, padding: '5px 10px',
+                          background: 'rgba(10,14,20,.8)', color: '#BEFFE0', border: '1px solid rgba(62,207,142,.75)',
+                          borderRadius: 6, fontSize: 11, cursor: 'pointer' }}>📷 框选</button>
+                    </>
+                  )}
+
+                  {/* ══ 框选覆盖层 ══ */}
+                  {cropOn && (
+                    <div
+                      onPointerDown={(e) => {
+                        const el = e.currentTarget as HTMLDivElement
+                        try { el.setPointerCapture(e.pointerId) } catch { /* ignore */ }
+                        const r = el.getBoundingClientRect()
+                        const sx = e.clientX - r.left
+                        const sy = e.clientY - r.top
+                        cropStart.current = { x: sx, y: sy }
+                        setCropRect({ x: sx, y: sy, w: 0, h: 0 })
+                      }}
+                      onPointerMove={(e) => {
+                        if (!cropStart.current) return
+                        const el = e.currentTarget as HTMLDivElement
+                        const r = el.getBoundingClientRect()
+                        const x = e.clientX - r.left
+                        const y = e.clientY - r.top
+                        const s = cropStart.current
+                        setCropRect({
+                          x: Math.min(s.x, x), y: Math.min(s.y, y),
+                          w: Math.abs(x - s.x), h: Math.abs(y - s.y),
+                        })
+                      }}
+                      onPointerUp={() => { cropStart.current = null }}
+                      style={{
+                        position: 'absolute', inset: 0, zIndex: 20, cursor: 'crosshair',
+                        touchAction: 'none',
+                      }}
+                    >
+                      {/* 未选区时整体压暗 */}
+                      {!cropRect || cropRect.w < 4 ? (
+                        <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.42)' }} />
+                      ) : (
+                        /* 选区：亮框 + 四周压暗（boxShadow 造出来的） */
+                        <div style={{
+                          position: 'absolute',
+                          left: cropRect.x, top: cropRect.y,
+                          width: cropRect.w, height: cropRect.h,
+                          border: '2px solid #3ECF8E',
+                          boxShadow: '0 0 0 9999px rgba(0,0,0,.42)',
+                          pointerEvents: 'none',
+                        }} />
+                      )}
+
+                      {/* 底部操作条 */}
+                      <div style={{
+                        position: 'absolute', left: 0, right: 0, bottom: 10, zIndex: 2,
+                        display: 'flex', justifyContent: 'center', gap: 8, alignItems: 'center',
+                      }}>
+                        <span style={{ fontSize: 10, color: '#BFE3FF' }}>
+                          {cropRect && cropRect.w > 4
+                            ? '截 ' + Math.round(cropRect.w) + '×' + Math.round(cropRect.h) + ' (屏幕像素)'
+                            : '拖动画一个框'}
+                        </span>
+                        <button
+                          onClick={doCrop}
+                          disabled={cropBusy || !cropRect || cropRect.w < 40 || cropRect.h < 40}
+                          style={{
+                            padding: '6px 14px', borderRadius: 6, border: 'none', fontSize: 11, fontWeight: 700,
+                            cursor: (cropBusy || !cropRect || cropRect.w < 40) ? 'default' : 'pointer',
+                            background: (cropBusy || !cropRect || cropRect.w < 40) ? '#2A3440' : '#3ECF8E',
+                            color: (cropBusy || !cropRect || cropRect.w < 40) ? '#7A8798' : '#06110B',
+                          }}>
+                          {cropBusy ? '截图…' : '✔ 加入对话'}
+                        </button>
+                        <button
+                          onClick={() => { setCropOn(false); setCropRect(null) }}
+                          style={{
+                            padding: '6px 12px', borderRadius: 6, fontSize: 11, cursor: 'pointer',
+                            border: '1px solid #242C38', background: '#0B0F14', color: '#7A8798',
+                          }}>✖ 取消</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
   
                 {/* ★播放器：▶播放 / ⏸暂停 / 时间轴 / 下载 */}

@@ -222,3 +222,93 @@ export async function shotFrames(
     try { fs.unlinkSync(tmpFile) } catch { /* ignore */ }
   }
 }
+
+/**
+ * ★★★ 2026-11-06 用户：「不用说段，在预览页上加一个截图划范围功能，确认了直接加入会话框」
+ *
+ * 用途：用户在预览里框一块 ⇒ 截「当前帧的这块区域」⇒ 直接进对话附件。
+ *   ⇒ 它能看到"我自己画的画面里这块不对"，不用用户口述第几段。
+ *
+ * @param html   完整 HTML
+ * @param W/H    画布尺寸（720x1280 / 1280x720）
+ * @param t      截哪一秒（预览当前 seek 位置）
+ * @param rect   区域（**画布坐标**，不是屏幕坐标；前端按比例换算好再传）
+ */
+export async function shootRegion(
+  html: string,
+  W: number,
+  H: number,
+  t: number,
+  rect: { x: number; y: number; w: number; h: number },
+): Promise<{ ok: boolean; image?: string; error?: string }> {
+  const tmpDir = path.join(process.cwd(), 'temp', '_lab2', 'shot')
+  try { fs.mkdirSync(tmpDir, { recursive: true }) } catch { /* ignore */ }
+  const tmpFile = path.join(tmpDir, 'region_' + Date.now() + '.html')
+  let browser: { close: () => Promise<void> } | null = null
+
+  try {
+    fs.writeFileSync(tmpFile, html, 'utf8')
+
+    /* 找 chromium（和 shotFrames 同款逻辑，简化版） */
+    let exe: string | undefined
+    const cands = [
+      process.env.CHROMIUM_PATH,
+      '/usr/bin/chromium',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/google-chrome',
+      '/usr/bin/google-chrome-stable',
+      '/snap/bin/chromium',
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    ].filter(Boolean) as string[]
+    for (const c of cands) { try { if (fs.existsSync(c)) { exe = c; break } } catch { /* ignore */ } }
+
+    browser = await chromium.launch({
+      executablePath: exe,
+      headless: true,
+      args: ['--no-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+    })
+
+    const page = await (browser as unknown as {
+      newPage: (o: unknown) => Promise<{
+        goto: (u: string, o: unknown) => Promise<void>
+        evaluate: (fn: unknown, arg?: unknown) => Promise<unknown>
+        screenshot: (o: unknown) => Promise<Buffer>
+        close: () => Promise<void>
+      }>
+    }).newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 })
+
+    await page.goto('file:///' + tmpFile.replace(/\\/g, '/'), { waitUntil: 'load', timeout: 15000 })
+    await page.evaluate(() => new Promise((r) => setTimeout(r, 400)))
+
+    await page.evaluate((tt) => {
+      try {
+        // @ts-expect-error 页面内注入的全局
+        window.__lab2Paused = true
+        // @ts-expect-error 页面内注入的全局
+        if (typeof window.__seek === 'function') window.__seek(tt)
+      } catch { /* ignore */ }
+    }, t)
+    /* 等动效跑完（和自审同口径） */
+    await page.evaluate(() => new Promise((r) => setTimeout(r, 1500)))
+
+    const clip = {
+      x: Math.max(0, Math.min(W - 8, Math.round(rect.x))),
+      y: Math.max(0, Math.min(H - 8, Math.round(rect.y))),
+      width: Math.max(8, Math.min(W, Math.round(rect.w))),
+      height: Math.max(8, Math.min(H, Math.round(rect.h))),
+    }
+
+    const buf = await page.screenshot({ type: 'jpeg', quality: 82, clip })
+    await page.close()
+    await browser.close()
+    browser = null
+
+    return { ok: true, image: 'data:image/jpeg;base64,' + buf.toString('base64') }
+  } catch (e) {
+    try { if (browser) await browser.close() } catch { /* ignore */ }
+    return { ok: false, error: String((e as Error)?.message || e).slice(0, 160) }
+  } finally {
+    try { fs.unlinkSync(tmpFile) } catch { /* ignore */ }
+  }
+}
