@@ -741,8 +741,11 @@ export async function POST(req: NextRequest) {
       const isFull = (s: string): boolean => {
         const imgCount = (s.match(/<img\b/g) || []).length
         const bgCount = (s.match(/background-image\s*:/g) || []).length
-        /* ① */
-        if (/inset:\s*0/.test(s) && imgCount + bgCount <= 1) return true
+        /* ① ★2026-11-06 第三次修：原来要求"该段只有 1 张图"，结果 101822 那单
+             11 段全有 inset:0（双图拼贴也是铺满画布），却被判成 0/11 ⇒ 假警报。
+           "满幅"的定义就是**图铺满画布** —— 双图对切也是满幅。
+           ⇒ 只要段内有 inset:0，就算满幅。 */
+        if (/inset:\s*0/.test(s)) return true
         /* ② */
         if (/background-size:\s*cover/.test(s) && bgCount === 1 && imgCount === 0) return true
         /* ③ */

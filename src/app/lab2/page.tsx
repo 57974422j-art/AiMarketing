@@ -806,8 +806,12 @@ export default function Lab2Page() {
                       const marked = delSel.includes(i + 1)
                       return (
                         <span key={i} style={{ display: 'inline-flex' }}>
-                          <button onClick={() => { setPlaying(false); const t = s.start + Math.min(0.3, (s.duration || 3) / 3); setSeekT(t); seekTo(t) }}
-                            title={(s.start.toFixed(1)) + 's ~ ' + (s.start + (s.duration || 3)).toFixed(1) + 's'}
+                          <button onClick={() => {
+                            /* ★2026-11-06 同 /lab2/live：跳到段 72%（动画完成处），不再停在第 0.3 秒的空白帧 */
+                            const d = s.duration || 4
+                            seekTo(s.start + Math.max(0.4, d * 0.72))
+                          }}
+                            title={(s.start.toFixed(1)) + 's ~ ' + (s.start + (s.duration || 3)).toFixed(1) + 's（跳到该段动画完成处）'}
                             style={{
                               ...btn(active), fontSize: 9.5, padding: '3px 8px',
                               borderRadius: '5px 0 0 5px',

@@ -826,8 +826,16 @@ export default function Lab2Page() {
                         const marked = delSel.includes(i + 1)
                         return (
                           <button key={i}
-                            onClick={() => seekTo(s.start + Math.min(0.25, (s.duration || 3) / 4))}
-                            title={(s.start.toFixed(1)) + 's ~ ' + (s.start + (s.duration || 3)).toFixed(1) + 's'}
+                            onClick={() => {
+                              /* ★★★ 2026-11-06 用户："预览中每段看到的不是完整的，全是每段第一帧"
+                                 根因：这里只往后 0.25 秒 ⇒ 正好落在入场动画开始的地方
+                                       （文字还在 opacity:0 / translateY 40px）
+                                 修：跳到段的 72% —— 和自审截图取帧一致（那边用 0.7）
+                                     （不取 100%：段末可能有淡出，会截到半透明） */
+                              const d = s.duration || 4
+                              seekTo(s.start + Math.max(0.4, d * 0.72))
+                            }}
+                            title={(s.start.toFixed(1)) + 's ~ ' + (s.start + (s.duration || 3)).toFixed(1) + 's（跳到该段动画完成处）'}
                             style={{
                               ...btn(active), fontSize: 10, padding: '4px 10px',
                               opacity: marked ? 0.45 : 1,
