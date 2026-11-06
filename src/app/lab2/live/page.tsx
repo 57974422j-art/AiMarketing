@@ -64,6 +64,8 @@ type Result = {
   deadlockFixed?: number
   /** ★自动补的 section id 数（CSS 用了 #sN 但 HTML 没 id ⇒ 段落样式全废） */
   sectionIdsFixed?: number
+  /** ★自动补的 .in 终态数（JS 加类但 CSS 漏规则 ⇒ 全片文字永远 opacity:0） */
+  animInFixed?: number
   /** ★设定 vs 实际（大图比） */
   setCheck?: { bigImgSet: number; fullSecs: number; totalSecs: number; actualPct: number }
   /** ★素材使用明细：每段用了哪几张、漏了哪几张 */
@@ -553,6 +555,11 @@ export default function Lab2Page() {
       '压暗(<0.95)：' + m.darkCount + ' 处' + (m.darkMin ? '（最低 ' + m.darkMin + '）' : ''),
       '贴纸白边：' + (m.hasSticker ? '有' : '无'),
       '思考日志：' + (m.hasTrace ? '有' : '无'),
+      /* ★2026-11-06 用户："你这个报告为什么每次都不完整" ⇒ 把页面上有的细项全并进来 */
+      '自动播放：' + (m.hasAutoplay ? '有' : '无'),
+      'CSS var(--p)：' + (m.cssVarP ?? 0) + ' 处'
+        + ((m.cssVarP ?? 0) < 3 ? '（≈0 ⇒ 动效全靠 JS，一崩就静止）' : ''),
+      '<text>：' + (m.text ?? 0) + '（围边必错）',
       /* ★2026-11-06 致命错误自动修复提示（不是自审发现的，是代码确定性的修） */
       ...((result.deadlockFixed || 0) > 0
         ? ['',
@@ -565,6 +572,13 @@ export default function Lab2Page() {
           '⚠️ 段落 id 缺失：CSS 用了 #s1~#sN，但 HTML 的 section 没有 id'
           + '\n   ⇒ 已按顺序补 ' + result.sectionIdsFixed + ' 个'
           + '（不补的话：巨字退化成 16px、遮罩失效、文字挤成一坨）']
+        : []),
+      /* ★2026-11-06 动画终态缺失（JS 加 .in 但 CSS 没写规则 ⇒ 全片无字） */
+      ...((result.animInFixed || 0) > 0
+        ? ['',
+          '⚠️ 动画终态缺失：JS 会加 .in 类，但 CSS 漏了 ' + result.animInFixed + ' 条对应规则'
+          + '\n   ⇒ 已补 .anim-up.in 等终态'
+          + '（不补的话：所有文字永远 opacity:0 ⇒ 全片一个字没有）']
         : []),
 
       /* ★2026-11-05 补：素材使用明细 —— 它到底看了哪张、漏了哪张 */
@@ -623,7 +637,8 @@ export default function Lab2Page() {
       '',
       '══════ 文件名 ══════',
       result.name + ' · 耗时 ' + result.elapsed + 's',
-    ].join('\n')
+      result.savedTo ? '存到：' + result.savedTo + '（已同步 OSS）' : '',
+    ].filter(Boolean).join('\n')
   }
 
   /* ★2026-11-05 直播版：padding/margin 收紧（用户："还是超出必须滚轮"） */
@@ -1404,6 +1419,15 @@ export default function Lab2Page() {
                       ⚠️ 动画死锁 {result.deadlockFixed} 处已自动修
                       （原片写的是 <code>[data-p=&quot;1&quot;]</code>，可见时 p 永远到不了 1
                       ⇒ 这些元素整段隐藏 ⇒ 全黑）
+                    </div>
+                  )}
+
+                  {/* ★2026-11-06 动画终态缺失自动补（JS 加 .in 但 CSS 漏规则 ⇒ 全片无字） */}
+                  {(result.animInFixed || 0) > 0 && (
+                    <div style={{ gridColumn: '1 / -1', fontSize: 9.5, color: '#FF6B6B', lineHeight: 1.7 }}>
+                      ⚠️ 动画终态缺失 {result.animInFixed} 条已自动补
+                      （JS 会 <code>classList.add(&apos;in&apos;)</code>，但 CSS 没写{' '}
+                      <code>.anim-up.in</code> ⇒ 所有文字永远 opacity:0 ⇒ 全片无字）
                     </div>
                   )}
 

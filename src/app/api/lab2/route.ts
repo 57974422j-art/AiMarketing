@@ -436,7 +436,9 @@ function scanMetrics(html: string) {
     hasTrace: html.includes('__trace'),
     hasAutoplay: /requestAnimationFrame\s*\(\s*loop/.test(html),
     /* ★CSS 里真的有 var(--p) 吗（0 = 动效全靠 JS ⇒ 一崩就静止） */
-    cssVarP: (html.match(/var\(--p\)/g) || []).length,
+    /* ★2026-11-06 修口径：原来只认 `var(--p)`，漏了 `var(--p,0)`（AI 最常用的写法）
+       ⇒ 明明几十处，报告显示"0 处 ⇒ 动效全靠 JS"，一直在误判 */
+    cssVarP: (html.match(/var\(\s*--p\b/g) || []).length,
     /* 工具使用 */
     svgCount: (html.match(/<svg/g) || []).length,
     svgText: (html.match(/<text/g) || []).length,
@@ -860,6 +862,58 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    /**
+     * ★★★ 2026-11-06 用户实测（gen_20261106_120702，全片一个字没有）：
+     *
+     * 病灶：它写了 JS 去加类，但**忘了写对应的 CSS 规则**
+     *   JS：  sec.querySelectorAll('.anim-up').forEach(el => el.classList.add('in'))
+     *   CSS：.anim-up { transform: translateY(40px); opacity: 0; transition: ... }
+     *         ↑ 只有初始态，**没有 `.anim-up.in { opacity: 1 }`**
+     *   ⇒ `.in` 加上了但没有任何样式 ⇒ 所有文字永远停在 opacity: 0
+     *   ⇒ 全片只有不带动画类的元素能看见（比如 .bg-text 那个 opacity:0.03 的巨型数字）
+     *
+     * 代码能确定性修：JS 里有 classList.add('in') 但 CSS 里没有 .in 规则 ⇒ 补三条终态。
+     *   ⚠️ 不加 !important —— 片子自己有更具体规则时（如 #s1 .anim-up.in）优先级更高，让它赢。
+     */
+    let animInFix = 0
+    {
+      const usesIn = /classList\.add\(\s*['"]in['"]\s*\)/.test(html)
+      if (usesIn) {
+        /**
+         * ★逐个类检查（实测 120702：它写了 .anim-scale.in 和 .mask-reveal.in，
+         *   但**漏了 .anim-up.in** —— 而 .anim-up 用了 20+ 次，是全部文字）
+         *   ⇒ 不能只看"有没有 .in 规则"，要看"每个用到的动画类有没有对应终态"
+         */
+        const need: Array<[string, string]> = [
+          ['anim-up', '.anim-up.in { transform: translateY(0); opacity: 1; }'],
+          ['anim-scale', '.anim-scale.in { transform: scale(1); opacity: 1; }'],
+          ['mask-reveal', '.mask-reveal.in { clip-path: inset(0); opacity: 1; }'],
+          ['fade-in', '.fade-in.in { opacity: 1; }'],
+          ['reveal', '.reveal.in { opacity: 1; transform: none; }'],
+        ]
+        const missing: string[] = []
+        for (const [cls, rule] of need) {
+          /* HTML 里真的用了这个类（class="... anim-up ..."） */
+          const usedInHtml = new RegExp('class="[^"]*\\b' + cls + '\\b').test(html)
+          if (!usedInHtml) continue
+          /* CSS 里有没有 .<cls>.in { 这条规则 */
+          const hasRule = new RegExp('\\.' + cls + '\\.in\\s*\\{').test(html)
+          if (!hasRule) missing.push(rule)
+        }
+        if (missing.length) {
+          const inject = '\n/* ★ lab2 auto-fix（2026-11-06）：JS 会加 .in 但原片漏了这些终态 */\n'
+            + missing.join('\n') + '\n'
+          if (html.includes('</style>')) {
+            html = html.replace('</style>', inject + '</style>')
+          } else {
+            html = html.replace(/<\/head>/i, '<style>' + inject + '</style></head>')
+          }
+          animInFix = missing.length
+          console.log('[lab2] ⚠️ JS 会加 .in 但 CSS 漏了 ' + missing.length + ' 条终态 ⇒ 已补')
+        }
+      }
+    }
+
     /* ★兜底：覆盖 __seek（强制按段显示，治"所有层叠一帧"）—— 必须早于 autoplay */
     html = ensureSeekGuard(html)
 
@@ -1087,6 +1141,8 @@ export async function POST(req: NextRequest) {
       deadlockFixed: deadlockFix,
       /* ★2026-11-06 自动补了几个 section 的 id（CSS 用了 #sN 但 HTML 没有 id） */
       sectionIdsFixed: idFix,
+      /* ★2026-11-06 自动补了 .in 终态样式（JS 加类但 CSS 没写规则 ⇒ 全片无字） */
+      animInFixed: animInFix,
       savedTo,
       review,                  /* ★自审记录（改了几轮 / 发现什么 / 改了什么） */
       imgSent: imgOk,          /* AI 实际看到的图张数 */
