@@ -236,12 +236,16 @@ export default function Lab2Page() {
   /* ★2026-11-02 用户反馈"图片都堆在一个页面上，看不到效果"
      ⇒ 加"全屏"+"新标签"+"时间轴"三件，直接把单屏效果看出来 */
   function seekTo(t: number, quiet = false) {
-    /* ★拖时间轴/点段号 = 先暂停，否则页面内 rAF 立刻盖回来 */
+    /* ★2026-11-06 修（同 /lab2/live）：
+       点段号后画面切对了，但段号标签不跟 —— 因为 togglePlay 的 sync 轮询没停，
+       每帧 setSeekT(iframe 里的旧 __lab2Time) 把用户点的 t 覆盖了 */
+    if (rafRef.current) cancelAnimationFrame(rafRef.current)
     const w = iframeRef.current?.contentWindow as
-      (Window & { __seek?: (t: number) => void; __lab2Paused?: boolean }) | null
+      (Window & { __seek?: (t: number) => void; __lab2Paused?: boolean; __lab2Time?: number }) | null
     try {
       if (w) w.__lab2Paused = true
       setPlaying(false)
+      setSeekT(t)
       if (w?.__seek) w.__seek(t)
       else if (!quiet) setErr('这一版没有 __seek（模型漏了播放接口）')
     } catch { if (!quiet) setErr('跨域读不到 iframe（用「↗ 新标签」打开）') }

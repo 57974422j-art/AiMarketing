@@ -247,12 +247,22 @@ export default function Lab2Page() {
   /* ★2026-11-02 用户反馈"图片都堆在一个页面上，看不到效果"
      ⇒ 加"全屏"+"新标签"+"时间轴"三件，直接把单屏效果看出来 */
   function seekTo(t: number, quiet = false) {
-    /* ★拖时间轴/点段号 = 先暂停，否则页面内 rAF 立刻盖回来 */
+    /* ★★★ 2026-11-06 用户实测两个 bug：
+       ① 「点那段就是那段，确实能翻到那段，但下面永远显示第二段」
+          根因：togglePlay 启动的 sync 轮询（读 iframe 的 __lab2Time）
+                在点段号时**没有停** ⇒ 每帧 setSeekT(iframe 里的旧时间)
+                ⇒ 把用户点的 t 覆盖掉 ⇒ 画面翻对了，段号标签还是旧的
+          修：seekTo 里先 cancel 轮询
+       ② 「段 1 怎么都点不开」
+          根因：段号右边紧贴着 ✕（标记删除），点偏一点就点到 ✕ ⇒ 不跳转
+          修：✕ 从段导航里挪走，改成独立的「标记当前段删除」按钮 */
+    if (rafRef.current) cancelAnimationFrame(rafRef.current)
     const w = iframeRef.current?.contentWindow as
-      (Window & { __seek?: (t: number) => void; __lab2Paused?: boolean }) | null
+      (Window & { __seek?: (t: number) => void; __lab2Paused?: boolean; __lab2Time?: number }) | null
     try {
       if (w) w.__lab2Paused = true
       setPlaying(false)
+      setSeekT(t)
       if (w?.__seek) w.__seek(t)
       else if (!quiet) setErr('这一版没有 __seek（模型漏了播放接口）')
     } catch { if (!quiet) setErr('跨域读不到 iframe（用「↗ 新标签」打开）') }
@@ -805,42 +815,46 @@ export default function Lab2Page() {
                     </a>
                   </div>
   
-                  {/* 段导航 + 勾选删除
-                      ★2026-11-04 用户："生成 30 段不合适我命令全部切掉"
-                        ⇒ 点段号跳转；点段号右边的 ✕ 标记待删；「删除选中」由**代码重排时间轴**
-                          （不让 AI 算 —— 它算 data-start 必错） */}
+                  {/* 段导航（2026-11-06 改：只有段号，点就跳）
+                      ★用户实测："段 1 怎么都点不开" —— 根因是段号右边紧贴着 ✕
+                        （标记删除），点偏一点就点到 ✕ ⇒ 不跳转 ⇒ 以为坏了
+                      ⇒ 现在 ✕ 挪出去，变成下面独立的「标记当前段删除」按钮 */}
                   {(result.segments || []).length > 0 && (
-                    <div style={{ display: 'flex', gap: 4, marginTop: 8, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: 5, marginTop: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                       {(result.segments || []).map((s, i) => {
                         const active = seekT >= s.start && seekT < s.start + (s.duration || 3)
                         const marked = delSel.includes(i + 1)
                         return (
-                          <span key={i} style={{ display: 'inline-flex' }}>
-                            <button onClick={() => { setPlaying(false); const t = s.start + Math.min(0.3, (s.duration || 3) / 3); setSeekT(t); seekTo(t) }}
-                              title={(s.start.toFixed(1)) + 's ~ ' + (s.start + (s.duration || 3)).toFixed(1) + 's'}
-                              style={{
-                                ...btn(active), fontSize: 9.5, padding: '3px 8px',
-                                borderRadius: '5px 0 0 5px',
-                                opacity: marked ? 0.45 : 1,
-                                textDecoration: marked ? 'line-through' : 'none',
-                              }}>
-                              段 {i + 1}
-                            </button>
-                            <button onClick={() => toggleDel(i + 1)}
-                              title={marked ? '取消删除' : '标记删除（不会立刻删）'}
-                              style={{
-                                fontSize: 9, padding: '3px 6px', cursor: 'pointer',
-                                borderRadius: '0 5px 5px 0',
-                                border: '1px solid ' + (marked ? '#FF6B6B' : '#242C38'),
-                                borderLeft: 'none',
-                                background: marked ? 'rgba(255,107,107,.25)' : '#0B0F14',
-                                color: marked ? '#FF9B9B' : '#4C5765',
-                              }}>
-                              ✕
-                            </button>
-                          </span>
+                          <button key={i}
+                            onClick={() => seekTo(s.start + Math.min(0.25, (s.duration || 3) / 4))}
+                            title={(s.start.toFixed(1)) + 's ~ ' + (s.start + (s.duration || 3)).toFixed(1) + 's'}
+                            style={{
+                              ...btn(active), fontSize: 10, padding: '4px 10px',
+                              opacity: marked ? 0.45 : 1,
+                              textDecoration: marked ? 'line-through' : 'none',
+                            }}>
+                            段 {i + 1}
+                          </button>
                         )
                       })}
+
+                      {/* ★标记删除：独立按钮，指哪删哪（不再挤在段号右边） */}
+                      <button
+                        onClick={() => {
+                          const cur = (result.segments || []).findIndex(
+                            (s) => seekT >= s.start && seekT < s.start + (s.duration || 3),
+                          )
+                          if (cur < 0) { setErr('先点一个段号，再标记删除'); return }
+                          toggleDel(cur + 1)
+                        }}
+                        title="把当前段标记为待删（再点「删除并重排时间轴」才真的删）"
+                        style={{
+                          fontSize: 9.5, padding: '4px 10px', cursor: 'pointer',
+                          borderRadius: 5, marginLeft: 6,
+                          border: '1px solid #4A3A3A', background: '#120C0C', color: '#C98A8A',
+                        }}>
+                        ✕ 标记当前段删除
+                      </button>
                     </div>
                   )}
                   {delSel.length > 0 && (
