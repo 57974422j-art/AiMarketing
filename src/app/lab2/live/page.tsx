@@ -715,6 +715,17 @@ export default function Lab2Page() {
         display: 'flex', alignItems: 'center', gap: 12, padding: '9px 14px',
         borderBottom: '1px solid #1A2028', background: '#080B10', flexShrink: 0,
       }}>
+        {/* ★2026-11-06 这页隐藏了全局 Navbar（省高度）⇒ 得留个出口 */}
+        <a href="/" title="返回首页"
+          style={{
+            fontSize: 11, color: '#7A8798', textDecoration: 'none',
+            padding: '4px 8px', borderRadius: 6, border: '1px solid #1A2028', flexShrink: 0,
+          }}>← 首页</a>
+        <a href="/lab2" title="经典版（有全局导航）"
+          style={{
+            fontSize: 11, color: '#7A8798', textDecoration: 'none',
+            padding: '4px 8px', borderRadius: 6, border: '1px solid #1A2028', flexShrink: 0,
+          }}>经典版</a>
         <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: .3 }}>LAB2 · 直播台</span>
         <div style={{ width: 1, height: 18, background: '#1A2028' }} />
         <span style={{ fontSize: 11, color: aspect === '16:9' ? '#FFD9A0' : '#BFE3FF', fontWeight: 700 }}>

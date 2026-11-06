@@ -17,9 +17,14 @@ export default function Navbar() {
   const [updatePercent, setUpdatePercent] = useState(0)
   const [mounted, setMounted] = useState(false)
   // 嵌入模式（2026-08-05）：iframe 内加载时隐藏全局导航（应用随行大屏自带标题栏）
+  // ★2026-11-05：/lab2/live（直播台）也隐藏 —— 它自己有顶栏，全局通栏会顶掉一屏高度
   const [embedMode, setEmbedMode] = useState(false)
   useEffect(() => {
-    setEmbedMode(typeof window !== 'undefined' && window.location.search.includes('embed=1'))
+    if (typeof window === 'undefined') return
+    setEmbedMode(
+      window.location.search.includes('embed=1')
+      || window.location.pathname.startsWith('/lab2/live'),
+    )
   }, [])
 
   useEffect(() => {
@@ -32,9 +37,9 @@ export default function Navbar() {
         }
       }).catch(() => {})
     }
-    if (embedMode) return null
+    if (embedMode) return
 
-  return () => { active = false }
+    return () => { active = false }
   }, [])
 
   // 标记客户端已挂载，避免服务端预渲染时访问 window 报错（版本徽标/更新提示仅在客户端渲染）
@@ -159,6 +164,14 @@ export default function Navbar() {
                   <Link href="/workspace" className="block px-4 py-2 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 text-sm">🏠 工作台</Link>
                   {(user?.role === 'admin' || user?.role === 'editor') && (
                     <Link href="/ai-tools" className="block px-4 py-2 text-gray-300 hover:text-emerald-400 hover:bg-white/5 text-sm">🛠 工具集</Link>
+                  )}
+                  {/* ★★★ 2026-11-06 用户：「你这实验室 我客户端中没入口」
+                      ⇒ 加一个入口（admin/editor 才看到）
+                      ⚠️ 必须在**网页里**能点到，客户端加载的是 https://ai-niuma.cc 整站
+                         （electron/main.js L602 loadURL）⇒ 页面在 Electron 内打开才有 electronAPI
+                         ⇒ 只有这样才能触发「生成后自动镜像到本地」 */}
+                  {(user?.role === 'admin' || user?.role === 'editor') && (
+                    <Link href="/lab2/live" className="block px-4 py-2 text-sky-300 hover:text-sky-200 hover:bg-sky-500/10 text-sm font-bold">🎬 LAB2 直播台</Link>
                   )}
                   {(user?.role === 'admin' || user?.role === 'editor') && (
                     <Link href="/admin/" className="block px-4 py-2 text-yellow-400 hover:text-yellow-300 hover:bg-yellow-500/10 text-sm font-bold">⚙ 管理中心</Link>
