@@ -17,6 +17,9 @@
 /* ══════════════════════════════════════════════════════════════════════
    表单
    ══════════════════════════════════════════════════════════════════════ */
+/* ★2026-11-06 强提示词档位的两个大段（拆到单独文件，避免这个文件过长） */
+import { fillFrame, strongPart1, strongPart2 } from './strongPrompt'
+
 export type Lab2Form = {
   imgCount?: number
   maxSeconds?: number
@@ -31,6 +34,13 @@ export type Lab2Form = {
   bigImg?: number
   /** 动效：off / on */
   motion?: string
+  /**
+   * ★2026-11-06 强提示词档位（用户：「把这份强提示词加一个按键」）
+   *   false（默认）= 简版（自由发挥，省 token）
+   *   true        = 强版（画幅常识 + 野心 + 质感 + 硬底线 + 禁止偷懒 + 装饰清单）
+   *   ⚠️ 强版里页面开关照样生效（强版只是把要求写细，不改用户选择）
+   */
+  strongPrompt?: boolean
   /**
    * ★2026-11-06 收尾帧：最后一段不用图，纯绘制（品牌落版）
    *   用户：「以前我们是支持有几段让它自己绘制的，特别是收尾帧。
@@ -437,6 +447,74 @@ ${W} × ${H}（${isLand ? '横屏 16:9' : '竖屏 9:16'}）
 
 **${W} × ${H}**（${isLand ? '横屏' : '竖屏'}）。`)
   p.push('')
+
+  p.push(`【输出】
+
+只输出一个完整 HTML（\`<!DOCTYPE html>\` 到 \`</html>\`），CSS/JS 全部内联。
+不要解释、不要 markdown 代码块、不要前后缀文字。`)
+
+  return p.join('\n')
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   ★★★ 2026-11-06 强提示词档位
+   ══════════════════════════════════════════════════════════════════════
+   用户：「把这份强提示词加一个按键。请注意区分 我们控制按键，
+        有些是控制键控制的 不要忘记了。」
+
+   ⇒ 强版 = 强化段（画幅常识 / 野心 / 质感 / 硬底线 / 禁止偷懒 / 三道闸 / 装饰清单）
+          + **简版的其余段落原样复用**
+   ⇒ 所以页面上那几个开关（画幅 / 内容类型 / 文案 / 装饰密度 / 大图比 / 动效 / 收尾帧）
+     **在强版里照样生效** —— 强版只是把"要求写细"，不改用户的选择。
+   ══════════════════════════════════════════════════════════════════════ */
+export function buildLab2PromptStrong(f: Lab2Form): string {
+  const isLand = String(f.aspect || '') === '16:9'
+  const W = isLand ? 1280 : 720
+  const H = isLand ? 720 : 1280
+  const n = f.imgCount || 1
+  const sec = Number(f.maxSeconds || 45)
+
+  const p: string[] = []
+
+  /* ① 强版特有：竖屏构图常识 / 导演野心 / 质感 / 硬底线 / 禁止偷懒 / 三道闸 / 装饰清单 */
+  p.push(fillFrame(strongPart1(), f, W, H))
+  p.push('')
+  p.push(fillFrame(strongPart2(), f, W, H))
+  p.push('')
+
+  /* ② 下面全部沿用简版 —— 开关的值都从这里进去 */
+  p.push(renderAssets(n, W, H))
+  p.push('')
+
+  p.push(TOOLS)
+  p.push('')
+
+  p.push(METHODS)
+  p.push('')
+
+  p.push(`【时长】
+
+约 ${sec} 秒（每段多少秒你自己定，但总长别超太多）`)
+  p.push('')
+
+  p.push(contract(W, H))
+  p.push('')
+
+  p.push(renderSwitches(f))
+  p.push('')
+
+  const mem = renderMemory(f.memories)
+  if (mem) { p.push(mem); p.push('') }
+
+  p.push(TRACE)
+  p.push('')
+
+  const ur = String(f.userRules || '').trim()
+  if (ur) {
+    p.push('【客户额外要求 · 最高优先】')
+    p.push(ur)
+    p.push('')
+  }
 
   p.push(`【输出】
 

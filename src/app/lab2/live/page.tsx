@@ -133,6 +133,16 @@ export default function Lab2Page() {
   const [bigImg, setBigImg] = useState(100)
   /* ★2026-11-06 收尾帧：最后一段纯绘制（不用图） */
   const [endCard, setEndCard] = useState(false)
+
+  /**
+   * ★★★ 2026-11-06 用户：「把这份强提示词加一个按键。请注意区分 我们控制按键，
+   *   有些是控制键控制的 不要忘记了。」
+   *
+   * 强版 = 老版那份 1.2 万字的要求（画幅常识/野心/质感/硬底线/禁止偷懒/三道闸/装饰清单）
+   * 简版 = 现在默认的自由发挥
+   * ⚠️ 强版里，下面那些开关（画幅/内容/文案/密度/大图比/动效/收尾帧）**照样生效**
+   */
+  const [strongPrompt, setStrongPrompt] = useState(false)
   const [userRules, setUserRules] = useState('')
 
   /* 重做 */
@@ -529,6 +539,7 @@ export default function Lab2Page() {
           selfReview: selfReviewOn,
           bigImg,
           endCard,
+          strongPrompt,
           userRules,
           maxSeconds: 45,
           aspect,
@@ -829,6 +840,19 @@ export default function Lab2Page() {
               自审（截图自查）
               <span style={{ fontSize: 9, color: '#4C5765', marginLeft: 2 }}>
                 {selfReviewOn ? '多 4~5 分' : '省 4~5 分'}
+              </span>
+            </label>
+
+            {/* ★★★ 2026-11-06 强提示词档位（用户："把这份强提示词加一个按键"）*/}
+            <label style={chk} title="打开后换成老版那份强要求：画幅常识 / 野心 / 质感 / 硬底线 / 禁止偷懒 / 三道闸 / 装饰清单。下面所有开关照样生效，只是要求写得更细。">
+              <input type="checkbox" checked={strongPrompt}
+                onChange={(e) => setStrongPrompt(e.target.checked)}
+                style={{ width: 14, height: 14, accentColor: '#FFB347' }} />
+              <span style={{ color: strongPrompt ? '#FFD9A0' : '#B0BEC8', fontWeight: strongPrompt ? 700 : 400 }}>
+                强提示词
+              </span>
+              <span style={{ fontSize: 9, color: '#4C5765', marginLeft: 2 }}>
+                {strongPrompt ? '约 8 千字' : '简版'}
               </span>
             </label>
 

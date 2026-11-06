@@ -15,7 +15,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { getAuthFromHeaders, getAuthFromCookie } from '@/lib/api-auth'
 import { shotFrames } from '@/lib/lab2/shot'
-import { buildLab2Prompt, type Lab2Form } from '@/lib/lab2/prompt'
+import { buildLab2Prompt, buildLab2PromptStrong, type Lab2Form } from '@/lib/lab2/prompt'
 import { getMemories, addPending, confirmPending, rejectPending } from '@/lib/lab2/memory'
 
 export const maxDuration = 900
@@ -565,11 +565,15 @@ export async function POST(req: NextRequest) {
       bigImg: Number(body?.bigImg ?? 100),
       /* ★2026-11-06 收尾帧：最后一段纯绘制（不用图） */
       endCard: body?.endCard === true,
+      /* ★2026-11-06 强提示词档位 */
+      strongPrompt: body?.strongPrompt === true,
       memories: getMemories(userId),
       userRules: String(body?.userRules || ''),
       selfReview: body?.selfReview !== false,
     }
-    const prompt = buildLab2Prompt(form)
+    const prompt = form.strongPrompt ? buildLab2PromptStrong(form) : buildLab2Prompt(form)
+    console.log('[lab2] prompt 档位：' + (form.strongPrompt ? '强版（' : '简版（')
+      + Math.round(prompt.length / 1000) + ' 千字）')
 
     /* ── 重做：带上一次的 HTML + 意见 ── */
     const prevHtml = String(body?.prevHtml || '').slice(0, 120000)
