@@ -978,12 +978,13 @@ export default function Lab2Page() {
                     style={{
                       display: 'block', margin: '0 auto',
                       /* 三栏后中栏宽 = 100vw - 260 - 360 - 间距 ≈ 100vw - 660 */
-                      /* ★2026-11-06 用户："出现时严重压缩中间"
-                         ⇒ 竖屏高度 72vh → 76vh（预览按比例变宽），
-                           同时给下方播放条+段导航留够空间（不滚） */
+                      /* ★2026-11-06 用户："预览区头部被遮挡"
+                         根因：`justifyContent:center` + 内容比容器高 ⇒ flex 居中**溢出顶部被裁**
+                         修：播放条改成**叠在预览底部**（负 margin，不占文档流高度）
+                            ⇒ 内容总高 ≤ 容器 ⇒ 居中不再溢出，预览也能加高到 80vh */
                       height: (result.aspect || aspect) === '16:9'
-                        ? 'min(66vh, (100vw - 660px) * 9 / 16)'
-                        : 'min(76vh, (100vw - 660px) * 16 / 9)',
+                        ? 'min(70vh, (100vw - 660px) * 9 / 16)'
+                        : 'min(78vh, (100vw - 660px) * 16 / 9)',
                       aspectRatio: (result.aspect || aspect) === '16:9' ? '16 / 9' : '9 / 16',
                       border: '1px solid #242C38', borderRadius: 10, background: '#000',
                     }} />
@@ -1090,8 +1091,24 @@ export default function Lab2Page() {
                   )}
                 </div>
   
-                {/* ★播放器：▶播放 / ⏸暂停 / 时间轴 / 下载 */}
-                <div style={{ ...box, marginTop: 10, padding: '10px 12px' }}>
+                {/* ★播放器：▶播放 / ⏸暂停 / 时间轴 / 下载
+                    ★2026-11-06 用户："预览区头部被遮挡" ⇒ 这条**叠在预览底部**（负 margin 不占高度）
+                      默认半透明，鼠标移上去才变实（直播时几乎看不见，不挡画面） */}
+                <div
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.opacity = '1' }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.opacity = '0.55' }}
+                  style={{
+                    ...box,
+                    marginTop: -54,
+                    position: 'relative', zIndex: 12,
+                    padding: '7px 12px',
+                    background: 'rgba(8,12,16,.9)',
+                    backdropFilter: 'blur(8px)',
+                    borderRadius: 9,
+                    boxShadow: '0 -8px 26px rgba(0,0,0,.5)',
+                    opacity: 0.55,
+                    transition: 'opacity .18s ease',
+                  }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <button onClick={togglePlay}
                       style={{ fontSize: 14, padding: '6px 14px', minWidth: 74, cursor: 'pointer',
