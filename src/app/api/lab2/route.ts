@@ -780,6 +780,33 @@ export async function POST(req: NextRequest) {
 
     html = embedPlaceholders(html, embedImgs)
 
+    /**
+     * ★★★ 2026-11-06 用户实测（gen_20261106_104824，9 段 7 段黑）：
+     *   「这不需要在自审才发现，这属于致命错误。根本不需要什么审再来发现。」
+     *
+     * 死锁长这样：
+     *   JS：sec.setAttribute('data-p', String(p))     // p = (t-start)/duration，连续值
+     *   CSS：#s1[data-p="1"] .char { opacity: 1 }      // **要求字符串精确等于 "1"**
+     *        ↓
+     *   p === 1  ⟺  t === start + duration
+     *   但可见条件是 t < start + duration
+     *        ↓
+     *   ★ **p 在"可见"时永远到不了 1** ⇒ 触发规则永远不成立
+     *   ⇒ 所有 opacity:0 的元素永远不显示 ⇒ 纯排版段全黑、有图段"有图无字"
+     *
+     * 代码能确定性修：把**终点态** `[data-p="1"]` 放宽成 `[data-p]`（属性存在即匹配，
+     * 而 __seek 每帧都会设这个属性）⇒ 逐字/逐项的 transition-delay 仍然生效。
+     *   · 只替换 `="1"` / `='1'` / `=1` 这种**精确终点**，不动 `="0.3"` 这类中间态
+     */
+    let deadlockFix = 0
+    html = html.replace(/\[data-p\s*=\s*["']?1(?:\.0+)?["']?\]/g, () => {
+      deadlockFix++
+      return '[data-p]'
+    })
+    if (deadlockFix > 0) {
+      console.log('[lab2] ⚠️ 检测到 ' + deadlockFix + ' 处 [data-p="1"] 死锁 ⇒ 已放宽成 [data-p]')
+    }
+
     /* ★兜底：覆盖 __seek（强制按段显示，治"所有层叠一帧"）—— 必须早于 autoplay */
     html = ensureSeekGuard(html)
 
@@ -1003,6 +1030,8 @@ export async function POST(req: NextRequest) {
       /* ★2026-11-05 用户："我要做横屏，出来是竖屏中一个横屏"
          根因：前端预览框写死 9/16 ⇒ 把实际画幅告诉它，预览跟着走 */
       aspect: isLand ? '16:9' : '9:16',
+      /* ★2026-11-06 自动修掉了几处动画死锁（[data-p="1"] ⇒ [data-p]） */
+      deadlockFixed: deadlockFix,
       savedTo,
       review,                  /* ★自审记录（改了几轮 / 发现什么 / 改了什么） */
       imgSent: imgOk,          /* AI 实际看到的图张数 */

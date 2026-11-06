@@ -60,6 +60,8 @@ type Result = {
   imgEmbedded?: number
   /** ★HTML 里残留的 OSS 外链数（>0 = 这份成片会过期） */
   imgExternal?: number
+  /** ★自动修掉的动画死锁数（[data-p="1"] ⇒ [data-p]，修 n 处说明原片有 n 处全隐藏） */
+  deadlockFixed?: number
   /** ★设定 vs 实际（大图比） */
   setCheck?: { bigImgSet: number; fullSecs: number; totalSecs: number; actualPct: number }
   /** ★素材使用明细：每段用了哪几张、漏了哪几张 */
@@ -535,6 +537,12 @@ export default function Lab2Page() {
       '压暗(<0.95)：' + m.darkCount + ' 处' + (m.darkMin ? '（最低 ' + m.darkMin + '）' : ''),
       '贴纸白边：' + (m.hasSticker ? '有' : '无'),
       '思考日志：' + (m.hasTrace ? '有' : '无'),
+      /* ★2026-11-06 致命错误自动修复提示（不是自审发现的，是代码确定性的修） */
+      ...((result.deadlockFixed || 0) > 0
+        ? ['',
+          '⚠️ 动画死锁：检测到 ' + result.deadlockFixed + ' 处 [data-p="1"]（可见时 p 永远到不了 1）'
+          + '\n   ⇒ 已自动放宽成 [data-p]，否则这些元素**整段都是隐藏的**（全黑）']
+        : []),
 
       /* ★2026-11-05 补：素材使用明细 —— 它到底看了哪张、漏了哪张 */
       '',
@@ -1367,6 +1375,15 @@ export default function Lab2Page() {
                   <div style={{ color: result.metrics.hasAutoplay ? '#7CF' : '#FF6B6B' }}>
                     自动播放：{result.metrics.hasAutoplay ? '有' : '无（打开只有第一帧）'}
                   </div>
+                  {/* ★2026-11-06 动画死锁自动修复（致命错误，不靠自审发现） */}
+                  {(result.deadlockFixed || 0) > 0 && (
+                    <div style={{ gridColumn: '1 / -1', fontSize: 9.5, color: '#FF6B6B', lineHeight: 1.7 }}>
+                      ⚠️ 动画死锁 {result.deadlockFixed} 处已自动修
+                      （原片写的是 <code>[data-p=&quot;1&quot;]</code>，可见时 p 永远到不了 1
+                      ⇒ 这些元素整段隐藏 ⇒ 全黑）
+                    </div>
+                  )}
+
                   {/* ★2026-11-05 设定 vs 实际（软指标被审美覆盖，用数字堵住） */}
                   {result.setCheck && (
                     <div style={{
