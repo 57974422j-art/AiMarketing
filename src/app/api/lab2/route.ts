@@ -263,9 +263,37 @@ function ensureSeekGuard(html: string): string {
     + 'var p=Math.min(1,Math.max(0,(t-s)/d));'
     + 'if(!sec.style.getPropertyValue("--p"))sec.style.setProperty("--p",String(p));'
     + 'var on=(t>=s)&&(t<s+d);'
-    + 'if(!on){sec.style.visibility="hidden";sec.style.opacity="0";}'
+    + 'if(!on){sec.style.visibility="hidden";sec.style.opacity="0";sec.dataset.lab2Played="";}'
     + 'else{'
     + '  sec.style.visibility="visible";'
+    /**
+     * ★★★ 2026-11-06 用户实测（gen_20261106_122343）："毫无动效 一张一张海报"
+     *
+     * 病灶：这单 CSS 里 `var(--p)` **0 次**、`transition` **0 次**，
+     *   动画全用 `@keyframes` + `animation`（5 组关键帧）
+     *   ⇒ animation 在**页面加载时**就开始播（元素早就在 DOM 里）
+     *   ⇒ 而当时段是 hidden ⇒ **动画在看不见的时候播完了**
+     *   ⇒ 切到那一段：已经静止 ⇒ 一张海报
+     *
+     * 兜底：段变可见时，把段内所有带动画的元素**重播一次**
+     *   （只重播一次，靠 dataset 标记；离开时清标记，下次进来再播）
+     */
+    + '  if(sec.dataset.lab2Played!=="1"){'
+    + '    sec.dataset.lab2Played="1";'
+    + '    try{'
+    + '      var kids=sec.querySelectorAll("*");'
+    + '      for(var q=0;q<kids.length;q++){'
+    + '        var el=kids[q];'
+    + '        var cs=getComputedStyle(el);'
+    + '        if(cs.animationName&&cs.animationName!=="none"){'
+    + '          var orig=el.style.animation;'
+    + '          el.style.animation="none";'
+    + '          void el.offsetHeight;'
+    + '          el.style.animation=orig;'
+    + '        }'
+    + '      }'
+    + '    }catch(e){}'
+    + '  }'
     /* 只在原版没设 opacity 时才补（避免盖掉原版的淡入淡出） */
     + '  if(!sec.dataset.seekSetOp){'
     + '    var fin=Math.min(1,p/0.04),fout=Math.min(1,(1-p)/0.04);'
