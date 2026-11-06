@@ -232,6 +232,140 @@ function ensureAutoplay(html: string): string {
  *        ⇒ 前一段一直亮着，后一段背景不够实就透出来 = 全叠一帧
  *   兜底：注入覆盖版 __seek，强制按 [start, start+duration) 控制 visibility + 淡入淡出
  */
+/**
+ * ★★★ 2026-11-06 用户：「指标自审 / 完成复制 / PROMPT报告不再显示，**全部打印成一个文件**。
+ *   镜像到本地，小眼睛点击弹窗看报告。」
+ *
+ * 之前：这份报告是**前端 buildReport() 拼的**，只显示在页面上
+ *   ⇒ 从来不落文件 ⇒ 镜像只有 HTML（只有 __trace），本地看不到技术扫描/自审/素材统计
+ *
+ * 现在：后端生成一份纯文本，跟成片一起存：
+ *   storage/<repoId>/gen_xxx.html
+ *   storage/<repoId>/gen_xxx.report.txt     ← 这份
+ * 两者都 putObject 到 OSS ⇒ 前端 storageMirror 一次拉两个
+ */
+function buildReportText(o: {
+  f: Lab2Form
+  W: number
+  H: number
+  name: string
+  savedTo: string
+  elapsed: number
+  totalSeconds: number
+  segCount: number
+  trace: unknown
+  prompt: string
+  metrics: ReturnType<typeof scanMetrics>
+  setCheck: { bigImgSet: number; fullSecs: number; totalSecs: number; actualPct: number }
+  imgUsage: { total: number; used: number[]; missing: number[]; perSec: number[][]; unknown: boolean }
+  imgSent: number
+  imgEmbedded: number
+  imgExternal: number
+  imgErrs: string[]
+  ossKeys: string[]
+  review?: { shotOk: boolean; rounds: number; issues: string[]; changes: string[]; shotErr?: string }
+  fixes: { deadlock: number; ids: number; animIn: number }
+}): string {
+  const { f, metrics: m } = o
+  const L: string[] = []
+
+  L.push('══════ 本单要求 ══════')
+  L.push('内容类型：' + (f.contentType || '不指定'))
+  L.push('画幅：' + o.W + ' × ' + o.H + '（' + (String(f.aspect || '') === '16:9' ? '横屏 16:9' : '竖屏 9:16') + '）')
+  L.push('文案模式：' + (f.copyMode || 'sell')
+    + ' · 装饰密度：' + (f.decoDensity || 'mid')
+    + ' · 动效：' + (f.motion || 'on'))
+  L.push('大图比：' + (f.bigImg ?? 100) + '%'
+    + ' · 收尾帧不用图：' + (f.endCard ? '是' : '否')
+    + ' · 强提示词：' + (f.strongPrompt ? '开' : '关'))
+  L.push('素材：' + (f.imgCount || 0) + ' 张 · 目标时长：约 ' + (f.maxSeconds || 45) + ' 秒')
+  L.push('（历史教训：' + ((f.memories || []).length ? (f.memories || []).join(' / ') : '无') + '）')
+  const ur = String(f.userRules || '').trim()
+  if (ur) L.push('客户额外要求：' + ur)
+  L.push('')
+
+  L.push('══════ 时长达标 ══════')
+  const want = Number(f.maxSeconds || 45)
+  L.push('目标 ' + want + ' 秒 → 实际 ' + o.totalSeconds + ' 秒（' + o.segCount + ' 段）'
+    + (Math.abs(o.totalSeconds - want) > 5 ? '　⚠️ 差 ' + Math.abs(o.totalSeconds - want) + ' 秒' : '　✅ 接近'))
+  L.push('')
+
+  L.push('══════ AI 思考日志（__trace）══════')
+  try { L.push(JSON.stringify(o.trace, null, 2)) } catch { L.push('（无法解析）') }
+  L.push('')
+
+  L.push('══════ 技术扫描 ══════')
+  L.push('段数：' + m.sections + ' · <svg>：' + m.svg + ' · <text>：' + m.text + ' · <canvas>：' + m.canvas)
+  L.push('line-height 最低：' + m.lineHeightMin + '（违规 ' + m.lineHeightBad + ' 处）')
+  L.push('负 letter-spacing：' + m.letterSpacingNeg + ' 处（最小 ' + m.letterSpacingMin + '）')
+  L.push('压暗(<0.95)：' + m.darkCount + ' 处' + (m.darkMin ? '（最低 ' + m.darkMin + '）' : ''))
+  L.push('贴纸白边：' + (m.hasSticker ? '有' : '无'))
+  L.push('思考日志：' + (m.hasTrace ? '有' : '无'))
+  L.push('自动播放：' + (m.hasAutoplay ? '有' : '无'))
+  L.push('CSS var(--p)：' + (m.cssVarP ?? 0) + ' 处'
+    + ((m.cssVarP ?? 0) < 3 ? '（≈0 ⇒ 动效全靠 JS，一崩就静止）' : ''))
+  L.push('')
+  if (o.fixes.deadlock + o.fixes.ids + o.fixes.animIn > 0) {
+    L.push('══════ 自动修复（致命错误，代码级确定性修）══════')
+    if (o.fixes.deadlock) L.push('⚠️ 动画死锁 ' + o.fixes.deadlock + ' 处：[data-p="1"] 可见时永远到不了 1 ⇒ 已放宽成 [data-p]')
+    if (o.fixes.ids) L.push('⚠️ 段落 id 缺失 ' + o.fixes.ids + ' 个：CSS 用 #sN 但 section 没 id ⇒ 段落样式全废 ⇒ 已按顺序补')
+    if (o.fixes.animIn) L.push('⚠️ 动画终态缺失 ' + o.fixes.animIn + ' 条：JS 加 .in 但 CSS 没写规则 ⇒ 已补终态')
+    L.push('')
+  }
+
+  L.push('══════ 设定 vs 实际 ══════')
+  L.push('大图比设 ' + o.setCheck.bigImgSet + '% → 实际满幅 '
+    + o.setCheck.fullSecs + '/' + o.setCheck.totalSecs + ' = ' + o.setCheck.actualPct + '%'
+    + (Math.abs(o.setCheck.actualPct - o.setCheck.bigImgSet) > 20 ? '（⚠️ 差得多）' : '（✅ 对得上）'))
+  L.push('')
+
+  L.push('══════ 素材使用 ══════')
+  if (o.imgUsage.unknown) {
+    L.push('（它没写 {{IMG_N}} 占位符，无法统计用了哪张）')
+  } else {
+    L.push('素材 ' + o.imgUsage.total + ' 张 → 用了 ' + o.imgUsage.used.length + ' 张'
+      + (o.imgUsage.missing.length
+        ? '｜⚠️ 漏了 IMG_' + o.imgUsage.missing.join('、IMG_')
+        : '｜全部用上 ✅'))
+    L.push('逐段：' + o.imgUsage.perSec
+      .map((ids, i) => '段' + (i + 1) + '[' + (ids.length ? ids.map((x) => 'IMG_' + x).join('+') : '无图') + ']')
+      .join(' '))
+  }
+  L.push('')
+
+  L.push('══════ 图片落地 ══════')
+  L.push('AI 看到：' + o.imgSent + ' 张 · 内联进 HTML：' + o.imgEmbedded + ' 张')
+  L.push(o.imgExternal > 0
+    ? '⚠️ 外链 ' + o.imgExternal + ' 个（签名会过期，1~2 小时后图全裂）'
+    : '外链 0 个 ✅（自包含，永久有效）')
+  if (o.imgErrs.length) L.push('读图失败：' + o.imgErrs.join(' ｜ '))
+  if (o.ossKeys.length) L.push('OSS 路径：' + o.ossKeys.join(' | '))
+  L.push('')
+
+  L.push('══════ 自审 ══════')
+  if (o.review) {
+    L.push(o.review.shotOk
+      ? '自审 ✓（改了 ' + o.review.rounds + ' 轮）'
+      : '自审 ✗（截图失败：' + (o.review.shotErr || '未执行') + '）')
+    L.push('发现的问题（' + o.review.issues.length + '）：' + (o.review.issues.length ? '' : '无（它认为合格）'))
+    o.review.issues.forEach((s, i) => L.push('  ' + (i + 1) + '. ' + s))
+    L.push('改了什么（' + o.review.changes.length + '）：' + (o.review.changes.length ? '' : '没改（它认为没问题）'))
+    o.review.changes.forEach((s, i) => L.push('  ' + (i + 1) + '. ' + s))
+  } else {
+    L.push('（没有自审记录 —— 开关可能关着）')
+  }
+  L.push('')
+
+  L.push('══════ 文件名 ══════')
+  L.push(o.name + ' · 耗时 ' + o.elapsed + 's')
+  L.push('存到：' + o.savedTo)
+  L.push('')
+  L.push('══════ 完整 prompt（复现用）══════')
+  L.push(o.prompt)
+
+  return L.join('\n')
+}
+
 function ensureSeekGuard(html: string): string {
   if (html.includes('lab2-seek-guard')) return html
 
@@ -1161,6 +1295,54 @@ export async function POST(req: NextRequest) {
       if (maxEnd > 0) totalSeconds = Math.ceil(maxEnd * 10) / 10
     } catch { /* 保底 */ }
 
+    /* ══ 报告落成文件（用户：全部打印成一个文件 + 镜像到本地）══ */
+    const metrics = scanMetrics(html)
+    const traceObj = extractTrace(html)
+    const elapsedSec = Math.round((Date.now() - t0) / 1000)
+    let reportName = ''
+    let reportText = ''
+    try {
+      reportText = buildReportText({
+        f: form,
+        W: CW,
+        H: CH,
+        name,
+        savedTo,
+        elapsed: elapsedSec,
+        totalSeconds,
+        segCount: segments.length,
+        trace: traceObj,
+        prompt,
+        metrics,
+        setCheck,
+        imgUsage,
+        imgSent: imgOk,
+        imgEmbedded: embedImgs.filter((x) => !!x && /^data:image\//.test(x)).length,
+        imgExternal: (html.match(/https:\/\/[^"'\s)]*(?:aliyuncs|oss)/g) || []).length,
+        imgErrs: imgErrs.slice(0, 4),
+        ossKeys: imgs.slice(0, 3).map(ossKey),
+        review,
+        fixes: { deadlock: deadlockFix, ids: idFix, animIn: animInFix },
+      })
+      reportName = name.replace(/\.html$/, '') + '.report.txt'
+      try {
+        fs.writeFileSync(path.join(repoDir(repoId), reportName), reportText, 'utf8')
+      } catch { /* 本地写失败不影响 OSS */ }
+      try {
+        const { putObject: putObj } = await import('@/lib/oss')
+        await putObj(
+          'storage/' + repoId + '/' + reportName,
+          Buffer.from(reportText, 'utf8'),
+          'text/plain; charset=utf-8',
+        )
+        console.log('[lab2] 报告已存：' + reportName + '（' + Math.round(reportText.length / 1024) + 'KB）')
+      } catch (e3) {
+        console.log('[lab2] 报告上传失败：' + String((e3 as Error)?.message || e3).slice(0, 80))
+      }
+    } catch (e4) {
+      console.log('[lab2] 报告生成失败：' + String((e4 as Error)?.message || e4).slice(0, 80))
+    }
+
     return NextResponse.json({
       ok: true,
       url: '/api/lab2/file?name=' + encodeURIComponent(name) + '&repoId=' + encodeURIComponent(repoId),
@@ -1189,12 +1371,15 @@ export async function POST(req: NextRequest) {
       setCheck,
       imgErrs: imgErrs.slice(0, 4),   /* 读图失败原因（定位用） */
       ossKeys: imgs.slice(0, 3).map(ossKey),   /* 实际用的 OSS 路径（定位用） */
-      elapsed: Math.round((Date.now() - t0) / 1000),
+      elapsed: elapsedSec,
       totalSeconds,
       segments,
-      trace: extractTrace(html),
-      metrics: scanMetrics(html),
-      prompt,             /* 把完整 prompt 返回，供「完成复制」用 */
+      trace: traceObj,
+      metrics,
+      prompt,
+      /* ★2026-11-06 报告落成文件（页面不再自己拼，镜像时一起拉到本地） */
+      reportName,
+      reportText,
       memoriesUsed: form.memories || [],
       /* 供前端「重做」用 */
       html,

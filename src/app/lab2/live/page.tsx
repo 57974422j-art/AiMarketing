@@ -66,6 +66,10 @@ type Result = {
   sectionIdsFixed?: number
   /** ★自动补的 .in 终态数（JS 加类但 CSS 漏规则 ⇒ 全片文字永远 opacity:0） */
   animInFixed?: number
+  /** ★后端生成的报告全文（同时已存成本地文件 gen_xxx.report.txt） */
+  reportText?: string
+  /** ★报告文件名（镜像用） */
+  reportName?: string
   /** ★设定 vs 实际（大图比） */
   setCheck?: { bigImgSet: number; fullSecs: number; totalSecs: number; actualPct: number }
   /** ★素材使用明细：每段用了哪几张、漏了哪几张 */
@@ -154,8 +158,12 @@ export default function Lab2Page() {
   /* ★2026-11-05 直播版：素材改用弹窗选（左栏不再堆几十张缩略图） */
   const [showMatPicker, setShowMatPicker] = useState(false)
 
-  /* ★2026-11-05 第 3 批：右栏 tab（一次只显示一块，长度砍 2/3） */
-  const [tab, setTab] = useState<'metrics' | 'chat' | 'report'>('metrics')
+  /**
+   * ★2026-11-06 用户：「指标自审 / 完成复制 / PROMPT报告不再显示，全部打印成一个文件」
+   *   ⇒ tab 栏已删（无法切换），初始值设成 'chat'
+   *   ⇒ 'metrics' / 'report' 两段代码保留但**永远到不了**（想恢复就把这里改回 'metrics'）
+   */
+  const [tab, setTab] = useState<'metrics' | 'chat' | 'report'>('chat')
 
   /* ★2026-11-05 第 4 批：演示模式（隐藏两侧，只留预览）/ 报告弹窗 */
   const [zen, setZen] = useState(false)
@@ -555,6 +563,8 @@ export default function Lab2Page() {
       setResult(j as Result)
       /* ★生成完立刻镜像到本地仓库（Electron 里生效；网页版静默跳过） */
       mirrorToLocal(j?.name, j?.repoId)
+      /* ★报告也一起镜像（后端已存成 gen_xxx.report.txt） */
+      mirrorToLocal(j?.reportName, j?.repoId)
       if (isRetry) setFeedback('')
       /* ★首版也记进对话（后端已写 session，这里只补前端显示） */
       setChatMsgs((p) => [
@@ -1180,60 +1190,38 @@ export default function Lab2Page() {
         <div style={{ overflowY: 'auto', minHeight: 0, paddingRight: 4 }}>
           {result && (
             <>
-              {/* ══ tab 切换（第 3 批）· 演示模式下隐藏 ══ */}
+              {/* ★★★ 2026-11-06 用户：
+                  「指标自审 / 完成复制 / PROMPT报告不再显示，全部打印成一个文件。
+                    镜像到本地，小眼睛点击弹窗看报告。」
+
+                  ⇒ tab 栏删掉，按钮排删掉
+                  ⇒ 报告由**后端生成文件**（gen_xxx.report.txt）+ 镜像到本地
+                  ⇒ 页面只留：对话改片（常驻） + 一个「👁 看报告」 + 分享 */}
               {!zen && (
-              <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-                {([
-                  ['metrics', '📊 指标 · 自审'],
-                  ['chat', '💬 对话改片'],
-                  ['report', '📋 报告'],
-                ] as const).map(([k, label]) => (
-                  <button key={k} onClick={() => setTab(k)}
-                    style={{
-                      ...btn(tab === k), flex: 1, padding: '7px 0', fontSize: 11, fontWeight: tab === k ? 700 : 400,
-                    }}>{label}</button>
-                ))}
-              </div>
-              )}
-
-              {/* 完成复制 / prompt / 查看 / 分享 / 满意（tab=report，一排放下）*/}
-              {tab === 'report' && !zen && (
-              <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
-                <button onClick={() => copyAll('all', buildReport())}
-                  style={{ ...btn(copied === 'all'), flex: 1, padding: '8px 0', fontWeight: 700, fontSize: 10.5 }}>
-                  {copied === 'all' ? '✓ 已复制' : '📋 完成复制'}
-                </button>
-                <button onClick={() => copyAll('prompt', result.prompt)}
-                  style={{ ...btn(copied === 'prompt'), flex: 1, padding: '8px 0', fontSize: 10.5 }}>
-                  {copied === 'prompt' ? '✓ 已复制' : '📋 prompt'}
-                </button>
-                <button onClick={() => setShowReport(true)}
-                  title="查看完整报告"
-                  style={{ ...btn(false), padding: '8px 10px', fontSize: 10.5 }}>👁</button>
-                {/* ★🔗 分享（2026-11-04 用户："我想知道这个分享出去什么样"）
-                    链接打开就是黑底全屏播放，不用登录、没有工具栏 */}
-                <button onClick={() => {
-                  const u = location.origin + '/w/' + encodeURIComponent(result.repoId || '1')
-                    + '/' + encodeURIComponent(result.name)
-                  try { navigator.clipboard.writeText(u) } catch { /* ignore */ }
-                  setCopied('share')
-                  setTimeout(() => setCopied(''), 2500)
-                  window.open(u, '_blank')
-                }}
-                  title="复制分享链接 + 新标签打开"
-                  style={{ ...btn(copied === 'share'), padding: '8px 10px', fontSize: 10.5 }}>
-                  {copied === 'share' ? '✓' : '🔗'}
-                </button>
-                <button onClick={() => { confirm('满意吗？点确定=标记这条记忆有效'); fetch('/api/lab2', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'confirm' }) }) }}
-                  title="满意（标记这条记忆有效）"
-                  style={{ ...btn(false), padding: '8px 10px', fontSize: 10.5 }}>👍</button>
-              </div>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 8, alignItems: 'center' }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: '#BFE3FF' }}>💬 对话改片</span>
+                  <div style={{ flex: 1 }} />
+                  <button onClick={() => setShowReport(true)}
+                    title="看完整报告（同时已存成本地文件 gen_xxx.report.txt）"
+                    style={{ ...btn(false), padding: '5px 10px', fontSize: 11 }}>👁 看报告</button>
+                  <button onClick={() => {
+                    const u = location.origin + '/w/' + encodeURIComponent(result.repoId || '1')
+                      + '/' + encodeURIComponent(result.name)
+                    try { navigator.clipboard.writeText(u) } catch { /* ignore */ }
+                    setCopied('share')
+                    setTimeout(() => setCopied(''), 2500)
+                    window.open(u, '_blank')
+                  }}
+                    title="复制分享链接 + 新标签打开"
+                    style={{ ...btn(copied === 'share'), padding: '5px 10px', fontSize: 11 }}>
+                    {copied === 'share' ? '✓' : '🔗'}
+                  </button>
+                </div>
               )}
 
 
-
-              {/* ★★★ 对话改片 + 重做（tab=chat 时才显示）*/}
-              {tab === 'chat' && !zen && (
+              {/* ★★★ 对话改片 + 重做 —— 现在是**常驻**（2026-11-06 去掉 tab 后）*/}
+              {!zen && (
               <>
               <div style={{ ...box, marginTop: 0, border: '1px solid rgba(74,158,255,.4)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
@@ -1385,7 +1373,9 @@ export default function Lab2Page() {
               </>
               )}
 
-              {/* AI 思考 + 技术扫描 + 自审（tab=metrics）*/}
+              {/* AI 思考 + 技术扫描 + 自审 —— ★2026-11-06 用户要求"不再显示"
+                  （全部打进 gen_xxx.report.txt，点「👁 看报告」看）
+                  代码保留但永不渲染，方便以后恢复 */}
               {tab === 'metrics' && !zen && (
               <>
               <div style={{ ...box, marginTop: 0 }}>
@@ -1585,7 +1575,7 @@ export default function Lab2Page() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 15px', borderBottom: '1px solid #1A2028' }}>
               <span style={{ fontSize: 13, fontWeight: 700 }}>本单完整报告</span>
               <div style={{ flex: 1 }} />
-              <button onClick={() => copyAll('all', buildReport())} style={{ ...btn(copied === 'all'), fontSize: 11 }}>
+              <button onClick={() => copyAll('all', result.reportText || buildReport())} style={{ ...btn(copied === 'all'), fontSize: 11 }}>
                 {copied === 'all' ? '✓ 已复制' : '📋 复制全文'}
               </button>
               <button onClick={() => setShowReport(false)} style={{ ...btn(true), fontSize: 11 }}>关闭</button>
@@ -1594,7 +1584,7 @@ export default function Lab2Page() {
               flex: 1, minHeight: 0, overflow: 'auto', margin: 0, padding: 15,
               fontSize: 11, lineHeight: 1.75, color: '#C8D8E8', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
               background: '#06080B',
-            }}>{buildReport()}</pre>
+            }}>{result.reportText || buildReport()}</pre>
           </div>
         </div>
       )}
