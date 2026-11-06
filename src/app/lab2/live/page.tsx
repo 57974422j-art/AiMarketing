@@ -170,6 +170,17 @@ export default function Lab2Page() {
   const [showReport, setShowReport] = useState(false)
 
   /**
+   * ★★★ 2026-11-06 用户：「我说浮动悬窗是可以拖动的，你设计这个还是固定的。」
+   *
+   * 播放条改成**可拖动的浮动窗**：
+   *   · position: absolute（不占文档流高度 ⇒ 预览头部再也不被裁）
+   *   · 按住空白处 / 把手可以拖到任意位置
+   *   · 偏移记在 state（刷新回默认；要持久化再加 localStorage）
+   */
+  const [ctrlPos, setCtrlPos] = useState({ x: 0, y: 0 })
+  const ctrlDrag = useRef<{ sx: number; sy: number; ox: number; oy: number } | null>(null)
+
+  /**
    * ★★★ 2026-11-06 用户：「在预览页上加一个截图划范围功能，确认了直接加入会话框」
    *
    * 交互：点「📷 框选」→ 预览变暗、鼠标十字 → 拖一个框 → 【✔ 加入对话】
@@ -956,9 +967,20 @@ export default function Lab2Page() {
         <div style={{
           minHeight: 0, overflowY: 'auto', overflowX: 'hidden',
           display: 'flex', flexDirection: 'column',
-          /* 垂直居中用 justifyContent；水平**不用 alignItems:center**
-             （那会把播放条也挤成内容宽）—— 预览自己 margin:0 auto 居中 */
-          justifyContent: 'center', alignItems: 'stretch',
+          /**
+           * ★★★ 2026-11-06 用户（第二次）：「预览给你截图看下头部被切掉了」
+           *
+           * 我上次以为是"播放条占高度"，给了负 margin —— 没用。
+           * 真正原因：**justifyContent:'center'**
+           *   ⇒ 只要内容比容器高，居中就一定**溢出顶部且被裁**
+           *     （CSS 死规则：flex 居中溢出只往下滚，不往上）
+           *
+           * 现在：改成 flex-start（永远从顶部排，绝不裁头部）
+           *   代价：内容不满时贴顶、不居中
+           *   补偿：预览用 min(78vh, ...) 已经尽量撑满，视觉上差不多
+           */
+          justifyContent: 'flex-start', alignItems: 'stretch',
+          position: 'relative',
         }}>
           {!result && (
             <div style={{ ...box, width: '100%', height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4C5765', fontSize: 12 }}>
@@ -1092,22 +1114,42 @@ export default function Lab2Page() {
                 </div>
   
                 {/* ★播放器：▶播放 / ⏸暂停 / 时间轴 / 下载
-                    ★2026-11-06 用户："预览区头部被遮挡" ⇒ 这条**叠在预览底部**（负 margin 不占高度）
-                      默认半透明，鼠标移上去才变实（直播时几乎看不见，不挡画面） */}
+                    ★2026-11-06 用户："浮动悬窗是可以拖动的，你设计这个还是固定的"
+                       ⇒ 改成**绝对定位 + 可拖动**：不占高度（治顶部被裁），位置随意放 */}
                 <div
+                  onPointerDown={(e) => {
+                    /* 按钮/输入框/链接不触发拖动，其余区域都能拖 */
+                    if ((e.target as HTMLElement).closest('button, input, a, select')) return
+                    ctrlDrag.current = { sx: e.clientX, sy: e.clientY, ox: ctrlPos.x, oy: ctrlPos.y }
+                    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId) } catch { /* ignore */ }
+                  }}
+                  onPointerMove={(e) => {
+                    if (!ctrlDrag.current) return
+                    const d = ctrlDrag.current
+                    setCtrlPos({ x: d.ox + (e.clientX - d.sx), y: d.oy + (e.clientY - d.sy) })
+                  }}
+                  onPointerUp={() => { ctrlDrag.current = null }}
+                  onPointerCancel={() => { ctrlDrag.current = null }}
+                  onDoubleClick={() => setCtrlPos({ x: 0, y: 0 })}
+                  title="按住空白处可以拖动；双击复位"
                   onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.opacity = '1' }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.opacity = '0.55' }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.opacity = '0.62' }}
                   style={{
                     ...box,
-                    marginTop: -54,
-                    position: 'relative', zIndex: 12,
+                    position: 'absolute',
+                    right: 14, bottom: 14,
+                    transform: `translate(${ctrlPos.x}px, ${ctrlPos.y}px)`,
+                    width: 'min(620px, calc(100% - 28px))',
+                    zIndex: 20,
                     padding: '7px 12px',
-                    background: 'rgba(8,12,16,.9)',
+                    background: 'rgba(8,12,16,.92)',
                     backdropFilter: 'blur(8px)',
                     borderRadius: 9,
-                    boxShadow: '0 -8px 26px rgba(0,0,0,.5)',
-                    opacity: 0.55,
+                    boxShadow: '0 8px 30px rgba(0,0,0,.55)',
+                    opacity: 0.62,
                     transition: 'opacity .18s ease',
+                    cursor: 'grab',
+                    touchAction: 'none',
                   }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <button onClick={togglePlay}
@@ -1273,6 +1315,48 @@ export default function Lab2Page() {
                   <button onClick={() => setShowReport(true)}
                     title="看完整报告（同时已存成本地文件 gen_xxx.report.txt）"
                     style={{ ...btn(false), padding: '5px 10px', fontSize: 11 }}>👁 看报告</button>
+
+                  {/* ★2026-11-06 用户：「记忆系统对它好像没什么帮助」
+                      根因之一：👍/👎 按钮被我在"去 tab"那版删了
+                      ⇒ confirmPending / rejectPending 永不调用 ⇒ 记忆永远是 pending
+                      ⇒ 现在恢复这两个按钮（一票就能把记忆转成 active / dead） */}
+                  <button
+                    onClick={async () => {
+                      try {
+                        await fetch('/api/lab2', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          credentials: 'include',
+                          body: JSON.stringify({ action: 'confirm' }),
+                        })
+                        setErr('')
+                        setChatMsgs((p) => [...p, {
+                          role: 'assistant',
+                          text: '已记为"这版好" ⇒ 你之前提过的意见会被强化，下一单优先执行。',
+                        }])
+                      } catch { setErr('标记失败') }
+                    }}
+                    title="这版可以（你之前提的意见会被强化，下一单优先用）"
+                    style={{ ...btn(false), padding: '5px 10px', fontSize: 11 }}>👍</button>
+
+                  <button
+                    onClick={async () => {
+                      try {
+                        await fetch('/api/lab2', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          credentials: 'include',
+                          body: JSON.stringify({ action: 'reject' }),
+                        })
+                        setErr('')
+                        setChatMsgs((p) => [...p, {
+                          role: 'assistant',
+                          text: '已记为"这版不行" ⇒ 相关意见会被标记为无效，下次不再照做。',
+                        }])
+                      } catch { setErr('标记失败') }
+                    }}
+                    title="这版不行（相关意见会被标记无效，下次不再照做）"
+                    style={{ ...btn(false), padding: '5px 10px', fontSize: 11 }}>👎</button>
                   <button onClick={() => {
                     const u = location.origin + '/w/' + encodeURIComponent(result.repoId || '1')
                       + '/' + encodeURIComponent(result.name)

@@ -172,9 +172,20 @@ export async function POST(req: NextRequest) {
      *    · 排除「第N段+方位」的纯定位句
      */
     try {
-      const OPINION = /(要|别|不要|不许|应该|必须|需要|改成|换成|统一|以后|每次|都|太|不够|避免|记住|所有|全部)/
+      /**
+       * ★2026-11-06 放宽（用户："记忆系统对它好像没什么帮助"）：
+       *   原来要求 ≥6 字 + 含要求词 ⇒ "数字看不清"（5 字）被拒 ⇒ 大部分真实意见都记不住
+       *   现在：
+       *     · 长度 4~100
+       *     · 要求词补上「问题类」词（看不清/糊/太小/压住/挡住/丑/土/空/乱/重叠/出界）
+       *     · 纯定位句仍然排除（"第3段往右移"是一次性指令，带到下一单会误导）
+       *     · 排除纯应答（好的/可以/嗯/收到），那不是意见
+       */
+      const OPINION = /(要|别|不要|不许|应该|必须|需要|改成|换成|统一|以后|每次|都|太|不够|避免|记住|所有|全部|看不清|看不见|糊|太小|太大|压住|挡住|遮住|重影|重叠|出界|溢出|丑|土|空|乱|挤|裁掉|切掉|真难看)/
       const pureLocate = /^第\s*\d+\s*[段帧张]?\s*(往|向|上|下|左|右|移|改成|换成)/
-      if (text.length >= 6 && text.length <= 80 && OPINION.test(text) && !pureLocate.test(text)) {
+      const pureAck = /^(好|好的|行|可以|嗯|对|是的|收到|ok|OK|OK了|可以了|就这样|不错)[。！!.~]*$/
+      if (text.length >= 4 && text.length <= 100 && OPINION.test(text)
+        && !pureLocate.test(text) && !pureAck.test(text)) {
         const { addPending } = await import('@/lib/lab2/memory')
         addPending(userId, text.slice(0, 60))
         console.log('[lab2-chat] 记进长期记忆：' + text.slice(0, 40))
