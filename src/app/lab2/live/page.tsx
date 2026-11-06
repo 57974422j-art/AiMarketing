@@ -318,7 +318,13 @@ export default function Lab2Page() {
         }),
       })
       const j = await r.json()
-      if (!j?.ok) { setErr(String(j?.error || '截图失败')); return }
+      if (!j?.ok) {
+        /* ★失败必须让人看见（之前只在顶栏一行小字，用户以为"什么都没加入"） */
+        const msg = String(j?.error || '截图失败')
+        setErr('截图失败：' + msg)
+        alert('截图失败：' + msg)
+        return
+      }
 
       setChatImgs((p) => [
         ...p,
@@ -326,11 +332,19 @@ export default function Lab2Page() {
       ].slice(0, 6))
       /* 预填一句，你补完就能发（省得再想怎么说） */
       setChatText('这块画面有问题（' + seekT.toFixed(1) + 's）：')
+      /* ★在对话里也留一条，证明"真的加进去了" */
+      setChatMsgs((p) => [...p, {
+        role: 'assistant',
+        text: '已附上 ' + seekT.toFixed(1) + 's 的框选截图（附在输入框上方，可以连同这句话一起发给我）',
+      }])
       setCropOn(false)
       setCropRect(null)
       setTab('chat')
+      setErr('')
     } catch (e) {
-      setErr('截图异常：' + String((e as Error)?.message || e))
+      const msg = '截图异常：' + String((e as Error)?.message || e)
+      setErr(msg)
+      alert(msg)
     } finally {
       setCropBusy(false)
     }

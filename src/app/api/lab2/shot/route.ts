@@ -15,6 +15,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { getAuthFromHeaders, getAuthFromCookie } from '@/lib/api-auth'
 
+/* ★2026-11-06 起一次浏览器要 5~8 秒，别被默认超时掐断 */
+export const maxDuration = 120
+
 export async function POST(req: NextRequest) {
   const auth = getAuthFromHeaders(req) || getAuthFromCookie(req)
   if (!auth?.userId) {
@@ -67,6 +70,7 @@ export async function POST(req: NextRequest) {
     const { shootRegion } = await import('@/lib/lab2/shot')
     const shot = await shootRegion(html, W, H, t, r)
     if (!shot.ok || !shot.image) {
+      console.error('[lab2-shot-region] ❌ ' + shot.error + '（' + name + ' @' + t + 's）')
       return NextResponse.json({ ok: false, error: '截图失败：' + (shot.error || '未知') }, { status: 500 })
     }
 
