@@ -525,9 +525,16 @@ export default function Lab2Page() {
     })
   }
 
-  async function gen(isRetry = false) {
+  /**
+ * ★2026-11-06 用户：「2个重复了 帮剪掉一个…下面那个不要了」
+ *   ⇒ 删掉下面那块（独立 textarea + 独立上传截图），
+ *     把「重做整条」合并到上面「对话改片」的输入框旁
+ *   ⇒ 所以 gen() 要多收一个"这次的意见 + 图"，不再依赖下面那套 state
+ */
+async function gen(isRetry = false, fbOverride?: string, imgsOverride?: string[]) {
     if (picked.length < 1) { setErr('至少选 1 张素材'); return }
-    if (isRetry && !feedback.trim()) { setErr('重做请先写「哪里不对」'); return }
+    const fbText = (fbOverride ?? feedback).trim()
+    if (isRetry && !fbText) { setErr('重做请先写「哪里不对」'); return }
     setErr(''); setLoading(true)
     if (!isRetry) setResult(null)
     try {
@@ -564,8 +571,10 @@ export default function Lab2Page() {
           aspect,
           /* 重做：带上上次 HTML + 意见 */
           prevHtml: isRetry ? result?.html : '',
-          feedback: isRetry ? feedback : '',
-          feedbackImages: isRetry ? fbImages.map((x) => x.data) : [],
+          feedback: isRetry ? fbText : '',
+          feedbackImages: isRetry
+            ? (imgsOverride ?? fbImages.map((x) => x.data))
+            : [],
           sessionId,                 /* ★首版写进这个会话，之后对话改片继续用 */
         }),
       })
@@ -1464,65 +1473,39 @@ export default function Lab2Page() {
                     }}>
                     {chatBusy ? '改…' : '发送'}
                   </button>
+
+                  {/* ★2026-11-06 用户："2个重复了 帮剪掉一个…下面那个不要了"
+                      ⇒ 下面那块（独立 textarea + 独立上传截图 + 按意见重做）已删
+                      ⇒ 但"推倒重来"的能力不能丢 ⇒ 收进这里，用输入框的话 + 这里的图
+                      ⚠️ 区别：
+                         发送  = 在**当前这一版上改**（3 分钱，几秒）
+                         ↻ 重做 = 丢掉当前版，**重新生成一版**（6 分钱，50 秒） */}
+                  <button
+                    onClick={() => {
+                      const fb = chatText.trim()
+                      if (!fb) { setErr('先在输入框写一句「整条要怎么改」'); return }
+                      if (!window.confirm('重做 = 丢掉当前这一版，用素材**重新生成**（约 50 秒 / 6 分钱）。\n\n继续？')) return
+                      setRetrying(true)
+                      gen(true, fb, chatImgs.map((x) => x.data))
+                    }}
+                    disabled={chatBusy || retrying || !chatText.trim()}
+                    title="不带当前版本，从头重新生成一版（换思路用这个）"
+                    style={{
+                      padding: '8px 12px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+                      cursor: (chatBusy || retrying || !chatText.trim()) ? 'default' : 'pointer',
+                      background: (chatBusy || retrying || !chatText.trim()) ? '#2A3440' : 'rgba(255,179,71,.22)',
+                      border: '1px solid ' + ((chatBusy || retrying || !chatText.trim()) ? '#2A3440' : '#FFB347'),
+                      color: (chatBusy || retrying || !chatText.trim()) ? '#7A8798' : '#FFE9C8',
+                    }}>
+                    {retrying ? '重做…' : '↻ 重做整条'}
+                  </button>
+                </div>
+
+                <div style={{ fontSize: 9, color: '#4C5765', marginTop: 6, lineHeight: 1.6 }}>
+                  发送 = 在**这一版上改**（快、便宜）｜ ↻ 重做整条 = 用素材**重新生成一版**（慢、贵，适合换思路）
                 </div>
               </div>
 
-              {/* 重做 */}
-              <div style={{ ...box, marginTop: 12 }}>
-                <span style={label}>不满意？写「哪里不对」再重做（会带上次 HTML 一起喂回去）</span>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-                  {['字粘在一起', '图片被压暗', '小字被大字压住', '每段都一样', '太像模板', '没有质感'].map((t) => (
-                    <button key={t} onClick={() => setFeedback((f) => (f ? f + '；' + t : t))}
-                      style={{ ...btn(false), fontSize: 10, padding: '4px 8px' }}>+ {t}</button>
-                  ))}
-                </div>
-                <textarea value={feedback} onChange={(e) => setFeedback(e.target.value)}
-                  placeholder="例：第 2 段字粘在一起，line-height 太小；第 4 段图被压暗了" rows={2}
-                  style={{ width: '100%', background: '#06080B', border: '1px solid #242C38', borderRadius: 6, color: '#D8E2EC', fontSize: 11, padding: 8, resize: 'vertical' }} />
-
-                {/* ★2026-11-03 用户要求：反馈可以上传图片（模型能看图，比文字准 10 倍） */}
-                <div style={{ marginTop: 8 }}>
-                  <label style={{
-                    display: 'inline-block', fontSize: 10, padding: '6px 12px', borderRadius: 6, cursor: 'pointer',
-                    background: 'rgba(74,158,255,.18)', border: '1px solid #4A9EFF', color: '#BFE3FF',
-                  }}>
-                    📎 上传截图（说明问题）
-                    <input type="file" accept="image/*" multiple style={{ display: 'none' }}
-                      onChange={async (e) => {
-                        const files = Array.from(e.target.files || [])
-                        if (!files.length) return
-                        const arr: { name: string; data: string }[] = []
-                        for (const f of files.slice(0, 4)) {
-                          const d = await new Promise<string>((res) => {
-                            const fr = new FileReader()
-                            fr.onload = () => res(String(fr.result))
-                            fr.onerror = () => res('')
-                            fr.readAsDataURL(f)
-                          })
-                          if (d) arr.push({ name: f.name, data: d })
-                        }
-                        setFbImages((p) => [...p, ...arr].slice(0, 4))
-                        e.target.value = ''
-                      }} />
-                  </label>
-                  {fbImages.length > 0 && (
-                    <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-                      {fbImages.map((im, i) => (
-                        <div key={i} style={{ position: 'relative' }}>
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={im.data} alt={im.name} style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 6, border: '1px solid #242C38' }} />
-                          <button onClick={() => setFbImages((p) => p.filter((_, j) => j !== i))}
-                            style={{ position: 'absolute', right: -4, top: -4, width: 16, height: 16, borderRadius: '50%', background: '#FF6B6B', color: '#fff', border: 'none', fontSize: 10, cursor: 'pointer', lineHeight: '16px', padding: 0 }}>×</button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <button onClick={() => { setRetrying(true); gen(true) }} disabled={loading || !feedback.trim()}
-                  style={{ ...btn(false), marginTop: 8, padding: '8px 16px', fontWeight: 700, background: feedback.trim() ? 'rgba(255,179,71,.2)' : '#0B0F14', borderColor: feedback.trim() ? '#FFB347' : '#242C38', color: feedback.trim() ? '#FFE9C8' : '#4C5765' }}>
-                  {retrying ? '重做中…' : '↻ 按意见重做'}
-                </button>
-              </div>
               </>
               )}
 
