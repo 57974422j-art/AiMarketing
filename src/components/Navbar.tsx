@@ -18,12 +18,22 @@ export default function Navbar() {
   const [mounted, setMounted] = useState(false)
   // 嵌入模式（2026-08-05）：iframe 内加载时隐藏全局导航（应用随行大屏自带标题栏）
   // ★2026-11-05：/lab2/live（直播台）也隐藏 —— 它自己有顶栏，全局通栏会顶掉一屏高度
+  // ★★★ 2026-11-07 用户（截图证明 Navbar 还在上面占 52px，导致下面显示不全）：
+  //   原来的判断只认 `pathname.startsWith('/lab2/live')`
+  //   但在客户端/webview/hash 路由下 pathname 可能不是这个形状 ⇒ 判断落空 ⇒ Navbar 照样显示
+  //   现在放宽到三条件任一成立：
+  //     ① 显式参数 embed=1
+  //     ② URL 里任何位置出现 lab2（覆盖 pathname / hash / query / basePath）
+  //     ③ **被 iframe 嵌着**（客户端"呼出网页版"就是这种）
   const [embedMode, setEmbedMode] = useState(false)
   useEffect(() => {
     if (typeof window === 'undefined') return
+    const href = window.location.href
     setEmbedMode(
       window.location.search.includes('embed=1')
-      || window.location.pathname.startsWith('/lab2/live'),
+      /* 只隐藏「直播台」那页（经典版 /lab2 保留 Navbar —— 它要靠 Navbar 回其它页） */
+      || /lab2[/#?_-]*live/i.test(href)
+      || window.self !== window.top,
     )
   }, [])
 
