@@ -10,7 +10,8 @@
  *   ④ 生成完直接显示 `__trace` 和 技术指标（不用读源码）
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { byGroup, conflictSet, techById } from '@/lib/lab2/techniques'
 
 type Item = { name?: string; key?: string; url?: string }
 
@@ -147,6 +148,28 @@ export default function Lab2Page() {
    * ⚠️ 强版里，下面那些开关（画幅/内容/文案/密度/大图比/动效/收尾帧）**照样生效**
    */
   const [strongPrompt, setStrongPrompt] = useState(false)
+
+  /**
+   * ★★★ 2026-11-07 用户：「技法都编辑成按钮 勾选必须使用」「做折叠处理 点开一排收缩另一排」
+   *
+   * 技法 = 勾了**必须做到**，代码在报告里逐条验收（不是"可以试试"）
+   * 折叠 = 一次只展开一组，省高度
+   */
+  const [techs, setTechs] = useState<string[]>([])
+  const [openGroup, setOpenGroup] = useState<string | null>('构图')
+  const techGroups = useMemo(() => byGroup(), [])
+  const techBlocked = useMemo(() => conflictSet(techs), [techs])
+
+  function toggleTech(id: string) {
+    setTechs((p) => {
+      const on = p.includes(id)
+      if (on) return p.filter((x) => x !== id)
+      /* 勾一个时，自动剔掉和它互斥的已选项（避免自相矛盾） */
+      const t = techById(id)
+      const drop = new Set(t?.conflict || [])
+      return [...p.filter((x) => !drop.has(x)), id]
+    })
+  }
   const [userRules, setUserRules] = useState('')
 
   /* 重做 */
@@ -566,6 +589,7 @@ async function gen(isRetry = false, fbOverride?: string, imgsOverride?: string[]
           bigImg,
           endCard,
           strongPrompt,
+          techniques: techs,
           userRules,
           maxSeconds: 45,
           aspect,
@@ -737,6 +761,18 @@ async function gen(isRetry = false, fbOverride?: string, imgsOverride?: string[]
 
   return (
     <div style={{
+      /**
+       * ★★★ 2026-11-07 用户：「这个显示后导致下面不能完全显示」「我需要一个屏幕就能显示」
+       *
+       * 根因：这里写的是 `100vh`。而上面如果还有东西占高度（全局 Navbar 52px、
+       *   客户端外壳的「个人仓库」条、浏览器书签栏之类），`100vh` 是**视口高度**，
+       *   不是"剩下的高度" ⇒ 整页多出那 52px ⇒ **底部被切掉**。
+       *
+       * 修：改成 `100%`（撑满父级剩余高度）。
+       *   · 有 Navbar ⇒ 父级 body 高度已被 Navbar 扣掉 ⇒ 100% 正好
+       *   · 没有 Navbar（本页隐藏了）⇒ 父级 = 100vh ⇒ 100% = 100vh
+       *   两种情况下都不溢出。
+       */
       height: '100vh', overflow: 'hidden', background: '#06080B', color: '#D8E2EC',
       fontFamily: 'system-ui', display: 'flex', flexDirection: 'column',
     }}>
@@ -898,6 +934,85 @@ async function gen(isRetry = false, fbOverride?: string, imgsOverride?: string[]
                 {selfReviewOn ? '多 4~5 分' : '省 4~5 分'}
               </span>
             </label>
+
+            {/* ★★★ 2026-11-07 技法（勾了必须用）—— 用户要求"折叠：点开一排收缩另一排" */}
+            <div style={{ marginTop: 6, borderTop: '1px solid #1A2028', paddingTop: 8 }}>
+              <div style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                marginBottom: 6,
+              }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: techs.length ? '#8FE8C8' : '#7A8798' }}>
+                  技法（勾了必须用）
+                </span>
+                <span style={{ fontSize: 9, color: techs.length ? '#3ECF8E' : '#4C5765' }}>
+                  已勾 {techs.length} 个
+                </span>
+              </div>
+
+              {(['构图', '文字', '图形', '质感'] as const).map((g) => {
+                const list = techGroups[g] || []
+                const open = openGroup === g
+                const cnt = list.filter((t) => techs.includes(t.id)).length
+                return (
+                  <div key={g} style={{ marginBottom: 3 }}>
+                    <button
+                      onClick={() => setOpenGroup(open ? null : g)}
+                      style={{
+                        width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 6,
+                        padding: '5px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 10.5,
+                        border: '1px solid ' + (cnt ? 'rgba(62,207,142,.55)' : '#242C38'),
+                        background: open ? 'rgba(62,207,142,.10)' : '#0B0F14',
+                        color: cnt ? '#8FE8C8' : '#7A8798',
+                      }}>
+                      <span style={{ fontSize: 9, color: '#4C5765' }}>{open ? '▾' : '▸'}</span>
+                      <span style={{ fontWeight: 700 }}>{g}</span>
+                      {cnt > 0 && (
+                        <span style={{
+                          fontSize: 9, color: '#06110B', background: '#3ECF8E',
+                          borderRadius: 8, padding: '0 5px', fontWeight: 700,
+                        }}>{cnt}</span>
+                      )}
+                    </button>
+
+                    {open && (
+                      <div style={{
+                        display: 'grid', gridTemplateColumns: '1fr 1fr',
+                        gap: '1px 6px', padding: '5px 2px 3px',
+                      }}>
+                        {list.map((t) => {
+                          const checked = techs.includes(t.id)
+                          const blocked = !checked && techBlocked.has(t.id)
+                          return (
+                            <label key={t.id} title={t.judge}
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: 5, fontSize: 9.5,
+                                padding: '2px 0', lineHeight: 1.5,
+                                cursor: blocked ? 'not-allowed' : 'pointer',
+                                color: blocked ? '#3A4350' : (checked ? '#D6FBEA' : '#8B97A5'),
+                                opacity: blocked ? 0.45 : 1,
+                              }}>
+                              <input type="checkbox" checked={checked} disabled={blocked}
+                                onChange={() => toggleTech(t.id)}
+                                style={{ width: 12, height: 12, accentColor: '#3ECF8E', flexShrink: 0 }} />
+                              <span style={{
+                                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                textDecoration: blocked ? 'line-through' : 'none',
+                              }}>{t.name}</span>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+
+              {techs.length > 0 && (
+                <div style={{ fontSize: 8.5, color: '#4C5765', marginTop: 5, lineHeight: 1.6 }}>
+                  勾了的会在报告里**逐条验收**（做到 ✅ / 没做 ❌）
+                </div>
+              )}
+            </div>
 
             {/* ★★★ 2026-11-06 强提示词档位（用户："把这份强提示词加一个按键"）*/}
             <label style={chk} title="打开后换成老版那份强要求：画幅常识 / 野心 / 质感 / 硬底线 / 禁止偷懒 / 三道闸 / 装饰清单。下面所有开关照样生效，只是要求写得更细。">

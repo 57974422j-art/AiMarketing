@@ -19,6 +19,8 @@
    ══════════════════════════════════════════════════════════════════════ */
 /* ★2026-11-06 强提示词档位的两个大段（拆到单独文件，避免这个文件过长） */
 import { fillFrame, strongPart1, strongPart2 } from './strongPrompt'
+/* ★2026-11-07 技法库（勾了必须用） */
+import { renderTechMust } from './techniques'
 
 export type Lab2Form = {
   imgCount?: number
@@ -34,6 +36,12 @@ export type Lab2Form = {
   bigImg?: number
   /** 动效：off / on */
   motion?: string
+  /**
+   * ★2026-11-07 技法勾选（用户：「技法都编辑成按钮 勾选必须使用」）
+   *   勾了的 = **必须做到**，代码在报告里逐条验收
+   *   不勾 = 不要求（它自由发挥）
+   */
+  techniques?: string[]
   /**
    * ★2026-11-06 强提示词档位（用户：「把这份强提示词加一个按键」）
    *   false（默认）= 简版（自由发挥，省 token）
@@ -439,6 +447,10 @@ ${W} × ${H}（${isLand ? '横屏 16:9' : '竖屏 9:16'}）
   p.push(METHODS)
   p.push('')
 
+  /* ★★★ 2026-11-07 技法勾选：勾了就必须做到（用户：「勾选必须使用」） */
+  const techMust = renderTechMust(f.techniques || [])
+  if (techMust) { p.push(techMust); p.push('') }
+
   p.push(contract(W, H))
   p.push('')
 
@@ -510,6 +522,12 @@ export function buildLab2PromptStrong(f: Lab2Form): string {
 
   p.push(METHODS)
   p.push('')
+
+  /* ★★★ 2026-11-07 技法勾选（强版也要）：勾了就必须做到 */
+  {
+    const tm = renderTechMust(f.techniques || [])
+    if (tm) { p.push(tm); p.push('') }
+  }
 
   /**
    * ★★★ 2026-11-06 用户：「第一为什么越做越短」

@@ -16,6 +16,7 @@ import path from 'node:path'
 import { getAuthFromHeaders, getAuthFromCookie } from '@/lib/api-auth'
 import { shotFrames } from '@/lib/lab2/shot'
 import { buildLab2Prompt, buildLab2PromptStrong, type Lab2Form } from '@/lib/lab2/prompt'
+import { TECHNIQUES as ALL_TECHS } from '@/lib/lab2/techniques'
 import { getMemories, addPending, confirmPending, rejectPending } from '@/lib/lab2/memory'
 
 export const maxDuration = 900
@@ -233,6 +234,72 @@ function ensureAutoplay(html: string): string {
  *   兜底：注入覆盖版 __seek，强制按 [start, start+duration) 控制 visibility + 淡入淡出
  */
 /**
+ * ★★★ 2026-11-07 技法验收（这是"勾了必须用"的闭环）
+ *
+ * 用户：「技法都编辑成按钮 勾选必须使用」「出错不怕，有截图二次修」
+ *   ⇒ 勾了就在 prompt 里写"必须做到"，出片后**用代码逐条查**
+ *   ⇒ 没做到的在报告里标 ❌，你可以点「🔧 补做」带着缺失清单去改片
+ *
+ * 判据来自 lib/lab2/techniques.ts 的 check / check2（正则 + 最少处数）
+ * 少数没有正则的（纯排版页 / 巨型数字）单独判断。
+ */
+function scanTechniques(html: string, ids: string[]): Array<{
+  id: string
+  name: string
+  ok: boolean
+  detail: string
+}> {
+  if (!ids.length) return []
+  const techs = ALL_TECHS.filter((t) => ids.includes(t.id))
+  const secHtml = [...html.matchAll(/<section[^>]*class="sec[^"]*"[^>]*>[\s\S]*?<\/section>/g)]
+    .map((m) => m[0])
+  const total = secHtml.length
+
+  const out: Array<{ id: string; name: string; ok: boolean; detail: string }> = []
+
+  for (const t of techs) {
+    let ok = false
+    let detail = ''
+
+    /* 有正则的走正则 */
+    if (t.check) {
+      const n1 = (html.match(t.check.re) || []).length
+      const n2 = t.check2 ? (html.match(t.check2.re) || []).length : Infinity
+      ok = n1 >= t.check.min && n2 >= (t.check2?.min ?? 0)
+      detail = `${t.check.re.source.slice(0, 22)}… ${n1} 处`
+      if (t.check2) detail += ` + ${n2} 处`
+      if (!ok) detail += `（要求 ≥${t.check.min}${t.check2 ? ' / ≥' + t.check2.min : ''}）`
+    }
+
+    /* 单独判断：纯排版页 */
+    if (t.id === 'typeonly') {
+      const pure = secHtml.filter((s) => !/<img\b/i.test(s) && !/url\(\s*['"]?data:image/i.test(s)).length
+      ok = pure >= 1
+      detail = `无图段 ${pure}/${total}`
+    }
+
+    /* 单独判断：巨型数字（字号 ≥ 短边 25%） */
+    if (t.id === 'bignum') {
+      const fs = [...html.matchAll(/font-size\s*:\s*(\d+)px/g)].map((m) => Number(m[1]))
+      const maxFs = fs.length ? Math.max(...fs) : 0
+      ok = maxFs >= 320
+      detail = `最大字号 ${maxFs}px（要求 ≥320）`
+    }
+
+    /* 单独判断：印章（红底 + rotate） */
+    if (t.id === 'seal') {
+      const rot = (html.match(/rotate\(\s*-?[0-9.]+deg/g) || []).length
+      const red = /#(?:[Cc][0-9A-Fa-f]{2}|[Ee]8|FF)[0-9A-Fa-f]{4}/.test(html)
+      ok = rot >= 1 && red
+      detail = `旋转块 ${rot} 处 · 红色 ${red ? '有' : '无'}`
+    }
+
+    out.push({ id: t.id, name: t.name, ok, detail })
+  }
+  return out
+}
+
+/**
  * ★★★ 2026-11-06 用户：「指标自审 / 完成复制 / PROMPT报告不再显示，**全部打印成一个文件**。
  *   镜像到本地，小眼睛点击弹窗看报告。」
  *
@@ -265,6 +332,8 @@ function buildReportText(o: {
   ossKeys: string[]
   review?: { shotOk: boolean; rounds: number; issues: string[]; changes: string[]; shotErr?: string }
   fixes: { deadlock: number; ids: number; animIn: number }
+  /* ★2026-11-07 技法验收结果 */
+  techCheck?: Array<{ id: string; name: string; ok: boolean; detail: string }>
 }): string {
   const { f, metrics: m } = o
   const L: string[] = []
@@ -318,6 +387,25 @@ function buildReportText(o: {
     + o.setCheck.fullSecs + '/' + o.setCheck.totalSecs + ' = ' + o.setCheck.actualPct + '%'
     + (Math.abs(o.setCheck.actualPct - o.setCheck.bigImgSet) > 20 ? '（⚠️ 差得多）' : '（✅ 对得上）'))
   L.push('')
+
+  /* ★2026-11-07 技法验收（勾了必须用 —— 这是闭环） */
+  if (o.techCheck && o.techCheck.length) {
+    const okN = o.techCheck.filter((x) => x.ok).length
+    L.push('══════ 技法验收（勾了必须用）══════')
+    L.push('勾了 ' + o.techCheck.length + ' 个 → 实际做到 ' + okN + ' 个'
+      + (okN === o.techCheck.length ? '　✅ 全做到' : '　⚠️ 缺 ' + (o.techCheck.length - okN) + ' 个'))
+    o.techCheck.forEach((x) => {
+      L.push((x.ok ? '✅ ' : '❌ ') + x.name.padEnd(10, ' ') + ' ' + x.detail)
+    })
+    const miss = o.techCheck.filter((x) => !x.ok).map((x) => x.name)
+    if (miss.length) {
+      L.push('')
+      L.push('⇒ 补做时把这句话发过去：')
+      L.push('   「技法验收发现有 ' + miss.length + ' 个没做到：' + miss.join('、')
+        + '。请只补这几样，其它别动。」')
+    }
+    L.push('')
+  }
 
   L.push('══════ 素材使用 ══════')
   if (o.imgUsage.unknown) {
@@ -701,6 +789,8 @@ export async function POST(req: NextRequest) {
       endCard: body?.endCard === true,
       /* ★2026-11-06 强提示词档位 */
       strongPrompt: body?.strongPrompt === true,
+      /* ★2026-11-07 技法勾选（勾了必须做到，报告里逐条验收） */
+      techniques: Array.isArray(body?.techniques) ? body.techniques.map(String).slice(0, 30) : [],
       memories: getMemories(userId),
       userRules: String(body?.userRules || ''),
       selfReview: body?.selfReview !== false,
@@ -1299,6 +1389,8 @@ export async function POST(req: NextRequest) {
     const metrics = scanMetrics(html)
     const traceObj = extractTrace(html)
     const elapsedSec = Math.round((Date.now() - t0) / 1000)
+    /* ★2026-11-07 技法验收：勾了的逐条查（做到 ✅ / 没做 ❌） */
+    const techCheck = scanTechniques(html, form.techniques || [])
     let reportName = ''
     let reportText = ''
     try {
@@ -1323,6 +1415,7 @@ export async function POST(req: NextRequest) {
         ossKeys: imgs.slice(0, 3).map(ossKey),
         review,
         fixes: { deadlock: deadlockFix, ids: idFix, animIn: animInFix },
+        techCheck,
       })
       reportName = name.replace(/\.html$/, '') + '.report.txt'
       try {
