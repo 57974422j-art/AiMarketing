@@ -756,7 +756,12 @@ async function gen(isRetry = false, fbOverride?: string, imgsOverride?: string[]
             fontSize: 11, color: '#7A8798', textDecoration: 'none',
             padding: '4px 8px', borderRadius: 6, border: '1px solid #1A2028', flexShrink: 0,
           }}>经典版</a>
+        {/* ★2026-11-07 加版本号：用户分不清"没改"和"没部署" —— 以后看这里 */}
         <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: .3 }}>LAB2 · 直播台</span>
+        <span style={{
+          fontSize: 9, color: '#3ECF8E', border: '1px solid rgba(62,207,142,.4)',
+          borderRadius: 4, padding: '1px 5px', flexShrink: 0,
+        }}>v11-07</span>
         <div style={{ width: 1, height: 18, background: '#1A2028' }} />
         <span style={{ fontSize: 11, color: aspect === '16:9' ? '#FFD9A0' : '#BFE3FF', fontWeight: 700 }}>
           {aspect === '16:9' ? '1280 × 720 横屏' : '720 × 1280 竖屏'}
