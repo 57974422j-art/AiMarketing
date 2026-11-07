@@ -82,6 +82,20 @@ export const TECHNIQUES: Tech[] = [
     fit: '需要"丰富感"（多道菜/多个产品）',
   },
   {
+    id: 'sticker',
+    name: '贴纸化围框',
+    group: '构图',
+    hint: '照片加白边+投影，像贴纸',
+    must: '贴纸化：**至少 3 张照片**套上"白边 + 投影"的卡片效果 —— '
+      + '白边 8~10px（`box-shadow: 0 0 0 9px #fff` 最省事），圆角 14~22px，'
+      + '再配 `0 18px 36px rgba(60,74,90,.28)` 的投影。'
+      + '⛔ 白边 <6px 会被吞掉（看不出是贴纸），>12px 像画框',
+    judge: 'box-shadow: 0 0 0 8~12px，或 border: 8~12px solid #fff，≥3 处',
+    check: { re: /box-shadow\s*:\s*0\s+0\s+0\s+(\d+)px/gi, min: 3 },
+    fit: '餐饮/产品/手作感；满幅推拉时用不了（互斥）',
+    stable: true,
+  },
+  {
     id: 'circle',
     name: '圆窗/斜切',
     group: '构图',
@@ -276,6 +290,59 @@ export const TECHNIQUES: Tech[] = [
     fit: '手作/中式/书卷气',
   },
 ]
+
+/**
+ * ★★★ 2026-11-07 用户：「内容类型 9 个按钮还有用吗」
+ *
+ * 查证：contentType **从来没进过 prompt**（11-03 精简时把「内容类型技法」全删了）
+ *   ⇒ 9 个按钮是死的
+ *
+ * 现在改成「技法预设」：点一个类型 ⇒ 自动勾上对应的技法组合，你还能手动加减。
+ *   ⇒ 内容类型终于真的影响输出了
+ */
+export const TYPE_PRESETS: Record<string, { label: string; techs: string[]; note: string }> = {
+  none: { label: '不指定', techs: [], note: '不预设，你自己勾' },
+  food: {
+    label: '餐饮探店',
+    techs: ['full', 'sticker', 'stroke', 'vertical', 'seal', 'grain'],
+    note: '满幅+贴纸化+描边字+竖排+印章+颗粒（让人饿）',
+  },
+  tech: {
+    label: '产品科技',
+    techs: ['full', 'gridbg', 'svgshape', 'glow', 'bignum', 'grain'],
+    note: '满幅+网格+SVG图形+光晕+巨型数字（冷、精密）',
+  },
+  know: {
+    label: '知识科普',
+    techs: ['gridbg', 'svgshape', 'bignum', 'pill', 'particle'],
+    note: '网格+SVG图形+巨型数字+胶囊+粒子（讲清楚）',
+  },
+  talk: {
+    label: '老板口播',
+    techs: ['split', 'sticker', 'stroke', 'pill', 'grain'],
+    note: '左右对开+贴纸化+描边字+胶囊（人 + 话）',
+  },
+  promo: {
+    label: '活动促销',
+    techs: ['full', 'boom', 'bignum', 'sticker', 'vignette'],
+    note: '满幅+爆炸字+巨型数字+贴纸化（冲击）',
+  },
+  tutorial: {
+    label: '教程演示',
+    techs: ['gridbg', 'svgshape', 'pill', 'grow', 'bignum'],
+    note: '网格+SVG图形+胶囊+路径生长（步骤感）',
+  },
+  brand: {
+    label: '品牌落版',
+    techs: ['typeonly', 'seal', 'vertical', 'svgshape', 'grain'],
+    note: '纯排版+印章+竖排+SVG图形+颗粒（收束）',
+  },
+  mood: {
+    label: '情绪空镜',
+    techs: ['full', 'grain', 'vignette', 'glow', 'paper'],
+    note: '满幅+颗粒+暗角+光晕+纸纹（氛围）',
+  },
+}
 
 /** 按组取 */
 export function byGroup(): Record<TechGroup, Tech[]> {

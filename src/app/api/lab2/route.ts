@@ -286,10 +286,27 @@ function scanTechniques(html: string, ids: string[]): Array<{
       detail = `最大字号 ${maxFs}px（要求 ≥320）`
     }
 
-    /* 单独判断：印章（红底 + rotate） */
+    /* 单独判断：印章（红底 + rotate）
+       ★2026-11-07 修判据：原来只认 #Cxxxxx / #Exxxxx / #FFxxxx 开头，
+         实测 121302 明明有 3 个红印章却被判"红色无"（它的红是 #C8352B / #D93A2B） */
     if (t.id === 'seal') {
       const rot = (html.match(/rotate\(\s*-?[0-9.]+deg/g) || []).length
-      const red = /#(?:[Cc][0-9A-Fa-f]{2}|[Ee]8|FF)[0-9A-Fa-f]{4}/.test(html)
+      /* 抓所有 #RRGGBB，判断"偏红"：R 高、G/B 低 */
+      let red = false
+      for (const m of html.matchAll(/#([0-9A-Fa-f]{6})\b/g)) {
+        const v = m[1]
+        const r = parseInt(v.slice(0, 2), 16)
+        const g = parseInt(v.slice(2, 4), 16)
+        const b = parseInt(v.slice(4, 6), 16)
+        if (r >= 150 && g <= 95 && b <= 95) { red = true; break }
+      }
+      /* 也认 rgb(r,g,b) 写法 */
+      if (!red) {
+        for (const m of html.matchAll(/rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/g)) {
+          const [r, g, b] = [Number(m[1]), Number(m[2]), Number(m[3])]
+          if (r >= 150 && r - g > 55 && r - b > 55) { red = true; break }
+        }
+      }
       ok = rot >= 1 && red
       detail = `旋转块 ${rot} 处 · 红色 ${red ? '有' : '无'}`
     }
@@ -411,10 +428,17 @@ function buildReportText(o: {
   if (o.imgUsage.unknown) {
     L.push('（它没写 {{IMG_N}} 占位符，无法统计用了哪张）')
   } else {
+    /* ★2026-11-07 用户：「减素材可以，但比例不能大于 10%」 */
+    const cap = Math.max(0, Math.floor(o.imgUsage.total * 0.1))
+    const over = o.imgUsage.missing.length > cap
     L.push('素材 ' + o.imgUsage.total + ' 张 → 用了 ' + o.imgUsage.used.length + ' 张'
       + (o.imgUsage.missing.length
-        ? '｜⚠️ 漏了 IMG_' + o.imgUsage.missing.join('、IMG_')
+        ? '｜漏了 ' + o.imgUsage.missing.length + ' 张（上限 ' + cap + ' 张'
+          + (over ? '　❌ 超标' : '　✅ 在范围内') + '）'
         : '｜全部用上 ✅'))
+    if (o.imgUsage.missing.length) {
+      L.push('　漏了：IMG_' + o.imgUsage.missing.join('、IMG_'))
+    }
     L.push('逐段：' + o.imgUsage.perSec
       .map((ids, i) => '段' + (i + 1) + '[' + (ids.length ? ids.map((x) => 'IMG_' + x).join('+') : '无图') + ']')
       .join(' '))

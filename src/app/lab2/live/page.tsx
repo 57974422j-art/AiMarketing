@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { byGroup, conflictSet, techById } from '@/lib/lab2/techniques'
+import { byGroup, conflictSet, techById, TYPE_PRESETS } from '@/lib/lab2/techniques'
 
 type Item = { name?: string; key?: string; url?: string }
 
@@ -880,10 +880,22 @@ async function gen(isRetry = false, fbOverride?: string, imgsOverride?: string[]
 
           {/* 内容类型 */}
           <div style={box}>
-            <span style={label} title={CT_HINT[contentType] || ''}>内容类型（唯一的分类）</span>
+            {/* ★2026-11-07 用户：「内容类型 9 个按钮还有用吗」
+                查证：contentType **从来没进过 prompt**（11-03 精简时删了"内容类型技法"段）
+                ⇒ 现在改成**技法预设**：点一个类型 ⇒ 自动勾上对应技法组合（还能手动加减） */}
+            <span style={label} title={CT_HINT[contentType] || ''}>
+              内容类型 <span style={{ fontSize: 9, color: '#4C5765' }}>（点了会自动勾技法）</span>
+            </span>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
               {CONTENTS.map(([v, t]) => (
-                <button key={v || 'auto'} onClick={() => setContentType(v)} style={btn(contentType === v)}>{t}</button>
+                <button key={v || 'auto'}
+                  title={(TYPE_PRESETS[v || 'none']?.note) || ''}
+                  onClick={() => {
+                    setContentType(v)
+                    const preset = TYPE_PRESETS[v || 'none']
+                    if (preset) setTechs([...preset.techs])
+                  }}
+                  style={btn(contentType === v)}>{t}</button>
               ))}
             </div>
             {/* ★注解改成鼠标悬停提示（用户："注解可以指上去再显示"） */}
@@ -1012,6 +1024,30 @@ async function gen(isRetry = false, fbOverride?: string, imgsOverride?: string[]
                   勾了的会在报告里**逐条验收**（做到 ✅ / 没做 ❌）
                 </div>
               )}
+
+              {/* ★2026-11-07 控制区矛盾检测（勾了技法但参数对着干） */}
+              {(() => {
+                const warn: string[] = []
+                if (techs.includes('full') && bigImg < 60) {
+                  warn.push('勾了「满幅推拉」但大图比只有 ' + bigImg + '% —— 两个要求打架，建议把大图比提到 60%+')
+                }
+                if ((techs.includes('sticker') || techs.includes('collage')) && bigImg >= 100) {
+                  warn.push('勾了「贴纸化/多图错位」但大图比 100% —— 贴纸必然不满幅，建议降到 60~80%')
+                }
+                if (techs.includes('typeonly') && bigImg >= 90) {
+                  warn.push('勾了「纯排版页」但大图比 ' + bigImg + '% —— 至少留 1 段不用图')
+                }
+                if (!warn.length) return null
+                return (
+                  <div style={{
+                    marginTop: 6, padding: '6px 8px', borderRadius: 6,
+                    background: 'rgba(255,179,71,.10)', border: '1px solid rgba(255,179,71,.35)',
+                    fontSize: 9, color: '#FFD9A0', lineHeight: 1.7,
+                  }}>
+                    {warn.map((w, i) => <div key={i}>⚠️ {w}</div>)}
+                  </div>
+                )
+              })()}
             </div>
 
             {/* ★★★ 2026-11-06 强提示词档位（用户："把这份强提示词加一个按键"）*/}
