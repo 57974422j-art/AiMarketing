@@ -91,6 +91,17 @@ export default function Navbar() {
     }
   }
 
+  /**
+   * ★★★ 2026-11-07 用户（截图）："什么也没改还是都在上面 我刷新了也没用"
+   *
+   * 真正的根因：`embedMode` 算出来了，但**渲染层从来没拿它做过什么**！
+   *   （之前只在某个 useEffect 里 `if (embedMode) return`，那只跳过那个 effect）
+   *   ⇒ Navbar 永远渲染 ⇒ 一直占 52px ⇒ lab2 的 100vh 多算这 52px ⇒ 底部被切
+   *
+   * 现在：算出来就直接不渲染整条导航。
+   */
+  if (embedMode) return null
+
   if (loading) {
     return (
       <nav className="bg-gray-950/80 backdrop-blur-md border-b border-white/10 sticky top-0 z-50">
