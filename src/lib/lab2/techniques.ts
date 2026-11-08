@@ -307,17 +307,17 @@ export const TYPE_PRESETS: Record<string, { label: string; techs: string[]; note
     techs: ['full', 'sticker', 'stroke', 'vertical', 'seal', 'grain'],
     note: '满幅+贴纸化+描边字+竖排+印章+颗粒（让人饿）',
   },
-  tech: {
+  product: {
     label: '产品科技',
     techs: ['full', 'gridbg', 'svgshape', 'glow', 'bignum', 'grain'],
     note: '满幅+网格+SVG图形+光晕+巨型数字（冷、精密）',
   },
-  know: {
+  knowledge: {
     label: '知识科普',
     techs: ['gridbg', 'svgshape', 'bignum', 'pill', 'particle'],
     note: '网格+SVG图形+巨型数字+胶囊+粒子（讲清楚）',
   },
-  talk: {
+  talking: {
     label: '老板口播',
     techs: ['split', 'sticker', 'stroke', 'pill', 'grain'],
     note: '左右对开+贴纸化+描边字+胶囊（人 + 话）',
