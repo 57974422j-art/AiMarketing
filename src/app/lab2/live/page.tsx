@@ -140,6 +140,27 @@ export default function Lab2Page() {
   const [endCard, setEndCard] = useState(false)
 
   /**
+   * ★★★ 2026-11-08 用户催了两次的**时长控制** —— 之前 `maxSeconds` 是**写死的 45**，
+   *   界面上根本没有地方改。现在给 4 档（30 / 45 / 60 / 90）+ 自定义。
+   *
+   * ⚠️ 段数和时长是绑死的：45 秒做 8 段 = 每段 5.6 秒（太松），做 12~15 段才正常。
+   *   所以时长一变，prompt 里"做多少段"的建议跟着变（prompt.ts 里已经这么写了）。
+   */
+  const [duration, setDuration] = useState(45)
+
+  /**
+   * ★★★ 2026-11-08 用户：「记忆系统加开关，因为这个加上我觉得 TOKEN 可能会增加，
+   *   保持一路极简设计风就是它偷懒的只用一种方式绘制的。因为那个只要 2-3 分钱。
+   *   有些人不追求高级所以没必要管。」
+   *
+   * ⇒ 默认**关**（省 token、保持极简路线）
+   *   开了才注入历史教训（最多 20 条，约 1.5 分钱/单）
+   */
+  const [useMemory, setUseMemory] = useState(false)
+  /* ★2026-11-08 内容类型折叠（和技法一样手风琴） */
+  const [showType, setShowType] = useState(false)
+
+  /**
    * ★★★ 2026-11-06 用户：「把这份强提示词加一个按键。请注意区分 我们控制按键，
    *   有些是控制键控制的 不要忘记了。」
    *
@@ -591,8 +612,9 @@ async function gen(isRetry = false, fbOverride?: string, imgsOverride?: string[]
           endCard,
           strongPrompt,
           techniques: techs,
+          useMemory,
           userRules,
-          maxSeconds: 45,
+          maxSeconds: duration,
           aspect,
           /* 重做：带上上次 HTML + 意见 */
           prevHtml: isRetry ? result?.html : '',
@@ -879,27 +901,46 @@ async function gen(isRetry = false, fbOverride?: string, imgsOverride?: string[]
             </div>
           </div>
 
-          {/* 内容类型 */}
+          {/* 内容类型（★2026-11-08 用户："这个也给它做成展开折叠设计和下方技法一样"） */}
           <div style={box}>
-            {/* ★2026-11-07 用户：「内容类型 9 个按钮还有用吗」
-                查证：contentType **从来没进过 prompt**（11-03 精简时删了"内容类型技法"段）
-                ⇒ 现在改成**技法预设**：点一个类型 ⇒ 自动勾上对应技法组合（还能手动加减） */}
-            <span style={label} title={CT_HINT[contentType] || ''}>
-              内容类型 <span style={{ fontSize: 9, color: '#4C5765' }}>（点了会自动勾技法）</span>
-            </span>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-              {CONTENTS.map(([v, t]) => (
-                <button key={v || 'auto'}
-                  title={(TYPE_PRESETS[v || 'none']?.note) || ''}
-                  onClick={() => {
-                    setContentType(v)
-                    const preset = TYPE_PRESETS[v || 'none']
-                    if (preset) setTechs([...preset.techs])
-                  }}
-                  style={btn(contentType === v)}>{t}</button>
-              ))}
-            </div>
-            {/* ★注解改成鼠标悬停提示（用户："注解可以指上去再显示"） */}
+            <button
+              onClick={() => setShowType((v) => !v)}
+              title="点开选类型 ⇒ 自动勾上对应技法组合"
+              style={{
+                width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 6,
+                padding: '5px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 11,
+                border: '1px solid ' + (showType ? 'rgba(62,207,142,.55)' : '#242C38'),
+                background: showType ? 'rgba(62,207,142,.10)' : '#0B0F14',
+                color: '#8FE8C8',
+              }}>
+              <span style={{ fontSize: 9, color: '#4C5765' }}>{showType ? '▾' : '▸'}</span>
+              <span style={{ fontWeight: 700 }}>内容类型</span>
+              {!showType && (
+                <span style={{ fontSize: 10, color: '#7A8798', marginLeft: 'auto' }}>
+                  {(CONTENTS.find(([v]) => v === contentType) || ['', '不指定'])[1]}
+                </span>
+              )}
+            </button>
+
+            {showType && (
+              <div style={{ marginTop: 6 }}>
+                <div style={{ fontSize: 9, color: '#4C5765', marginBottom: 5, lineHeight: 1.6 }}>
+                  点了会自动勾技法（{TYPE_PRESETS[contentType || 'none']?.note || ''}）
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                  {CONTENTS.map(([v, t]) => (
+                    <button key={v || 'auto'}
+                      title={(TYPE_PRESETS[v || 'none']?.note) || ''}
+                      onClick={() => {
+                        setContentType(v)
+                        const preset = TYPE_PRESETS[v || 'none']
+                        if (preset) setTechs([...preset.techs])
+                      }}
+                      style={btn(contentType === v)}>{t}</button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* ★2026-11-05 用户："这里占的太大了。自审有个框打开就代表要不要就行了。装饰密度也是"
@@ -1051,18 +1092,9 @@ async function gen(isRetry = false, fbOverride?: string, imgsOverride?: string[]
               })()}
             </div>
 
-            {/* ★★★ 2026-11-06 强提示词档位（用户："把这份强提示词加一个按键"）*/}
-            <label style={chk} title="打开后换成老版那份强要求：画幅常识 / 野心 / 质感 / 硬底线 / 禁止偷懒 / 三道闸 / 装饰清单。下面所有开关照样生效，只是要求写得更细。">
-              <input type="checkbox" checked={strongPrompt}
-                onChange={(e) => setStrongPrompt(e.target.checked)}
-                style={{ width: 14, height: 14, accentColor: '#FFB347' }} />
-              <span style={{ color: strongPrompt ? '#FFD9A0' : '#B0BEC8', fontWeight: strongPrompt ? 700 : 400 }}>
-                强提示词
-              </span>
-              <span style={{ fontSize: 9, color: '#4C5765', marginLeft: 2 }}>
-                {strongPrompt ? '约 8 千字' : '简版'}
-              </span>
-            </label>
+            {/* ★★★ 2026-11-08 用户：「那个强提示词还有必要吗？没必要显示了吧」
+                ⇒ **删掉 UI**（state 保留恒为 false，后端就不用走强版）
+                理由：技法勾选已经替代了它 —— 勾几条就是多强，不需要再叠一份 8000 字长文 */}
 
             {/* ★2026-11-06 收尾帧：最后一段纯绘制（用户："以前支持几段自己画，特别是收尾帧"）*/}
             <label style={chk} title="最后一段不用图，纯绘制一个落版（品牌名 + 一句话 + 签名图形）">
@@ -1072,6 +1104,23 @@ async function gen(isRetry = false, fbOverride?: string, imgsOverride?: string[]
               收尾帧自己画
               <span style={{ fontSize: 9, color: '#4C5765', marginLeft: 2 }}>最后一段不用图</span>
             </label>
+
+            {/* ★★★ 2026-11-08 时长（用户催了两次）—— 之前写死 45 秒，界面上没地方改 */}
+            <div style={{ marginTop: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                <span style={{ fontSize: 10.5, color: '#7A8798' }}>时长</span>
+                <span style={{ fontSize: 10, color: '#7CF', fontWeight: 700 }}>{duration} 秒</span>
+              </div>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[15, 30, 45, 60, 90].map((v) => (
+                  <button key={v} onClick={() => setDuration(v)}
+                    style={{ ...btn(duration === v), flex: 1, fontSize: 10, padding: '4px 0' }}>{v}s</button>
+                ))}
+              </div>
+              <div style={{ fontSize: 8.5, color: '#7A8798', marginTop: 3 }}>
+                ≈ {Math.max(3, Math.round(duration / 3.6))} 段 · 每段约 {Math.max(2.5, Math.round(duration / Math.max(3, Math.round(duration / 3.6)) * 10) / 10)} 秒
+              </div>
+            </div>
 
             {/* ★大图比 */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, marginBottom: 2 }}>
@@ -1086,6 +1135,17 @@ async function gen(isRetry = false, fbOverride?: string, imgsOverride?: string[]
             <div style={{ fontSize: 8.5, color: '#7A8798', marginTop: 2 }}>
               {bigImg === 0 ? '全用贴纸/局部' : bigImg < 60 ? '少量满幅' : bigImg < 100 ? '大部分满幅' : '★ 全满幅'}
             </div>
+
+            {/* ★2026-11-08 记忆开关（默认关：省 token、保持极简路线） */}
+            <label style={{ ...chk, marginTop: 8 }} title="开了才把历史教训注入 prompt（约 1.5 分钱/单）。关着=每单互不影响，便宜。">
+              <input type="checkbox" checked={useMemory}
+                onChange={(e) => setUseMemory(e.target.checked)}
+                style={{ width: 14, height: 14, accentColor: '#4A9EFF' }} />
+              <span style={{ color: useMemory ? '#BFE3FF' : '#7A8798' }}>参考历史教训</span>
+              <span style={{ fontSize: 9, color: '#4C5765', marginLeft: 2 }}>
+                {useMemory ? '+1.5 分/单' : '省 token'}
+              </span>
+            </label>
           </div>
 
           {/* 素材：★2026-11-05 直播版 —— 不再把 49 张堆在左栏，折叠成一行 + 弹窗选 */}

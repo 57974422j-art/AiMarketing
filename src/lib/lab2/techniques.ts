@@ -196,6 +196,20 @@ export const TECHNIQUES: Tech[] = [
     stable: true,
   },
   {
+    id: 'papercut',
+    name: '剪纸窗花',
+    group: '图形',
+    hint: 'SVG 画团花/生肖/吉祥纹',
+    must: '剪纸窗花：至少 1 处用内联 SVG **画出**中式剪纸纹样 —— '
+      + '对称团花（圆形 + 6~12 个花瓣阵列）、生肖剪影、吉祥纹（回字/缠枝）、窗格。'
+      + '用 `<path>` 或 `<circle>` 配合 `transform: rotate()` 阵列；'
+      + '颜色用正红 `#C8352B` 或描金 `#D4AF37`。'
+      + '✅ 可以只露一半挂在画面边角当"角花"，不要整张铺满',
+    judge: '<svg> 内 ≥3 个 path/circle/ellipse，且呈对称或旋转阵列',
+    check: { re: /<(?:path|circle|ellipse|polygon)\b/g, min: 3 },
+    fit: '中式/年节/老字号；"马到成功""福""囍"这类吉祥主题天然适合',
+  },
+  {
     id: 'torn',
     name: '撕纸边',
     group: '图形',
@@ -304,7 +318,7 @@ export const TYPE_PRESETS: Record<string, { label: string; techs: string[]; note
   none: { label: '不指定', techs: [], note: '不预设，你自己勾' },
   food: {
     label: '餐饮探店',
-    techs: ['full', 'sticker', 'stroke', 'vertical', 'seal', 'grain'],
+    techs: ['full', 'sticker', 'stroke', 'vertical', 'seal', 'papercut', 'grain'],
     note: '满幅+贴纸化+描边字+竖排+印章+颗粒（让人饿）',
   },
   product: {
@@ -334,7 +348,7 @@ export const TYPE_PRESETS: Record<string, { label: string; techs: string[]; note
   },
   brand: {
     label: '品牌落版',
-    techs: ['typeonly', 'seal', 'vertical', 'svgshape', 'grain'],
+    techs: ['typeonly', 'seal', 'vertical', 'svgshape', 'papercut', 'grain'],
     note: '纯排版+印章+竖排+SVG图形+颗粒（收束）',
   },
   mood: {

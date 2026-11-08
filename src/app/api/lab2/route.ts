@@ -815,7 +815,9 @@ export async function POST(req: NextRequest) {
       strongPrompt: body?.strongPrompt === true,
       /* ★2026-11-07 技法勾选（勾了必须做到，报告里逐条验收） */
       techniques: Array.isArray(body?.techniques) ? body.techniques.map(String).slice(0, 30) : [],
-      memories: getMemories(userId),
+      /* ★2026-11-08 用户：「记忆系统加开关…那个只要 2-3 分钱，有些人不追求高级所以没必要管」
+         ⇒ 默认关（不注入 = 不花 token）；开了才带历史教训 */
+      memories: body?.useMemory === true ? getMemories(userId) : [],
       userRules: String(body?.userRules || ''),
       selfReview: body?.selfReview !== false,
     }
