@@ -370,8 +370,9 @@ export default function Lab2Page() {
   }
 
   /** ★框选确认：截「当前帧的这块」→ 塞进对话附件 + 切到对话 tab */
-  async function doCrop() {
-    if (!result || !cropRect) return
+  async function doCrop(rectOverride?: { x: number; y: number; w: number; h: number }) {
+    const rr = rectOverride ?? cropRect
+    if (!result || !rr) return
     const el = iframeRef.current
     if (!el) return
     const box = el.getBoundingClientRect()
@@ -395,10 +396,10 @@ export default function Lab2Page() {
           repoId: result.repoId || '1',
           t: seekT,
           rect: {
-            x: cropRect.x * kx,
-            y: cropRect.y * ky,
-            w: cropRect.w * kx,
-            h: cropRect.h * ky,
+            x: rr.x * kx,
+            y: rr.y * ky,
+            w: rr.w * kx,
+            h: rr.h * ky,
           },
         }),
       })
@@ -1225,7 +1226,32 @@ async function gen(isRetry = false, fbOverride?: string, imgsOverride?: string[]
                           w: Math.abs(x - s.x), h: Math.abs(y - s.y),
                         })
                       }}
-                      onPointerUp={() => { cropStart.current = null }}
+                      onPointerUp={(e) => {
+                        /**
+                         * ★★★ 2026-11-07 用户：「我点了它不会自动加入」
+                         *
+                         * 现场：按钮是灰的（disabled）⇒ 因为要求宽高都 ≥40px，
+                         *   拖一点点（或者手抖）就永远点不了 ⇒ 看起来"没反应"
+                         *
+                         * 改成：**松手就自动加入**（框 >24px 才截，避免误点）
+                         *   ⚠️ 不能用 state 里的 cropRect —— pointerup 时拿到的是**闭包旧值**，
+                         *     必须用事件坐标 + cropStart 现算
+                         */
+                        const s0 = cropStart.current
+                        cropStart.current = null
+                        if (!s0) return
+                        const el = e.currentTarget as HTMLDivElement
+                        const rect0 = el.getBoundingClientRect()
+                        const x1 = e.clientX - rect0.left
+                        const y1 = e.clientY - rect0.top
+                        const w = Math.abs(x1 - s0.x)
+                        const h = Math.abs(y1 - s0.y)
+                        if (w > 24 && h > 24 && !cropBusy) {
+                          void doCrop({
+                            x: Math.min(s0.x, x1), y: Math.min(s0.y, y1), w, h,
+                          })
+                        }
+                      }}
                       style={{
                         position: 'absolute', inset: 0, zIndex: 20, cursor: 'crosshair',
                         touchAction: 'none',
@@ -1257,13 +1283,13 @@ async function gen(isRetry = false, fbOverride?: string, imgsOverride?: string[]
                             : '拖动画一个框'}
                         </span>
                         <button
-                          onClick={doCrop}
-                          disabled={cropBusy || !cropRect || cropRect.w < 40 || cropRect.h < 40}
+                          onClick={() => { void doCrop() }}
+                          disabled={cropBusy || !cropRect || cropRect.w < 20 || cropRect.h < 20}
                           style={{
                             padding: '6px 14px', borderRadius: 6, border: 'none', fontSize: 11, fontWeight: 700,
-                            cursor: (cropBusy || !cropRect || cropRect.w < 40) ? 'default' : 'pointer',
-                            background: (cropBusy || !cropRect || cropRect.w < 40) ? '#2A3440' : '#3ECF8E',
-                            color: (cropBusy || !cropRect || cropRect.w < 40) ? '#7A8798' : '#06110B',
+                            cursor: (cropBusy || !cropRect || cropRect.w < 20) ? 'default' : 'pointer',
+                            background: (cropBusy || !cropRect || cropRect.w < 20) ? '#2A3440' : '#3ECF8E',
+                            color: (cropBusy || !cropRect || cropRect.w < 20) ? '#7A8798' : '#06110B',
                           }}>
                           {cropBusy ? '截图…' : '✔ 加入对话'}
                         </button>
