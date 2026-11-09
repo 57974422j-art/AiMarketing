@@ -15,7 +15,7 @@
  *    题材只影响配色倾向、文案语气、禁忌（见 CONTENT_TYPE 那一侧）。
  */
 
-export type TechGroup = '构图' | '文字' | '图形' | '质感'
+export type TechGroup = '构图' | '文字' | '图形' | '质感' | '绘制'
 
 export type Tech = {
   id: string
@@ -303,6 +303,118 @@ export const TECHNIQUES: Tech[] = [
     judge: 'feTurbulence baseFrequency .04 + multiply',
     fit: '手作/中式/书卷气',
   },
+
+  /* ══════════ 绘制（★2026-11-09 概念片专用：没有素材时用这些讲概念）══════════
+     ⚠️ 这一组和上面四组根本不同：
+       上面四组讲「照片怎么处理」，这一组讲「形状怎么长出来」
+       参考片：一条 30 秒服务器管理软件宣传片（1280×720 / 24fps / 带音轨）
+         0-4s   点阵 1 → 101 + 数字递增
+         6-8s   炸开 → 聚成 logo
+         16-22s 透视网格铺满
+         22-27s 环形阵列 + 标签
+         27-30s 数据面板 + 开箱 + 落版
+       ⇒ 全片零素材，全靠几何 + 动效
+     */
+
+  {
+    id: 'dotgrow',
+    name: '点阵生长',
+    group: '绘制',
+    hint: '1 个点 → 一片阵列（讲规模）',
+    must: '点阵生长：画面元素数量**从少到多递增**（1 → 10 → 30 → 100），'
+      + '同时用巨型数字同步滚动。'
+      + '用 CSS grid / flex 铺 N 个小方块（或 canvas 画点），'
+      + '每个元素 `opacity: calc((var(--p) - index*0.008) * 20)` 错峰出现。'
+      + '⛔ 不是"淡入一段文字"，是**画面真的从 1 个点长成一片**',
+    judge: '同段内 ≥20 个小元素 + 数字递增 + 错峰出现',
+    check: { re: /opacity\s*:\s*calc\(/g, min: 2 },
+    fit: '讲规模 / 效率 / 覆盖数；概念片开场最强的笔',
+  },
+  {
+    id: 'morph',
+    name: '粒子重组',
+    group: '绘制',
+    hint: '炸开 → 聚成一个形（讲品牌）',
+    must: '粒子重组：一段里的元素先**炸开/散乱**，再**收拢成一个可辨认的形状**'
+      + '（logo / 图标 / 文字轮廓）。'
+      + '用 canvas 最省（每个粒子一个目标坐标 + 缓动），或用 50+ 个 div 逐个 transition。'
+      + '⛔ 不许只是"缩放淡出淡入"——必须有**位置迁移**',
+    judge: 'canvas 逐帧 或 ≥30 个元素各自 transform 位移',
+    check: { re: /<canvas/g, min: 1 },
+    fit: '品牌揭示 / 产品登场；全片只用 1 次，位置放在 6~9 秒',
+  },
+  {
+    id: 'ring',
+    name: '环形阵列',
+    group: '绘制',
+    hint: '中央对象 + 环绕元素（讲一对多）',
+    must: '环形阵列：中央放一个主体（方块/图标），'
+      + '周围 **8~16 个元素沿圆周均分角度**（`rotate(i*360/n) translateY(-R)`），'
+      + '按角度顺序**逐一延迟**出现（相差 0.03~0.06 的 --p）。',
+    judge: '≥8 个元素环绕 + 逐个延迟',
+    check: { re: /rotate\(\s*calc\(/g, min: 1 },
+    fit: '一对一 → 一对多（一台管 100 台）',
+  },
+  {
+    id: 'grid3d',
+    name: '透视网格',
+    group: '绘制',
+    hint: '3D 透视铺满（讲容量）',
+    must: '透视网格：用 `transform: perspective(900px) rotateX(60deg)` '
+      + '把一片网格推到纵深，或 canvas 画等距网格；'
+      + '网格单元 ≥ 60 个，可带明暗差（近亮远暗）。'
+      + '⛔ 不要用平面方格纸，必须有**纵深**',
+    judge: 'perspective + rotateX 出现，或 canvas 画等距网格',
+    check: { re: /perspective\(/g, min: 1 },
+    fit: '机房 / 仓库 / 阵列 / 容量；科技概念片核心镜头',
+  },
+  {
+    id: 'datapanel',
+    name: '数据面板',
+    group: '绘制',
+    hint: '数字滚动 + 折线（讲性能）',
+    must: '数据面板：至少 3 组指标（百分比 / 温度 / 数量），'
+      + '每个数值**从 0 滚动到目标值**（`--p` 驱动，不是直接显示），'
+      + '配一条折线或柱状（canvas / SVG path 都行）。'
+      + '⚠️ 数字要有单位，字号要大（占画布宽 8%+）',
+    judge: '数字插值 + 折线/柱状 + 单位',
+    check: { re: /(?:line|polyline|path)\b/g, min: 1 },
+    fit: '性能 / 监控 / 参数；概念片"专业感"的来源',
+  },
+  {
+    id: 'reveal',
+    name: '遮罩揭示',
+    group: '绘制',
+    hint: '从一条缝推开（不是淡入）',
+    must: '遮罩揭示：用 `clip-path: inset()` 或 `mask` 从 **0 宽/0 高** 推到满，'
+      + '像"开门/开箱/撕开"。至少 2 段用这个进场。'
+      + '⛔ 不要用 opacity 淡入代替',
+    judge: 'clip-path: inset / mask 出现 ≥2 处',
+    check: { re: /clip-path\s*:\s*inset/g, min: 2 },
+    fit: '产品登场 / 段落切换；比淡入"有重量"',
+  },
+  {
+    id: 'wire',
+    name: '线框构建',
+    group: '绘制',
+    hint: '线条自己画出来',
+    must: '线框构建：用 SVG `stroke-dasharray` + `stroke-dashoffset` 让'
+      + '图形轮廓**自己画出来**（盒子/图标/边框），至少 1 处。',
+    judge: 'stroke-dasharray + stroke-dashoffset 成对出现',
+    check: { re: /stroke-dash(?:array|offset)/g, min: 2 },
+    fit: '技术感 / 蓝图感 / 产品线稿',
+  },
+  {
+    id: 'sweep',
+    name: '色块扫过',
+    group: '绘制',
+    hint: '整块推入作转场',
+    must: '色块扫过：用一个铺满画布的纯色块，'
+      + '从一侧**整块推入再推出**，作为段与段之间的转场（至少 2 次）。'
+      + '⛔ 不要用淡入淡出转场 —— 那是模板味',
+    judge: '全屏色块 + translateX/Y 驱动，≥2 处',
+    fit: '段落硬切转场；概念片最省力的节奏工具',
+  },
 ]
 
 /**
@@ -360,8 +472,22 @@ export const TYPE_PRESETS: Record<string, { label: string; techs: string[]; note
 
 /** 按组取 */
 export function byGroup(): Record<TechGroup, Tech[]> {
-  const out = { 构图: [], 文字: [], 图形: [], 质感: [] } as Record<TechGroup, Tech[]>
+  const out = { 构图: [], 文字: [], 图形: [], 质感: [], 绘制: [] } as Record<TechGroup, Tech[]>
   for (const t of TECHNIQUES) out[t.group].push(t)
+  return out
+}
+
+/** 概念片（无素材）专属：只留"能画出来的"技法 */
+export const CONCEPT_TECH_IDS = [
+  'dotgrow', 'morph', 'ring', 'grid3d', 'datapanel', 'reveal', 'wire', 'sweep',
+]
+
+/** 按组取（概念片：只显示绘制组） */
+export function conceptGroups(): Record<string, Tech[]> {
+  const out: Record<string, Tech[]> = { 绘制: [] }
+  for (const t of TECHNIQUES) {
+    if (t.group === '绘制') out['绘制'].push(t)
+  }
   return out
 }
 

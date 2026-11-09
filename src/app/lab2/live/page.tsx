@@ -11,7 +11,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { byGroup, conflictSet, techById, TYPE_PRESETS } from '@/lib/lab2/techniques'
+import { byGroup, conceptGroups, conflictSet, techById, TYPE_PRESETS } from '@/lib/lab2/techniques'
 
 type Item = { name?: string; key?: string; url?: string }
 
@@ -157,6 +157,14 @@ export default function Lab2Page() {
    *   开了才注入历史教训（最多 20 条，约 1.5 分钱/单）
    */
   const [useMemory, setUseMemory] = useState(false)
+
+  /**
+   * ★★★ 2026-11-09 概念片（无素材模式）
+   *   用户看了一条朋友的 30 秒宣传片（零素材、全代码绘制）后说：
+   *   「没有素材的时候应该能根据提示词也能制作一条影片」
+   *   开了之后：不选素材、技法区只显示「绘制」组、时长默认 30 秒
+   */
+  const [conceptMode, setConceptMode] = useState(false)
   /* ★2026-11-08 内容类型折叠（和技法一样手风琴） */
   const [showType, setShowType] = useState(false)
 
@@ -178,7 +186,11 @@ export default function Lab2Page() {
    */
   const [techs, setTechs] = useState<string[]>([])
   const [openGroup, setOpenGroup] = useState<string | null>('构图')
-  const techGroups = useMemo(() => byGroup(), [])
+  const techGroups = useMemo(
+    () => (conceptMode ? conceptGroups() : (byGroup() as unknown as Record<string, ReturnType<typeof byGroup>['构图']>)),
+    [conceptMode],
+  )
+  const techGroupNames = conceptMode ? ['绘制'] : ['构图', '文字', '图形', '质感']
   const techBlocked = useMemo(() => conflictSet(techs), [techs])
 
   function toggleTech(id: string) {
@@ -577,7 +589,7 @@ export default function Lab2Page() {
  *   ⇒ 所以 gen() 要多收一个"这次的意见 + 图"，不再依赖下面那套 state
  */
 async function gen(isRetry = false, fbOverride?: string, imgsOverride?: string[]) {
-    if (picked.length < 1) { setErr('至少选 1 张素材'); return }
+    if (!conceptMode && picked.length < 1) { setErr('至少选 1 张素材（或切成「概念片」）'); return }
     const fbText = (fbOverride ?? feedback).trim()
     if (isRetry && !fbText) { setErr('重做请先写「哪里不对」'); return }
     setErr(''); setLoading(true)
@@ -825,7 +837,9 @@ async function gen(isRetry = false, fbOverride?: string, imgsOverride?: string[]
         <span style={{ fontSize: 11, color: aspect === '16:9' ? '#FFD9A0' : '#BFE3FF', fontWeight: 700 }}>
           {aspect === '16:9' ? '1280 × 720 横屏' : '720 × 1280 竖屏'}
         </span>
-        <span style={{ fontSize: 11, color: '#7A8798' }}>素材 {picked.length} 张</span>
+        <span style={{ fontSize: 11, color: conceptMode ? '#3ECF8E' : '#7A8798' }}>
+          {conceptMode ? '概念片 · 无需素材' : '素材 ' + picked.length + ' 张'}
+        </span>
         <span style={{ fontSize: 11, color: selfReviewOn ? '#7CF' : '#7A8798' }}>
           自审 {selfReviewOn ? '开' : '关'}
         </span>
@@ -899,6 +913,51 @@ async function gen(isRetry = false, fbOverride?: string, imgsOverride?: string[]
                   }}>{t}</button>
               ))}
             </div>
+          </div>
+
+          {/* ★★★ 2026-11-09 成片类型（概念片 = 无素材模式）
+              用户：「本质上我们实验2这条线在没有素材的时候应该能根据提示词也能制作一条影片」 */}
+          <div style={box}>
+            <span style={label} title="有素材片 = 排版片（把照片排得好看）；概念片 = 图形片（用几何/数据讲一个概念，不需要素材）">
+              成片类型
+            </span>
+            <div style={{ display: 'flex', gap: 5 }}>
+              {([
+                [false, '有素材片', '用照片排版'],
+                [true, '概念片', '无需素材，纯绘制'],
+              ] as const).map(([v, t, hint]) => (
+                <button key={t}
+                  onClick={() => {
+                    setConceptMode(v)
+                    if (v) {
+                      /* 切概念片：时长缩到 30（概念片节奏快），并预勾 4 个核心绘制技法 */
+                      setDuration(30)
+                      setTechs(['dotgrow', 'morph', 'grid3d', 'datapanel'])
+                      setOpenGroup('绘制')
+                    } else {
+                      /* 切回有素材片：时长回 45，清掉绘制技法 */
+                      setDuration(45)
+                      setTechs([])
+                      setOpenGroup('构图')
+                    }
+                  }}
+                  title={hint}
+                  style={{
+                    flex: 1, fontSize: 11.5, padding: '9px 0', borderRadius: 6, cursor: 'pointer',
+                    border: conceptMode === v ? '2px solid #3ECF8E' : '1px solid #242C38',
+                    background: conceptMode === v ? 'rgba(62,207,142,.22)' : '#0B0F14',
+                    color: conceptMode === v ? '#D6FBEA' : '#7A8798',
+                    fontWeight: conceptMode === v ? 700 : 400,
+                  }}>{t}</button>
+              ))}
+            </div>
+            {conceptMode && (
+              <div style={{ fontSize: 9, color: '#8FE8C8', marginTop: 6, lineHeight: 1.75 }}>
+                ● 不读素材，全片由几何 / 数据 / 动效构成<br />
+                ● 技法区只留「绘制」组（点阵生长 / 粒子重组 / 环形 / 透视网格 / 数据面板…）<br />
+                ● 硬约束：<b>最多 3 个颜色</b> · 字幕 ≤ 画布高 3% · 大字最多 3 处
+              </div>
+            )}
           </div>
 
           {/* 内容类型（★2026-11-08 用户："这个也给它做成展开折叠设计和下方技法一样"） */}
@@ -1003,7 +1062,7 @@ async function gen(isRetry = false, fbOverride?: string, imgsOverride?: string[]
                 </span>
               </div>
 
-              {(['构图', '文字', '图形', '质感'] as const).map((g) => {
+              {techGroupNames.map((g) => {
                 const list = techGroups[g] || []
                 const open = openGroup === g
                 const cnt = list.filter((t) => techs.includes(t.id)).length

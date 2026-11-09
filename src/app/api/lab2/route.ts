@@ -15,7 +15,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { getAuthFromHeaders, getAuthFromCookie } from '@/lib/api-auth'
 import { shotFrames } from '@/lib/lab2/shot'
-import { buildLab2Prompt, buildLab2PromptStrong, type Lab2Form } from '@/lib/lab2/prompt'
+import { buildLab2Prompt, buildLab2PromptConcept, buildLab2PromptStrong, type Lab2Form } from '@/lib/lab2/prompt'
 import { TECHNIQUES as ALL_TECHS } from '@/lib/lab2/techniques'
 import { getMemories, addPending, confirmPending, rejectPending } from '@/lib/lab2/memory'
 
@@ -425,7 +425,10 @@ function buildReportText(o: {
   }
 
   L.push('══════ 素材使用 ══════')
-  if (o.imgUsage.unknown) {
+  if (f.conceptMode) {
+    /* ★2026-11-09 概念片不读素材，别报"它没写占位符"这种误导 */
+    L.push('概念片模式 —— 不使用任何素材（全片由几何 / 数据 / 动效构成）')
+  } else if (o.imgUsage.unknown) {
     L.push('（它没写 {{IMG_N}} 占位符，无法统计用了哪张）')
   } else {
     /* ★2026-11-07 用户：「减素材可以，但比例不能大于 10%」 */
@@ -815,14 +818,18 @@ export async function POST(req: NextRequest) {
       strongPrompt: body?.strongPrompt === true,
       /* ★2026-11-07 技法勾选（勾了必须做到，报告里逐条验收） */
       techniques: Array.isArray(body?.techniques) ? body.techniques.map(String).slice(0, 30) : [],
+      /* ★2026-11-09 概念片（无素材模式）—— 不读素材，只讲"形状怎么长" */
+      conceptMode: body?.conceptMode === true,
       /* ★2026-11-08 用户：「记忆系统加开关…那个只要 2-3 分钱，有些人不追求高级所以没必要管」
          ⇒ 默认关（不注入 = 不花 token）；开了才带历史教训 */
       memories: body?.useMemory === true ? getMemories(userId) : [],
       userRules: String(body?.userRules || ''),
       selfReview: body?.selfReview !== false,
     }
-    const prompt = form.strongPrompt ? buildLab2PromptStrong(form) : buildLab2Prompt(form)
-    console.log('[lab2] prompt 档位：' + (form.strongPrompt ? '强版（' : '简版（')
+    const prompt = form.conceptMode
+      ? buildLab2PromptConcept(form)
+      : (form.strongPrompt ? buildLab2PromptStrong(form) : buildLab2Prompt(form))
+    console.log('[lab2] prompt 档位：' + (form.conceptMode ? '概念片（' : form.strongPrompt ? '强版（' : '简版（')
       + Math.round(prompt.length / 1000) + ' 千字）')
 
     /* ── 重做：带上一次的 HTML + 意见 ── */
