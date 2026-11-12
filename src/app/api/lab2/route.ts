@@ -286,6 +286,25 @@ function scanTechniques(html: string, ids: string[]): Array<{
       detail = `最大字号 ${maxFs}px（要求 ≥320）`
     }
 
+    /* 单独判断：点阵生长（★2026-11-12 除了 opacity:calc，也认 canvas 画点）
+       —— 实测 114615 用 canvas 画了一团粒子，却被判"0 处" */
+    if (t.id === 'dotgrow') {
+      const cssDots = (html.match(/opacity\s*:\s*calc\(/g) || []).length
+      const canvasDots = /fillRect|arc\s*\(/.test(html) ? 1 : 0
+      const loopDraw = /for\s*\(\s*var\s+\w+\s*=\s*0[^)]{0,40}\)\s*\{/.test(html) ? 1 : 0
+      ok = cssDots >= 2 || (canvasDots === 1 && loopDraw === 1)
+      detail = `CSS 错峰 ${cssDots} 处 · canvas 点阵 ${canvasDots && loopDraw ? '有' : '无'}`
+    }
+
+    /* 单独判断：透视网格（★2026-11-12 除了 perspective()，也认 canvas 画网格） */
+    if (t.id === 'grid3d') {
+      const cssP = /perspective\s*\(/.test(html)
+      const svgGrid = /<pattern|transform="matrix|<line\b/.test(html)
+      const canvasGrid = /lineTo\s*\(/.test(html) && (html.match(/lineTo\s*\(/g) || []).length >= 6
+      ok = cssP || svgGrid || canvasGrid
+      detail = `perspective ${cssP ? '有' : '无'} · svg网格 ${svgGrid ? '有' : '无'} · canvas网格 ${canvasGrid ? '有' : '无'}`
+    }
+
     /* 单独判断：印章（红底 + rotate）
        ★2026-11-07 修判据：原来只认 #Cxxxxx / #Exxxxx / #FFxxxx 开头，
          实测 121302 明明有 3 个红印章却被判"红色无"（它的红是 #C8352B / #D93A2B） */
